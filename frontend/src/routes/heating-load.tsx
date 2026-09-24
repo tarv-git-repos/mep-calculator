@@ -233,7 +233,7 @@ function HeatingLoadPage() {
   const [formulaModalOpen, setFormulaModalOpen] = useState(false);
 
   // Unit system
-  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("ip");
+  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("si");
   const isSI = unitSystem === "si";
 
   // Preset Selection

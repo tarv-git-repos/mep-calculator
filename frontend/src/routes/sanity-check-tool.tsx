@@ -59,16 +59,16 @@ function SanityCheckToolPage() {
   const { project, activeProjectId, isReadOnly } = useWorkspace();
 
   const [tab, setTab] = useState<"calculator" | "report">("calculator");
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
-  const [ductVel, setDuctVel] = useState<number>(1500);
-  const [ductFr, setDuctFr] = useState<number>(0.08);
-  const [esp, setEsp] = useState<number>(0.5);
-  const [pipeVel, setPipeVel] = useState<number>(4.0);
-  const [pumpHead, setPumpHead] = useState<number>(50);
-  const [cfmTr, setCfmTr] = useState<number>(400);
-  const [supTemp, setSupTemp] = useState<number>(55);
-  const [chwDt, setChwDt] = useState<number>(10);
-  const [chillerEff, setChillerEff] = useState<number>(0.65);
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [ductVel, setDuctVel] = useState<number>(7.62);
+  const [ductFr, setDuctFr] = useState<number>(0.65);
+  const [esp, setEsp] = useState<number>(125);
+  const [pipeVel, setPipeVel] = useState<number>(1.2);
+  const [pumpHead, setPumpHead] = useState<number>(150);
+  const [cfmTr, setCfmTr] = useState<number>(47.2);
+  const [supTemp, setSupTemp] = useState<number>(13);
+  const [chwDt, setChwDt] = useState<number>(5.5);
+  const [chillerEff, setChillerEff] = useState<number>(5.4);
   const [hasCalculated, setHasCalculated] = useState<boolean>(true);
   const [calcReviewState, setCalcReviewState] = useState<any>(null);
   const isApprovedLocked = calcReviewState?.status === "APPROVED";

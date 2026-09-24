@@ -81,12 +81,35 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'refrigerant-pipe',
   'ref-pipe',
   'refrigerant-sizing',
-  'refrigerant',
+  'plumbing-fire-tank-capacity',
+  'fire-tank-capacity',
+  'firetankcapacity',
+  'plumbing-fire-tank',
   'plumbing-fire-tank-duration',
   'fire-tank-duration',
   'tank-duration',
   'fire-tank',
-  'plumbing-tank-duration'
+  'plumbing-tank-duration',
+  'plumbing-fire-pump-duty',
+  'fire-pump-duty',
+  'firepumpduty',
+  'fire-pump',
+  'plumbing-fire-pump',
+  'plumbing-gas-tank',
+  'gas-tank',
+  'gas-storage',
+  'gas-storage-capacity',
+  'gas-tank-sizing',
+  'plumbing-storm-water',
+  'storm-water',
+  'stormwater',
+  'storm-water-sizing',
+  'storm-water-runoff',
+  'plumbing-pressure-vessel',
+  'pressure-vessel',
+  'pressure-vessel-sizing',
+  'plumbing-discharge-unit',
+  'discharge-unit'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -206,11 +229,32 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     routeKey === 'ref-pipe' ||
     routeKey === 'refrigerant-sizing' ||
     routeKey === 'refrigerant' ||
+    routeKey === 'plumbing-fire-tank-capacity' ||
+    routeKey === 'fire-tank-capacity' ||
+    routeKey === 'firetankcapacity' ||
+    routeKey === 'plumbing-fire-tank' ||
     routeKey === 'plumbing-fire-tank-duration' ||
     routeKey === 'fire-tank-duration' ||
     routeKey === 'tank-duration' ||
     routeKey === 'fire-tank' ||
-    routeKey === 'plumbing-tank-duration'
+    routeKey === 'plumbing-tank-duration' ||
+    routeKey === 'plumbing-fire-pump-duty' ||
+    routeKey === 'fire-pump-duty' ||
+    routeKey === 'firepumpduty' ||
+    routeKey === 'fire-pump' ||
+    routeKey === 'plumbing-fire-pump' ||
+    routeKey === 'plumbing-gas-tank' ||
+    routeKey === 'gas-tank' ||
+    routeKey === 'gas-storage' ||
+    routeKey === 'gas-storage-capacity' ||
+    routeKey === 'gas-tank-sizing' ||
+    routeKey === 'plumbing-storm-water' ||
+    routeKey === 'storm-water' ||
+    routeKey === 'stormwater' ||
+    routeKey === 'storm-water-sizing' ||
+    routeKey === 'storm-water-runoff' ||
+    routeKey === 'plumbing-discharge-unit' ||
+    routeKey === 'discharge-unit'
   ) {
     return false;
   }

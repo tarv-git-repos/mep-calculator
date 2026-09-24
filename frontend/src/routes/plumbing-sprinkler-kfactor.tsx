@@ -340,7 +340,7 @@ function SprinklerKFactorPage() {
 
   const [tab, setTab] = useState<"schedule" | "solver" | "report">("schedule");
   const [intelOpen, setIntelOpen] = useState(false);
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
   // Quick Solver State
   const [solverK, setSolverK] = useState<number | "">(5.6);
@@ -1492,11 +1492,6 @@ function SprinklerKFactorPage() {
                 <Wrench className="size-3" />
               </button>
             )}
-            {row.notes && (
-              <span title={row.notes} className="text-muted-foreground hover:text-foreground cursor-help shrink-0">
-                <MessageSquare className="size-3 text-primary/70" />
-              </span>
-            )}
           </div>
         );
       }
@@ -2192,14 +2187,14 @@ function SprinklerKFactorPage() {
                       }
                     />
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-2">
+                    <div className="flex-1 flex flex-col items-center justify-center py-20 text-muted-foreground gap-2">
                       <HelpCircle className="size-8 text-muted-foreground/50" />
                       <span className="text-[13px]">No sprinklers match the current filter.</span>
                     </div>
                   )}
                   
                   {/* Clean Footer Bar */}
-                  <div className="flex items-center justify-between px-4 h-9 border-t border-border bg-header-bg text-[11.5px] text-muted-foreground shrink-0 select-none font-medium">
+                  <div className="mt-auto flex items-center justify-between px-4 h-9 border-t border-border bg-header-bg text-[11.5px] text-muted-foreground shrink-0 select-none font-medium">
                     <div>
                       Showing <span className="text-foreground font-bold tabular">{filteredRows.length}</span> of {rows.length} sprinklers
                     </div>

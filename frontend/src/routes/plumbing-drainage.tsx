@@ -348,10 +348,15 @@ function FloorNameInput({
   disabled: boolean;
   onRename: (oldName: string, newName: string) => void;
 }) {
-  const [val, setVal] = useState(floor);
+  const getCleanFloor = (f: string) => {
+    if (!f || f.toLowerCase() === "undefined" || f.toLowerCase() === "null") return "TYPICAL FLOOR";
+    return f;
+  };
+
+  const [val, setVal] = useState(getCleanFloor(floor));
 
   useEffect(() => {
-    setVal(floor);
+    setVal(getCleanFloor(floor));
   }, [floor]);
 
   const commitRename = () => {
@@ -359,7 +364,7 @@ function FloorNameInput({
     if (trimmed && trimmed !== floor) {
       onRename(floor, trimmed);
     } else {
-      setVal(floor);
+      setVal(getCleanFloor(floor));
     }
   };
 
@@ -375,7 +380,7 @@ function FloorNameInput({
         if (e.key === "Enter") {
           e.currentTarget.blur();
         } else if (e.key === "Escape") {
-          setVal(floor);
+          setVal(getCleanFloor(floor));
           e.currentTarget.blur();
         }
       }}
@@ -457,11 +462,10 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
           onDoubleClick(e);
         }
       }}
-      className={`bg-transparent border border-transparent rounded transition-colors ${
-        disabled 
-          ? "cursor-not-allowed opacity-75 select-none" 
-          : "hover:border-border/60 focus:border-primary focus:bg-background focus:outline-none cursor-text"
-      } ${className}`}
+      className={`bg-transparent border border-transparent rounded transition-colors ${disabled
+        ? "cursor-not-allowed opacity-75 select-none"
+        : "hover:border-border/60 focus:border-primary focus:bg-background focus:outline-none cursor-text"
+        } ${className}`}
     />
   );
 }
@@ -470,7 +474,7 @@ function DrainagePage() {
   const confirm = useConfirm();
   const { userData, profile, user } = useAuth();
   const currentUserName = userData?.name || profile?.name || user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Design Engineer";
-  const { project, activeRoom, isReadOnly } = useWorkspace();
+  const { project, activeRoom, isReadOnly, forceSaveToCloud } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/plumbing-drainage", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
@@ -499,7 +503,7 @@ function DrainagePage() {
   const [intelOpen, setIntelOpen] = useState(false);
 
   // Unit System
-  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("ip");
+  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("si");
   const isSI = unitSystem === "si";
 
   // Selected preset & custom profile state
@@ -540,20 +544,20 @@ function DrainagePage() {
     const pId = project.id;
     const key1 = `mep_plumbing_drainage_${pId}`;
     const key2 = `mep_drainage_pipe_calc_${pId}`;
-    
+
     try {
       let savedData: any = null;
       const stored1 = localStorage.getItem(key1);
       const stored2 = localStorage.getItem(key2);
       if (stored1) {
-        try { savedData = JSON.parse(stored1); } catch (e) {}
+        try { savedData = JSON.parse(stored1); } catch (e) { }
       } else if (stored2) {
-        try { savedData = JSON.parse(stored2); } catch (e) {}
+        try { savedData = JSON.parse(stored2); } catch (e) { }
       }
-      
+
       if (!savedData && project?.workspace_data) {
-        const wdata = typeof project.workspace_data === "string" 
-          ? JSON.parse(project.workspace_data) 
+        const wdata = typeof project.workspace_data === "string"
+          ? JSON.parse(project.workspace_data)
           : project.workspace_data;
         savedData = wdata?.drainage_calc || wdata?.drainage_pipe_calc;
       }
@@ -605,7 +609,7 @@ function DrainagePage() {
         }
       } else {
         // Fresh project default
-        setUnitSystem("ip");
+        setUnitSystem("si");
         setSelectedPreset("commercial_office");
         setFloorSections(DRAINAGE_PRESET_SPACES.commercial_office.floorSections);
         setDrainageSpaces(DRAINAGE_PRESET_SPACES.commercial_office.spaces);
@@ -667,13 +671,7 @@ function DrainagePage() {
       localStorage.setItem(`mep_drainage_pipe_calc_${pId}`, JSON.stringify(dataToSave));
       dirtyStore.set(true);
 
-      const wdata = project.workspace_data || {};
-      const updatedWdata = {
-        ...wdata,
-        drainage_calc: dataToSave,
-        drainage_pipe_calc: dataToSave
-      };
-      workspaceStore.updateProject({ ...project, workspace_data: updatedWdata });
+      if (forceSaveToCloud) forceSaveToCloud();
     } catch (e) {
       console.error("Failed to auto-save drainage calculation", e);
     }
@@ -724,7 +722,7 @@ function DrainagePage() {
           workspace_data: { ...wdata, drainage_calc: dataToSave, drainage_pipe_calc: dataToSave }
         });
         workspaceStore.forceSaveToCloud();
-      } catch (e) {}
+      } catch (e) { }
     };
 
     const handleVersionRestored = (e: any) => {
@@ -736,12 +734,12 @@ function DrainagePage() {
         try {
           const raw = lsCache[pKey] || lsCache[`mep_drainage_pipe_calc_${pId}`];
           restoredData = typeof raw === "string" ? JSON.parse(raw) : raw;
-        } catch (err) {}
+        } catch (err) { }
       }
       if (!restoredData) {
         const stored = localStorage.getItem(pKey) || localStorage.getItem(`mep_drainage_pipe_calc_${pId}`);
         if (stored) {
-          try { restoredData = JSON.parse(stored); } catch (err) {}
+          try { restoredData = JSON.parse(stored); } catch (err) { }
         }
       }
       if (restoredData && typeof restoredData === "object") {
@@ -794,12 +792,12 @@ function DrainagePage() {
       const stored = localStorage.getItem(storageKey);
       let parsed: any[] = [];
       if (stored) {
-        try { parsed = JSON.parse(stored); } catch (e) {}
+        try { parsed = JSON.parse(stored); } catch (e) { }
       }
       const wdata = project?.workspace_data || {};
       const wdataComments = Array.isArray(wdata.drainage_calc_comments) ? wdata.drainage_calc_comments : [];
       const allComments = [...parsed, ...wdataComments];
-      
+
       const dedupMap = new Map<string, any>();
       allComments.forEach(c => {
         if (c && (c.id || c.text)) {
@@ -832,13 +830,13 @@ function DrainagePage() {
     const directComments = Array.isArray(space.comments) ? space.comments : [];
     const sDescLow = String(space.desc || "").trim().toLowerCase();
     const sId = String(space.id || "").trim();
-    
+
     const fromList = commentsList.filter((c: any) => {
       if (!c) return false;
       const cTargetId = String(c.targetId || c.metadata?.targetId || "").trim();
       const cTargetName = String(c.targetName || c.metadata?.targetName || "").trim().toLowerCase();
       const cSpaceId = String(c.spaceId || "").trim();
-      
+
       if (cTargetId && (cTargetId === sId || cTargetId === `space-${sId}` || cTargetId === `space-row-${sId}`)) return true;
       if (cSpaceId && cSpaceId === sId) return true;
       if (cTargetName && (cTargetName === sDescLow || sDescLow.includes(cTargetName) || cTargetName.includes(sDescLow))) return true;
@@ -907,9 +905,9 @@ function DrainagePage() {
       delays.forEach(delay => {
         setTimeout(() => {
           const el = document.getElementById(`space-row-${matched.id}`) ||
-                     document.querySelector(`[data-row-id="${matched.id}"]`) ||
-                     document.querySelector(`[data-space-id="${matched.id}"]`) ||
-                     document.querySelector(`[data-comment-target="${matched.id}"]`);
+            document.querySelector(`[data-row-id="${matched.id}"]`) ||
+            document.querySelector(`[data-space-id="${matched.id}"]`) ||
+            document.querySelector(`[data-comment-target="${matched.id}"]`);
           if (el) {
             el.scrollIntoView({ behavior: "smooth", block: "center" });
           }
@@ -933,7 +931,7 @@ function DrainagePage() {
         try {
           const cleanUrl = window.location.pathname;
           window.history.replaceState({}, document.title, cleanUrl);
-        } catch (e) {}
+        } catch (e) { }
       }, 300);
     }
 
@@ -1010,7 +1008,7 @@ function DrainagePage() {
     setVentLength(updated.ventLength);
     setCustomProfileName(updated.customProfileName);
     setCustomWorkflow(updated.customWorkflow);
-    
+
     // Map fixtures array into default space if in custom mode
     const customFixMap: Record<string, number> = {};
     updated.fixtures.forEach(f => {
@@ -1253,6 +1251,7 @@ function DrainagePage() {
   const handleToggleSelectAll = (checked: boolean) => {
     if (checked) {
       setSelectedSpaceIds(drainageSpaces.map(s => s.id));
+      toast.info(`Selected all ${drainageSpaces.length} space(s)`);
     } else {
       setSelectedSpaceIds([]);
     }
@@ -1352,7 +1351,7 @@ function DrainagePage() {
       try {
         const saved = localStorage.getItem("mep_clipboard_drainage_spaces");
         if (saved) return JSON.parse(saved);
-      } catch (e) {}
+      } catch (e) { }
     }
     return [];
   });
@@ -1374,8 +1373,8 @@ function DrainagePage() {
           s.floorsQty,
         ]);
         const tsv = [headers.join("\t"), ...rows.map(r => r.join("\t"))].join("\n");
-        navigator.clipboard?.writeText(tsv).catch(() => {});
-      } catch (e) {}
+        navigator.clipboard?.writeText(tsv).catch(() => { });
+      } catch (e) { }
     }
     toast.info(`${targets.length} space(s) copied to clipboard`);
   };
@@ -1409,7 +1408,7 @@ function DrainagePage() {
       try {
         const saved = localStorage.getItem("mep_clipboard_drainage_spaces");
         if (saved) sourceSpaces = JSON.parse(saved);
-      } catch (e) {}
+      } catch (e) { }
     }
     if (sourceSpaces.length === 0) {
       toast.info("Clipboard is empty. Copy or cut spaces first (Ctrl+C).");
@@ -1444,7 +1443,26 @@ function DrainagePage() {
         return;
       }
 
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
       const activeEl = document.activeElement;
+      const isModalActive = Boolean(customModalOpen || showFormulaModal || showInspectorModal || isCommentModalOpen || editingSpace);
+
+      // 1. Ctrl+A / Cmd+A (Select All Spaces) - should ALWAYS select all spaces in schedule when no modal is open
+      if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+        if (!isModalActive) {
+          e.preventDefault();
+          if (activeEl && "blur" in activeEl) {
+            (activeEl as HTMLElement).blur();
+          }
+          if (drainageSpaces.length > 0) {
+            setSelectedSpaceIds(drainageSpaces.map(s => s.id));
+            toast.info(`Selected all ${drainageSpaces.length} space(s) (Ctrl+A)`);
+          }
+          return;
+        }
+      }
+
       const isInput = activeEl && (
         (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
         activeEl.tagName === "TEXTAREA" ||
@@ -1453,10 +1471,7 @@ function DrainagePage() {
       );
       if (isInput) return;
 
-      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-
-      // 1. Undo / Redo: Ctrl+Z / Ctrl+Y
+      // 2. Undo / Redo: Ctrl+Z / Ctrl+Y
       if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
         handleUndo();
@@ -1465,16 +1480,6 @@ function DrainagePage() {
       if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
         e.preventDefault();
         handleRedo();
-        return;
-      }
-
-      // 2. Ctrl+A (Select All)
-      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
-        e.preventDefault();
-        if (drainageSpaces.length > 0) {
-          setSelectedSpaceIds(drainageSpaces.map(s => s.id));
-          toast.info(`Selected all ${drainageSpaces.length} spaces`);
-        }
         return;
       }
 
@@ -1533,6 +1538,11 @@ function DrainagePage() {
     filterFloor,
     undoStack,
     redoStack,
+    customModalOpen,
+    showFormulaModal,
+    showInspectorModal,
+    isCommentModalOpen,
+    editingSpace,
   ]);
 
   // Aggregate Calculations from Matrix Spaces
@@ -1948,71 +1958,7 @@ function DrainagePage() {
       doc.setFont("helvetica", "normal");
       doc.text(locationRoom, 142, 31.6);
 
-      const systemTypeLabels: Record<string, string> = {
-        branch: "Horizontal Fixture Branch",
-        stack_short: "Stack (≤ 3 Branch Intervals)",
-        stack_tall: "Stack (> 3 Branch Intervals)",
-        building_drain: "Building Drain / Main Sewer",
-      };
-
-      // Table 1: Design Parameters & Piping Geometry
-      const paramTableBody = [
-        ["1", "Total Connected Fixture Units (Raw DFU)", `${calcResults.rawDfu} DFU`, "-", "IPC Table 709.1 Drainage Load"],
-        ["2", "Total Design Load (+Safety Margin)", `${calcResults.designDfu} DFU`, "-", `Includes +${safetyFactor}% Allowance`],
-        ["3", "Drainage System / Segment Type", systemTypeLabels[systemType] || systemType.toUpperCase(), "-", "IPC Chapter 7 System Classification"],
-        ["4", "Piping Slope / Gradient", isSI ? `${calcResults.slopeMmPerM} mm/m (${calcResults.slopePercent}%)` : `${calcResults.slopeInPerFt}"/ft (${calcResults.slopePercent}%)`, isSI ? "mm/m" : "in/ft", "IPC Minimum Gradient Standard"],
-        ["5", "Piping Material & Manning Roughness", `${calcResults.materialName}`, "-", `Manning Roughness n = ${calcResults.roughness}`],
-        ["6", "Vent Pipe Developed Length", isSI ? `${(ventLength * 0.3048).toFixed(1)} m` : `${ventLength} ft`, isSI ? "m" : "ft", "IPC Table 906.1 Developed Length"],
-        ["7", "Total Fixture Quantity", `${calcResults.totalCount} units`, "-", "Connected Plumbing Fixtures"],
-      ];
-
-      callAutoTable(doc, {
-        startY: 35,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: { font: "helvetica", fontSize: 8, cellPadding: { top: 2.5, bottom: 2.5, left: 2.5, right: 2.5 } },
-        headStyles: { fillColor: [217, 217, 217], textColor: [0, 0, 0], fontStyle: "bold" },
-        head: [["No.", "Design Parameter Description", "Value", "Unit", "Standard / Code Reference"]],
-        body: paramTableBody,
-        columnStyles: {
-          0: { cellWidth: 10, halign: "center" },
-          1: { cellWidth: 70, fontStyle: "bold" },
-          2: { cellWidth: 35, halign: "center", fontStyle: "bold" },
-          3: { cellWidth: 17, halign: "center" },
-          4: { cellWidth: 50 },
-        },
-      });
-
-      let finalY = (doc as any).lastAutoTable?.finalY || 80;
-
-      // Table 2: Hydraulic Output Summary
-      const outputBody = [
-        [{ content: "A" }, { content: "REQUIRED DRAINAGE PIPE DIAMETER (D)" }, { content: isSI ? `${calcResults.sizedDn} mm DN` : `${calcResults.sizedNps}" NPS`, styles: { fontStyle: "bold", halign: "center", fillColor: [218, 233, 248] } }, { content: `IPC Table 710.1 (Max Capacity: ${calcResults.maxAllowedDfu} DFU)` }],
-        [{ content: "B" }, { content: "DRAINAGE CAPACITY UTILIZATION" }, { content: `${calcResults.capacityUtilization.toFixed(1)} %`, styles: { fontStyle: "bold", halign: "center", fillColor: [218, 233, 248] } }, { content: `${calcResults.designDfu} DFU / ${calcResults.maxAllowedDfu} DFU Limit` }],
-        [{ content: "C" }, { content: "Self-Cleansing Scour Velocity (v)" }, { content: isSI ? `${calcResults.velocityMps} m/s` : `${calcResults.velocityFps} ft/s`, styles: { halign: "center", fontStyle: "bold" } }, { content: calcResults.isScourVelocityOk ? "Compliant (≥ 2.0 ft/s Scour Ok)" : "Below 2.0 ft/s Warning" }],
-        [{ content: "D" }, { content: "Half-Full Gravity Flow Capacity (Q_cap)" }, { content: isSI ? `${calcResults.qCapLps} L/s` : `${calcResults.qCapGpm} GPM`, styles: { halign: "center", fontStyle: "bold" } }, { content: "Manning Gravity Capacity @ 50% Depth" }],
-        [{ content: "E" }, { content: "REQUIRED VENT PIPE DIAMETER (D_vent)" }, { content: isSI ? `${calcResults.ventDn} mm DN` : `${calcResults.ventNps}" NPS`, styles: { fontStyle: "bold", halign: "center", fillColor: [218, 233, 248] } }, { content: `IPC Table 906.1 for ${calcResults.designDfu} DFU & ${ventLength} ft` }],
-      ];
-
-      callAutoTable(doc, {
-        startY: finalY + 4,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: { font: "helvetica", fontSize: 8, cellPadding: { top: 2.5, bottom: 2.5, left: 2.5, right: 2.5 } },
-        headStyles: { fillColor: [217, 217, 217], textColor: [0, 0, 0], fontStyle: "bold" },
-        head: [["Item", "Sizing Output Summary (IPC / UPC Standard)", "Calculated Result", "Engineering Basis & Criteria"]],
-        body: outputBody,
-        columnStyles: {
-          0: { cellWidth: 10, halign: "center" },
-          1: { cellWidth: 70, fontStyle: "bold" },
-          2: { cellWidth: 35, halign: "center" },
-          3: { cellWidth: 67 },
-        },
-      });
-
-      finalY = (doc as any).lastAutoTable?.finalY || 135;
-
-      // Table 3: Fixture Schedule
+      // Connected Sanitary Fixture Schedule
       const activeFixtures = calcResults.aggregatedFixtures.filter(f => f.val > 0);
       const fixtureRows = activeFixtures.map((f, idx) => [
         String(idx + 1),
@@ -2034,7 +1980,7 @@ function DrainagePage() {
       ]);
 
       callAutoTable(doc, {
-        startY: finalY + 4,
+        startY: 37,
         margin: { left: 14, right: 14 },
         theme: "grid",
         styles: { font: "helvetica", fontSize: 7.5, cellPadding: { top: 2, bottom: 2, left: 2, right: 2 } },
@@ -2052,7 +1998,7 @@ function DrainagePage() {
         },
       });
 
-      finalY = (doc as any).lastAutoTable?.finalY || 185;
+      const finalY = (doc as any).lastAutoTable?.finalY || 185;
 
       // 3-Tier Signature Block
       const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails(project?.id || "default", "/plumbing-drainage", currentUserName, calcReviewState);
@@ -2090,29 +2036,28 @@ function DrainagePage() {
     <AppShell title="Drainage Pipe Sizing" onIntelClick={() => setIntelOpen(v => !v)} intelOpen={intelOpen} hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-3 gap-2.5 overflow-hidden h-full animate-in fade-in-50 duration-200">
-          
+
           {/* Top Stationary Header Block */}
           <div className="shrink-0 flex flex-col gap-2.5 pb-1">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 select-none">
               <div className="flex flex-col gap-1 max-w-2xl">
                 <div className="flex items-center gap-3 flex-wrap">
                   <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Drainage Pipe Sizing</h1>
-                  <button 
+                  <button
                     onClick={() => setIntelOpen(v => !v)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                      intelOpen
-                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                        : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                    }`}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                      }`}
                   >
                     <Sparkles className="size-3.5" />
                     <span>Intelligence</span>
                   </button>
-                  <CalculationReviewBar 
-                    projectId={project?.id || "default"} 
-                    calculatorPath="/plumbing-drainage" 
-                    calculatorTitle="Drainage Pipe Sizing" 
-                    onReviewStateChange={setCalcReviewState} 
+                  <CalculationReviewBar
+                    projectId={project?.id || "default"}
+                    calculatorPath="/plumbing-drainage"
+                    calculatorTitle="Drainage Pipe Sizing"
+                    onReviewStateChange={setCalcReviewState}
                   />
                 </div>
               </div>
@@ -2120,1406 +2065,1372 @@ function DrainagePage() {
           </div>
 
           {/* Subheader Navigation Bar & Main Card Container */}
-          <div className={`flex-1 min-h-0 flex flex-col rounded-2xl transition-all duration-300 overflow-hidden ${
-            isApprovedLocked || calcReviewState?.status === "APPROVED"
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-          }`}>
-              <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 flex-wrap gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                    <button
-                      onClick={() => setActiveTab("calculator")}
-                      className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                        activeTab === "calculator"
-                          ? "bg-background text-foreground shadow-sm font-bold"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Drainage Sizer
-                    </button>
-                    <button
-                      onClick={() => setActiveTab("report")}
-                      className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                        activeTab === "report"
-                          ? "bg-background text-foreground shadow-sm font-bold"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      Report
-                    </button>
-                  </div>
-
-
-
+          <div className={`flex-1 min-h-0 flex flex-col rounded-2xl transition-all duration-300 overflow-hidden ${isApprovedLocked || calcReviewState?.status === "APPROVED"
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            }`}>
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 flex-wrap gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                   <button
-                    type="button"
-                    onClick={() => setShowFormulaModal(true)}
-                    className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer bg-surface-2 hover:bg-surface border border-border/80 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 shadow-2xs"
-                    title="View IPC / UPC Formulas"
+                    onClick={() => setActiveTab("calculator")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${activeTab === "calculator"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
-                    <Info className="size-3.5 text-primary" />
-                    <span>Formula Breakdown</span>
+                    Drainage Sizer
                   </button>
-
-                  <div className="h-4 w-px bg-border/80 mx-1 hidden sm:block" />
-
-                  {/* Drainage Application Preset Dropdown */}
-                  <DrainagePresetSelect
-                    value={selectedPreset}
-                    customProfileName={customProfileName}
-                    onChange={handleApplyPreset}
-                    onOpenCustomModal={() => setCustomModalOpen(true)}
-                    unitSystem={unitSystem}
-                    disabled={isEffectiveReadOnly}
-                  />
+                  <button
+                    onClick={() => setActiveTab("report")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${activeTab === "report"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                      }`}
+                  >
+                    Report
+                  </button>
                 </div>
 
-                {/* Right Side Controls */}
-                <div className="flex items-center gap-2 select-none shrink-0">
-                  <TBtn onClick={handleExportPdf}>
-                    <FileText className="size-3.5" /> Export
-                  </TBtn>
 
-                  <UnitToggle
-                    unitSystem={unitSystem}
-                    onChange={handleUnitSystemChange}
-                    disabled={isEffectiveReadOnly}
-                    inputDescriptions="Drainage DFU, Pipe Diameters (NPS / mm DN), Slope (in/ft / mm/m), Manning Flow (GPM / L/s)"
-                    conversionExample={
-                      unitSystem === "ip"
-                        ? "Convert 1/4 in/ft → 20.8 mm/m, 4 inch NPS → 100 mm DN, 50 GPM → 3.15 L/s"
-                        : "Convert 20.8 mm/m → 1/4 in/ft, 100 mm DN → 4 inch NPS, 3.15 L/s → 50 GPM"
-                    }
-                  />
-                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowFormulaModal(true)}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer bg-surface-2 hover:bg-surface border border-border/80 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 shadow-2xs"
+                  title="View IPC / UPC Formulas"
+                >
+                  <Info className="size-3.5 text-primary" />
+                  <span>Formula Breakdown</span>
+                </button>
+
+                <div className="h-4 w-px bg-border/80 mx-1 hidden sm:block" />
+
+                {/* Drainage Application Preset Dropdown */}
+                <DrainagePresetSelect
+                  value={selectedPreset}
+                  customProfileName={customProfileName}
+                  onChange={handleApplyPreset}
+                  onOpenCustomModal={() => setCustomModalOpen(true)}
+                  unitSystem={unitSystem}
+                  disabled={isEffectiveReadOnly}
+                />
               </div>
 
-              {/* Active Tab View */}
-              <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                {activeTab === "report" ? (
-                  /* PRINTABLE REPORT PREVIEW TAB */
-                  <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                    <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
-                      
-                      <div className="flex justify-between items-start pb-4 border-b border-border">
-                        <div>
-                          <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-                            Drainage Pipe & Stack Sizing Calculation Report
-                          </h2>
-                          <p className="text-[12px] text-muted-foreground mt-0.5">
-                            IPC Chapter 7, UPC Chapter 7 & Gravity Sanitary Drainage Hydraulic Analysis
-                          </p>
-                        </div>
+              {/* Right Side Controls */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={handleExportPdf}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
+
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  disabled={isEffectiveReadOnly}
+                  inputDescriptions="Drainage DFU, Pipe Diameters (NPS / mm DN), Slope (in/ft / mm/m), Manning Flow (GPM / L/s)"
+                  conversionExample={
+                    unitSystem === "ip"
+                      ? "Convert 1/4 in/ft → 20.8 mm/m, 4 inch NPS → 100 mm DN, 50 GPM → 3.15 L/s"
+                      : "Convert 20.8 mm/m → 1/4 in/ft, 100 mm DN → 4 inch NPS, 3.15 L/s → 50 GPM"
+                  }
+                />
+              </div>
+            </div>
+
+            {/* Active Tab View */}
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+              {activeTab === "report" ? (
+                /* PRINTABLE REPORT PREVIEW TAB */
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+                  <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
+
+                    <div className="flex justify-between items-start pb-4 border-b border-border">
+                      <div>
+                        <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                          Drainage Pipe & Stack Sizing Calculation Report
+                        </h2>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">
+                          IPC Chapter 7, UPC Chapter 7 & Gravity Sanitary Drainage Hydraulic Analysis
+                        </p>
                       </div>
+                    </div>
 
 
-                      {/* Table 1: Design Parameters & Hydraulic Sizing Criteria */}
-                      <div className="space-y-2">
-                        <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                          1. Design Parameters & Hydraulic Sizing Criteria
-                        </h3>
-                        <table className="w-full text-[12px] border-collapse border border-border">
-                          <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                            <tr>
-                              <th className="border border-border p-2 text-center w-12">No.</th>
-                              <th className="border border-border p-2 text-left">Design Parameter Description</th>
-                              <th className="border border-border p-2 text-center w-28">Value</th>
-                              <th className="border border-border p-2 text-center w-20">Unit</th>
-                              <th className="border border-border p-2 text-left">Standard / Code Reference</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                              <td className="border border-border p-2 font-bold">Total Connected Fixture Units (Raw DFU)</td>
-                              <td className="border border-border p-2 text-center font-bold">{calcResults.rawDfu}</td>
-                              <td className="border border-border p-2 text-center">DFU</td>
-                              <td className="border border-border p-2 text-muted-foreground">IPC Table 709.1 Sanitary Drainage Load</td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                              <td className="border border-border p-2 font-bold">Total Design Load (+Safety Margin)</td>
-                              <td className="border border-border p-2 text-center font-bold">{calcResults.designDfu}</td>
-                              <td className="border border-border p-2 text-center">DFU</td>
-                              <td className="border border-border p-2 text-muted-foreground">Includes +{safetyFactor}% Engineering Safety Allowance</td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                              <td className="border border-border p-2 font-bold">Drainage Segment / System Type</td>
-                              <td className="border border-border p-2 text-center font-bold">
-                                {systemType === "branch"
-                                  ? "Horizontal Branch"
-                                  : systemType === "stack_short"
+                    {/* Table 1: Design Parameters & Hydraulic Sizing Criteria */}
+                    <div className="space-y-2">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        1. Design Parameters & Hydraulic Sizing Criteria
+                      </h3>
+                      <table className="w-full text-[12px] border-collapse border border-border">
+                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                          <tr>
+                            <th className="border border-border p-2 text-center w-12">No.</th>
+                            <th className="border border-border p-2 text-left">Design Parameter Description</th>
+                            <th className="border border-border p-2 text-center w-28">Value</th>
+                            <th className="border border-border p-2 text-center w-20">Unit</th>
+                            <th className="border border-border p-2 text-left">Standard / Code Reference</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                            <td className="border border-border p-2 font-bold">Total Connected Fixture Units (Raw DFU)</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.rawDfu}</td>
+                            <td className="border border-border p-2 text-center">DFU</td>
+                            <td className="border border-border p-2 text-muted-foreground">IPC Table 709.1 Sanitary Drainage Load</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">2</td>
+                            <td className="border border-border p-2 font-bold">Total Design Load (+Safety Margin)</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.designDfu}</td>
+                            <td className="border border-border p-2 text-center">DFU</td>
+                            <td className="border border-border p-2 text-muted-foreground">Includes +{safetyFactor}% Engineering Safety Allowance</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">3</td>
+                            <td className="border border-border p-2 font-bold">Drainage Segment / System Type</td>
+                            <td className="border border-border p-2 text-center font-bold">
+                              {systemType === "branch"
+                                ? "Horizontal Branch"
+                                : systemType === "stack_short"
                                   ? "Stack (≤ 3 Intervals)"
                                   : systemType === "stack_tall"
-                                  ? "Stack (> 3 Intervals)"
-                                  : "Building Drain / Sewer"}
+                                    ? "Stack (> 3 Intervals)"
+                                    : "Building Drain / Sewer"}
+                            </td>
+                            <td className="border border-border p-2 text-center">-</td>
+                            <td className="border border-border p-2 text-muted-foreground">IPC Chapter 7 System Classification</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">4</td>
+                            <td className="border border-border p-2 font-bold">Piping Installation Slope / Fall</td>
+                            <td className="border border-border p-2 text-center font-bold">
+                              {isSI ? calcResults.slopeMmPerM : calcResults.slopeInPerFt}
+                            </td>
+                            <td className="border border-border p-2 text-center">{isSI ? "mm/m" : "in/ft"}</td>
+                            <td className="border border-border p-2 text-muted-foreground">{calcResults.slopePercent}% Gradient / Fall</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">5</td>
+                            <td className="border border-border p-2 font-bold">Piping Material Specification</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.materialName}</td>
+                            <td className="border border-border p-2 text-center">-</td>
+                            <td className="border border-border p-2 text-muted-foreground">Manning Roughness Coefficient n = {calcResults.roughness}</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">6</td>
+                            <td className="border border-border p-2 font-bold">Active Vent Pipe Developed Length</td>
+                            <td className="border border-border p-2 text-center font-bold">
+                              {isSI ? (ventLength * 0.3048).toFixed(1) : ventLength.toFixed(0)}
+                            </td>
+                            <td className="border border-border p-2 text-center">{isSI ? "m" : "ft"}</td>
+                            <td className="border border-border p-2 text-muted-foreground">IPC Table 906.1 Developed Vent Distance</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">7</td>
+                            <td className="border border-border p-2 font-bold">Total Fixture Quantity</td>
+                            <td className="border border-border p-2 text-center font-bold">{calcResults.totalCount}</td>
+                            <td className="border border-border p-2 text-center">units</td>
+                            <td className="border border-border p-2 text-muted-foreground">Connected Sanitary Appliances Count</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">8</td>
+                            <td className="border border-border p-2 font-bold">Water Closets Connected (WC Rule)</td>
+                            <td className="border border-border p-2 text-center font-bold">
+                              {calcResults.hasWc ? `Yes (${calcResults.wcCount} WCs)` : "No"}
+                            </td>
+                            <td className="border border-border p-2 text-center">-</td>
+                            <td className="border border-border p-2 text-muted-foreground">IPC 709.2 Minimum 3" NPS Rule for Water Closets</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Table 2: Hydraulic Sizing Output Summary */}
+                    <div className="space-y-2">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        2. Hydraulic Sizing Output Summary (IPC / UPC Standard)
+                      </h3>
+                      <table className="w-full text-[12px] border-collapse border border-border">
+                        <thead className="font-bold">
+                          <tr>
+                            <th className="bg-[#D9D9D9] dark:bg-zinc-800 border border-border p-2 text-center w-12">Item</th>
+                            <th className="bg-[#D9D9D9] dark:bg-zinc-800 border border-border p-2 text-left">Sizing Output Summary (IPC / UPC 7)</th>
+                            <th className="bg-[#DAE9F8] dark:bg-sky-950/60 text-sky-950 dark:text-sky-200 border border-border p-2 text-center w-48">Calculated Result</th>
+                            <th className="bg-[#D9D9D9] dark:bg-zinc-800 border border-border p-2 text-left">Engineering Basis & Criteria</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="bg-[#DAE9F8]/60 dark:bg-sky-950/40 font-bold">
+                            <td className="border border-border p-2 text-center">A</td>
+                            <td className="border border-border p-2">REQUIRED DRAINAGE PIPE DIAMETER (D)</td>
+                            <td className="border border-border p-2 text-center text-primary font-black">
+                              {isSI ? `${calcResults.sizedDn} mm DN` : `${calcResults.sizedNps}" NPS`}
+                            </td>
+                            <td className="border border-border p-2 font-medium text-muted-foreground">
+                              IPC Table 710.1 (Max Capacity: {calcResults.maxAllowedDfu} DFU)
+                            </td>
+                          </tr>
+                          <tr className="bg-[#DAE9F8]/60 dark:bg-sky-950/40 font-bold">
+                            <td className="border border-border p-2 text-center">B</td>
+                            <td className="border border-border p-2">DRAINAGE CAPACITY UTILIZATION</td>
+                            <td className="border border-border p-2 text-center text-primary font-black">
+                              {calcResults.capacityUtilization.toFixed(1)} %
+                            </td>
+                            <td className="border border-border p-2 font-medium text-muted-foreground">
+                              {calcResults.designDfu} DFU Design Load / {calcResults.maxAllowedDfu} DFU Max Limit
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">C</td>
+                            <td className="border border-border p-2 font-bold">Self-Cleansing Scour Velocity (v)</td>
+                            <td className="border border-border p-2 text-center font-bold">
+                              {isSI ? `${calcResults.velocityMps.toFixed(2)} m/s` : `${calcResults.velocityFps.toFixed(2)} ft/s`}
+                            </td>
+                            <td className="border border-border p-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                              {calcResults.isScourVelocityOk
+                                ? "Compliant (≥ 2.0 ft/s / 0.6 m/s Self-Scouring per IPC 704.1)"
+                                : "Below 2.0 ft/s (Low Velocity Warning)"}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">D</td>
+                            <td className="border border-border p-2 font-bold">Half-Full Gravity Discharge Capacity (Q_cap)</td>
+                            <td className="border border-border p-2 text-center font-bold">
+                              {isSI ? `${calcResults.qCapLps.toFixed(1)} L/s` : `${calcResults.qCapGpm} GPM`}
+                            </td>
+                            <td className="border border-border p-2 text-muted-foreground">
+                              Manning Equation Gravity Flow Capacity @ 50% Pipe Depth
+                            </td>
+                          </tr>
+                          <tr className="bg-[#DAE9F8]/60 dark:bg-sky-950/40 font-bold">
+                            <td className="border border-border p-2 text-center">E</td>
+                            <td className="border border-border p-2">REQUIRED VENT PIPE DIAMETER (D_vent)</td>
+                            <td className="border border-border p-2 text-center text-primary font-black">
+                              {isSI ? `${calcResults.ventDn} mm DN` : `${calcResults.ventNps}" NPS`}
+                            </td>
+                            <td className="border border-border p-2 font-medium text-muted-foreground">
+                              IPC Table 906.1 Vent Sizing for {calcResults.designDfu} DFU & {isSI ? (ventLength * 0.3048).toFixed(1) + " m" : ventLength + " ft"} Max Length
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Table 3: Connected Sanitary Fixture Schedule */}
+                    <div className="space-y-2">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        3. Connected Sanitary Fixture Schedule
+                      </h3>
+                      <table className="w-full text-[12px] border-collapse border border-border">
+                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                          <tr>
+                            <th className="border border-border p-2 text-center w-12">No.</th>
+                            <th className="border border-border p-2 text-left">Sanitary Fixture</th>
+                            <th className="border border-border p-2 text-center w-24">Unit DFU</th>
+                            <th className="border border-border p-2 text-center w-20">Qty</th>
+                            <th className="border border-border p-2 text-center w-28">Total DFU</th>
+                            <th className="border border-border p-2 text-center w-20">Share</th>
+                            <th className="border border-border p-2 text-left">Min Trap Size</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {calcResults.aggregatedFixtures.filter(f => f.val > 0).map((f, i) => (
+                            <tr key={f.id}>
+                              <td className="border border-border p-2 text-center text-muted-foreground">{i + 1}</td>
+                              <td className="border border-border p-2 font-bold">{f.name}</td>
+                              <td className="border border-border p-2 text-center">{f.dfu} DFU</td>
+                              <td className="border border-border p-2 text-center font-bold">{f.val}</td>
+                              <td className="border border-border p-2 text-center font-bold text-primary">{f.dfu * f.val} DFU</td>
+                              <td className="border border-border p-2 text-center text-muted-foreground">
+                                {calcResults.rawDfu > 0 ? ((f.dfu * f.val / calcResults.rawDfu) * 100).toFixed(1) : 0}%
                               </td>
-                              <td className="border border-border p-2 text-center">-</td>
-                              <td className="border border-border p-2 text-muted-foreground">IPC Chapter 7 System Classification</td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                              <td className="border border-border p-2 font-bold">Piping Installation Slope / Fall</td>
-                              <td className="border border-border p-2 text-center font-bold">
-                                {isSI ? calcResults.slopeMmPerM : calcResults.slopeInPerFt}
+                              <td className="border border-border p-2 text-muted-foreground">
+                                {f.minTrapSizeInches}" NPS ({Math.round(f.minTrapSizeInches * 25.4)} mm)
                               </td>
-                              <td className="border border-border p-2 text-center">{isSI ? "mm/m" : "in/ft"}</td>
-                              <td className="border border-border p-2 text-muted-foreground">{calcResults.slopePercent}% Gradient / Fall</td>
                             </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">5</td>
-                              <td className="border border-border p-2 font-bold">Piping Material Specification</td>
-                              <td className="border border-border p-2 text-center font-bold">{calcResults.materialName}</td>
-                              <td className="border border-border p-2 text-center">-</td>
-                              <td className="border border-border p-2 text-muted-foreground">Manning Roughness Coefficient n = {calcResults.roughness}</td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">6</td>
-                              <td className="border border-border p-2 font-bold">Active Vent Pipe Developed Length</td>
-                              <td className="border border-border p-2 text-center font-bold">
-                                {isSI ? (ventLength * 0.3048).toFixed(1) : ventLength.toFixed(0)}
-                              </td>
-                              <td className="border border-border p-2 text-center">{isSI ? "m" : "ft"}</td>
-                              <td className="border border-border p-2 text-muted-foreground">IPC Table 906.1 Developed Vent Distance</td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">7</td>
-                              <td className="border border-border p-2 font-bold">Total Fixture Quantity</td>
-                              <td className="border border-border p-2 text-center font-bold">{calcResults.totalCount}</td>
-                              <td className="border border-border p-2 text-center">units</td>
-                              <td className="border border-border p-2 text-muted-foreground">Connected Sanitary Appliances Count</td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">8</td>
-                              <td className="border border-border p-2 font-bold">Water Closets Connected (WC Rule)</td>
-                              <td className="border border-border p-2 text-center font-bold">
-                                {calcResults.hasWc ? `Yes (${calcResults.wcCount} WCs)` : "No"}
-                              </td>
-                              <td className="border border-border p-2 text-center">-</td>
-                              <td className="border border-border p-2 text-muted-foreground">IPC 709.2 Minimum 3" NPS Rule for Water Closets</td>
-                            </tr>
-                          </tbody>
-                        </table>
+                          ))}
+                          <tr className="bg-[#DAE9F8]/60 dark:bg-sky-950/40 font-bold border-t-2 border-border">
+                            <td className="border border-border p-2 text-center" colSpan={2}>TOTAL CONNECTED FIXTURES</td>
+                            <td className="border border-border p-2 text-center">-</td>
+                            <td className="border border-border p-2 text-center font-black">{calcResults.totalCount}</td>
+                            <td className="border border-border p-2 text-center font-black text-primary">{calcResults.rawDfu} DFU</td>
+                            <td className="border border-border p-2 text-center">100%</td>
+                            <td className="border border-border p-2 text-muted-foreground">Design Load: {calcResults.designDfu} DFU</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Table 4: Mandatory Design Standards */}
+                    <div className="space-y-2">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        4. Mandatory Design Standards & Engineering Guidelines
+                      </h3>
+                      <table className="w-full text-[12px] border-collapse border border-border">
+                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                          <tr>
+                            <th className="border border-border p-2 text-center w-12">No.</th>
+                            <th className="border border-border p-2 text-left w-56">Mandatory Design Standard</th>
+                            <th className="border border-border p-2 text-left">Compliance & Engineering Criteria</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                            <td className="border border-border p-2 font-bold">IPC Table 710.1 Pipe Sizing Limits</td>
+                            <td className="border border-border p-2 text-muted-foreground">
+                              Sanitary drainage branch, stack, and building drain sizing shall not exceed maximum fixture unit limits established in IPC Chapter 7.
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">2</td>
+                            <td className="border border-border p-2 font-bold">IPC 704.1 Self-Scouring Velocity</td>
+                            <td className="border border-border p-2 text-muted-foreground">
+                              Drainage piping shall be installed at a slope that produces a self-cleansing scour velocity of not less than 2.0 ft/s (0.61 m/s) to prevent solids sedimentation.
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">3</td>
+                            <td className="border border-border p-2 font-bold">IPC 709.2 Water Closet Minimum Size</td>
+                            <td className="border border-border p-2 text-muted-foreground">
+                              Any horizontal drainage branch or vertical stack serving one or more water closets shall be sized at a minimum of 3.0 inches NPS (80 mm DN).
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">4</td>
+                            <td className="border border-border p-2 font-bold">IPC Chapter 9 Venting System Sizing</td>
+                            <td className="border border-border p-2 text-muted-foreground">
+                              Vent piping diameter and developed length shall comply with IPC Table 906.1 to ensure adequate air circulation and prevent trap seal siphonage.
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="border border-border p-2 text-center text-muted-foreground">5</td>
+                            <td className="border border-border p-2 font-bold">UPC Table 702.1 Fixture Units</td>
+                            <td className="border border-border p-2 text-muted-foreground">
+                              Fixture unit ratings assigned reflect intermittent peak discharge loading for gravity drainage systems under uniform plumbing standards.
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                  </div>
+                </div>
+              ) : (
+                /* Interactive Calculator Mode - Direct Ventilation-Style Full Height Table */
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+
+                  {/* Top Toolbar Bar (Matching Ventilation UI) */}
+                  <div className="px-4 py-2.5 bg-card border-b border-border/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shrink-0 select-none relative min-h-[46px]">
+
+                    {/* Search & Floor Filter */}
+                    <div className="flex items-center gap-2 flex-1 w-full sm:w-auto">
+                      <div className="relative flex-1 max-w-xs">
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={e => setSearchQuery(e.target.value)}
+                          placeholder="Filter spaces..."
+                          className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-surface-2 border border-border text-xs outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground"
+                        />
+                        <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                       </div>
 
-                      {/* Table 2: Hydraulic Sizing Output Summary */}
-                      <div className="space-y-2">
-                        <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                          2. Hydraulic Sizing Output Summary (IPC / UPC Standard)
-                        </h3>
-                        <table className="w-full text-[12px] border-collapse border border-border">
-                          <thead className="font-bold">
-                            <tr>
-                              <th className="bg-[#D9D9D9] dark:bg-zinc-800 border border-border p-2 text-center w-12">Item</th>
-                              <th className="bg-[#D9D9D9] dark:bg-zinc-800 border border-border p-2 text-left">Sizing Output Summary (IPC / UPC 7)</th>
-                              <th className="bg-[#DAE9F8] dark:bg-sky-950/60 text-sky-950 dark:text-sky-200 border border-border p-2 text-center w-48">Calculated Result</th>
-                              <th className="bg-[#D9D9D9] dark:bg-zinc-800 border border-border p-2 text-left">Engineering Basis & Criteria</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr className="bg-[#DAE9F8]/60 dark:bg-sky-950/40 font-bold">
-                              <td className="border border-border p-2 text-center">A</td>
-                              <td className="border border-border p-2">REQUIRED DRAINAGE PIPE DIAMETER (D)</td>
-                              <td className="border border-border p-2 text-center text-primary font-black">
-                                {isSI ? `${calcResults.sizedDn} mm DN` : `${calcResults.sizedNps}" NPS`}
-                              </td>
-                              <td className="border border-border p-2 font-medium text-muted-foreground">
-                                IPC Table 710.1 (Max Capacity: {calcResults.maxAllowedDfu} DFU)
-                              </td>
-                            </tr>
-                            <tr className="bg-[#DAE9F8]/60 dark:bg-sky-950/40 font-bold">
-                              <td className="border border-border p-2 text-center">B</td>
-                              <td className="border border-border p-2">DRAINAGE CAPACITY UTILIZATION</td>
-                              <td className="border border-border p-2 text-center text-primary font-black">
-                                {calcResults.capacityUtilization.toFixed(1)} %
-                              </td>
-                              <td className="border border-border p-2 font-medium text-muted-foreground">
-                                {calcResults.designDfu} DFU Design Load / {calcResults.maxAllowedDfu} DFU Max Limit
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">C</td>
-                              <td className="border border-border p-2 font-bold">Self-Cleansing Scour Velocity (v)</td>
-                              <td className="border border-border p-2 text-center font-bold">
-                                {isSI ? `${calcResults.velocityMps.toFixed(2)} m/s` : `${calcResults.velocityFps.toFixed(2)} ft/s`}
-                              </td>
-                              <td className="border border-border p-2 text-emerald-600 dark:text-emerald-400 font-medium">
-                                {calcResults.isScourVelocityOk
-                                  ? "Compliant (≥ 2.0 ft/s / 0.6 m/s Self-Scouring per IPC 704.1)"
-                                  : "Below 2.0 ft/s (Low Velocity Warning)"}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">D</td>
-                              <td className="border border-border p-2 font-bold">Half-Full Gravity Discharge Capacity (Q_cap)</td>
-                              <td className="border border-border p-2 text-center font-bold">
-                                {isSI ? `${calcResults.qCapLps.toFixed(1)} L/s` : `${calcResults.qCapGpm} GPM`}
-                              </td>
-                              <td className="border border-border p-2 text-muted-foreground">
-                                Manning Equation Gravity Flow Capacity @ 50% Pipe Depth
-                              </td>
-                            </tr>
-                            <tr className="bg-[#DAE9F8]/60 dark:bg-sky-950/40 font-bold">
-                              <td className="border border-border p-2 text-center">E</td>
-                              <td className="border border-border p-2">REQUIRED VENT PIPE DIAMETER (D_vent)</td>
-                              <td className="border border-border p-2 text-center text-primary font-black">
-                                {isSI ? `${calcResults.ventDn} mm DN` : `${calcResults.ventNps}" NPS`}
-                              </td>
-                              <td className="border border-border p-2 font-medium text-muted-foreground">
-                                IPC Table 906.1 Vent Sizing for {calcResults.designDfu} DFU & {isSI ? (ventLength * 0.3048).toFixed(1) + " m" : ventLength + " ft"} Max Length
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
+                      {floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").length > 1 && (
+                        <select
+                          value={filterFloor}
+                          onChange={e => setFilterFloor(e.target.value)}
+                          className="px-2.5 py-1.5 rounded-lg bg-surface-2 border border-border text-xs font-semibold outline-none cursor-pointer text-foreground"
+                        >
+                          <option value="all">All Floors ({floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").length})</option>
+                          {floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").map(fl => (
+                            <option key={fl} value={fl}>{fl}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
 
-                      {/* Table 3: Connected Sanitary Fixture Schedule */}
-                      <div className="space-y-2">
-                        <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                          3. Connected Sanitary Fixture Schedule
-                        </h3>
-                        <table className="w-full text-[12px] border-collapse border border-border">
-                          <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                            <tr>
-                              <th className="border border-border p-2 text-center w-12">No.</th>
-                              <th className="border border-border p-2 text-left">Sanitary Fixture</th>
-                              <th className="border border-border p-2 text-center w-24">Unit DFU</th>
-                              <th className="border border-border p-2 text-center w-20">Qty</th>
-                              <th className="border border-border p-2 text-center w-28">Total DFU</th>
-                              <th className="border border-border p-2 text-center w-20">Share</th>
-                              <th className="border border-border p-2 text-left">Min Trap Size</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {calcResults.aggregatedFixtures.filter(f => f.val > 0).map((f, i) => (
-                              <tr key={f.id}>
-                                <td className="border border-border p-2 text-center text-muted-foreground">{i + 1}</td>
-                                <td className="border border-border p-2 font-bold">{f.name}</td>
-                                <td className="border border-border p-2 text-center">{f.dfu} DFU</td>
-                                <td className="border border-border p-2 text-center font-bold">{f.val}</td>
-                                <td className="border border-border p-2 text-center font-bold text-primary">{f.dfu * f.val} DFU</td>
-                                <td className="border border-border p-2 text-center text-muted-foreground">
-                                  {calcResults.rawDfu > 0 ? ((f.dfu * f.val / calcResults.rawDfu) * 100).toFixed(1) : 0}%
-                                </td>
-                                <td className="border border-border p-2 text-muted-foreground">
-                                  {f.minTrapSizeInches}" NPS ({Math.round(f.minTrapSizeInches * 25.4)} mm)
-                                </td>
-                              </tr>
-                            ))}
-                            <tr className="bg-[#DAE9F8]/60 dark:bg-sky-950/40 font-bold border-t-2 border-border">
-                              <td className="border border-border p-2 text-center" colSpan={2}>TOTAL CONNECTED FIXTURES</td>
-                              <td className="border border-border p-2 text-center">-</td>
-                              <td className="border border-border p-2 text-center font-black">{calcResults.totalCount}</td>
-                              <td className="border border-border p-2 text-center font-black text-primary">{calcResults.rawDfu} DFU</td>
-                              <td className="border border-border p-2 text-center">100%</td>
-                              <td className="border border-border p-2 text-muted-foreground">Design Load: {calcResults.designDfu} DFU</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2 flex-wrap shrink-0 justify-end w-full sm:w-auto">
+                      <button
+                        type="button"
+                        onClick={handleAddNewFloorSection}
+                        disabled={isLocked}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-[#0A7BC7] hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+                      >
+                        <Plus className="size-3.5" /> Add Floor Section
+                      </button>
 
-                      {/* Table 4: Mandatory Design Standards */}
-                      <div className="space-y-2">
-                        <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                          4. Mandatory Design Standards & Engineering Guidelines
-                        </h3>
-                        <table className="w-full text-[12px] border-collapse border border-border">
-                          <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                            <tr>
-                              <th className="border border-border p-2 text-center w-12">No.</th>
-                              <th className="border border-border p-2 text-left w-56">Mandatory Design Standard</th>
-                              <th className="border border-border p-2 text-left">Compliance & Engineering Criteria</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                              <td className="border border-border p-2 font-bold">IPC Table 710.1 Pipe Sizing Limits</td>
-                              <td className="border border-border p-2 text-muted-foreground">
-                                Sanitary drainage branch, stack, and building drain sizing shall not exceed maximum fixture unit limits established in IPC Chapter 7.
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                              <td className="border border-border p-2 font-bold">IPC 704.1 Self-Scouring Velocity</td>
-                              <td className="border border-border p-2 text-muted-foreground">
-                                Drainage piping shall be installed at a slope that produces a self-cleansing scour velocity of not less than 2.0 ft/s (0.61 m/s) to prevent solids sedimentation.
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                              <td className="border border-border p-2 font-bold">IPC 709.2 Water Closet Minimum Size</td>
-                              <td className="border border-border p-2 text-muted-foreground">
-                                Any horizontal drainage branch or vertical stack serving one or more water closets shall be sized at a minimum of 3.0 inches NPS (80 mm DN).
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                              <td className="border border-border p-2 font-bold">IPC Chapter 9 Venting System Sizing</td>
-                              <td className="border border-border p-2 text-muted-foreground">
-                                Vent piping diameter and developed length shall comply with IPC Table 906.1 to ensure adequate air circulation and prevent trap seal siphonage.
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="border border-border p-2 text-center text-muted-foreground">5</td>
-                              <td className="border border-border p-2 font-bold">UPC Table 702.1 Fixture Units</td>
-                              <td className="border border-border p-2 text-muted-foreground">
-                                Fixture unit ratings assigned reflect intermittent peak discharge loading for gravity drainage systems under uniform plumbing standards.
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleAddSpace()}
+                        disabled={isLocked}
+                        className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Plus className="size-3.5" /> Add Space
+                      </button>
+                    </div>
 
+                    {/* Bulk Actions Bar Overlay (Exact Ventilation Matching Design) */}
+                    {!isApprovedLocked && selectedSpaceIds.length > 0 && (
+                      <div className="absolute inset-0 flex items-center gap-4 px-4 bg-[#f0f7ff] dark:bg-blue-950/50 text-[12px] text-[#06456F] dark:text-blue-300 z-20 border-b border-border/80 animate-in fade-in duration-100 flex-wrap select-none">
+                        <span className="font-bold text-[#06456F] dark:text-blue-300">
+                          {selectedSpaceIds.length} selected
+                        </span>
+
+                        <button
+                          type="button"
+                          disabled={isLocked}
+                          onClick={() => {
+                            const sp = drainageSpaces.find(s => s.id === selectedSpaceIds[0]);
+                            if (sp) setEditingSpace({ space: sp, floor: sp.floor });
+                          }}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-blue-200 hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <Edit3 className="size-3.5" /> Bulk edit
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleCopySpaces(selectedSpaceIds)}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-blue-200 hover:text-primary transition-colors cursor-pointer"
+                        >
+                          <Copy className="size-3.5" /> Copy
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isLocked}
+                          onClick={() => handleCutSpaces(selectedSpaceIds)}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-blue-200 hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <Scissors className="size-3.5" /> Cut
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isLocked}
+                          onClick={handlePasteSpaces}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-blue-200 hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <ClipboardPaste className="size-3.5" /> Paste
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isLocked}
+                          onClick={handleBulkDuplicate}
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-blue-200 hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <Copy className="size-3.5" /> Duplicate
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isLocked}
+                          onClick={handleBulkDelete}
+                          className="inline-flex items-center gap-1.5 font-semibold text-rose-600 hover:text-rose-700 transition-colors cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="size-3.5" /> Delete
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSpaceIds([])}
+                          className="ml-auto text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors px-2 py-0.5 rounded cursor-pointer"
+                        >
+                          <X className="size-3" /> Clear
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Schedule Matrix Table Container - Fits screen perfectly without horizontal scrollbar */}
+                  <div className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto w-full custom-scrollbar select-none">
+                    <table className="w-full border-collapse text-[11px] font-sans">
+                      <thead className="bg-slate-50 dark:bg-slate-900/80 sticky top-0 z-20 border-b border-border text-muted-foreground uppercase text-[10.5px] tracking-wider font-bold">
+                        <tr>
+                          <th className="p-1 text-center w-8 min-w-[32px] max-w-[34px] border-r border-border/60">
+                            <input
+                              type="checkbox"
+                              checked={allSpacesSelected}
+                              onChange={e => handleToggleSelectAll(e.target.checked)}
+                              title="Select all spaces (Ctrl+A)"
+                              className="size-3.5 accent-primary cursor-pointer rounded"
+                            />
+                          </th>
+                          <th className="p-1.5 px-2 text-left min-w-[130px] border-r border-border/60 whitespace-nowrap">
+                            Space / Area Name
+                          </th>
+                          {DRAINAGE_FIXTURES_META.map(f => (
+                            <th key={f.id} className="p-1 px-0.5 text-center border-r border-border/40 min-w-[36px]">
+                              <div className="truncate text-[10px] leading-tight font-semibold" title={f.name}>{f.short}</div>
+                              <div className="text-[9px] font-mono text-primary/80 lowercase leading-tight">{f.dfu} dfu</div>
+                            </th>
+                          ))}
+                          <th className="p-1.5 px-1.5 text-center text-primary font-bold min-w-[56px] whitespace-nowrap">
+                            Total DFU
+                          </th>
+                        </tr>
+                      </thead>
+
+                      {floorSections.filter(fl => fl && fl.toLowerCase() !== "undefined" && fl.toLowerCase() !== "null").map((floor, floorIndex) => {
+                        const spacesInFloor = filteredFloorsGrouped[floor] || [];
+                        if (filterFloor !== "all" && filterFloor !== floor) return null;
+
+                        return (
+                          <tbody key={`floor-tbody-${floorIndex}`} className="divide-y divide-border/60 border-b border-border">
+                            {/* Floor Section Header */}
+                            <tr id={`floor-section-${floor}`} className="bg-muted/40 font-bold text-[11px] text-foreground">
+                              <td colSpan={DRAINAGE_FIXTURES_META.length + 3} className="py-1.5 px-3">
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <ChevronDown className="size-3.5 text-primary shrink-0" />
+                                    <FloorNameInput
+                                      floor={floor}
+                                      disabled={isLocked}
+                                      onRename={handleRenameFloorGroup}
+                                    />
+                                    <span className="text-[10px] text-muted-foreground font-normal">
+                                      ({spacesInFloor.length} spaces)
+                                    </span>
+                                  </div>
+
+                                  {/* Individual Floor Drainage Segment / System Type Dropdown & Sizing Pill */}
+                                  <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                                    <span className="text-[10.5px] font-semibold text-muted-foreground hidden sm:inline">Segment Type:</span>
+                                    <select
+                                      value={floorSystemTypes[floor] || systemType || "branch"}
+                                      disabled={isLocked}
+                                      onChange={e => handleFloorSystemTypeChange(floor, e.target.value as any)}
+                                      className="text-[11px] font-semibold bg-background border border-input rounded-lg px-2 py-0.5 outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer disabled:opacity-60 shadow-2xs text-foreground max-w-[240px] sm:max-w-none truncate"
+                                    >
+                                      <option value="branch">Horizontal Fixture Branch (IPC Table 710.1(2))</option>
+                                      <option value="stack_short">Vertical Stack ≤ 3 Stories (IPC Table 710.1(1))</option>
+                                      <option value="stack_tall">Multi-Story Stack &gt; 3 Stories (IPC Table 710.1(1))</option>
+                                      <option value="building_drain">Building Drain / Main Sewer Collector</option>
+                                    </select>
+
+                                    {floorSizing[floor] && (
+                                      <div
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-[#0A7BC7] dark:text-blue-400 border border-blue-200 dark:border-blue-800/60 text-[10px] font-bold shadow-2xs shrink-0"
+                                        title={`Floor Sized Pipe: ${isSI ? `${floorSizing[floor].sizedDn} mm DN` : `${floorSizing[floor].sizedNps}" NPS`} for ${floorSizing[floor].designDfu} DFU`}
+                                      >
+                                        <span>{isSI ? `${floorSizing[floor].sizedDn} mm DN` : `${floorSizing[floor].sizedNps}" NPS`}</span>
+                                        <span className="text-[9px] font-medium opacity-80">({floorSizing[floor].designDfu} DFU)</span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      disabled={isLocked}
+                                      onClick={() => handleAddSpace(floor)}
+                                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:bg-primary/10 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                                      title={`Add space to ${floor}`}
+                                    >
+                                      <Plus className="size-3" /> Space
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={isLocked}
+                                      onClick={() => handleDeleteFloorGroup(floor)}
+                                      className="text-rose-500 hover:text-rose-700 text-[10px] font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/20 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                                    >
+                                      Delete Floor
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+
+                            {/* Space Rows */}
+                            {spacesInFloor.map((space, idx) => {
+                              const isSelected = selectedSpaceIds.includes(space.id);
+                              let spaceUnitDfu = 0;
+                              DRAINAGE_FIXTURES_META.forEach(f => {
+                                spaceUnitDfu += f.dfu * (space.fixtures[f.id] || 0);
+                              });
+                              const mult = (space.spaceQty || 1) * (space.floorsQty || 1);
+                              const spaceTotalDfu = spaceUnitDfu * mult;
+
+                              return (
+                                <ContextMenu key={space.id}>
+                                  <ContextMenuTrigger asChild>
+                                    <tr
+                                      id={`space-row-${space.id}`}
+                                      data-row-id={space.id}
+                                      data-space-id={space.id}
+                                      data-item-id={space.id}
+                                      data-comment-target={space.id}
+                                      title="Click to select, Ctrl+Click to multi-select, Double-click to edit, Ctrl+A to select all"
+                                      onClick={(e) => {
+                                        const target = e.target as HTMLElement;
+                                        if (target.tagName === "INPUT" || target.tagName === "BUTTON" || target.closest("button") || target.closest("input")) {
+                                          return;
+                                        }
+                                        handleToggleSelectSpace(space.id);
+                                      }}
+                                      onDoubleClick={() => {
+                                        if (isLocked) {
+                                          toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
+                                          return;
+                                        }
+                                        setEditingSpace({ space, floor });
+                                      }}
+                                      className={`border-b border-border/60 hover:bg-primary/5 transition-all duration-200 cursor-pointer ${highlightedSpaceId === space.id
+                                        ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
+                                        : isSelected
+                                          ? "bg-primary/10"
+                                          : idx % 2 === 1
+                                            ? "bg-muted/15"
+                                            : "bg-card"
+                                        }`}
+                                    >
+                                      <td className="p-1 text-center w-8 min-w-[32px] max-w-[34px]" onDoubleClick={e => e.stopPropagation()}>
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={e => handleToggleSelectSpace(space.id, e.target.checked)}
+                                          className="size-3.5 accent-primary cursor-pointer rounded"
+                                        />
+                                      </td>
+
+                                      <td className="p-1 px-2 font-medium text-foreground min-w-[130px]">
+                                        <div className="flex items-center justify-between gap-1 w-full">
+                                          <InlineInput
+                                            disabled={isLocked}
+                                            value={space.desc}
+                                            onCommit={val => handleUpdateSpaceDesc(space.id, val)}
+                                            className="font-medium text-xs text-foreground px-1 py-0.5 w-full min-w-0"
+                                            placeholder="Space / Area Description"
+                                          />
+                                          {(() => {
+                                            const spaceComments = getSpaceComments(space);
+                                            if (spaceComments.length === 0) return null;
+                                            return (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleOpenComment(space.id, space.desc);
+                                                }}
+                                                className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[9.5px] font-bold border border-blue-500/20 hover:bg-blue-500/20 transition-colors cursor-pointer shrink-0"
+                                                title={`${spaceComments.length} comment(s) / task(s)`}
+                                              >
+                                                <MessageSquare className="size-2.5 text-blue-500" />
+                                                <span>{spaceComments.length}</span>
+                                              </button>
+                                            );
+                                          })()}
+                                        </div>
+                                      </td>
+
+                                      {/* Fixture Quantities */}
+                                      {DRAINAGE_FIXTURES_META.map(f => {
+                                        const count = space.fixtures[f.id] || 0;
+                                        return (
+                                          <td key={f.id} className="p-0.5 text-center border-r border-border/30 min-w-[36px]">
+                                            <InlineInput
+                                              type="number"
+                                              min={0}
+                                              disabled={isLocked}
+                                              value={count === 0 ? "" : count}
+                                              placeholder="0"
+                                              onCommit={val => handleUpdateSpaceFixture(space.id, f.id, parseInt(val) || 0)}
+                                              className={`w-7 sm:w-8 h-6 text-center rounded py-0 text-xs font-mono font-semibold transition-colors mx-auto ${count > 0 ? "bg-primary/10 text-primary font-bold border border-primary/30" : "bg-transparent text-muted-foreground/50 border border-transparent hover:border-border/60"
+                                                }`}
+                                            />
+                                          </td>
+                                        );
+                                      })}
+
+                                      {/* Total DFU */}
+                                      <td className="p-1 px-1.5 text-center font-mono font-bold text-primary whitespace-nowrap text-xs min-w-[56px]">
+                                        {spaceTotalDfu.toFixed(1)}
+                                      </td>
+                                    </tr>
+                                  </ContextMenuTrigger>
+                                  <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-xs z-50">
+                                    <ContextMenuItem
+                                      disabled={isLocked}
+                                      onClick={() => {
+                                        if (isLocked) {
+                                          toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
+                                          return;
+                                        }
+                                        setEditingSpace({ space, floor });
+                                      }}
+                                      className={`flex items-center gap-2 p-1.5 font-medium ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                                    >
+                                      <Edit3 className="size-3.5 text-muted-foreground" />
+                                      <span>Edit Space Quantities</span>
+                                      <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double-click</ContextMenuShortcut>
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                      onClick={() => handleCopySpaces([space.id])}
+                                      className="flex items-center gap-2 p-1.5 font-medium cursor-pointer"
+                                    >
+                                      <Copy className="size-3.5 text-muted-foreground" />
+                                      <span>Copy Space</span>
+                                      <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                      disabled={isLocked}
+                                      onClick={() => {
+                                        if (isLocked) {
+                                          toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
+                                          return;
+                                        }
+                                        handleCutSpaces([space.id]);
+                                      }}
+                                      className={`flex items-center gap-2 p-1.5 font-medium ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                                    >
+                                      <Scissors className="size-3.5 text-muted-foreground" />
+                                      <span>Cut Space</span>
+                                      <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</ContextMenuShortcut>
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                      disabled={isLocked}
+                                      onClick={handlePasteSpaces}
+                                      className={`flex items-center gap-2 p-1.5 font-medium ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                                    >
+                                      <ClipboardPaste className="size-3.5 text-muted-foreground" />
+                                      <span>Paste Space</span>
+                                      <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                      disabled={isLocked}
+                                      onClick={() => {
+                                        if (isLocked) {
+                                          toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
+                                          return;
+                                        }
+                                        handleDuplicateSpace(space);
+                                      }}
+                                      className={`flex items-center gap-2 p-1.5 font-medium ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                                    >
+                                      <Copy className="size-3.5 text-muted-foreground" />
+                                      <span>Duplicate Space</span>
+                                      <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
+                                    </ContextMenuItem>
+                                    <ContextMenuSeparator className="h-px bg-border my-1" />
+                                    <ContextMenuItem onClick={() => handleOpenComment(space.id, space.desc)} className="flex items-center gap-2 p-1.5 cursor-pointer text-blue-600 font-medium">
+                                      <MessageSquare className="size-3.5" />
+                                      <span>{getSpaceComments(space).length > 0 ? `Comments / Tasks (${getSpaceComments(space).length})` : "Add Comment / Task"}</span>
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                      disabled={isLocked}
+                                      onClick={() => {
+                                        if (isLocked) {
+                                          toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
+                                          return;
+                                        }
+                                        if (selectedSpaceIds.includes(space.id) && selectedSpaceIds.length > 1) {
+                                          handleBulkDelete();
+                                        } else {
+                                          handleDeleteSpace(space.id);
+                                        }
+                                      }}
+                                      className={`flex items-center gap-2 p-1.5 font-medium ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer text-rose-600"}`}
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                      <span>{selectedSpaceIds.includes(space.id) && selectedSpaceIds.length > 1 ? `Delete Selected (${selectedSpaceIds.length} spaces)` : "Delete Space"}</span>
+                                      <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Del</ContextMenuShortcut>
+                                    </ContextMenuItem>
+                                  </ContextMenuContent>
+                                </ContextMenu>
+                              );
+                            })}
+                          </tbody>
+                        );
+                      })}
+                    </table>
+                  </div>
+
+                  {/* Bottom Status & Summary Bar (Matching Ventilation UI) */}
+                  <div className="px-4 py-2 bg-card border-t border-border flex items-center justify-between text-xs text-muted-foreground shrink-0 select-none flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span>Showing <strong className="text-foreground">{drainageSpaces.length}</strong> of <strong className="text-foreground">{drainageSpaces.length}</strong> spaces</span>
+                    </div>
+                    <div className="flex items-center gap-3 font-mono text-[11px] flex-wrap">
+                      <span>Total Fixtures: <strong className="text-foreground">{calcResults.totalCount}</strong></span>
+                      <span className="text-border">|</span>
+                      <span>Design DFU: <strong className="text-primary font-bold">{calcResults.designDfu} DFU</strong></span>
+                      <span className="text-border">|</span>
+                      <span>Main Sized Pipe: <strong className="text-foreground">{isSI ? `${calcResults.sizedDn} mm DN` : `${calcResults.sizedNps}" NPS`}</strong></span>
+                      <span className="text-border">|</span>
+                      <span>Velocity: <strong className={calcResults.isScourVelocityOk ? "text-emerald-600 font-bold" : "text-amber-600 font-bold"}>{isSI ? `${calcResults.velocityMps} m/s` : `${calcResults.velocityFps} fps`}</strong></span>
                     </div>
                   </div>
-                ) : (
-                  /* Interactive Calculator Mode - Direct Ventilation-Style Full Height Table */
-                  <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                    
-                    {/* Top Toolbar Bar (Matching Ventilation UI) */}
-                    <div className="px-4 py-2.5 bg-card border-b border-border/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shrink-0 select-none relative min-h-[46px]">
-                      
-                      {/* Search & Floor Filter */}
-                      <div className="flex items-center gap-2 flex-1 w-full sm:w-auto">
-                        <div className="relative flex-1 max-w-xs">
-                          <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={e => setSearchQuery(e.target.value)}
-                            placeholder="Filter spaces..."
-                            className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-surface-2 border border-border text-xs outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground"
-                          />
-                          <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                        </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
-                        {floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").length > 1 && (
-                          <select
-                            value={filterFloor}
-                            onChange={e => setFilterFloor(e.target.value)}
-                            className="px-2.5 py-1.5 rounded-lg bg-surface-2 border border-border text-xs font-semibold outline-none cursor-pointer text-foreground"
-                          >
-                            <option value="all">All Floors ({floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").length})</option>
-                            {floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").map(fl => (
-                              <option key={fl} value={fl}>{fl}</option>
-                            ))}
-                          </select>
-                        )}
+        {/* Intelligence drawer */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-card shadow-lg flex flex-col" : "w-0"
+            }`}
+        >
+          {intelOpen && (
+            <DrainageIntelligenceDrawer
+              onClose={() => setIntelOpen(false)}
+              calcResults={calcResults}
+              drainageSpaces={drainageSpaces}
+              floorSections={floorSections}
+              floorSystemTypes={floorSystemTypes}
+              floorSizing={floorSizing}
+              systemType={systemType}
+              slope={slope}
+              material={material}
+              ventLength={ventLength}
+              unitSystem={unitSystem}
+              selectedPreset={selectedPreset}
+              isLocked={isLocked}
+              onSelectPreset={handleApplyPreset}
+              onSetSlope={(sl) => {
+                if (isLocked) {
+                  toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
+                  return;
+                }
+                setSlope(sl);
+                dirtyStore.set(true);
+              }}
+              onSetFormulaModal={setShowFormulaModal}
+              onSetInspectorModal={setShowInspectorModal}
+              onScrollToSpace={(spaceId) => {
+                const el = document.getElementById(`space-row-${spaceId}`);
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  el.classList.add("bg-primary/25");
+                  setTimeout(() => el.classList.remove("bg-primary/25"), 2000);
+                }
+              }}
+              onScrollToFloor={(floorName) => {
+                const el = document.getElementById(`floor-section-${floorName}`);
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth", block: "start" });
+                }
+              }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Edit Space Modal (Triggered on Space Double-Click) */}
+      {editingSpace && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
+          <div className="bg-card text-card-foreground border border-border rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <Edit3 className="size-5 text-primary" />
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Edit Space Fixture Schedule</h3>
+                  <p className="text-xs text-muted-foreground">Configure plumbing fixtures and multiplier counts for this space</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingSpace(null)}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            {/* Space Name and Floor Selector */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="space-y-1">
+                <label className="font-semibold text-muted-foreground">Space / Room Name</label>
+                <input
+                  type="text"
+                  disabled={isLocked}
+                  value={editingSpace.space.desc}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, desc: val } } : null);
+                  }}
+                  className="w-full bg-background border border-input rounded-xl p-2 font-semibold text-foreground text-xs disabled:opacity-60"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-semibold text-muted-foreground">Floor Section</label>
+                <select
+                  disabled={isLocked}
+                  value={editingSpace.space.floor}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, floor: val } } : null);
+                  }}
+                  className="w-full bg-background border border-input rounded-xl p-2 font-semibold text-foreground text-xs cursor-pointer disabled:opacity-60"
+                >
+                  {floorSections.map(fl => (
+                    <option key={fl} value={fl}>{fl}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Multipliers */}
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="space-y-1">
+                <label className="font-semibold text-muted-foreground">Space Typical Quantity</label>
+                <input
+                  type="number"
+                  min={1}
+                  disabled={isLocked}
+                  value={editingSpace.space.spaceQty}
+                  onChange={e => {
+                    const val = Math.max(1, parseInt(e.target.value) || 1);
+                    setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, spaceQty: val } } : null);
+                  }}
+                  className="w-full bg-background border border-input rounded-xl p-2 font-bold text-foreground text-xs disabled:opacity-60"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-semibold text-muted-foreground">Number of Typical Floors</label>
+                <input
+                  type="number"
+                  min={1}
+                  disabled={isLocked}
+                  value={editingSpace.space.floorsQty}
+                  onChange={e => {
+                    const val = Math.max(1, parseInt(e.target.value) || 1);
+                    setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, floorsQty: val } } : null);
+                  }}
+                  className="w-full bg-background border border-input rounded-xl p-2 font-bold text-foreground text-xs disabled:opacity-60"
+                />
+              </div>
+            </div>
+
+            {/* Fixture Counters List */}
+            <div className="space-y-2 pt-2 border-t border-border">
+              <div className="flex justify-between items-center text-xs font-semibold text-muted-foreground">
+                <span>Sanitary Fixtures</span>
+                <span>Total DFU</span>
+              </div>
+              <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1 custom-scrollbar">
+                {DRAINAGE_FIXTURES_META.map(f => {
+                  const count = editingSpace.space.fixtures[f.id] || 0;
+                  return (
+                    <div key={f.id} className="flex items-center justify-between p-2.5 rounded-xl border border-border/70 bg-surface-2">
+                      <div className="flex-1 pr-2">
+                        <div className="font-semibold text-xs text-foreground">{f.name}</div>
+                        <div className="text-[10px] text-muted-foreground">Unit: {f.dfu} DFU • Trap: {f.minTrapSizeInches}" NPS</div>
                       </div>
-
-                      {/* Action Buttons */}
-                      <div className="flex items-center gap-2 flex-wrap shrink-0 justify-end w-full sm:w-auto">
-                        <button
-                          type="button"
-                          onClick={handleAddNewFloorSection}
-                          disabled={isLocked}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-[#0A7BC7] hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
-                        >
-                          <Plus className="size-3.5" /> Add Floor Section
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleAddSpace()}
-                          disabled={isLocked}
-                          className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer disabled:opacity-50"
-                        >
-                          <Plus className="size-3.5" /> Add Space
-                        </button>
-                      </div>
-
-                      {/* Bulk Actions Bar Overlay (Exact Ventilation Matching Design) */}
-                      {!isApprovedLocked && selectedSpaceIds.length > 0 && (
-                        <div className="absolute inset-0 flex items-center gap-4 px-4 bg-[#f0f7ff] dark:bg-blue-950/50 text-[12px] text-[#06456F] dark:text-blue-300 z-20 border-b border-border/80 animate-in fade-in duration-100 flex-wrap select-none">
-                          <span className="font-bold text-[#06456F] dark:text-blue-300">
-                            {selectedSpaceIds.length} selected
-                          </span>
-                          
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center border border-border rounded-lg bg-background p-0.5">
                           <button
                             type="button"
                             disabled={isLocked}
                             onClick={() => {
-                              const sp = drainageSpaces.find(s => s.id === selectedSpaceIds[0]);
-                              if (sp) setEditingSpace({ space: sp, floor: sp.floor });
+                              const newVal = Math.max(0, count - 1);
+                              setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, fixtures: { ...prev.space.fixtures, [f.id]: newVal } } } : null);
                             }}
-                            className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-blue-200 hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                            className="size-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground cursor-pointer disabled:opacity-40"
                           >
-                            <Edit3 className="size-3.5" /> Bulk edit
+                            <Minus className="size-3" />
                           </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleCopySpaces(selectedSpaceIds)}
-                            className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-blue-200 hover:text-primary transition-colors cursor-pointer"
-                          >
-                            <Copy className="size-3.5" /> Copy
-                          </button>
-
+                          <input
+                            type="number"
+                            min={0}
+                            disabled={isLocked}
+                            value={count}
+                            onChange={e => {
+                              const newVal = Math.max(0, parseInt(e.target.value) || 0);
+                              setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, fixtures: { ...prev.space.fixtures, [f.id]: newVal } } } : null);
+                            }}
+                            className="w-10 text-center text-xs font-bold bg-transparent outline-none disabled:opacity-60"
+                          />
                           <button
                             type="button"
                             disabled={isLocked}
-                            onClick={() => handleCutSpaces(selectedSpaceIds)}
-                            className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-blue-200 hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
+                            onClick={() => {
+                              const newVal = count + 1;
+                              setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, fixtures: { ...prev.space.fixtures, [f.id]: newVal } } } : null);
+                            }}
+                            className="size-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground cursor-pointer disabled:opacity-40"
                           >
-                            <Scissors className="size-3.5" /> Cut
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={isLocked}
-                            onClick={handlePasteSpaces}
-                            className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-blue-200 hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            <ClipboardPaste className="size-3.5" /> Paste
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={isLocked}
-                            onClick={handleBulkDuplicate}
-                            className="inline-flex items-center gap-1.5 font-semibold text-[#06456F] dark:text-blue-200 hover:text-primary transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            <Copy className="size-3.5" /> Duplicate
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={isLocked}
-                            onClick={handleBulkDelete}
-                            className="inline-flex items-center gap-1.5 font-semibold text-rose-600 hover:text-rose-700 transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            <Trash2 className="size-3.5" /> Delete
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setSelectedSpaceIds([])}
-                            className="ml-auto text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors px-2 py-0.5 rounded cursor-pointer"
-                          >
-                            <X className="size-3" /> Clear
+                            <Plus className="size-3" />
                           </button>
                         </div>
-                      )}
-                    </div>
-
-                    {/* Schedule Matrix Table Container */}
-                    <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto w-full custom-scrollbar select-none">
-                      <table className="w-full min-w-full border-collapse text-[11.5px] font-sans">
-                              <thead className="bg-slate-50 dark:bg-slate-900/80 sticky top-0 z-20 border-b border-border text-muted-foreground uppercase text-[11px] tracking-wider font-bold">
-                                <tr>
-                                  <th className="p-2 text-center w-10 border-r border-border/60">
-                                    <input
-                                      type="checkbox"
-                                      checked={allSpacesSelected}
-                                      onChange={e => handleToggleSelectAll(e.target.checked)}
-                                      className="size-3.5 accent-primary cursor-pointer rounded"
-                                    />
-                                  </th>
-                                  <th className="p-2 text-left min-w-[170px] border-r border-border/60">
-                                    Space / Area Name
-                                  </th>
-                                  {DRAINAGE_FIXTURES_META.map(f => (
-                                    <th key={f.id} className="p-1.5 px-1 text-center border-r border-border/40 min-w-[55px]">
-                                      <div className="truncate text-[10.5px]" title={f.name}>{f.short}</div>
-                                      <div className="text-[9.5px] font-mono text-primary/80 lowercase">{f.dfu} dfu</div>
-                                    </th>
-                                  ))}
-                                  <th className="p-2 text-center text-primary font-bold border-r border-border/60 min-w-[70px]">
-                                    Unit DFU
-                                  </th>
-                                  <th className="p-2 text-center border-r border-border/60 min-w-[70px]">
-                                    Space Qty
-                                  </th>
-                                  <th className="p-2 text-center border-r border-border/60 min-w-[70px]">
-                                    No. Floors
-                                  </th>
-                                  <th className="p-2 text-center text-primary font-extrabold min-w-[80px]">
-                                    Total DFU
-                                  </th>
-                                </tr>
-                              </thead>
-
-                              {floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").map((floor, floorIndex) => {
-                                const spacesInFloor = filteredFloorsGrouped[floor] || [];
-                                if (filterFloor !== "all" && filterFloor !== floor) return null;
-
-                                return (
-                                  <tbody key={`floor-tbody-${floorIndex}`} className="divide-y divide-border/60 border-b border-border">
-                                    {/* Floor Section Header */}
-                                    <tr id={`floor-section-${floor}`} className="bg-muted/40 font-bold text-[11px] text-foreground">
-                                      <td colSpan={DRAINAGE_FIXTURES_META.length + 6} className="py-2 px-3">
-                                        <div className="flex items-center justify-between gap-3 flex-wrap">
-                                          <div className="flex items-center gap-2">
-                                            <ChevronDown className="size-3.5 text-primary shrink-0" />
-                                            <FloorNameInput
-                                              floor={floor}
-                                              disabled={isLocked}
-                                              onRename={handleRenameFloorGroup}
-                                            />
-                                            <span className="text-[10px] text-muted-foreground font-normal">
-                                              ({spacesInFloor.length} spaces)
-                                            </span>
-                                          </div>
-
-                                          {/* Individual Floor Drainage Segment / System Type Dropdown & Sizing Pill */}
-                                          <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="text-[10.5px] font-semibold text-muted-foreground hidden sm:inline">Segment Type:</span>
-                                            <select
-                                              value={floorSystemTypes[floor] || systemType || "branch"}
-                                              disabled={isLocked}
-                                              onChange={e => handleFloorSystemTypeChange(floor, e.target.value as any)}
-                                              className="text-[11px] font-semibold bg-background border border-input rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer disabled:opacity-60 shadow-2xs text-foreground"
-                                            >
-                                              <option value="branch">Horizontal Fixture Branch (IPC Table 710.1(2))</option>
-                                              <option value="stack_short">Vertical Stack ≤ 3 Stories (IPC Table 710.1(1))</option>
-                                              <option value="stack_tall">Multi-Story Stack &gt; 3 Stories (IPC Table 710.1(1))</option>
-                                              <option value="building_drain">Building Drain / Main Sewer Collector</option>
-                                            </select>
-
-                                            {floorSizing[floor] && (
-                                              <div 
-                                                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-[#0A7BC7] dark:text-blue-400 border border-blue-200 dark:border-blue-800/60 text-[10.5px] font-bold shadow-2xs"
-                                                title={`Floor Sized Pipe: ${isSI ? `${floorSizing[floor].sizedDn} mm DN` : `${floorSizing[floor].sizedNps}" NPS`} for ${floorSizing[floor].designDfu} DFU`}
-                                              >
-                                                <span>{isSI ? `${floorSizing[floor].sizedDn} mm DN` : `${floorSizing[floor].sizedNps}" NPS`}</span>
-                                                <span className="text-[9.5px] font-medium opacity-80">({floorSizing[floor].designDfu} DFU)</span>
-                                              </div>
-                                            )}
-                                          </div>
-
-                                          <div className="flex items-center gap-1.5">
-                                            <button
-                                              type="button"
-                                              disabled={isLocked}
-                                              onClick={() => handleAddSpace(floor)}
-                                              className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-primary hover:bg-primary/10 px-2 py-0.5 rounded cursor-pointer transition-colors"
-                                              title={`Add space to ${floor}`}
-                                            >
-                                              <Plus className="size-3" /> Space
-                                            </button>
-                                            <button
-                                              type="button"
-                                              disabled={isLocked}
-                                              onClick={() => handleDeleteFloorGroup(floor)}
-                                              className="text-rose-500 hover:text-rose-700 text-[10.5px] font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/20 px-2 py-0.5 rounded cursor-pointer transition-colors"
-                                            >
-                                              Delete Floor
-                                            </button>
-                                          </div>
-                                        </div>
-                                      </td>
-                                    </tr>
-
-                                    {/* Space Rows */}
-                                    {spacesInFloor.map((space, idx) => {
-                                    const isSelected = selectedSpaceIds.includes(space.id);
-                                    let spaceUnitDfu = 0;
-                                    DRAINAGE_FIXTURES_META.forEach(f => {
-                                      spaceUnitDfu += f.dfu * (space.fixtures[f.id] || 0);
-                                    });
-                                    const mult = (space.spaceQty || 1) * (space.floorsQty || 1);
-                                    const spaceTotalDfu = spaceUnitDfu * mult;
-
-                                    return (
-                                      <ContextMenu key={space.id}>
-                                        <ContextMenuTrigger asChild>
-                                          <tr
-                                            id={`space-row-${space.id}`}
-                                            data-row-id={space.id}
-                                            data-space-id={space.id}
-                                            data-item-id={space.id}
-                                            data-comment-target={space.id}
-                                            onDoubleClick={() => {
-                                              if (isLocked) {
-                                                toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
-                                                return;
-                                              }
-                                              setEditingSpace({ space, floor });
-                                            }}
-                                            className={`border-b border-border/60 hover:bg-primary/5 transition-all duration-200 cursor-pointer ${
-                                              highlightedSpaceId === space.id
-                                                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
-                                                : isSelected
-                                                ? "bg-primary/10"
-                                                : idx % 2 === 1
-                                                ? "bg-muted/15"
-                                                : "bg-card"
-                                            }`}
-                                          >
-                                            <td className="p-2 text-center" onDoubleClick={e => e.stopPropagation()}>
-                                              <input
-                                                type="checkbox"
-                                                checked={isSelected}
-                                                onChange={e => handleToggleSelectSpace(space.id, e.target.checked)}
-                                                className="size-3.5 accent-primary cursor-pointer rounded"
-                                              />
-                                            </td>
-
-                                            <td className="p-1 font-medium text-foreground">
-                                              <div className="flex items-center justify-between gap-1.5 w-full">
-                                                <InlineInput
-                                                  disabled={isLocked}
-                                                  value={space.desc}
-                                                  onCommit={val => handleUpdateSpaceDesc(space.id, val)}
-                                                  className="font-medium text-xs text-foreground px-1.5 py-0.5 w-full max-w-[220px]"
-                                                  placeholder="Space / Area Description"
-                                                />
-                                                {(() => {
-                                                  const spaceComments = getSpaceComments(space);
-                                                  if (spaceComments.length === 0) return null;
-                                                  return (
-                                                    <button
-                                                      type="button"
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleOpenComment(space.id, space.desc);
-                                                      }}
-                                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-bold border border-blue-500/20 hover:bg-blue-500/20 transition-colors cursor-pointer shrink-0"
-                                                      title={`${spaceComments.length} comment(s) / task(s)`}
-                                                    >
-                                                      <MessageSquare className="size-3 text-blue-500" />
-                                                      <span>{spaceComments.length}</span>
-                                                    </button>
-                                                  );
-                                                })()}
-                                              </div>
-                                            </td>
-
-                                            {/* Fixture Quantities */}
-                                            {DRAINAGE_FIXTURES_META.map(f => {
-                                              const count = space.fixtures[f.id] || 0;
-                                              return (
-                                                <td key={f.id} className="p-1 text-center border-r border-border/30">
-                                                  <InlineInput
-                                                    type="number"
-                                                    min={0}
-                                                    disabled={isLocked}
-                                                    value={count === 0 ? "" : count}
-                                                    placeholder="0"
-                                                    onCommit={val => handleUpdateSpaceFixture(space.id, f.id, parseInt(val) || 0)}
-                                                    className={`w-10 text-center rounded py-0.5 text-xs font-mono font-semibold transition-colors ${
-                                                      count > 0 ? "bg-primary/10 text-primary font-bold border border-primary/30" : "bg-transparent text-muted-foreground/50 border border-transparent hover:border-border/60"
-                                                    }`}
-                                                  />
-                                                </td>
-                                              );
-                                            })}
-
-                                            {/* Unit DFU */}
-                                            <td className="p-2 text-center font-mono font-bold text-foreground border-r border-border/60">
-                                              {spaceUnitDfu.toFixed(1)}
-                                            </td>
-
-                                            {/* Space Qty Multiplier */}
-                                            <td className="p-1 text-center border-r border-border/40">
-                                              <InlineInput
-                                                type="number"
-                                                min={1}
-                                                disabled={isLocked}
-                                                value={space.spaceQty}
-                                                onCommit={val => handleUpdateSpaceMultiplier(space.id, "spaceQty", parseInt(val) || 1)}
-                                                className="w-10 text-center rounded py-0.5 text-xs font-bold bg-surface-2 border border-border/60"
-                                              />
-                                            </td>
-
-                                            {/* Floors Qty Multiplier */}
-                                            <td className="p-1 text-center border-r border-border/40">
-                                              <InlineInput
-                                                type="number"
-                                                min={1}
-                                                disabled={isLocked}
-                                                value={space.floorsQty}
-                                                onCommit={val => handleUpdateSpaceMultiplier(space.id, "floorsQty", parseInt(val) || 1)}
-                                                className="w-10 text-center rounded py-0.5 text-xs font-bold bg-surface-2 border border-border/60"
-                                              />
-                                            </td>
-
-                                            <td className="p-2 text-center font-black text-primary">
-                                              {spaceTotalDfu.toFixed(1)}
-                                            </td>
-                                          </tr>
-                                        </ContextMenuTrigger>
-                                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-xs z-50">
-                                          <ContextMenuItem
-                                            disabled={isLocked}
-                                            onClick={() => {
-                                              if (isLocked) {
-                                                toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
-                                                return;
-                                              }
-                                              setEditingSpace({ space, floor });
-                                            }}
-                                            className={`flex items-center gap-2 p-1.5 font-medium ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                                          >
-                                            <Edit3 className="size-3.5 text-muted-foreground" />
-                                            <span>Edit Space Quantities</span>
-                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double-click</ContextMenuShortcut>
-                                          </ContextMenuItem>
-                                          <ContextMenuItem
-                                            onClick={() => handleCopySpaces([space.id])}
-                                            className="flex items-center gap-2 p-1.5 font-medium cursor-pointer"
-                                          >
-                                            <Copy className="size-3.5 text-muted-foreground" />
-                                            <span>Copy Space</span>
-                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                                          </ContextMenuItem>
-                                          <ContextMenuItem
-                                            disabled={isLocked}
-                                            onClick={() => {
-                                              if (isLocked) {
-                                                toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
-                                                return;
-                                              }
-                                              handleCutSpaces([space.id]);
-                                            }}
-                                            className={`flex items-center gap-2 p-1.5 font-medium ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                                          >
-                                            <Scissors className="size-3.5 text-muted-foreground" />
-                                            <span>Cut Space</span>
-                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</ContextMenuShortcut>
-                                          </ContextMenuItem>
-                                          <ContextMenuItem
-                                            disabled={isLocked}
-                                            onClick={handlePasteSpaces}
-                                            className={`flex items-center gap-2 p-1.5 font-medium ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                                          >
-                                            <ClipboardPaste className="size-3.5 text-muted-foreground" />
-                                            <span>Paste Space</span>
-                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                                          </ContextMenuItem>
-                                          <ContextMenuItem
-                                            disabled={isLocked}
-                                            onClick={() => {
-                                              if (isLocked) {
-                                                toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
-                                                return;
-                                              }
-                                              handleDuplicateSpace(space);
-                                            }}
-                                            className={`flex items-center gap-2 p-1.5 font-medium ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                                          >
-                                            <Copy className="size-3.5 text-muted-foreground" />
-                                            <span>Duplicate Space</span>
-                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
-                                          </ContextMenuItem>
-                                          <ContextMenuSeparator className="h-px bg-border my-1" />
-                                          <ContextMenuItem onClick={() => handleOpenComment(space.id, space.desc)} className="flex items-center gap-2 p-1.5 cursor-pointer text-blue-600 font-medium">
-                                            <MessageSquare className="size-3.5" />
-                                            <span>{getSpaceComments(space).length > 0 ? `Comments / Tasks (${getSpaceComments(space).length})` : "Add Comment / Task"}</span>
-                                          </ContextMenuItem>
-                                          <ContextMenuItem
-                                            disabled={isLocked}
-                                            onClick={() => {
-                                              if (isLocked) {
-                                                toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
-                                                return;
-                                              }
-                                              if (selectedSpaceIds.includes(space.id) && selectedSpaceIds.length > 1) {
-                                                handleBulkDelete();
-                                              } else {
-                                                handleDeleteSpace(space.id);
-                                              }
-                                            }}
-                                            className={`flex items-center gap-2 p-1.5 font-medium ${isLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer text-rose-600"}`}
-                                          >
-                                            <Trash2 className="size-3.5" />
-                                            <span>{selectedSpaceIds.includes(space.id) && selectedSpaceIds.length > 1 ? `Delete Selected (${selectedSpaceIds.length} spaces)` : "Delete Space"}</span>
-                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Del</ContextMenuShortcut>
-                                          </ContextMenuItem>
-                                        </ContextMenuContent>
-                                      </ContextMenu>
-                                    );
-                                  })}
-                                </tbody>
-                              );
-                            })}
-                            </table>
-                          </div>
-
-                          {/* Bottom Status & Summary Bar (Matching Ventilation UI) */}
-                          <div className="px-4 py-2 bg-card border-t border-border flex items-center justify-between text-xs text-muted-foreground shrink-0 select-none flex-wrap gap-2">
-                            <div className="flex items-center gap-2">
-                              <span>Showing <strong className="text-foreground">{drainageSpaces.length}</strong> of <strong className="text-foreground">{drainageSpaces.length}</strong> spaces</span>
-                            </div>
-                            <div className="flex items-center gap-3 font-mono text-[11px] flex-wrap">
-                              <span>Total Fixtures: <strong className="text-foreground">{calcResults.totalCount}</strong></span>
-                              <span className="text-border">|</span>
-                              <span>Design DFU: <strong className="text-primary font-bold">{calcResults.designDfu} DFU</strong></span>
-                              <span className="text-border">|</span>
-                              <span>Main Sized Pipe: <strong className="text-foreground">{isSI ? `${calcResults.sizedDn} mm DN` : `${calcResults.sizedNps}" NPS`}</strong></span>
-                              <span className="text-border">|</span>
-                              <span>Velocity: <strong className={calcResults.isScourVelocityOk ? "text-emerald-600 font-bold" : "text-amber-600 font-bold"}>{isSI ? `${calcResults.velocityMps} m/s` : `${calcResults.velocityFps} fps`}</strong></span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Intelligence drawer */}
-                <div
-                  className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-                    intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-card shadow-lg flex flex-col" : "w-0"
-                  }`}
-                >
-                  {intelOpen && (
-                    <DrainageIntelligenceDrawer
-                      onClose={() => setIntelOpen(false)}
-                      calcResults={calcResults}
-                      drainageSpaces={drainageSpaces}
-                      floorSections={floorSections}
-                      floorSystemTypes={floorSystemTypes}
-                      floorSizing={floorSizing}
-                      systemType={systemType}
-                      slope={slope}
-                      material={material}
-                      ventLength={ventLength}
-                      unitSystem={unitSystem}
-                      selectedPreset={selectedPreset}
-                      isLocked={isLocked}
-                      onSelectPreset={handleApplyPreset}
-                      onSetSlope={(sl) => {
-                        if (isLocked) {
-                          toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
-                          return;
-                        }
-                        setSlope(sl);
-                        dirtyStore.set(true);
-                      }}
-                      onSetFormulaModal={setShowFormulaModal}
-                      onSetInspectorModal={setShowInspectorModal}
-                      onScrollToSpace={(spaceId) => {
-                        const el = document.getElementById(`space-row-${spaceId}`);
-                        if (el) {
-                          el.scrollIntoView({ behavior: "smooth", block: "center" });
-                          el.classList.add("bg-primary/25");
-                          setTimeout(() => el.classList.remove("bg-primary/25"), 2000);
-                        }
-                      }}
-                      onScrollToFloor={(floorName) => {
-                        const el = document.getElementById(`floor-section-${floorName}`);
-                        if (el) {
-                          el.scrollIntoView({ behavior: "smooth", block: "start" });
-                        }
-                      }}
-                    />
-                  )}
-                </div>
-              </div>
-
-        {/* Edit Space Modal (Triggered on Space Double-Click) */}
-        {editingSpace && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
-            <div className="bg-card text-card-foreground border border-border rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div className="flex items-center gap-2">
-                  <Edit3 className="size-5 text-primary" />
-                  <div>
-                    <h3 className="text-base font-bold text-foreground">Edit Space Fixture Schedule</h3>
-                    <p className="text-xs text-muted-foreground">Configure plumbing fixtures and multiplier counts for this space</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setEditingSpace(null)}
-                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
-                >
-                  <X className="size-5" />
-                </button>
-              </div>
-
-              {/* Space Name and Floor Selector */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div className="space-y-1">
-                  <label className="font-semibold text-muted-foreground">Space / Room Name</label>
-                  <input
-                    type="text"
-                    disabled={isLocked}
-                    value={editingSpace.space.desc}
-                    onChange={e => {
-                      const val = e.target.value;
-                      setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, desc: val } } : null);
-                    }}
-                    className="w-full bg-background border border-input rounded-xl p-2 font-semibold text-foreground text-xs disabled:opacity-60"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-semibold text-muted-foreground">Floor Section</label>
-                  <select
-                    disabled={isLocked}
-                    value={editingSpace.space.floor}
-                    onChange={e => {
-                      const val = e.target.value;
-                      setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, floor: val } } : null);
-                    }}
-                    className="w-full bg-background border border-input rounded-xl p-2 font-semibold text-foreground text-xs cursor-pointer disabled:opacity-60"
-                  >
-                    {floorSections.map(fl => (
-                      <option key={fl} value={fl}>{fl}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Multipliers */}
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="space-y-1">
-                  <label className="font-semibold text-muted-foreground">Space Typical Quantity</label>
-                  <input
-                    type="number"
-                    min={1}
-                    disabled={isLocked}
-                    value={editingSpace.space.spaceQty}
-                    onChange={e => {
-                      const val = Math.max(1, parseInt(e.target.value) || 1);
-                      setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, spaceQty: val } } : null);
-                    }}
-                    className="w-full bg-background border border-input rounded-xl p-2 font-bold text-foreground text-xs disabled:opacity-60"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="font-semibold text-muted-foreground">Number of Typical Floors</label>
-                  <input
-                    type="number"
-                    min={1}
-                    disabled={isLocked}
-                    value={editingSpace.space.floorsQty}
-                    onChange={e => {
-                      const val = Math.max(1, parseInt(e.target.value) || 1);
-                      setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, floorsQty: val } } : null);
-                    }}
-                    className="w-full bg-background border border-input rounded-xl p-2 font-bold text-foreground text-xs disabled:opacity-60"
-                  />
-                </div>
-              </div>
-
-              {/* Fixture Counters List */}
-              <div className="space-y-2 pt-2 border-t border-border">
-                <div className="flex justify-between items-center text-xs font-semibold text-muted-foreground">
-                  <span>Sanitary Fixtures</span>
-                  <span>Unit DFU Subtotal</span>
-                </div>
-                <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1 custom-scrollbar">
-                  {DRAINAGE_FIXTURES_META.map(f => {
-                    const count = editingSpace.space.fixtures[f.id] || 0;
-                    return (
-                      <div key={f.id} className="flex items-center justify-between p-2.5 rounded-xl border border-border/70 bg-surface-2">
-                        <div className="flex-1 pr-2">
-                          <div className="font-semibold text-xs text-foreground">{f.name}</div>
-                          <div className="text-[10px] text-muted-foreground">Unit: {f.dfu} DFU • Trap: {f.minTrapSizeInches}" NPS</div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center border border-border rounded-lg bg-background p-0.5">
-                            <button
-                              type="button"
-                              disabled={isLocked}
-                              onClick={() => {
-                                const newVal = Math.max(0, count - 1);
-                                setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, fixtures: { ...prev.space.fixtures, [f.id]: newVal } } } : null);
-                              }}
-                              className="size-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground cursor-pointer disabled:opacity-40"
-                            >
-                              <Minus className="size-3" />
-                            </button>
-                            <input
-                              type="number"
-                              min={0}
-                              disabled={isLocked}
-                              value={count}
-                              onChange={e => {
-                                const newVal = Math.max(0, parseInt(e.target.value) || 0);
-                                setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, fixtures: { ...prev.space.fixtures, [f.id]: newVal } } } : null);
-                              }}
-                              className="w-10 text-center text-xs font-bold bg-transparent outline-none disabled:opacity-60"
-                            />
-                            <button
-                              type="button"
-                              disabled={isLocked}
-                              onClick={() => {
-                                const newVal = count + 1;
-                                setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, fixtures: { ...prev.space.fixtures, [f.id]: newVal } } } : null);
-                              }}
-                              className="size-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground cursor-pointer disabled:opacity-40"
-                            >
-                              <Plus className="size-3" />
-                            </button>
-                          </div>
-                          <div className="w-14 text-right text-xs font-bold text-primary">
-                            {(count * f.dfu).toFixed(1)} DFU
-                          </div>
+                        <div className="w-14 text-right text-xs font-bold text-primary">
+                          {(count * f.dfu).toFixed(1)} DFU
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => setEditingSpace(null)}
-                  className="px-4 py-2 rounded-xl border border-border text-xs font-semibold hover:bg-muted cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={isLocked}
-                  onClick={() => {
-                    if (isLocked) {
-                      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
-                      return;
-                    }
-                    if (editingSpace) {
-                      setDrainageSpaces(prev => prev.map(s => s.id === editingSpace.space.id ? editingSpace.space : s));
-                      dirtyStore.set(true);
-                      toast.success(`Updated space "${editingSpace.space.desc}"`);
-                    }
-                    setEditingSpace(null);
-                  }}
-                  className="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:bg-primary/90 cursor-pointer disabled:opacity-50"
-                >
-                  Save Changes
-                </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Inspector & Engineering Verification Modal (Triggered on Double-Clicking Section 3 or Category Breakdown) */}
-        {showInspectorModal && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
-            <div className="bg-card text-card-foreground border border-border rounded-2xl max-w-3xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="size-5 text-primary" />
-                  <div>
-                    <h3 className="text-base font-bold text-foreground">Engineering Verification & Load Breakdown Analysis</h3>
-                    <p className="text-xs text-muted-foreground">Comprehensive IPC 2021 Table 710.1 & Manning partial gravity flow verification</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowInspectorModal(false)}
-                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
-                >
-                  <X className="size-5" />
-                </button>
-              </div>
-
-              {/* Top 4 KPI Summary Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 select-none">
-                {/* Pipe Size Card */}
-                <div className="bg-surface-2 text-card-foreground border border-border rounded-xl p-3.5 shadow-2xs relative overflow-hidden">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Required Pipe Size</span>
-                    <div className="p-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg">
-                      <Cylinder className="size-3.5" />
-                    </div>
-                  </div>
-                  <div className="mt-1.5 flex items-baseline gap-1.5">
-                    <span className="text-xl font-black text-foreground">
-                      {isSI ? `${calcResults.sizedDn} mm` : `${calcResults.sizedNps}"`}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {isSI ? `(${calcResults.sizedNps}" NPS)` : `(${calcResults.sizedDn} mm DN)`}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                    <CheckCircle2 className="size-3" /> IPC 710.1 Compliant
-                  </div>
-                </div>
-
-                {/* Total Design Load */}
-                <div className="bg-surface-2 text-card-foreground border border-border rounded-xl p-3.5 shadow-2xs relative overflow-hidden">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Total Design Load</span>
-                    <div className="p-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                      <Layers className="size-3.5" />
-                    </div>
-                  </div>
-                  <div className="mt-1.5 flex items-baseline gap-1.5">
-                    <span className="text-xl font-black text-foreground">{calcResults.designDfu}</span>
-                    <span className="text-[11px] font-semibold text-muted-foreground">DFU</span>
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    Raw: {calcResults.rawDfu} DFU (+{safetyFactor}% margin)
-                  </div>
-                </div>
-
-                {/* Minimum Slope */}
-                <div className="bg-surface-2 text-card-foreground border border-border rounded-xl p-3.5 shadow-2xs relative overflow-hidden">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Minimum Slope</span>
-                    <div className="p-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg">
-                      <SlidersHorizontal className="size-3.5" />
-                    </div>
-                  </div>
-                  <div className="mt-1.5 flex items-baseline gap-1.5">
-                    <span className="text-xl font-black text-foreground">
-                      {isSI ? `${calcResults.slopeMmPerM}` : `${calcResults.slopeInPerFt}"`}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">{isSI ? "mm/m" : "in/ft"}</span>
-                  </div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    Grade: {calcResults.slopePercent}% slope
-                  </div>
-                </div>
-
-                {/* Scour Velocity */}
-                <div className="bg-surface-2 text-card-foreground border border-border rounded-xl p-3.5 shadow-2xs relative overflow-hidden">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Scour Flow Velocity</span>
-                    <div className="p-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg">
-                      <Waves className="size-3.5" />
-                    </div>
-                  </div>
-                  <div className="mt-1.5 flex items-baseline gap-1.5">
-                    <span className="text-xl font-black text-foreground">
-                      {isSI ? `${calcResults.velocityMps}` : `${calcResults.velocityFps}`}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">{isSI ? "m/s" : "ft/s"}</span>
-                  </div>
-                  <div className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                    <CheckCircle2 className="size-3" /> Self-Cleansing Scour Ok
-                  </div>
-                </div>
-              </div>
-
-              {/* 1. Capacity Utilization & Code Verification */}
-              <div className="p-4 rounded-xl border border-border bg-surface-2 space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Pipe Capacity Utilization</span>
-                  <span className="text-xs font-bold text-primary">{calcResults.capacityUtilization.toFixed(1)}% Utilized</span>
-                </div>
-                <div className="h-3 w-full bg-muted rounded-full overflow-hidden">
-                  <div
-                    style={{ width: `${Math.min(100, calcResults.capacityUtilization)}%` }}
-                    className={`h-full ${calcResults.capacityUtilization > 90 ? "bg-amber-500" : "bg-emerald-500"}`}
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-3 pt-1 text-center text-xs">
-                  <div className="p-2 rounded-lg bg-background border border-border/60">
-                    <div className="text-muted-foreground text-[10px]">Factored Design Load</div>
-                    <div className="text-sm font-black text-primary">{calcResults.designDfu} DFU</div>
-                  </div>
-                  <div className="p-2 rounded-lg bg-background border border-border/60">
-                    <div className="text-muted-foreground text-[10px]">Max Permitted Load</div>
-                    <div className="text-sm font-black text-foreground">{calcResults.maxAllowedDfu} DFU</div>
-                  </div>
-                  <div className="p-2 rounded-lg bg-background border border-border/60">
-                    <div className="text-muted-foreground text-[10px]">Chosen Diameter</div>
-                    <div className="text-sm font-black text-emerald-600">{isSI ? `${calcResults.sizedDn} mm` : `${calcResults.sizedNps}" NPS`}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. Hydraulics & Manning Partial Gravity Flow */}
-              <div className="p-4 rounded-xl border border-border bg-surface-2 space-y-3 text-xs">
-                <h4 className="font-bold text-foreground uppercase tracking-wider text-[11px]">Hydraulic Flow & Scour Verification (Manning Eq.)</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="p-2.5 rounded-lg bg-background border border-border/60">
-                    <div className="text-muted-foreground text-[10px]">Manning Roughness (n)</div>
-                    <div className="font-bold text-foreground">{calcResults.roughness}</div>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-background border border-border/60">
-                    <div className="text-muted-foreground text-[10px]">Installation Slope</div>
-                    <div className="font-bold text-foreground">{calcResults.slopePercent}% grade</div>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-background border border-border/60">
-                    <div className="text-muted-foreground text-[10px]">Scour Flow Velocity</div>
-                    <div className={`font-bold ${calcResults.isScourVelocityOk ? "text-emerald-600" : "text-amber-600"}`}>
-                      {isSI ? `${calcResults.velocityMps} m/s` : `${calcResults.velocityFps} ft/s`}
-                    </div>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-background border border-border/60">
-                    <div className="text-muted-foreground text-[10px]">Gravity Flow (Q_cap)</div>
-                    <div className="font-bold text-primary">{isSI ? `${calcResults.qCapLps} L/s` : `${calcResults.qCapGpm} GPM`}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 3. Category Load Contribution Breakdown */}
-              <div className="p-4 rounded-xl border border-border bg-surface-2 space-y-3 text-xs">
-                <h4 className="font-bold text-foreground uppercase tracking-wider text-[11px]">Sanitary Fixture Category Shares</h4>
-                <div className="h-3.5 w-full bg-muted rounded-full overflow-hidden flex">
-                  {calcResults.breakdown.map(item => (
-                    <div
-                      key={item.id}
-                      style={{ width: `${item.pct}%`, backgroundColor: item.color }}
-                      className="h-full"
-                    />
-                  ))}
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-                  {calcResults.breakdown.map(item => (
-                    <div key={item.id} className="flex items-start gap-2">
-                      <span className="size-2.5 rounded-full mt-1 shrink-0" style={{ backgroundColor: item.color }} />
-                      <div>
-                        <div className="font-semibold text-foreground">{item.name}</div>
-                        <div className="text-muted-foreground text-[11px]">{item.dfu} DFU ({item.pct.toFixed(1)}%)</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* 4. Venting Sizing Criteria */}
-              <div className="p-4 rounded-xl border border-border bg-surface-2 space-y-2 text-xs">
-                <h4 className="font-bold text-foreground uppercase tracking-wider text-[11px]">IPC Table 906.1 Vent Sizing Compliance</h4>
-                <div className="flex justify-between items-center text-xs p-2 rounded-lg bg-background border border-border/60">
-                  <span>Required Vent Pipe Diameter for {isSI ? (ventLength * 0.3048).toFixed(1) + " m" : ventLength + " ft"} Run:</span>
-                  <span className="font-bold text-blue-600 dark:text-blue-400">{isSI ? `${calcResults.ventDn} mm DN` : `${calcResults.ventNps}" NPS`}</span>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowInspectorModal(false)}
-                  className="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 cursor-pointer shadow-sm"
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Formula & Engineering Modal */}
-        {showFormulaModal && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 select-none">
-            <div className="bg-card text-card-foreground border border-border rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <div className="flex items-center gap-2">
-                  <HelpCircle className="size-5 text-primary" />
-                  <h3 className="text-lg font-bold text-foreground">Plumbing Drainage Sizing Engineering Equations</h3>
-                </div>
-                <button
-                  onClick={() => setShowFormulaModal(false)}
-                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
-                >
-                  <X className="size-5" />
-                </button>
-              </div>
-
-              <div className="space-y-4 text-xs leading-relaxed text-foreground">
-                <div className="p-3.5 bg-muted/40 rounded-xl space-y-1 border border-border/60">
-                  <div className="font-bold text-primary">1. Drainage Fixture Unit (DFU) Method (IPC Chapter 7)</div>
-                  <p className="text-muted-foreground">
-                    Drainage systems are sized probabilistically using Drainage Fixture Units (DFUs). The total design load is:
-                  </p>
-                  <div className="font-mono bg-background p-2 rounded border border-border text-[11px]">
-                    {"Design DFU = Total Connected Raw DFU × (1 + Safety Margin % / 100)"}
-                  </div>
-                </div>
-
-                <div className="p-3.5 bg-muted/40 rounded-xl space-y-1 border border-border/60">
-                  <div className="font-bold text-primary">2. Manning's Equation for Gravity Partial Flow</div>
-                  <p className="text-muted-foreground">
-                    The velocity and gravity flow capacity for partially filled drainage pipes are determined using Manning's formula:
-                  </p>
-                  <div className="font-mono bg-background p-2 rounded border border-border text-[11px]">
-                    {"Imperial: V = (1.486 / n) × Rh^(2/3) × S^(1/2)   [ft/s]"}
-                    <br />
-                    {"Metric:   V = (1.0 / n) × Rh^(2/3) × S^(1/2)     [m/s]"}
-                  </div>
-                </div>
-
-                <div className="p-3.5 bg-muted/40 rounded-xl space-y-1 border border-border/60">
-                  <div className="font-bold text-primary">3. Self-Cleansing Scour Velocity Requirement</div>
-                  <p className="text-muted-foreground">
-                    To prevent sanitary solids settling and pipe blockages, a minimum scour velocity of <strong>2.0 ft/s (0.60 m/s)</strong> is enforced by plumbing standards (IPC Table 704.1 & ASPE).
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Custom Drainage Config Modal */}
-        <CustomDrainageConfigModal
-          isOpen={customModalOpen}
-          onClose={() => setCustomModalOpen(false)}
-          unitSystem={unitSystem}
-          currentValues={{
-            systemType,
-            slope,
-            material,
-            safetyFactor,
-            ventLength,
-            fixtures: calcResults.aggregatedFixtures,
-            customProfileName,
-            customWorkflow,
-          }}
-          onApply={handleApplyCustomConfig}
-        />
-
-        {/* Assign Comment Modal */}
-        {isCommentModalOpen && commentTargetItem && (
-          <AssignCommentModal
-            isOpen={isCommentModalOpen}
-            onClose={() => {
-              setIsCommentModalOpen(false);
-              setCommentTargetItem(null);
-            }}
-            targetId={commentTargetItem.id}
-            targetName={commentTargetItem.name}
-            targetType="space"
-            calculatorTitle="Drainage Pipe Sizing"
-            calculatorPath="/plumbing-drainage"
-            existingComments={commentTargetItem ? getSpaceComments({ id: commentTargetItem.id, desc: commentTargetItem.name } as any) : []}
-            onSave={(comment) => {
-              const enrichedComment = {
-                ...comment,
-                calculatorTitle: "Drainage Pipe Sizing",
-                calculatorPath: "/plumbing-drainage",
-                targetId: commentTargetItem.id,
-                targetName: commentTargetItem.name,
-                targetType: "space",
-                projectId: project?.id || "default",
-                projectName: project?.name || "MEP Calculator Project",
-              };
-
-              setDrainageSpaces(prev =>
-                prev.map(s => {
-                  if (s.id === commentTargetItem.id || s.desc.trim().toLowerCase() === commentTargetItem.name.trim().toLowerCase()) {
-                    const existing = Array.isArray(s.comments) ? s.comments : [];
-                    return { ...s, comments: [enrichedComment, ...existing] };
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setEditingSpace(null)}
+                className="px-4 py-2 rounded-xl border border-border text-xs font-semibold hover:bg-muted cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isLocked}
+                onClick={() => {
+                  if (isLocked) {
+                    toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
+                    return;
                   }
-                  return s;
-                })
-              );
+                  if (editingSpace) {
+                    setDrainageSpaces(prev => prev.map(s => s.id === editingSpace.space.id ? editingSpace.space : s));
+                    dirtyStore.set(true);
+                    toast.success(`Updated space "${editingSpace.space.desc}"`);
+                  }
+                  setEditingSpace(null);
+                }}
+                className="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-sm hover:bg-primary/90 cursor-pointer disabled:opacity-50"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-              setCommentsList(prev => [enrichedComment, ...prev]);
-              const storageKey = `mep_calc_comments_${project?.id || "default"}_/plumbing-drainage`;
-              try {
-                const existing = JSON.parse(localStorage.getItem(storageKey) || "[]");
-                localStorage.setItem(storageKey, JSON.stringify([enrichedComment, ...existing]));
-              } catch (e) {}
+      {/* Inspector & Engineering Verification Modal (Triggered on Double-Clicking Section 3 or Category Breakdown) */}
+      {showInspectorModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
+          <div className="bg-card text-card-foreground border border-border rounded-2xl max-w-3xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="size-5 text-primary" />
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Engineering Verification & Load Breakdown Analysis</h3>
+                  <p className="text-xs text-muted-foreground">Comprehensive IPC 2021 Table 710.1 & Manning partial gravity flow verification</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowInspectorModal(false)}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
 
-              try {
-                if (project?.id) {
-                  const wdata = project.workspace_data || {};
-                  const existingComments = Array.isArray(wdata.drainage_calc_comments) ? wdata.drainage_calc_comments : [];
-                  const updatedWdata = {
-                    ...wdata,
-                    drainage_calc_comments: [enrichedComment, ...existingComments]
-                  };
-                  workspaceStore.updateProject({ ...project, workspace_data: updatedWdata });
+            {/* Top 4 KPI Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 select-none">
+              {/* Pipe Size Card */}
+              <div className="bg-surface-2 text-card-foreground border border-border rounded-xl p-3.5 shadow-2xs relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Required Pipe Size</span>
+                  <div className="p-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg">
+                    <Cylinder className="size-3.5" />
+                  </div>
+                </div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className="text-xl font-black text-foreground">
+                    {isSI ? `${calcResults.sizedDn} mm` : `${calcResults.sizedNps}"`}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {isSI ? `(${calcResults.sizedNps}" NPS)` : `(${calcResults.sizedDn} mm DN)`}
+                  </span>
+                </div>
+                <div className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                  <CheckCircle2 className="size-3" /> IPC 710.1 Compliant
+                </div>
+              </div>
+
+              {/* Total Design Load */}
+              <div className="bg-surface-2 text-card-foreground border border-border rounded-xl p-3.5 shadow-2xs relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Total Design Load</span>
+                  <div className="p-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                    <Layers className="size-3.5" />
+                  </div>
+                </div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className="text-xl font-black text-foreground">{calcResults.designDfu}</span>
+                  <span className="text-[11px] font-semibold text-muted-foreground">DFU</span>
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  Raw: {calcResults.rawDfu} DFU (+{safetyFactor}% margin)
+                </div>
+              </div>
+
+              {/* Minimum Slope */}
+              <div className="bg-surface-2 text-card-foreground border border-border rounded-xl p-3.5 shadow-2xs relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Minimum Slope</span>
+                  <div className="p-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg">
+                    <SlidersHorizontal className="size-3.5" />
+                  </div>
+                </div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className="text-xl font-black text-foreground">
+                    {isSI ? `${calcResults.slopeMmPerM}` : `${calcResults.slopeInPerFt}"`}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">{isSI ? "mm/m" : "in/ft"}</span>
+                </div>
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                  Grade: {calcResults.slopePercent}% slope
+                </div>
+              </div>
+
+              {/* Scour Velocity */}
+              <div className="bg-surface-2 text-card-foreground border border-border rounded-xl p-3.5 shadow-2xs relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Scour Flow Velocity</span>
+                  <div className="p-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg">
+                    <Waves className="size-3.5" />
+                  </div>
+                </div>
+                <div className="mt-1.5 flex items-baseline gap-1.5">
+                  <span className="text-xl font-black text-foreground">
+                    {isSI ? `${calcResults.velocityMps}` : `${calcResults.velocityFps}`}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">{isSI ? "m/s" : "ft/s"}</span>
+                </div>
+                <div className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                  <CheckCircle2 className="size-3" /> Self-Cleansing Scour Ok
+                </div>
+              </div>
+            </div>
+
+            {/* 1. Capacity Utilization & Code Verification */}
+            <div className="p-4 rounded-xl border border-border bg-surface-2 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Pipe Capacity Utilization</span>
+                <span className="text-xs font-bold text-primary">{calcResults.capacityUtilization.toFixed(1)}% Utilized</span>
+              </div>
+              <div className="h-3 w-full bg-muted rounded-full overflow-hidden">
+                <div
+                  style={{ width: `${Math.min(100, calcResults.capacityUtilization)}%` }}
+                  className={`h-full ${calcResults.capacityUtilization > 90 ? "bg-amber-500" : "bg-emerald-500"}`}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-3 pt-1 text-center text-xs">
+                <div className="p-2 rounded-lg bg-background border border-border/60">
+                  <div className="text-muted-foreground text-[10px]">Factored Design Load</div>
+                  <div className="text-sm font-black text-primary">{calcResults.designDfu} DFU</div>
+                </div>
+                <div className="p-2 rounded-lg bg-background border border-border/60">
+                  <div className="text-muted-foreground text-[10px]">Max Permitted Load</div>
+                  <div className="text-sm font-black text-foreground">{calcResults.maxAllowedDfu} DFU</div>
+                </div>
+                <div className="p-2 rounded-lg bg-background border border-border/60">
+                  <div className="text-muted-foreground text-[10px]">Chosen Diameter</div>
+                  <div className="text-sm font-black text-emerald-600">{isSI ? `${calcResults.sizedDn} mm` : `${calcResults.sizedNps}" NPS`}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Hydraulics & Manning Partial Gravity Flow */}
+            <div className="p-4 rounded-xl border border-border bg-surface-2 space-y-3 text-xs">
+              <h4 className="font-bold text-foreground uppercase tracking-wider text-[11px]">Hydraulic Flow & Scour Verification (Manning Eq.)</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-2.5 rounded-lg bg-background border border-border/60">
+                  <div className="text-muted-foreground text-[10px]">Manning Roughness (n)</div>
+                  <div className="font-bold text-foreground">{calcResults.roughness}</div>
+                </div>
+                <div className="p-2.5 rounded-lg bg-background border border-border/60">
+                  <div className="text-muted-foreground text-[10px]">Installation Slope</div>
+                  <div className="font-bold text-foreground">{calcResults.slopePercent}% grade</div>
+                </div>
+                <div className="p-2.5 rounded-lg bg-background border border-border/60">
+                  <div className="text-muted-foreground text-[10px]">Scour Flow Velocity</div>
+                  <div className={`font-bold ${calcResults.isScourVelocityOk ? "text-emerald-600" : "text-amber-600"}`}>
+                    {isSI ? `${calcResults.velocityMps} m/s` : `${calcResults.velocityFps} ft/s`}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-lg bg-background border border-border/60">
+                  <div className="text-muted-foreground text-[10px]">Gravity Flow (Q_cap)</div>
+                  <div className="font-bold text-primary">{isSI ? `${calcResults.qCapLps} L/s` : `${calcResults.qCapGpm} GPM`}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Category Load Contribution Breakdown */}
+            <div className="p-4 rounded-xl border border-border bg-surface-2 space-y-3 text-xs">
+              <h4 className="font-bold text-foreground uppercase tracking-wider text-[11px]">Sanitary Fixture Category Shares</h4>
+              <div className="h-3.5 w-full bg-muted rounded-full overflow-hidden flex">
+                {calcResults.breakdown.map(item => (
+                  <div
+                    key={item.id}
+                    style={{ width: `${item.pct}%`, backgroundColor: item.color }}
+                    className="h-full"
+                  />
+                ))}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                {calcResults.breakdown.map(item => (
+                  <div key={item.id} className="flex items-start gap-2">
+                    <span className="size-2.5 rounded-full mt-1 shrink-0" style={{ backgroundColor: item.color }} />
+                    <div>
+                      <div className="font-semibold text-foreground">{item.name}</div>
+                      <div className="text-muted-foreground text-[11px]">{item.dfu} DFU ({item.pct.toFixed(1)}%)</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 4. Venting Sizing Criteria */}
+            <div className="p-4 rounded-xl border border-border bg-surface-2 space-y-2 text-xs">
+              <h4 className="font-bold text-foreground uppercase tracking-wider text-[11px]">IPC Table 906.1 Vent Sizing Compliance</h4>
+              <div className="flex justify-between items-center text-xs p-2 rounded-lg bg-background border border-border/60">
+                <span>Required Vent Pipe Diameter for {isSI ? (ventLength * 0.3048).toFixed(1) + " m" : ventLength + " ft"} Run:</span>
+                <span className="font-bold text-blue-600 dark:text-blue-400">{isSI ? `${calcResults.ventDn} mm DN` : `${calcResults.ventNps}" NPS`}</span>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowInspectorModal(false)}
+                className="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 cursor-pointer shadow-sm"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Formula & Engineering Modal */}
+      {showFormulaModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+          <div className="bg-card text-card-foreground border border-border rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="size-5 text-primary" />
+                <h3 className="text-lg font-bold text-foreground">Plumbing Drainage Sizing Engineering Equations</h3>
+              </div>
+              <button
+                onClick={() => setShowFormulaModal(false)}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs leading-relaxed text-foreground">
+              <div className="p-3.5 bg-muted/40 rounded-xl space-y-1 border border-border/60">
+                <div className="font-bold text-primary">1. Drainage Fixture Unit (DFU) Method (IPC Chapter 7)</div>
+                <p className="text-muted-foreground">
+                  Drainage systems are sized probabilistically using Drainage Fixture Units (DFUs). The total design load is:
+                </p>
+                <div className="font-mono bg-background p-2 rounded border border-border text-[11px]">
+                  {"Design DFU = Total Connected Raw DFU × (1 + Safety Margin % / 100)"}
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-muted/40 rounded-xl space-y-1 border border-border/60">
+                <div className="font-bold text-primary">2. Manning's Equation for Gravity Partial Flow</div>
+                <p className="text-muted-foreground">
+                  The velocity and gravity flow capacity for partially filled drainage pipes are determined using Manning's formula:
+                </p>
+                <div className="font-mono bg-background p-2 rounded border border-border text-[11px]">
+                  {"Imperial: V = (1.486 / n) × Rh^(2/3) × S^(1/2)   [ft/s]"}
+                  <br />
+                  {"Metric:   V = (1.0 / n) × Rh^(2/3) × S^(1/2)     [m/s]"}
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-muted/40 rounded-xl space-y-1 border border-border/60">
+                <div className="font-bold text-primary">3. Self-Cleansing Scour Velocity Requirement</div>
+                <p className="text-muted-foreground">
+                  To prevent sanitary solids settling and pipe blockages, a minimum scour velocity of <strong>2.0 ft/s (0.60 m/s)</strong> is enforced by plumbing standards (IPC Table 704.1 & ASPE).
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Drainage Config Modal */}
+      <CustomDrainageConfigModal
+        isOpen={customModalOpen}
+        onClose={() => setCustomModalOpen(false)}
+        unitSystem={unitSystem}
+        currentValues={{
+          systemType,
+          slope,
+          material,
+          safetyFactor,
+          ventLength,
+          fixtures: calcResults.aggregatedFixtures,
+          customProfileName,
+          customWorkflow,
+        }}
+        onApply={handleApplyCustomConfig}
+      />
+
+      {/* Assign Comment Modal */}
+      {isCommentModalOpen && commentTargetItem && (
+        <AssignCommentModal
+          isOpen={isCommentModalOpen}
+          onClose={() => {
+            setIsCommentModalOpen(false);
+            setCommentTargetItem(null);
+          }}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType="space"
+          calculatorTitle="Drainage Pipe Sizing"
+          calculatorPath="/plumbing-drainage"
+          existingComments={commentTargetItem ? getSpaceComments({ id: commentTargetItem.id, desc: commentTargetItem.name } as any) : []}
+          onSave={(comment) => {
+            const enrichedComment = {
+              ...comment,
+              calculatorTitle: "Drainage Pipe Sizing",
+              calculatorPath: "/plumbing-drainage",
+              targetId: commentTargetItem.id,
+              targetName: commentTargetItem.name,
+              targetType: "space",
+              projectId: project?.id || "default",
+              projectName: project?.name || "MEP Calculator Project",
+            };
+
+            setDrainageSpaces(prev =>
+              prev.map(s => {
+                if (s.id === commentTargetItem.id || s.desc.trim().toLowerCase() === commentTargetItem.name.trim().toLowerCase()) {
+                  const existing = Array.isArray(s.comments) ? s.comments : [];
+                  return { ...s, comments: [enrichedComment, ...existing] };
                 }
-              } catch (e) {
-                console.error("Failed to update workspaceStore project comments", e);
-              }
+                return s;
+              })
+            );
 
-              dirtyStore.set(true);
-              setIsCommentModalOpen(false);
-              setCommentTargetItem(null);
-            }}
-          />
-        )}
+            setCommentsList(prev => [enrichedComment, ...prev]);
+            const storageKey = `mep_calc_comments_${project?.id || "default"}_/plumbing-drainage`;
+            try {
+              const existing = JSON.parse(localStorage.getItem(storageKey) || "[]");
+              localStorage.setItem(storageKey, JSON.stringify([enrichedComment, ...existing]));
+            } catch (e) { }
+
+            try {
+              if (project?.id) {
+                const wdata = project.workspace_data || {};
+                const existingComments = Array.isArray(wdata.drainage_calc_comments) ? wdata.drainage_calc_comments : [];
+                const updatedWdata = {
+                  ...wdata,
+                  drainage_calc_comments: [enrichedComment, ...existingComments]
+                };
+                workspaceStore.updateProject({ ...project, workspace_data: updatedWdata });
+              }
+            } catch (e) {
+              console.error("Failed to update workspaceStore project comments", e);
+            }
+
+            dirtyStore.set(true);
+            setIsCommentModalOpen(false);
+            setCommentTargetItem(null);
+          }}
+        />
+      )}
     </AppShell>
   );
 }
@@ -3641,11 +3552,10 @@ function DrainageIntelligenceDrawer({
               Code Compliance Status
             </span>
             <span
-              className={`px-2 py-0.5 rounded-full text-[10.5px] font-black ${
-                complianceScore === 100
-                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                  : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-              }`}
+              className={`px-2 py-0.5 rounded-full text-[10.5px] font-black ${complianceScore === 100
+                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                }`}
             >
               {complianceScore}% Compliant
             </span>
@@ -3653,9 +3563,8 @@ function DrainageIntelligenceDrawer({
 
           <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all duration-500 rounded-full ${
-                complianceScore === 100 ? "bg-emerald-500" : "bg-amber-500"
-              }`}
+              className={`h-full transition-all duration-500 rounded-full ${complianceScore === 100 ? "bg-emerald-500" : "bg-amber-500"
+                }`}
               style={{ width: `${complianceScore}%` }}
             />
           </div>
@@ -3968,11 +3877,10 @@ function DrainageIntelligenceDrawer({
                         onSetSlope(sl.val);
                         toast.success(`Slope set to ${sl.label}`);
                       }}
-                      className={`py-1 text-[10.5px] font-bold rounded border cursor-pointer transition-colors ${
-                        slope === sl.val
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-surface-2 text-foreground border-border/60 hover:bg-muted"
-                      }`}
+                      className={`py-1 text-[10.5px] font-bold rounded border cursor-pointer transition-colors ${slope === sl.val
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-surface-2 text-foreground border-border/60 hover:bg-muted"
+                        }`}
                     >
                       {sl.label}
                     </button>
@@ -4040,4 +3948,3 @@ function DrainageIntelligenceDrawer({
     </div>
   );
 }
-

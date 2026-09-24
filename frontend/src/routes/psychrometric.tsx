@@ -135,7 +135,7 @@ function PsychrometricPage() {
   const isApprovedLocked = isCalcLocked || calcReviewState?.status === "APPROVED";
 
   const [tab, setTab] = useState<"calculator" | "report">("calculator");
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [dbtInput, setDbtInput] = useState<number | "">("");
   const [secondParam, setSecondParam] = useState<SecondParam>("rh");
   const [paramValue, setParamValue] = useState<number | "">("");

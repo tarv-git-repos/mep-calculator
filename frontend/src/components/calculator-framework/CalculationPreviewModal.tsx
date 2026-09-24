@@ -165,16 +165,30 @@ export function CalculationPreviewModal({ isOpen, onClose, data }: CalculationPr
                       )}
                     </div>
 
-                    {/* Formula */}
-                    <div className="bg-surface-2 font-mono text-[11.5px] px-2.5 py-1.5 rounded text-primary border border-primary/10 flex items-center justify-between">
-                      <span>{step.formula}</span>
-                      <span className="font-bold text-foreground">
-                        = {step.result} {step.unit}
-                      </span>
+                    {/* Formula & Substitution */}
+                    <div className="bg-surface-2 font-mono text-[11.5px] p-2.5 rounded border border-primary/10 space-y-1">
+                      <div className="text-muted-foreground text-[10.5px]">
+                        <span className="font-semibold text-muted-foreground/80">Formula: </span>
+                        <span className="text-primary">{step.formula}</span>
+                      </div>
+                      {step.substitution && (
+                        <div className="flex items-center justify-between font-medium text-foreground pt-1 border-t border-border/40">
+                          <span className="text-[11px] text-foreground font-mono">{step.substitution}</span>
+                          <span className="font-bold text-primary shrink-0 ml-2">
+                            = {step.result} {step.unit}
+                          </span>
+                        </div>
+                      )}
+                      {!step.substitution && (
+                        <div className="flex items-center justify-end font-bold text-primary pt-0.5">
+                          = {step.result} {step.unit}
+                        </div>
+                      )}
                     </div>
 
                     {step.description && (
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      <p className="text-[11px] text-muted-foreground leading-relaxed bg-muted/30 px-2 py-1 rounded border border-border/30">
+                        <span className="font-semibold text-foreground">Note: </span>
                         {step.description}
                       </p>
                     )}

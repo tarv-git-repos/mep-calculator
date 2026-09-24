@@ -92,7 +92,7 @@ function ChwPipeSizerPage() {
   const { project, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
   const [sizingParams, setSizingParams] = useState({
     flowRate: "" as number | "",

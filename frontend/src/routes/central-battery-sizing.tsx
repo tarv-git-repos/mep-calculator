@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/context-menu";
 import { useHistory, useSelection, useClipboard, useShortcuts } from "@/core/gridEngine";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { useWorkspace } from "@/lib/workspace-store";
 import {
   CalculationPreviewModal,
   type CalculationPreviewData
@@ -104,6 +105,7 @@ const STANDARD_CBS_SIZES = [
 
 function CentralBatterySizingPage() {
   const { userData, profile } = useAuth();
+  const { project } = useWorkspace();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -522,9 +524,6 @@ function CentralBatterySizingPage() {
     } catch (err: any) {
       console.error("PDF Export failed:", err);
       toast.error(`PDF Export failed: ${err?.message || "Unknown error"}`);
-      if (typeof window !== "undefined") {
-        window.alert(`PDF Export failed! Error: ${err?.message || String(err)}\n\nPlease take a screenshot of this and tell me what it says.`);
-      }
     }
   };
 
@@ -594,8 +593,8 @@ function CentralBatterySizingPage() {
     });
 
     
-    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "central-battery-sizing");
+    const sigRow = sheet.rowCount ? sheet.rowCount + 2 : 20;
+    addExcelSignatureBlock(sheet, sigRow, currentUserName, project?.id || "default", "central-battery-sizing");
     const buffer = await workbook.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), "CBS_Sizing_Report.xlsx");
   };

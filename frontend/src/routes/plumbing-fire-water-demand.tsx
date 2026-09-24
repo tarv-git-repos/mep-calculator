@@ -1,17 +1,20 @@
 import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { EditBuildingModal } from "@/components/workspace/EditBuildingModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
   Info, Sparkles, AlertTriangle, CheckCircle2, FileText, Printer, X, HelpCircle,
   MessageSquare, Flame, ShieldAlert, Check, Activity, Copy, Clipboard, RotateCcw,
   Trash2, Edit3, Lock, Droplets, Waves, Gauge, Clock, ShieldCheck, Layers, ArrowRight,
-  Building2, Building, Factory, SlidersHorizontal
+  Building2, Building, Factory, SlidersHorizontal, Plus, Download, Search, CheckSquare,
+  Square, Eye, ExternalLink, ChevronDown, ChevronRight, RefreshCw, BarChart2, Shield,
+  FileSpreadsheet, ArrowUpDown, MousePointerClick
 } from "lucide-react";
 import {
   ContextMenu,
@@ -26,145 +29,109 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { TBtn } from "@/components/workspace/Button";
-import { HazardProfileSelect } from "@/components/workspace/HazardProfileSelect";
-import { CustomFireDemandConfigModal } from "@/components/workspace/CustomFireDemandConfigModal";
+import {
+  type CivilDefenseBuilding,
+  type CivilDefenseOccupancy,
+  type CivilDefenseEvaluation,
+  evaluateCivilDefenseFireDemand,
+  getRecommendedHeaderSize,
+  CIVIL_DEFENSE_PRESETS,
+  type CivilDefensePresetConfig
+} from "@/lib/civilDefenseFireDemandCalc";
 
 export const Route = createFileRoute("/plumbing-fire-water-demand")({
   head: () => ({
     meta: [
-      { title: "Fire Water Demand Calculator â€” MEP Calc" },
-      { name: "description", content: "Determine total fire water demand for sprinklers, hydrants, hose reels, fire pumps, and storage tanks per NFPA 13, 14, 20 & 22." },
+      { title: "UAE Civil Defense Fire Water Demand Calculator — MEP Calc" },
+      { name: "description", content: "Determine fire pump flow, pressure, storage tanks, and intermediate staging per UAE Civil Defense Code Tables 9.18 to 9.21.e." },
     ],
   }),
   component: FireWaterDemandPage,
 });
 
-export type HazardPresetKey = "light_hazard" | "oh_1" | "oh_2" | "extra_hazard" | "high_rise_standpipe" | "custom";
+// Occupancy Labels and Helpers
+export const OCCUPANCY_OPTIONS: { value: CivilDefenseOccupancy; label: string; desc: string }[] = [
+  { value: "residential", label: "Residential (Apartments / Labor / Staff)", desc: "Flats, staff accommodation, hostels, boarding houses" },
+  { value: "business", label: "Business (Offices / Banks / Professional)", desc: "Corporate offices, service providers, civic buildings" },
+  { value: "hotel", label: "Hotel & Hospitality", desc: "Hotels, motels, luxury furnished apartments, resorts" },
+  { value: "mercantile_ab", label: "Mercantile Class A & B (Retail / Malls)", desc: "Shopping malls, supermarkets, department stores" },
+  { value: "mercantile_c_kiosk", label: "Mercantile Class C / Kiosks", desc: "Small retail shops, kiosks, convenience booths" },
+  { value: "assembly", label: "Assembly (Cinemas / Auditoriums / Clubs)", desc: "Theaters, convention centers, places of worship" },
+  { value: "education", label: "Education (Schools / Universities)", desc: "Classrooms, libraries, laboratories, nurseries" },
+  { value: "healthcare_a", label: "Healthcare Group A (Hospitals / Inpatient)", desc: "Hospitals with sleeping accommodations, ICUs" },
+  { value: "healthcare_bc", label: "Healthcare Group B & C (Outpatient Clinics)", desc: "Day clinics, specialized medical consultation" },
+  { value: "day_care", label: "Day Care Centers", desc: "Infant and child day care facilities" },
+  { value: "detention", label: "Detention & Correctional", desc: "Prisons, correctional centers, reformatories" },
+  { value: "animal_housing", label: "Animal Housing / Veterinary", desc: "Stables, veterinary clinics, kennels" },
+  { value: "converted_villa", label: "Converted Existing G+1 Villa", desc: "Villas converted to commercial, educational, or medical use" },
+  { value: "mosque_with_commercial", label: "Commercial Outlet on Villa / Mosque", desc: "Shops, cafes, or pharmacies attached to villas or mosques" },
+];
 
-export interface HazardPresetConfig {
-  key: HazardPresetKey;
-  label: string;
-  category: string;
-  description: string;
-  spFlow: number; // GPM
-  spPress: number; // psi
-  hyCount: number;
-  hyFlow: number; // GPM
-  hrCount: number;
-  hrFlow: number; // GPM
-  designDuration: number; // minutes
-  tankReservePct: number; // %
-}
+// Initial Demonstration Project Schedule
+const INITIAL_BUILDINGS: CivilDefenseBuilding[] = [
+  {
+    id: "bld-tower-a",
+    name: "Tower A (Super Highrise Hotel & Residences)",
+    height: 110,
+    floors: 32,
+    plotArea: 14000,
+    groundFloorArea: 1800,
+    occupancy: "hotel",
+    standpipeCount: 3,
+    hasInfraHydrants60m: true,
+    isSingleExitStair: false,
+    basementCount: 2,
+    notes: "Requires 1000 GPM @ 17 bar lowest pump + intermediate 1000 GPM @ 6.9 bar staging pump at +90m."
+  },
+  {
+    id: "bld-block-b",
+    name: "Block B (Highrise Commercial Offices)",
+    height: 65,
+    floors: 18,
+    plotArea: 18000,
+    groundFloorArea: 2200,
+    occupancy: "business",
+    standpipeCount: 2,
+    hasInfraHydrants60m: true,
+    isSingleExitStair: false,
+    basementCount: 2,
+    notes: "Standard Highrise Tier 1: 750 GPM @ 6.9 bar combined pump, 60-min dedicated water tank."
+  },
+  {
+    id: "bld-podium-c",
+    name: "Block C (Podium Retail Mall & Cineplex)",
+    height: 14,
+    floors: 3,
+    plotArea: 24000,
+    groundFloorArea: 4800,
+    occupancy: "mercantile_ab",
+    standpipeCount: 3,
+    hasInfraHydrants60m: false,
+    isSingleExitStair: false,
+    basementCount: 1,
+    notes: "Large plot (>20,000 m²) without 60m infra hydrants: 1000 GPM @ 6.9 bar combined pump for yard hydrants."
+  },
+  {
+    id: "bld-staff-d",
+    name: "Block D (Staff Accommodation Lowrise)",
+    height: 18,
+    floors: 5,
+    plotArea: 3500,
+    groundFloorArea: 800,
+    occupancy: "residential",
+    standpipeCount: 1,
+    hasInfraHydrants60m: true,
+    isSingleExitStair: false,
+    basementCount: 0,
+    notes: "Midrise residential with GFA <= 900 m²: 50 GPM @ 4.5 bar dry riser + hose reel system."
+  }
+];
 
-export const HAZARD_PRESETS: Record<HazardPresetKey, HazardPresetConfig> = {
-  light_hazard: {
-    key: "light_hazard",
-    label: "Light Hazard (LH)",
-    category: "NFPA 13 / NFPA 14 Class II",
-    description: "Offices, schools, residential, churches, hospitals with low fire loading.",
-    spFlow: 250,
-    spPress: 50,
-    hyCount: 1,
-    hyFlow: 250,
-    hrCount: 2,
-    hrFlow: 25,
-    designDuration: 30,
-    tankReservePct: 10,
-  },
-  oh_1: {
-    key: "oh_1",
-    label: "Ordinary Hazard Group 1 (OH-1)",
-    category: "NFPA 13 / NFPA 14",
-    description: "Parking garages, restaurants, bakeries, electronic plants (combustibility low, stockpiles <= 8ft).",
-    spFlow: 350,
-    spPress: 60,
-    hyCount: 2,
-    hyFlow: 250,
-    hrCount: 2,
-    hrFlow: 30,
-    designDuration: 60,
-    tankReservePct: 10,
-  },
-  oh_2: {
-    key: "oh_2",
-    label: "Ordinary Hazard Group 2 (OH-2)",
-    category: "NFPA 13 / NFPA 14 Class I/III",
-    description: "Retail malls, mercantile, machine shops, warehouses, textile mills.",
-    spFlow: 500,
-    spPress: 65,
-    hyCount: 2,
-    hyFlow: 250,
-    hrCount: 2,
-    hrFlow: 30,
-    designDuration: 90,
-    tankReservePct: 10,
-  },
-  extra_hazard: {
-    key: "extra_hazard",
-    label: "Extra Hazard (EH-1 / EH-2)",
-    category: "NFPA 13 / NFPA 14 Heavy Industrial",
-    description: "Chemical processing, plastics manufacturing, aircraft hangars, flammable storage.",
-    spFlow: 1000,
-    spPress: 75,
-    hyCount: 2,
-    hyFlow: 500,
-    hrCount: 4,
-    hrFlow: 50,
-    designDuration: 120,
-    tankReservePct: 15,
-  },
-  high_rise_standpipe: {
-    key: "high_rise_standpipe",
-    label: "High-Rise Standpipe & Sprinkler",
-    category: "NFPA 14 Class I + NFPA 13 Combined",
-    description: "Multi-story towers requiring 500 GPM 1st standpipe riser + 250 GPM each additional riser + sprinkler.",
-    spFlow: 750,
-    spPress: 100,
-    hyCount: 3, // 500 + 250 + 250 GPM
-    hyFlow: 250,
-    hrCount: 2,
-    hrFlow: 25,
-    designDuration: 90,
-    tankReservePct: 10,
-  },
-  custom: {
-    key: "custom",
-    label: "Custom User Defined",
-    category: "Engineered Fire Protection",
-    description: "Custom project specifications, special hazards, or AHJ specific requirements.",
-    spFlow: 500,
-    spPress: 60,
-    hyCount: 2,
-    hyFlow: 250,
-    hrCount: 0,
-    hrFlow: 50,
-    designDuration: 60,
-    tankReservePct: 10,
-  },
-};
+type ActiveTab = "schedule" | "tanks" | "report";
 
-const presetIcons: Record<HazardPresetKey, React.ComponentType<{ className?: string }>> = {
-  light_hazard: Building2,
-  oh_1: Building,
-  oh_2: Factory,
-  extra_hazard: ShieldAlert,
-  high_rise_standpipe: Layers,
-  custom: SlidersHorizontal,
-};
-
-// Standard NFPA 20 rated pump sizes (GPM)
-const STANDARD_NFPA20_PUMP_SIZES = [250, 500, 750, 1000, 1250, 1500, 2000, 2500, 3000, 4000, 5000];
-
-// Conversion Constants
-const GPM_TO_LMIN = 3.78541;
-const GPM_TO_M3H = 0.227125;
-const PSI_TO_BAR = 0.0689476;
-const GAL_TO_M3 = 0.00378541;
-const GAL_TO_L = 3.78541;
-
-function FireWaterDemandPage() {
+export function FireWaterDemandPage() {
   const { userData, profile } = useAuth();
-  const currentUserName = userData?.name || profile?.name || "System Admin";
+  const currentUserName = userData?.name || profile?.name || "Senior MEP Fire Engineer";
 
   const { project, isReadOnly, forceSaveToCloud } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/plumbing-fire-water-demand", project?.id);
@@ -173,67 +140,111 @@ function FireWaterDemandPage() {
 
   const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
 
-  // Tabs & drawer state
-  const [tab, setTab] = useState<"solver" | "report">("solver");
+  // Tabs & navigation
+  const [tab, setTab] = useState<ActiveTab>("schedule");
   const [intelOpen, setIntelOpen] = useState(false);
-  const [formulaModalOpen, setFormulaModalOpen] = useState(false);
 
-  // Unit system (IP: GPM, psi, gal / SI: L/min, bar, m³ & L)
-  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("ip");
+  // Unit System: SI (LPM, bar, m³, m) vs IP (GPM, psi, gal, ft)
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
-  // Preset
-  const [preset, setPreset] = useState<HazardPresetKey>("oh_2");
-  const [customModalOpen, setCustomModalOpen] = useState(false);
-  const [customProfileName, setCustomProfileName] = useState("Ordinary Hazard Group 2 (Custom)");
-  const [customWorkflow, setCustomWorkflow] = useState<"calculate" | "direct">("calculate");
+  // Multi-Building Schedule State
+  const [buildings, setBuildings] = useState<CivilDefenseBuilding[]>(INITIAL_BUILDINGS);
+  const [selectedBuildingId, setSelectedBuildingId] = useState<string>(INITIAL_BUILDINGS[0].id);
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set([INITIAL_BUILDINGS[0].id]));
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterOccupancy, setFilterOccupancy] = useState<string>("all");
 
-  // Core Inputs (stored internally in IP units for consistent formulas)
-  const [spFlow, setSpFlow] = useState<number | "">(500); // GPM
-  const [spPress, setSpPress] = useState<number | "">(65); // psi
-  const [hyCount, setHyCount] = useState<number | "">(2); // ea
-  const [hyFlow, setHyFlow] = useState<number | "">(250); // GPM
-  const [hrCount, setHrCount] = useState<number | "">(2); // ea
-  const [hrFlow, setHrFlow] = useState<number | "">(30); // GPM
-  const [designDuration, setDesignDuration] = useState<number | "">(90); // minutes
-  const [tankReservePct, setTankReservePct] = useState<number | "">(10); // % safety/dead storage
-  const [mainsReplenishFlow, setMainsReplenishFlow] = useState<number | "">(0); // GPM refill from city main
+  // Double-Click Edit Modal State
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingBuilding, setEditingBuilding] = useState<CivilDefenseBuilding>(INITIAL_BUILDINGS[0]);
 
-  // Sync state with active project and handle VersionManager snapshots
-  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  // Report Tab Selected Building View
+  const [reportBuildingId, setReportBuildingId] = useState<string>(INITIAL_BUILDINGS[0].id);
 
-  // Load saved Fire Water Demand parameters on mount or project switch
+  // Physical Tank Dimensions Sizer State for Active Building
+  const [tankLength, setTankLength] = useState<number>(10.0); // meters
+  const [tankWidth, setTankWidth] = useState<number>(6.0); // meters
+  const [tankFreeboard, setTankFreeboard] = useState<number>(0.30); // meters (air gap)
+  const [tankDeadVolumeDepth, setTankDeadVolumeDepth] = useState<number>(0.20); // meters (anti-vortex sump)
+  const [cityMainRefillFlowGpm, setCityMainRefillFlowGpm] = useState<number>(150); // GPM refill from city network
+
+  // Assign Comment Modal State
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetId, setCommentTargetId] = useState<string | null>(null);
+
+  // Storage key for persistence
+  const storageKey = useMemo(() => {
+    return `mep_fire_water_demand_schedule_${project?.id || "default"}`;
+  }, [project?.id]);
+
+  // Load saved schedule on mount or project switch
   useEffect(() => {
-    if (!project?.id) return;
-    if (loadedProjectId === project.id) return;
-
-    const pKey = `mep_fire_water_demand_params_${project.id}`;
-    const stored = localStorage.getItem(pKey);
+    const stored = localStorage.getItem(storageKey);
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        if (parsed.preset !== undefined) setPreset(parsed.preset);
-        if (parsed.spFlow !== undefined) setSpFlow(parsed.spFlow);
-        if (parsed.spPress !== undefined) setSpPress(parsed.spPress);
-        if (parsed.hyCount !== undefined) setHyCount(parsed.hyCount);
-        if (parsed.hyFlow !== undefined) setHyFlow(parsed.hyFlow);
-        if (parsed.hrCount !== undefined) setHrCount(parsed.hrCount);
-        if (parsed.hrFlow !== undefined) setHrFlow(parsed.hrFlow);
-        if (parsed.designDuration !== undefined) setDesignDuration(parsed.designDuration);
-        if (parsed.tankReservePct !== undefined) setTankReservePct(parsed.tankReservePct);
-        if (parsed.mainsReplenishFlow !== undefined) setMainsReplenishFlow(parsed.mainsReplenishFlow);
-        if (parsed.unitSystem) setUnitSystem(parsed.unitSystem);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setBuildings(parsed);
+          setSelectedBuildingId(parsed[0].id);
+          setSelectedRowIds(new Set([parsed[0].id]));
+          setReportBuildingId(parsed[0].id);
+        }
       } catch (e) {
-        console.error("Failed to parse stored Fire Water Demand params", e);
+        console.error("Failed to load saved fire water demand schedule", e);
       }
     }
-    setLoadedProjectId(project.id);
-  }, [project?.id, loadedProjectId]);
+  }, [storageKey]);
 
-  // Version History Restore Listener (Full parity with Ventilation & VersionManager)
+  // Persist changes
+  const saveSchedule = (newBuildings: CivilDefenseBuilding[]) => {
+    setBuildings(newBuildings);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(newBuildings));
+      dirtyStore.set(true);
+      forceSaveToCloud?.();
+    } catch (e) {
+      console.error("Failed to save fire water demand schedule", e);
+    }
+  };
+
+  // Inline update handler for building inputs or manual output overrides
+  const handleUpdateBuilding = (id: string, updates: Partial<CivilDefenseBuilding>, clearOverrides = false) => {
+    if (isEffectiveReadOnly) return;
+    const nextList = buildings.map((b) => {
+      if (b.id !== id) return b;
+      if (clearOverrides) {
+        const copy: CivilDefenseBuilding = { ...b, ...updates };
+        delete copy.overridePumpFlowGpm;
+        delete copy.overridePumpPressureBar;
+        delete copy.overrideTankDurationMin;
+        delete copy.overrideNetStorageM3;
+        return copy;
+      }
+      return { ...b, ...updates };
+    });
+    saveSchedule(nextList);
+  };
+
+  // Reset manual output overrides back to statutory code formulas
+  const handleResetRowOverrides = (id: string) => {
+    if (isEffectiveReadOnly) return;
+    const nextList = buildings.map((b) => {
+      if (b.id !== id) return b;
+      const copy: CivilDefenseBuilding = { ...b };
+      delete copy.overridePumpFlowGpm;
+      delete copy.overridePumpPressureBar;
+      delete copy.overrideTankDurationMin;
+      delete copy.overrideNetStorageM3;
+      return copy;
+    });
+    saveSchedule(nextList);
+    toast.success("Reset building outputs to Civil Defense statutory formulas");
+  };
+
+  // Version Restore Handler
   useEffect(() => {
     const handleVersionRestored = (e: any) => {
-      const pId = project?.id || "default";
-      const pKey = `mep_fire_water_demand_params_${pId}`;
+      const pKey = storageKey;
       const lsCache = e?.detail?.localStorageCache;
       let restoredData: any = null;
       if (lsCache && lsCache[pKey]) {
@@ -249,798 +260,401 @@ function FireWaterDemandPage() {
           } catch (err) {}
         }
       }
-      if (restoredData) {
-        if (restoredData.preset !== undefined) setPreset(restoredData.preset);
-        if (restoredData.spFlow !== undefined) setSpFlow(restoredData.spFlow);
-        if (restoredData.spPress !== undefined) setSpPress(restoredData.spPress);
-        if (restoredData.hyCount !== undefined) setHyCount(restoredData.hyCount);
-        if (restoredData.hyFlow !== undefined) setHyFlow(restoredData.hyFlow);
-        if (restoredData.hrCount !== undefined) setHrCount(restoredData.hrCount);
-        if (restoredData.hrFlow !== undefined) setHrFlow(restoredData.hrFlow);
-        if (restoredData.designDuration !== undefined) setDesignDuration(restoredData.designDuration);
-        if (restoredData.tankReservePct !== undefined) setTankReservePct(restoredData.tankReservePct);
-        if (restoredData.mainsReplenishFlow !== undefined) setMainsReplenishFlow(restoredData.mainsReplenishFlow);
-        if (restoredData.unitSystem) setUnitSystem(restoredData.unitSystem);
-        dirtyStore.set(false);
-        toast.success("Fire Water Demand calculation restored to selected version!");
-      }
-    };
-    window.addEventListener("mep_version_restored", handleVersionRestored as any);
-    return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
-  }, [project?.id]);
-
-  // Auto-persist full calculator state for VersionManager snapshots and local storage
-  useEffect(() => {
-    if (!project?.id || loadedProjectId !== project.id) return;
-    const dataToSave = {
-      preset,
-      spFlow,
-      spPress,
-      hyCount,
-      hyFlow,
-      hrCount,
-      hrFlow,
-      designDuration,
-      tankReservePct,
-      mainsReplenishFlow,
-      unitSystem,
-    };
-    try {
-      localStorage.setItem(`mep_fire_water_demand_params_${project.id}`, JSON.stringify(dataToSave));
-      dirtyStore.set(true);
-    } catch (e) {
-      console.error("Failed to save Fire Water Demand params", e);
-    }
-  }, [preset, spFlow, spPress, hyCount, hyFlow, hrCount, hrFlow, designDuration, tankReservePct, mainsReplenishFlow, unitSystem, project?.id, loadedProjectId]);
-
-  // Comments and Task Assignment state (Matching Preliminary Cooling Load & FM-200)
-  const [commentsList, setCommentsList] = useState<any[]>([]);
-  const [commentModalOpen, setCommentModalOpen] = useState<boolean>(false);
-  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
-  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
-  const highlightTimeoutRef = useRef<any>(null);
-
-  // Load comments from local storage on mount / project change
-  useEffect(() => {
-    const pId = project?.id || "default";
-    const storageKey = `mep_calc_comments_${pId}_/plumbing-fire-water-demand`;
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          setCommentsList(parsed);
-        }
-      } else {
-        setCommentsList([]);
-      }
-    } catch (e) {
-      console.error("Failed to load comments", e);
-    }
-  }, [project?.id]);
-
-  const saveComments = (newList: any[]) => {
-    setCommentsList(newList);
-    const pId = project?.id || "default";
-    localStorage.setItem(`mep_calc_comments_${pId}_/plumbing-fire-water-demand`, JSON.stringify(newList));
-    // Immediately dispatch notification events for instantaneous UI and badge update (<1ms)
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("mep_notif_tick"));
-      window.dispatchEvent(new CustomEvent("mep_notification_received"));
-      window.dispatchEvent(new CustomEvent("mep-notification-added"));
-      window.dispatchEvent(new Event("storage"));
-    }
-    // Background cloud save if available
-    try {
-      if (typeof forceSaveToCloud === "function") {
-        setTimeout(() => forceSaveToCloud(false), 50);
-      }
-    } catch (e) {}
-  };
-
-  const handleOpenComment = (id: string, name: string) => {
-    setCommentTargetItem({ id, name });
-    setCommentModalOpen(true);
-  };
-
-  const handleSaveComment = (comment: any) => {
-    const commentWithMeta = {
-      ...comment,
-      targetId: commentTargetItem?.id,
-      targetName: commentTargetItem?.name,
-      spaceId: commentTargetItem?.id,
-      spaceName: commentTargetItem?.name,
-      targetType: "Fire Water Demand Parameter",
-      calculatorTitle: "Fire Water Demand",
-      calculatorPath: "/plumbing-fire-water-demand",
-      projectId: project?.id || "default",
-      projectName: project?.name || "Fire Fighting Hydraulic System",
-    };
-    const updated = [commentWithMeta, ...commentsList.filter(c => c.id !== comment.id)];
-    saveComments(updated);
-    setCommentModalOpen(false);
-  };
-
-  const getItemComments = (id: string) => {
-    return commentsList.filter(
-      (c) => c.targetId === id || c.spaceId === id || c.itemId === id
-    );
-  };
-
-  const renderCommentBadge = (id: string, name: string) => {
-    const itemComments = getItemComments(id);
-    if (itemComments.length === 0) return null;
-
-    return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          handleOpenComment(id, name);
-        }}
-        title={`${itemComments.length} comment(s)/task(s) on ${name}`}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer shadow-2xs"
-      >
-        <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-        <span>{itemComments.length}</span>
-      </button>
-    );
-  };
-
-  const handleCopyValue = (label: string, value: any) => {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard.writeText(String(value));
-      toast.success(`Copied ${label}: ${value}`);
-    }
-  };
-
-  const handlePasteValue = async (label: string, setter: (val: any) => void) => {
-    if (isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
-      return;
-    }
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      try {
-        const text = await navigator.clipboard.readText();
-        const num = parseFloat(text);
-        if (!isNaN(num)) {
-          setter(num);
-          toast.success(`Pasted into ${label}: ${num}`);
-        } else if (text) {
-          setter(text);
-          toast.success(`Pasted into ${label}`);
-        }
-      } catch (e) {
-        toast.error("Failed to read clipboard");
-      }
-    }
-  };
-
-  const handleResetValue = (label: string, setter: (val: any) => void, defaultVal: any) => {
-    if (isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
-      return;
-    }
-    setter(defaultVal);
-    toast.info(`Reset ${label} to default (${defaultVal})`);
-  };
-
-  const handleClearValue = (label: string, setter: (val: any) => void) => {
-    if (isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
-      return;
-    }
-    setter("");
-    toast.info(`Cleared ${label}`);
-  };
-
-  // Unit toggle handler supporting UnitToggle's conversion modal
-  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
-    if (isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
-      return;
-    }
-    setUnitSystem(targetUnit);
-    dirtyStore.set(true);
-    toast.success(`Unit system switched to ${targetUnit.toUpperCase()}`);
-  };
-
-  // Scroll and highlight notification target item (matching Preliminary Cooling Load)
-  useEffect(() => {
-    const handleScrollTarget = (targetId?: string, targetName?: string) => {
-      if (!targetId && !targetName) return;
-      const cleanId = (targetId || "").toLowerCase().trim();
-
-      const el = document.getElementById(targetId || "") ||
-                 document.getElementById(`field-${targetId}`) ||
-                 document.getElementById(`res-${targetId}`) ||
-                 document.getElementById(`card-${targetId}`) ||
-                 document.querySelector(`[data-item-id="${targetId}"]`) ||
-                 document.querySelector(`[data-field-id="${targetId}"]`);
-
-      if (el || cleanId) {
-        setHighlightedTargetId(targetId || cleanId);
-
-        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-        highlightTimeoutRef.current = setTimeout(() => {
-          setHighlightedTargetId(null);
-          highlightTimeoutRef.current = null;
-        }, 4000);
-
-        if (el) {
-          setTimeout(() => {
-            el.scrollIntoView({ behavior: "smooth", block: "center" });
-          }, 150);
-        }
+      if (Array.isArray(restoredData) && restoredData.length > 0) {
+        setBuildings(restoredData);
+        setSelectedBuildingId(restoredData[0].id);
+        setSelectedRowIds(new Set([restoredData[0].id]));
+        setReportBuildingId(restoredData[0].id);
+        toast.info("Fire Water Demand schedule restored from version snapshot");
       }
     };
 
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const targetId = params.get("commentTargetId");
-      const targetName = params.get("commentTargetName");
-      if (targetId || targetName) {
-        setTimeout(() => {
-          handleScrollTarget(targetId || undefined, targetName || undefined);
-        }, 300);
-      }
-    }
+    window.addEventListener("mep-version-restored" as any, handleVersionRestored);
+    return () => window.removeEventListener("mep-version-restored" as any, handleVersionRestored);
+  }, [storageKey]);
 
-    const handleScrollEvent = (e: Event) => {
-      const detail = (e as CustomEvent)?.detail;
-      if (detail) {
-        handleScrollTarget(detail.id || detail.targetId, detail.name || detail.targetName);
-      }
-    };
-
-    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
-    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
-    window.addEventListener("mep_scroll_to_comment_target", handleScrollEvent);
-
-    return () => {
-      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
-      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
-      window.removeEventListener("mep_scroll_to_comment_target", handleScrollEvent);
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-    };
-  }, []);
-
-  // Handle Preset Change
-  const handleApplyPreset = (key: HazardPresetKey) => {
-    if (isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only / Approved mode. Editing is locked.", { id: "readonly-notice" });
-      return;
-    }
-    if (key === "custom") {
-      setPreset("custom");
-      setCustomModalOpen(true);
-      return;
-    }
-    setPreset(key);
-    const p = HAZARD_PRESETS[key];
-    if (p) {
-      setSpFlow(p.spFlow);
-      setSpPress(p.spPress);
-      setHyCount(p.hyCount);
-      setHyFlow(p.hyFlow);
-      setHrCount(p.hrCount);
-      setHrFlow(p.hrFlow);
-      setDesignDuration(p.designDuration);
-      setTankReservePct(p.tankReservePct);
-      setCustomProfileName(`${p.label} (Custom)`);
-      dirtyStore.set(true);
-      toast.success(`Applied preset: ${p.label}`);
-    }
-  };
-
-  const handleApplyCustomConfig = (updated: {
-    spFlow: number;
-    spPress: number;
-    hyCount: number;
-    hyFlow: number;
-    hrCount: number;
-    hrFlow: number;
-    designDuration: number;
-    tankReservePct: number;
-    mainsReplenishFlow: number;
-    customProfileName: string;
-    customWorkflow: "calculate" | "direct";
-  }) => {
+  // Unit toggle handler (Sewage & Drainage format)
+  const handleUnitSystemChange = (nextSystem: "ip" | "si", shouldConvert?: boolean) => {
     if (isEffectiveReadOnly) return;
-    setPreset("custom");
-    setCustomProfileName(updated.customProfileName);
-    setCustomWorkflow(updated.customWorkflow);
-    setSpFlow(updated.spFlow);
-    setSpPress(updated.spPress);
-    setHyCount(updated.hyCount);
-    setHyFlow(updated.hyFlow);
-    setHrCount(updated.hrCount);
-    setHrFlow(updated.hrFlow);
-    setDesignDuration(updated.designDuration);
-    setTankReservePct(updated.tankReservePct);
-    setMainsReplenishFlow(updated.mainsReplenishFlow);
+    setUnitSystem(nextSystem);
     dirtyStore.set(true);
   };
 
-  // Calculations
-  const calcResults = useMemo(() => {
-    const spF = typeof spFlow === "number" ? spFlow : 0;
-    const spP = typeof spPress === "number" ? spPress : 0;
-    const hyC = typeof hyCount === "number" ? hyCount : 0;
-    const hyF = typeof hyFlow === "number" ? hyFlow : 0;
-    const hrC = typeof hrCount === "number" ? hrCount : 0;
-    const hrF = typeof hrFlow === "number" ? hrFlow : 0;
-    const duration = typeof designDuration === "number" ? designDuration : 60;
-    const reservePct = typeof tankReservePct === "number" ? tankReservePct : 10;
-    const mainsRefill = typeof mainsReplenishFlow === "number" ? mainsReplenishFlow : 0;
+  // Computed Evaluations for ALL buildings
+  const evaluatedBuildings = useMemo(() => {
+    return buildings.map((b) => ({
+      building: b,
+      evaluation: evaluateCivilDefenseFireDemand(b),
+    }));
+  }, [buildings]);
 
-    // Component flows (GPM)
-    const hyTotal = hyC * hyF;
-    const hrTotal = hrC * hrF;
-    const totalFlow = spF + hyTotal + hrTotal;
+  // Currently Active Selected Building & its Evaluation
+  const activeItem = useMemo(() => {
+    const found = evaluatedBuildings.find((item) => item.building.id === selectedBuildingId);
+    return found || evaluatedBuildings[0] || null;
+  }, [evaluatedBuildings, selectedBuildingId]);
 
-    // Pump Selection per NFPA 20
-    let recommendedPumpGPM = 250;
-    for (const size of STANDARD_NFPA20_PUMP_SIZES) {
-      if (size >= totalFlow) {
-        recommendedPumpGPM = size;
-        break;
+  // Active Building for Report Tab
+  const reportItem = useMemo(() => {
+    const found = evaluatedBuildings.find((item) => item.building.id === reportBuildingId);
+    return found || activeItem || evaluatedBuildings[0] || null;
+  }, [evaluatedBuildings, reportBuildingId, activeItem]);
+
+  // Project KPI Rollups
+  const projectSummary = useMemo(() => {
+    let maxPumpFlowGpm = 0;
+    let maxPumpPressureBar = 0;
+    let totalNetStorageM3 = 0;
+    let totalGrossStorageM3 = 0;
+    let superHighriseCount = 0;
+    let yardHydrantRequiredCount = 0;
+
+    for (const item of evaluatedBuildings) {
+      const ev = item.evaluation;
+      if (ev.lowestFirePumpFlowGpm > maxPumpFlowGpm) {
+        maxPumpFlowGpm = ev.lowestFirePumpFlowGpm;
+        maxPumpPressureBar = ev.lowestFirePumpPressureBar;
+      } else if (ev.lowestFirePumpFlowGpm === maxPumpFlowGpm) {
+        if (ev.lowestFirePumpPressureBar > maxPumpPressureBar) {
+          maxPumpPressureBar = ev.lowestFirePumpPressureBar;
+        }
       }
-      recommendedPumpGPM = size;
-    }
-    if (totalFlow > 5000) {
-      recommendedPumpGPM = Math.ceil(totalFlow / 1000) * 1000;
-    }
-
-    // Storage Tank Capacities (US Gallons)
-    const tank30Effective = totalFlow * 30;
-    const tank60Effective = totalFlow * 60;
-    const tank90Effective = totalFlow * 90;
-    const tank120Effective = totalFlow * 120;
-
-    const selectedDurationEffective = totalFlow * duration;
-    const grossVolumeMultiplier = 1 + reservePct / 100;
-    const selectedDurationGross = selectedDurationEffective * grossVolumeMultiplier;
-
-    // Header Pipe Sizing Recommendation (Max velocity 15 fps / 4.57 m/s per NFPA 20)
-    const targetVelFps = 15;
-    const calculatedPipeDiaInches = totalFlow > 0 ? Math.sqrt((0.4085 * totalFlow) / targetVelFps) : 0;
-    
-    // Standard nominal pipe sizes (NPS inches)
-    const standardNps = [2, 2.5, 3, 4, 6, 8, 10, 12, 14, 16];
-    let recommendedNps = 4;
-    for (const nps of standardNps) {
-      if (nps >= calculatedPipeDiaInches) {
-        recommendedNps = nps;
-        break;
-      }
-      recommendedNps = nps;
+      totalNetStorageM3 += ev.totalNetWaterStorageM3;
+      totalGrossStorageM3 += ev.totalGrossWaterStorageM3;
+      if (ev.requiresStagingPumps) superHighriseCount++;
+      if (ev.isYardHydrantRequired) yardHydrantRequiredCount++;
     }
 
-    // Municipal Refill Hours to refill gross volume (NFPA 22 recommends <= 8 hours)
-    const refillHours = mainsRefill > 0 ? (selectedDurationGross / (mainsRefill * 60)) : null;
-
-    // Warnings & Design Flags
-    const showLargeDemandWarning = totalFlow > 2000;
-    const showLargeTankWarning = selectedDurationGross > 150000;
-    const showLowPressureWarning = spP < 50;
-    const showRefillExceeds8h = refillHours !== null && refillHours > 8;
+    const header = getRecommendedHeaderSize(maxPumpFlowGpm);
 
     return {
-      spF,
-      spP,
-      hyC,
-      hyF,
-      hyTotal,
-      hrC,
-      hrF,
-      hrTotal,
-      totalFlow,
-      recommendedPumpGPM,
-      duration,
-      reservePct,
-      selectedDurationEffective,
-      selectedDurationGross,
-      tank30Effective,
-      tank60Effective,
-      tank90Effective,
-      tank120Effective,
-      mainsRefill,
-      refillHours,
-      calculatedPipeDiaInches,
-      recommendedNps,
-      showLargeDemandWarning,
-      showLargeTankWarning,
-      showLowPressureWarning,
-      showRefillExceeds8h,
-      GPM_TO_LMIN,
-      GPM_TO_M3H,
-      PSI_TO_BAR,
-      GAL_TO_M3,
-      GAL_TO_L,
+      buildingCount: evaluatedBuildings.length,
+      maxPumpFlowGpm,
+      maxPumpFlowLpm: Math.round(maxPumpFlowGpm * 3.78541),
+      maxPumpPressureBar,
+      maxPumpPressurePsi: Math.round(maxPumpPressureBar * 14.5038),
+      totalNetStorageM3: parseFloat(totalNetStorageM3.toFixed(1)),
+      totalNetStorageGal: Math.round(totalNetStorageM3 / 0.00378541),
+      totalGrossStorageM3: parseFloat(totalGrossStorageM3.toFixed(1)),
+      totalGrossStorageGal: Math.round(totalGrossStorageM3 / 0.00378541),
+      superHighriseCount,
+      yardHydrantRequiredCount,
+      governingHeaderNps: header.nps,
+      governingHeaderDn: header.dn,
+      governingHeaderVelocity: header.velocityFps,
     };
-  }, [spFlow, spPress, hyCount, hyFlow, hrCount, hrFlow, designDuration, tankReservePct, mainsReplenishFlow]);
+  }, [evaluatedBuildings]);
 
-  // Export PDF Report matching Ventilation standard
-  const exportPdf = () => {
-    try {
-      const doc = new jsPDF("portrait", "mm", "a4");
+  // Physical Water Tank Calculation for Active Building
+  const activeTankSizing = useMemo(() => {
+    if (!activeItem) return null;
+    const netM3 = activeItem.evaluation.mainTankNetVolumeM3;
+    const l = Math.max(1.0, tankLength);
+    const w = Math.max(1.0, tankWidth);
+    const floorArea = l * w;
 
-      const callAutoTable = (pdfDoc: any, options: any) => {
-        if (typeof autoTable === "function") {
-          autoTable(pdfDoc, options);
-        } else if (typeof (autoTable as any)?.default === "function") {
-          (autoTable as any).default(pdfDoc, options);
-        } else if (typeof pdfDoc.autoTable === "function") {
-          pdfDoc.autoTable(options);
-        } else {
-          console.error("autoTable function not available");
-        }
-      };
+    const effectiveDepth = floorArea > 0 ? netM3 / floorArea : 0;
+    const totalHeight = effectiveDepth + tankFreeboard + tankDeadVolumeDepth;
+    const grossVolumeM3 = floorArea * totalHeight;
+    const grossVolumeGal = Math.round(grossVolumeM3 / 0.00378541);
 
-      // Primary colors matching Ventilation standard
-      const primaryFill: [number, number, number] = [217, 217, 217]; // #D9D9D9 standard header
-      const blueFill: [number, number, number] = [218, 233, 248]; // #DAE9F8 key output highlight
-      const signatureFill: [number, number, number] = [255, 230, 204]; // #FFE6CC signature header
-      const gridBorderColor: [number, number, number] = [100, 100, 100];
+    const refillLpm = cityMainRefillFlowGpm * 3.78541;
+    const refillM3h = (refillLpm * 60) / 1000;
+    const fillTimeHours = refillM3h > 0 ? netM3 / refillM3h : 0;
 
-      // Header Title (Ventilation standard: Left aligned at 14, 14)
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(0, 0, 0);
-      doc.text("Fire Water Demand & Storage Tank Sizing Report", 14, 14);
+    return {
+      floorArea: parseFloat(floorArea.toFixed(2)),
+      effectiveDepth: parseFloat(effectiveDepth.toFixed(2)),
+      totalHeight: parseFloat(totalHeight.toFixed(2)),
+      grossVolumeM3: parseFloat(grossVolumeM3.toFixed(1)),
+      grossVolumeGal,
+      fillTimeHours: parseFloat(fillTimeHours.toFixed(1)),
+      waterWavePercent: totalHeight > 0 ? Math.min(85, Math.max(15, (effectiveDepth / totalHeight) * 100)) : 50,
+    };
+  }, [activeItem, tankLength, tankWidth, tankFreeboard, tankDeadVolumeDepth, cityMainRefillFlowGpm]);
 
-      // Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
-      doc.setFontSize(9);
-      doc.setLineWidth(0.3);
-      doc.setDrawColor(...gridBorderColor);
-      doc.rect(14, 18, 182, 18); // Outer box for metadata
-
-      // Vertical line to separate left/right metadata
-      doc.line(105, 18, 105, 36);
-
-      // Horizontal dividers
-      doc.line(14, 24, 196, 24);
-      doc.line(14, 30, 196, 30);
-
-      const calcNum = `CALC-FWD-${Date.now().toString().slice(-4)}`;
-      const today = formatDateStr(new Date());
-      const projectNo = project?.code || project?.id?.substring(0, 8) || "P000";
-      const projectName = project?.name || "Fire Fighting Hydraulic System";
-      const clientName = project?.client || "";
-      const endUser = project?.endUser || project?.location || "";
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Calculation No.:", 16, 22);
-      doc.setFont("helvetica", "normal");
-      doc.text(calcNum, 45, 22);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Date:", 107, 22);
-      doc.setFont("helvetica", "normal");
-      doc.text(today, 120, 22);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Project No.:", 16, 28);
-      doc.setFont("helvetica", "normal");
-      doc.text(projectNo, 40, 28);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Client:", 107, 28);
-      doc.setFont("helvetica", "normal");
-      doc.text(clientName, 120, 28);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Project Name:", 16, 34);
-      doc.setFont("helvetica", "normal");
-      doc.text(projectName.substring(0, 32), 42, 34);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("End User:", 107, 34);
-      doc.setFont("helvetica", "normal");
-      doc.text(endUser.substring(0, 32), 125, 34);
-
-      // Table 1: Design Parameters & Hazard Classification Basis
-      const hazardCfg = HAZARD_PRESETS[preset] || HAZARD_PRESETS.custom;
-      const activeHazardLabel = preset === "custom" ? customProfileName : hazardCfg.label;
-      const isSI = unitSystem === "si";
-
-      const paramTableBody = [
-        ["1", "Hazard Classification / Preset", activeHazardLabel, hazardCfg.category],
-        ["2", "Sprinkler System Design Flow", isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`, "NFPA 13 Hydraulic Demand Area/Density"],
-        ["3", "Sprinkler Minimum Residual Pressure", isSI ? `${(calcResults.spP * PSI_TO_BAR).toFixed(2)} bar` : `${calcResults.spP.toFixed(0)} psi`, "At most hydraulically remote sprinkler"],
-        ["4", "Simultaneous Hydrant Outlets", `${calcResults.hyC} Outlets @ ${isSI ? (calcResults.hyF * GPM_TO_LMIN).toFixed(0) + " L/min" : calcResults.hyF.toFixed(0) + " GPM"} each`, "NFPA 14 / NFPA 24 Yard / Landing Outlets"],
-        ["5", "Simultaneous First-Aid Hose Reels", `${calcResults.hrC} Reels @ ${isSI ? (calcResults.hrF * GPM_TO_LMIN).toFixed(0) + " L/min" : calcResults.hrF.toFixed(0) + " GPM"} each`, "NFPA 14 Class II / BS 5306"],
-        ["6", "Design Fire Duration", `${calcResults.duration} Minutes`, "Per Hazard Group / NFPA 13 Table 19.3.2"],
-        ["7", "Tank Ullage & Silt Reserve Allowance", `+${calcResults.reservePct}% Safety Allowance`, "NFPA 22 Dead Storage & Vortex Allowance"],
-        ["8", "Municipal Main Replenishment Flow", calcResults.mainsRefill > 0 ? (isSI ? `${(calcResults.mainsRefill * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.mainsRefill.toFixed(0)} GPM`) : "0 (Isolated Storage Tank)", "Continuous City Water Inflow Credit"],
-      ];
-
-      callAutoTable(doc, {
-        startY: 40,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        pageBreak: "avoid",
-        styles: {
-          fontSize: 7,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 1.1, bottom: 1.1, left: 1, right: 1 },
-          minCellHeight: 4.4,
-        },
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold",
-          cellPadding: { top: 1.4, bottom: 1.4, left: 1, right: 1 },
-        },
-        columnStyles: {
-          0: { cellWidth: 8 },
-          1: { halign: "left", cellWidth: 64, fontStyle: "bold" },
-          2: { cellWidth: 46, fontStyle: "bold" },
-          3: { halign: "left", cellWidth: 64 },
-        },
-        head: [
-          [
-            { content: "#", styles: { fillColor: primaryFill } },
-            { content: "Design Parameter Description", styles: { fillColor: primaryFill } },
-            { content: "Value / Specification", styles: { fillColor: primaryFill } },
-            { content: "Code Reference / Engineering Basis", styles: { fillColor: primaryFill } },
-          ],
-        ],
-        body: paramTableBody,
-      });
-
-      let nextY = (doc as any).lastAutoTable?.finalY ?? 85;
-
-      // Table 2: Simultaneous Fire Water Demand & Fire Pump Sizing (NFPA 20)
-      const resultsTableBody = [
-        ["A", "Sprinkler System Demand (Q_sp)", isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`, `${(calcResults.spF * GPM_TO_M3H).toFixed(1)} m3/h`, "Primary automatic fire suppression"],
-        ["B", "External Hydrant Demand (Q_hy)", isSI ? `${(calcResults.hyTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hyTotal.toFixed(0)} GPM`, `${(calcResults.hyTotal * GPM_TO_M3H).toFixed(1)} m3/h`, `${calcResults.hyC} × ${calcResults.hyF} GPM simultaneous hydrants`],
-        ["C", "First-Aid Hose Reel Demand (Q_hr)", isSI ? `${(calcResults.hrTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hrTotal.toFixed(0)} GPM`, `${(calcResults.hrTotal * GPM_TO_M3H).toFixed(1)} m3/h`, `${calcResults.hrC} × ${calcResults.hrF} GPM first-aid hose reels`],
-        ["D", "TOTAL SIMULTANEOUS FIRE DEMAND (Q_total)", isSI ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.totalFlow.toFixed(0)} GPM`, `${(calcResults.totalFlow * GPM_TO_M3H).toFixed(1)} m3/h`, "Q_sp + Q_hy + Q_hr (Simultaneous Sum)"],
-        ["E", "Recommended NFPA 20 Fire Pump Capacity", isSI ? `${(calcResults.recommendedPumpGPM * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.recommendedPumpGPM.toFixed(0)} GPM`, `${(calcResults.recommendedPumpGPM * GPM_TO_M3H).toFixed(1)} m3/h`, "Standard NFPA 20 Listed Fire Pump Rating"],
-        ["F", "Recommended Pump Discharge Header Size", `${calcResults.recommendedNps}" NPS (${calcResults.recommendedNps * 25} mm DN)`, "-", "Velocity <= 15 fps (4.57 m/s) at rated flow"],
-      ];
-
-      callAutoTable(doc, {
-        startY: nextY + 3,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        pageBreak: "avoid",
-        styles: {
-          fontSize: 7,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 1.1, bottom: 1.1, left: 1, right: 1 },
-          minCellHeight: 4.4,
-        },
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold",
-          cellPadding: { top: 1.4, bottom: 1.4, left: 1, right: 1 },
-        },
-        columnStyles: {
-          0: { cellWidth: 8 },
-          1: { halign: "left", cellWidth: 64, fontStyle: "bold" },
-          2: { cellWidth: 35, fontStyle: "bold" },
-          3: { cellWidth: 25 },
-          4: { halign: "left", cellWidth: 50 },
-        },
-        head: [
-          [
-            { content: "Item", styles: { fillColor: primaryFill } },
-            { content: "Hydraulic Demand Component", styles: { fillColor: primaryFill } },
-            { content: "Flow Rate (Primary)", styles: { fillColor: primaryFill } },
-            { content: "Flow Rate (m3/h)", styles: { fillColor: primaryFill } },
-            { content: "Notes & NFPA 20 Criteria", styles: { fillColor: primaryFill } },
-          ],
-        ],
-        body: resultsTableBody,
-        didParseCell: function (data: any) {
-          if (data.section === "body") {
-            // Highlight Row D (Total Simultaneous Demand) and Row E (Pump Capacity) in blueFill
-            if (data.row.index === 3 || data.row.index === 4) {
-              data.cell.styles.fontStyle = "bold";
-              data.cell.styles.fillColor = blueFill;
-              if (data.column.index === 2) {
-                data.cell.styles.fontSize = 7.6;
-              }
-            }
-          }
-        },
-      });
-
-      nextY = (doc as any).lastAutoTable?.finalY ?? 130;
-
-      // Table 3: Dedicated Fire Water Storage Tank Capacity Breakdown (NFPA 22)
-      const tankTableBody = [
-        ["30 Minutes Duration (Light Hazard)", `${calcResults.tank30Effective.toLocaleString()} gal`, `${(calcResults.tank30Effective * GAL_TO_M3).toFixed(1)} m3 (${(calcResults.tank30Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 Light Hazard minimum requirement"],
-        ["60 Minutes Duration (OH-1 Basis)", `${calcResults.tank60Effective.toLocaleString()} gal`, `${(calcResults.tank60Effective * GAL_TO_M3).toFixed(1)} m3 (${(calcResults.tank60Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 Ordinary Hazard Group 1 standard"],
-        ["90 Minutes Duration (OH-2 / High-Rise)", `${calcResults.tank90Effective.toLocaleString()} gal`, `${(calcResults.tank90Effective * GAL_TO_M3).toFixed(1)} m3 (${(calcResults.tank90Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 OH-2 & NFPA 14 Standpipe baseline"],
-        ["120 Minutes Duration (Extra Hazard / Heavy)", `${calcResults.tank120Effective.toLocaleString()} gal`, `${(calcResults.tank120Effective * GAL_TO_M3).toFixed(1)} m3 (${(calcResults.tank120Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "NFPA 13 Extra Hazard / Industrial storage"],
-        [`DESIGN SELECTION: ${calcResults.duration} MIN NET CAPACITY`, `${calcResults.selectedDurationEffective.toLocaleString()} gal`, `${(calcResults.selectedDurationEffective * GAL_TO_M3).toFixed(1)} m3`, "Net Effective Fire Protection Storage (V_eff)"],
-        [`TOTAL GROSS TANK CAPACITY (+${calcResults.reservePct}% ULLAGE)`, `${calcResults.selectedDurationGross.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal`, `${(calcResults.selectedDurationGross * GAL_TO_M3).toFixed(1)} m3 (${(calcResults.selectedDurationGross * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)`, "Total Dedicated Fire Water Tank Construction Volume"],
-      ];
-
-      callAutoTable(doc, {
-        startY: nextY + 3,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        pageBreak: "avoid",
-        styles: {
-          fontSize: 7,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 1.1, bottom: 1.1, left: 1, right: 1 },
-          minCellHeight: 4.4,
-        },
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold",
-          cellPadding: { top: 1.4, bottom: 1.4, left: 1, right: 1 },
-        },
-        columnStyles: {
-          0: { halign: "left", cellWidth: 62, fontStyle: "bold" },
-          1: { cellWidth: 32, fontStyle: "bold" },
-          2: { cellWidth: 46 },
-          3: { halign: "left", cellWidth: 42 },
-        },
-        head: [
-          [
-            { content: "Storage Duration / Basis", styles: { fillColor: primaryFill } },
-            { content: "Net Volume (gal)", styles: { fillColor: primaryFill } },
-            { content: "Volume in Metric (m3 / L)", styles: { fillColor: primaryFill } },
-            { content: "Design Standard / Applicability", styles: { fillColor: primaryFill } },
-          ],
-        ],
-        body: tankTableBody,
-        didParseCell: function (data: any) {
-          if (data.section === "body") {
-            // Highlight Row 4 (Design Net Selection) and Row 5 (Gross Tank Capacity) in blueFill
-            if (data.row.index === 4 || data.row.index === 5) {
-              data.cell.styles.fontStyle = "bold";
-              data.cell.styles.fillColor = blueFill;
-              if (data.column.index === 1 || data.column.index === 2) {
-                data.cell.styles.fontSize = 7.6;
-              }
-            }
-          }
-        },
-      });
-
-      nextY = (doc as any).lastAutoTable?.finalY ?? 175;
-
-      // Table 4: Mandatory NFPA Standards & Compliance Guidelines
-      const guidelinesBody = [
-        ["1", "NFPA 13 Section 19.3", "Inside & outside hose stream allowances must be added simultaneously to sprinkler demand for total demand."],
-        ["2", "NFPA 20 Section 4.14", "Fire pump suction piping velocity must not exceed 15 fps (4.57 m/s) at 150% pump rated flow."],
-        ["3", "NFPA 20 Section 6.2", "Fire pump must provide 150% of rated flow at >= 65% of rated pressure; shutoff head <= 140%."],
-        ["4", "NFPA 22 Section 5.2", "Fire water storage tanks must be dedicated with low-level alarms, anti-vortex plate, and automatic makeup."],
-        ["5", "NFPA 22 Refill Rule", calcResults.refillHours !== null ? `Replenishment at ${calcResults.mainsRefill} GPM refills tank in ${calcResults.refillHours.toFixed(1)} hrs (${calcResults.refillHours <= 8 ? "PASS: <= 8 hrs per NFPA 22" : "FAIL: Exceeds 8 hrs"})` : "Dedicated tank without city credit; replenishment rate must be verified with municipal authority."],
-      ];
-
-      callAutoTable(doc, {
-        startY: nextY + 3,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        pageBreak: "avoid",
-        styles: {
-          fontSize: 6.8,
-          halign: "left",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 1.1, bottom: 1.1, left: 1.2, right: 1.2 },
-          minCellHeight: 4.2,
-        },
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold",
-          cellPadding: { top: 1.3, bottom: 1.3, left: 1, right: 1 },
-        },
-        columnStyles: {
-          0: { halign: "center", cellWidth: 8 },
-          1: { cellWidth: 42, fontStyle: "bold" },
-          2: { cellWidth: 132 },
-        },
-        head: [
-          [
-            { content: "#", styles: { fillColor: primaryFill, halign: "center" } },
-            { content: "NFPA Clause / Standard", styles: { fillColor: primaryFill } },
-            { content: "Mandatory Engineering Compliance & System Criteria", styles: { fillColor: primaryFill } },
-          ],
-        ],
-        body: guidelinesBody,
-      });
-
-      const finalY = (doc as any).lastAutoTable?.finalY ?? 215;
-
-      // Table 5: 3-Tier Dynamic Signature Block (Originator, Reviewer, Approver)
-      const {
-        originatedName,
-        originatedDate,
-        reviewerName,
-        reviewerDate,
-        approverName,
-        approverDate,
-      } = getSignatureBlockDetails(project?.id || "default", "/plumbing-fire-water-demand", currentUserName, calcReviewState);
-
-      callAutoTable(doc, {
-        startY: finalY + 3,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        pageBreak: "avoid",
-        styles: {
-          fontSize: 7.2,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 1.5, bottom: 1.5, left: 1, right: 1 },
-          minCellHeight: 5,
-        },
-        headStyles: {
-          fillColor: signatureFill,
-          textColor: 0,
-          fontStyle: "bold",
-          cellPadding: { top: 1.5, bottom: 1.5, left: 1, right: 1 },
-        },
-        head: [
-          [
-            { content: "Designation" },
-            { content: "Originator" },
-            { content: "Reviewer" },
-            { content: "Approver" },
-          ],
-        ],
-        body: [
-          [
-            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedName || "Design Engineer", styles: { halign: "center" } },
-            { content: reviewerName || "-", styles: { halign: "center" } },
-            { content: approverName || "-", styles: { halign: "center" } },
-          ],
-          [
-            { content: "Role:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: "Design Engineer", styles: { halign: "center" } },
-            { content: "Sr. Design Engineer", styles: { halign: "center" } },
-            { content: "Discipline Coordinator", styles: { halign: "center" } },
-          ],
-          [
-            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedDate || today, styles: { halign: "center" } },
-            { content: reviewerDate || "-", styles: { halign: "center" } },
-            { content: approverDate || "-", styles: { halign: "center" } },
-          ],
-        ],
-        columnStyles: {
-          0: { cellWidth: 28 },
-          1: { cellWidth: 51.3 },
-          2: { cellWidth: 51.3 },
-          3: { cellWidth: 51.3 },
-        },
-      });
-
-      // Save PDF
-      doc.save(`Fire_Water_Demand_Calculation_${projectNo}_${Date.now()}.pdf`);
-      toast.success("PDF calculation report generated successfully!");
-    } catch (e) {
-      console.error("Failed to generate PDF", e);
-      toast.error("Failed to generate PDF report.");
+  // Double-Click Handler: Opens EditBuildingModal
+  const handleOpenEditModal = (buildingId: string) => {
+    const target = buildings.find((b) => b.id === buildingId);
+    if (target) {
+      setEditingBuilding(target);
+      setSelectedBuildingId(buildingId);
+      setEditModalOpen(true);
     }
   };
 
-  const isSI = unitSystem === "si";
+  // Save changes from EditBuildingModal
+  const handleSaveEditedBuilding = (updated: CivilDefenseBuilding) => {
+    if (isEffectiveReadOnly) return;
+    const nextList = buildings.map((b) => (b.id === updated.id ? updated : b));
+    saveSchedule(nextList);
+    toast.success(`Updated ${updated.name}`);
+  };
+
+  // Multi-Selection Handlers (Ventilation-Style)
+  const toggleSelectAll = () => {
+    if (selectedRowIds.size === buildings.length) {
+      setSelectedRowIds(new Set());
+    } else {
+      setSelectedRowIds(new Set(buildings.map((b) => b.id)));
+    }
+  };
+
+  const toggleSelectRow = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const next = new Set(selectedRowIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setSelectedRowIds(next);
+    setSelectedBuildingId(id);
+    setReportBuildingId(id);
+  };
+
+  // Add Building from Preset
+  const handleAddPreset = (presetConfig: CivilDefensePresetConfig) => {
+    if (isEffectiveReadOnly) {
+      toast.error("Calculation is approved/locked. Unlock to modify schedule.");
+      return;
+    }
+    const newId = `bld-${Date.now().toString(36)}`;
+    const newBuilding: CivilDefenseBuilding = {
+      ...presetConfig.defaultBuilding,
+      id: newId,
+      name: `${presetConfig.defaultBuilding.name} (${buildings.length + 1})`,
+    };
+    const nextList = [...buildings, newBuilding];
+    saveSchedule(nextList);
+    setSelectedBuildingId(newId);
+    setSelectedRowIds(new Set([newId]));
+    setReportBuildingId(newId);
+    toast.success(`Added ${newBuilding.name} per ${presetConfig.tableRef}`);
+  };
+
+  // Add Custom Building
+  const handleAddNewBuilding = () => {
+    if (isEffectiveReadOnly) {
+      toast.error("Calculation is approved/locked.");
+      return;
+    }
+    const newId = `bld-${Date.now().toString(36)}`;
+    const newBuilding: CivilDefenseBuilding = {
+      id: newId,
+      name: `New Building Block (${buildings.length + 1})`,
+      height: 25,
+      floors: 8,
+      plotArea: 10000,
+      groundFloorArea: 2000,
+      occupancy: "business",
+      standpipeCount: 2,
+      hasInfraHydrants60m: true,
+      isSingleExitStair: false,
+      basementCount: 1,
+    };
+    const nextList = [...buildings, newBuilding];
+    saveSchedule(nextList);
+    setSelectedBuildingId(newId);
+    setSelectedRowIds(new Set([newId]));
+    setReportBuildingId(newId);
+    setEditingBuilding(newBuilding);
+    setEditModalOpen(true);
+    toast.success("Added new building block. Configure parameters in modal.");
+  };
+
+  // Duplicate Selected
+  const handleDuplicateSelected = () => {
+    if (isEffectiveReadOnly) return;
+    const toDuplicate = buildings.filter((b) => selectedRowIds.has(b.id));
+    if (toDuplicate.length === 0) {
+      toast.error("No buildings selected to duplicate");
+      return;
+    }
+    const clones: CivilDefenseBuilding[] = toDuplicate.map((b) => ({
+      ...b,
+      id: `bld-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 4)}`,
+      name: `${b.name} (Copy)`,
+    }));
+    const nextList = [...buildings, ...clones];
+    saveSchedule(nextList);
+    setSelectedRowIds(new Set(clones.map((c) => c.id)));
+    setSelectedBuildingId(clones[0].id);
+    setReportBuildingId(clones[0].id);
+    toast.success(`Duplicated ${toDuplicate.length} building(s)`);
+  };
+
+  // Delete Selected
+  const handleDeleteSelected = () => {
+    if (isEffectiveReadOnly) return;
+    if (buildings.length <= 1) {
+      toast.error("At least one building is required in the schedule");
+      return;
+    }
+    const nextList = buildings.filter((b) => !selectedRowIds.has(b.id));
+    if (nextList.length === 0) {
+      toast.error("Cannot delete all buildings");
+      return;
+    }
+    saveSchedule(nextList);
+    setSelectedBuildingId(nextList[0].id);
+    setSelectedRowIds(new Set([nextList[0].id]));
+    setReportBuildingId(nextList[0].id);
+    toast.success("Deleted selected building(s)");
+  };
+
+  // Export Engineering Report as PDF
+  const handleExportPDF = () => {
+    try {
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+
+      // Official Header Banner
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, pageWidth, 28, "F");
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text("UAE CIVIL DEFENSE FIRE WATER DEMAND & LIFE SAFETY CALCULATION", 14, 12);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(203, 213, 225);
+      doc.text(`Project: ${project?.name || "MEP Development Complex"} | Project ID: ${project?.id || "PRJ-UAE-CD-2026"} | Date: ${formatDateStr(new Date())}`, 14, 20);
+      doc.text(`Governing Standard: UAE Fire & Life Safety Code Chapter 9 (Tables 9.18 to 9.21.e) & NFPA 13 / 14 / 20 / 22`, pageWidth - 14, 20, { align: "right" });
+
+      const reviewStatus = calcReviewState?.status || "DRAFT";
+      doc.setFillColor(reviewStatus === "APPROVED" ? 16 : 217, reviewStatus === "APPROVED" ? 185 : 119, reviewStatus === "APPROVED" ? 129 : 6);
+      doc.rect(pageWidth - 55, 6, 45, 8, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.text(`STATUS: ${reviewStatus}`, pageWidth - 32.5, 11.5, { align: "center" });
+
+      // Summary KPI Box
+      doc.setFillColor(248, 250, 252);
+      doc.rect(14, 34, pageWidth - 28, 20, "F");
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(14, 34, pageWidth - 28, 20, "S");
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text(`Total Buildings: ${projectSummary.buildingCount}`, 20, 42);
+      doc.text(`Governing Civil Defense Fire Pump: ${projectSummary.maxPumpFlowGpm} GPM (${projectSummary.maxPumpFlowLpm} LPM) @ ${projectSummary.maxPumpPressureBar} bar (${projectSummary.maxPumpPressurePsi} psi)`, 20, 49);
+
+      doc.text(`Total Site Net Fire Water Storage: ${projectSummary.totalNetStorageM3} m³ (${projectSummary.totalNetStorageGal.toLocaleString()} US gal)`, pageWidth / 2, 42);
+      doc.text(`Discharge Header Sizing: ${projectSummary.governingHeaderNps}" NPS (DN ${projectSummary.governingHeaderDn}) @ ${projectSummary.governingHeaderVelocity} ft/s (NFPA 20 compliant)`, pageWidth / 2, 49);
+
+      const tableRows = evaluatedBuildings.map((item, idx) => {
+        const b = item.building;
+        const ev = item.evaluation;
+        return [
+          (idx + 1).toString(),
+          b.name,
+          `${b.height}m / G+${b.floors}`,
+          OCCUPANCY_OPTIONS.find((o) => o.value === b.occupancy)?.label.split(" (")[0] || b.occupancy,
+          `${b.groundFloorArea.toLocaleString()} m²`,
+          `${b.plotArea.toLocaleString()} m²`,
+          b.standpipeCount.toString(),
+          ev.categoryCode.replace(/^Table\s+[\d\.]+[a-z]?[\–\-e]*\s*/i, "") || "Standard",
+          `${ev.lowestFirePumpFlowGpm} GPM @ ${ev.lowestFirePumpPressureBar} bar`,
+          `${ev.mainTankDurationMin} min`,
+          `${ev.mainTankNetVolumeM3} m³ (${ev.mainTankNetVolumeGal.toLocaleString()} gal)`,
+          ev.requiresStagingPumps ? `Yes (${ev.stagingPumpFlowGpm} GPM @ 6.9 bar)` : "Single Set",
+        ];
+      });
+
+      autoTable(doc, {
+        startY: 58,
+        head: [[
+          "#",
+          "Building / Block Name",
+          "Height",
+          "Occupancy Class",
+          "GFA (m²)",
+          "Plot (m²)",
+          "Standpipes",
+          "Tier / Category",
+          "Fire Pump Rating",
+          "Duration",
+          "Net Fire Water Volume",
+          "Intermediate Pumps"
+        ]],
+        body: tableRows,
+        styles: { fontSize: 8, cellPadding: 2.5 },
+        headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        theme: "grid",
+      });
+
+      let finalY = (doc as any).lastAutoTable?.finalY || 140;
+
+      if (finalY > pageHeight - 50) {
+        doc.addPage();
+        finalY = 20;
+      }
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text("UAE CIVIL DEFENSE MANDATORY STATUTORY PROVISIONS:", 14, finalY + 8);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      const notes = [
+        "1. Water Storage Tank Appurtenances: Provided with low water level detection, dedicated direct breeching inlet for refilling, and anti-vortex plate over pump suction (UAE Code Section 3.1).",
+        "2. Fire Pump Sets: 1 Main Electric Duty Pump + 1 Standby Diesel / Electric Pump (100% capacity) + 1 Electric Pressure Maintenance Jockey Pump per UAE Code Section 3.1.",
+        "3. Super Highrise (> 90m): Intermediate pump sets provided every 90m (750 GPM for <=2 standpipes, 1000 GPM for >2 standpipes @ 6.9 bar) with 30-min intermediate tanks and auto-refill.",
+        "4. Plot Area > 20,000 m²: Yard fire hydrants required throughout site at 60m spacing unless municipal infrastructure hydrants are existing within 60m radius (Section 3.11).",
+        "5. Standpipes & Risers: Interconnected at lowest and highest levels of each zone to guarantee 6.9 bar residual pressure at the most remote landing valve.",
+      ];
+      notes.forEach((note, i) => {
+        doc.text(note, 14, finalY + 14 + i * 4);
+      });
+
+      const sigY = finalY + 40;
+      if (sigY < pageHeight - 20) {
+        doc.setDrawColor(203, 213, 225);
+        doc.line(14, sigY + 10, 70, sigY + 10);
+        doc.line(pageWidth / 2 - 28, sigY + 10, pageWidth / 2 + 28, sigY + 10);
+        doc.line(pageWidth - 70, sigY + 10, pageWidth - 14, sigY + 10);
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(15, 23, 42);
+        doc.text("PREPARED BY (SENIOR MEP ENGINEER)", 14, sigY + 14);
+        doc.text("CHECKED BY (LEAD FIRE CONSULTANT)", pageWidth / 2, sigY + 14, { align: "center" });
+        doc.text("UAE CIVIL DEFENSE APPROVAL STAMP", pageWidth - 14, sigY + 14, { align: "right" });
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(currentUserName, 14, sigY + 18);
+        doc.text("Licensed Fire & Life Safety Engineer", pageWidth / 2, sigY + 18, { align: "center" });
+        doc.text("AHJ Certification Stamp Required", pageWidth - 14, sigY + 18, { align: "right" });
+      }
+
+      doc.save(`UAE_Civil_Defense_Fire_Water_Demand_${project?.id || "Report"}.pdf`);
+      toast.success("Exported official Civil Defense Engineering PDF");
+    } catch (e) {
+      console.error("PDF generation failed", e);
+      toast.error("Failed to generate PDF");
+    }
+  };
+
+  // Filtered buildings for table
+  const filteredBuildings = useMemo(() => {
+    return evaluatedBuildings.filter((item) => {
+      const b = item.building;
+      const matchesSearch = b.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesOccupancy = filterOccupancy === "all" || b.occupancy === filterOccupancy;
+      return matchesSearch && matchesOccupancy;
+    });
+  }, [evaluatedBuildings, searchQuery, filterOccupancy]);
 
   return (
     <AppShell
@@ -1053,14 +667,14 @@ function FireWaterDemandPage() {
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
-          {/* Page Header */}
+          {/* ============================================================== */}
+          {/* PAGE HEADER: EXACT SEWAGE PUMP SIZING FORMAT                   */}
+          {/* ============================================================== */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Fire Water Demand</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">
-                  Total flow for sprinklers, hydrants, fire pump & tank sizing (NFPA 13/14/20/22)
-                </span>
+                <span className="text-[14px] font-medium text-muted-foreground">{buildings.length} building block{buildings.length !== 1 ? "s" : ""}</span>
               </div>
               <button 
                 onClick={() => setIntelOpen((v) => !v)}
@@ -1079,96 +693,45 @@ function FireWaterDemandPage() {
                 calculatorTitle="Fire Water Demand"
                 onReviewStateChange={setCalcReviewState}
               />
-              {commentsList.length > 0 && (
-                <div 
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
-                  title={`${commentsList.length} active task(s)/comment(s)`}
-                >
-                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"}</span>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* Approved Lock Status Banner */}
-          {isApprovedLocked && (
-            <div className="flex items-center justify-between p-3.5 px-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 font-medium shadow-2xs">
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
-                  <Lock className="size-4" />
-                </div>
-                <div>
-                  <span className="font-bold text-emerald-900 dark:text-emerald-200">Calculation is APPROVED & LOCKED</span>
-                  <span className="text-emerald-700/80 dark:text-emerald-400/80 ml-1.5">
-                    This Fire Water Demand sheet is approved. Editing is disabled to ensure revision integrity.
-                  </span>
-                </div>
-              </div>
-              <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold uppercase tracking-wider">
-                Approved
-              </span>
-            </div>
-          )}
 
-          {calcReviewState?.status === "REVIEWED" && (
-            <div className="flex items-center justify-between p-3.5 px-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-xs text-blue-800 dark:text-blue-300 font-medium shadow-2xs">
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-blue-500/20 text-blue-600 dark:text-blue-400">
-                  <CheckCircle2 className="size-4" />
-                </div>
-                <div>
-                  <span className="font-bold text-blue-900 dark:text-blue-200">Calculation has been REVIEWED</span>
-                  <span className="text-blue-700/80 dark:text-blue-400/80 ml-1.5">
-                    by {calcReviewState.reviewedBy || "Sr. Design Engineer"}. Awaiting final approval from Discipline Coordinator.
-                  </span>
-                </div>
-              </div>
-              <span className="px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-700 dark:text-blue-300 text-[11px] font-bold uppercase tracking-wider">
-                Reviewed
-              </span>
-            </div>
-          )}
 
-          {calcReviewState?.status === "REJECTED" && (
-            <div className="flex items-center justify-between p-3.5 px-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-800 dark:text-rose-300 font-medium shadow-2xs">
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-600 dark:text-rose-400">
-                  <AlertTriangle className="size-4" />
-                </div>
-                <div>
-                  <span className="font-bold text-rose-900 dark:text-rose-200">Calculation REJECTED</span>
-                  <span className="text-rose-700/80 dark:text-rose-400/80 ml-1.5">
-                    by {calcReviewState.rejectedBy || "Discipline Coordinator"}: {calcReviewState.rejectionDescription || "Please revise parameters and resubmit."}
-                  </span>
-                </div>
-              </div>
-              <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-700 dark:text-rose-300 text-[11px] font-bold uppercase tracking-wider">
-                Rejected
-              </span>
-            </div>
-          )}
-
-          {/* White Card Container for Tabs & Data Grid */}
+          {/* ============================================================== */}
+          {/* MAIN CARD CONTAINER & TABS SELECTOR (MATCHING SEWAGE PUMP)      */}
+          {/* ============================================================== */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             isApprovedLocked || calcReviewState?.status === "APPROVED"
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             
-            {/* Tabs Selector row */}
+            {/* Tabs Selector row - EXACT SEWAGE PUMP CONTROLS LAYOUT */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+              
+              {/* Left Side: Tabs + Formula + Presets */}
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                   <button
-                    onClick={() => setTab("solver")}
+                    onClick={() => setTab("schedule")}
                     className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "solver"
+                      tab === "schedule"
                         ? "bg-background text-foreground shadow-sm font-bold"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    Demand Sizer
+                    Building Schedule
+                  </button>
+                  <button
+                    onClick={() => setTab("tanks")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "tanks"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Pumps & Water Storage
                   </button>
                   <button
                     onClick={() => setTab("report")}
@@ -1182,32 +745,46 @@ function FireWaterDemandPage() {
                   </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setFormulaModalOpen(true)}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer bg-surface-2 hover:bg-surface border border-border/80 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 shadow-2xs"
-                  title="View NFPA Formulas"
-                >
-                  <Info className="size-3.5 text-primary" />
-                  <span>Formula Breakdown</span>
-                </button>
-
                 <div className="h-4 w-px bg-border/80 mx-1 hidden sm:block" />
 
-                {/* Compact Hazard Profile & Presets Dropdown */}
-                <HazardProfileSelect
-                  value={preset}
-                  customProfileName={customProfileName}
-                  onChange={handleApplyPreset}
-                  onOpenCustomModal={() => setCustomModalOpen(true)}
-                  unitSystem={unitSystem}
-                  disabled={isEffectiveReadOnly}
-                />
+                {/* Compact Civil Defense Preset Dropdown (Matching SewagePresetSelect style) */}
+                <div className="relative group">
+                  <button
+                    type="button"
+                    disabled={isEffectiveReadOnly}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/80 bg-surface-2 hover:bg-surface text-xs font-semibold text-foreground transition-all cursor-pointer disabled:opacity-50 shadow-2xs select-none"
+                  >
+                    <Building2 className="size-3.5 text-primary" />
+                    <span>Civil Defense Presets</span>
+                    <ChevronDown className="size-3 text-muted-foreground" />
+                  </button>
+                  <div className="absolute left-0 top-full mt-1 w-80 bg-card border border-border rounded-xl shadow-xl p-2 hidden group-hover:block z-50 animate-in fade-in zoom-in-95 duration-100">
+                    <div className="text-[11px] font-semibold text-muted-foreground px-2 py-1 uppercase tracking-wider">
+                      Add Pre-Configured Building
+                    </div>
+                    <div className="max-h-80 overflow-y-auto space-y-1">
+                      {CIVIL_DEFENSE_PRESETS.map((p) => (
+                        <button
+                          key={p.key}
+                          onClick={() => handleAddPreset(p)}
+                          className="w-full text-left p-2 rounded-lg hover:bg-surface-2 transition-all flex flex-col gap-0.5 group/item cursor-pointer"
+                        >
+                          <div className="text-xs font-semibold text-foreground group-hover/item:text-primary">
+                            {p.label}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground line-clamp-1">
+                            {p.description}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Right Side Controls: Export & Unit System Toggle */}
+              {/* Right Side Controls: Export & Unit System Toggle (EXACT SEWAGE PUMP FORMAT) */}
               <div className="flex items-center gap-2 select-none shrink-0">
-                <TBtn onClick={exportPdf}>
+                <TBtn onClick={handleExportPDF}>
                   <FileText className="size-3.5" /> Export
                 </TBtn>
 
@@ -1216,1889 +793,1250 @@ function FireWaterDemandPage() {
                   unitSystem={unitSystem}
                   onChange={handleUnitSystemChange}
                   disabled={isEffectiveReadOnly}
-                  inputDescriptions="Flow Rate (GPM / L/min), Pressure (psi / bar), Storage Tank Volume (gal / m³)"
+                  inputDescriptions="Fire Water Demand (GPM / LPM), Residual Pressure (psi / bar), Water Tank Capacity (gal / m³)"
                   conversionExample={
                     unitSystem === "ip"
-                      ? "Convert 500 GPM → 1,893 L/min, 65 psi → 4.48 bar, 45,000 gal → 170.3 m³"
-                      : "Convert 1,893 L/min → 500 GPM, 4.48 bar → 65 psi, 170.3 m³ → 45,000 gal"
+                      ? "Convert 1000 GPM → 3785 LPM, 100 psi → 6.9 bar, 60,000 Gal → 227.1 m³"
+                      : "Convert 3785 LPM → 1000 GPM, 6.9 bar → 100 psi, 227.1 m³ → 60,000 Gal"
                   }
                 />
               </div>
             </div>
 
-            {/* Active Tab View */}
-            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-              {tab === "solver" ? (
-                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
+            {/* TAB 1: SCHEDULE (FULL-HEIGHT SPACIOUS DATAGRID WITH DOUBLE-CLICK EDITING) */}
+            {tab === "schedule" && (
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                
+                {/* Search & Action Bar (Matching Ventilation / Sewage Grid Toolbar) */}
+                <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-card border-b border-border/60 shrink-0 flex-wrap">
+                  <div className="flex items-center gap-2 flex-1 max-w-md">
+                    <div className="relative w-full">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Search building name or occupancy..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 text-xs bg-surface-2 border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground font-medium">Occupancy:</span>
+                    <select
+                      value={filterOccupancy}
+                      onChange={(e) => setFilterOccupancy(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs bg-surface-2 border border-border rounded-lg text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                    >
+                      <option value="all">All Occupancies ({buildings.length})</option>
+                      {OCCUPANCY_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label.split(" (")[0]}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="h-4 w-px bg-border/80 mx-1 hidden sm:block" />
+
+                    <button
+                      disabled={isEffectiveReadOnly}
+                      onClick={handleAddNewBuilding}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <Plus className="size-3.5" />
+                      Add Building
+                    </button>
+                    <button
+                      disabled={isEffectiveReadOnly || selectedRowIds.size === 0}
+                      onClick={handleDuplicateSelected}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-2 hover:bg-surface-3 border border-border text-xs font-medium text-foreground transition-all cursor-pointer disabled:opacity-50"
+                      title="Duplicate Selected"
+                    >
+                      <Copy className="size-3.5" />
+                      Duplicate
+                    </button>
+                    <button
+                      disabled={isEffectiveReadOnly || selectedRowIds.size === 0}
+                      onClick={handleDeleteSelected}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-600 border border-red-500/20 text-xs font-medium transition-all cursor-pointer disabled:opacity-50"
+                      title="Delete Selected"
+                    >
+                      <Trash2 className="size-3.5" />
+                      Delete ({selectedRowIds.size})
+                    </button>
+                  </div>
+                </div>
+
+                {/* Building Schedule DataGrid Table - Takes Full Container Height */}
+                <div className="flex-1 overflow-x-auto overflow-y-auto">
+                  <table className="w-full text-xs border-collapse">
+                      <thead className="bg-surface-2 text-muted-foreground font-semibold uppercase text-[11px] sticky top-0 z-10 border-b border-border shadow-xs">
+                        <tr>
+                          <th className="py-2.5 px-3 w-10 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedRowIds.size === buildings.length && buildings.length > 0}
+                              onChange={toggleSelectAll}
+                              className="rounded border-border cursor-pointer"
+                            />
+                          </th>
+                          <th className="py-2.5 px-3 text-center">
+                            <div>BUILDING / BLOCK</div>
+                          </th>
+                          <th className="py-2.5 px-3 text-center">
+                            <div>OCCUPANCY</div>
+                          </th>
+                          <th className="py-2.5 px-3 text-center">
+                            <div>HEIGHT / FLOORS</div>
+                            <div className="text-[10px] text-muted-foreground/75 font-normal">(M)</div>
+                          </th>
+                          <th className="py-2.5 px-3 text-center">
+                            <div>GFA</div>
+                            <div className="text-[10px] text-muted-foreground/75 font-normal">(M²)</div>
+                          </th>
+                          <th className="py-2.5 px-3 text-center">
+                            <div>PLOT AREA</div>
+                            <div className="text-[10px] text-muted-foreground/75 font-normal">(M²)</div>
+                          </th>
+                          <th className="py-2.5 px-3 text-center">
+                            <div>STANDPIPES</div>
+                          </th>
+                          <th className="py-2.5 px-3 text-center">
+                            <div>FIRE PUMP DUTY</div>
+                            <div className="text-[10px] text-muted-foreground/75 font-normal">
+                              {unitSystem === "si" ? "(LPM @ BAR)" : "(GPM @ PSI)"}
+                            </div>
+                          </th>
+                          <th className="py-2.5 px-3 text-center">
+                            <div>TANK DURATION</div>
+                            <div className="text-[10px] text-muted-foreground/75 font-normal">(MIN)</div>
+                          </th>
+                          <th className="py-2.5 px-3 text-center">
+                            <div>NET WATER VOLUME</div>
+                            <div className="text-[10px] text-muted-foreground/75 font-normal">
+                              {unitSystem === "si" ? "(M³)" : "(GAL)"}
+                            </div>
+                          </th>
+                          <th className="py-2.5 px-3 text-center">
+                            <div>STAGING PUMPS</div>
+                            <div className="text-[10px] text-muted-foreground/75 font-normal">(&gt;90M)</div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {filteredBuildings.map((item) => {
+                          const b = item.building;
+                          const ev = item.evaluation;
+                          const isSelected = b.id === selectedBuildingId;
+                          const isChecked = selectedRowIds.has(b.id);
+                          const hasOverrides = b.overridePumpFlowGpm !== undefined ||
+                            b.overridePumpPressureBar !== undefined ||
+                            b.overrideTankDurationMin !== undefined ||
+                            b.overrideNetStorageM3 !== undefined;
+
+                          return (
+                            <tr
+                              key={b.id}
+                              onClick={() => {
+                                setSelectedBuildingId(b.id);
+                                setReportBuildingId(b.id);
+                                if (!selectedRowIds.has(b.id)) {
+                                  setSelectedRowIds(new Set([b.id]));
+                                }
+                              }}
+                              onDoubleClick={() => handleOpenEditModal(b.id)}
+                              className={`transition-colors group ${
+                                isSelected
+                                  ? "bg-primary/10 hover:bg-primary/15 font-medium"
+                                  : "hover:bg-surface-2"
+                              }`}
+                              title="Double-click row to open full architectural parameters modal"
+                            >
+                              {/* 1. Selection Checkbox */}
+                              <td className="py-2 px-3 text-center" onClick={(e) => toggleSelectRow(b.id, e)}>
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {}}
+                                  className="rounded border-border cursor-pointer"
+                                />
+                              </td>
+
+                              {/* 2. Building / Block Name (Editable Input) */}
+                              <td className="py-1.5 px-2.5 font-semibold text-foreground" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-1.5 min-w-[210px]">
+                                  <input
+                                    type="text"
+                                    value={b.name}
+                                    disabled={isEffectiveReadOnly}
+                                    onChange={(e) => handleUpdateBuilding(b.id, { name: e.target.value })}
+                                    className="w-full px-2 py-1 text-xs font-semibold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded transition-all"
+                                    placeholder="Building Name"
+                                  />
+                                  {ev.requiresStagingPumps && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 font-mono font-semibold shrink-0" title="Super Highrise (>90m): Mandates intermediate multi-level staging pumps and transfer tanks">
+                                      &gt;90m
+                                    </span>
+                                  )}
+                                  {ev.isYardHydrantRequired && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono font-semibold shrink-0" title="Plot Area > 20,000 m²: Mandates site yard hydrants spaced at 60m (UAE Code Section 3.11)">
+                                      Yard
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* 3. Occupancy Dropdown (Editable Select) */}
+                              <td className="py-1.5 px-2 text-muted-foreground text-center" onClick={(e) => e.stopPropagation()}>
+                                <div className="min-w-[195px] mx-auto">
+                                  <select
+                                    value={b.occupancy}
+                                    disabled={isEffectiveReadOnly}
+                                    onChange={(e) => handleUpdateBuilding(b.id, { occupancy: e.target.value as CivilDefenseOccupancy }, true)}
+                                    className="w-full px-2 py-1 text-xs text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-border/40 hover:border-border/80 focus:border-primary focus:ring-1 focus:ring-primary rounded cursor-pointer transition-all"
+                                    title={`Occupancy category: ${OCCUPANCY_OPTIONS.find((o) => o.value === b.occupancy)?.desc || b.occupancy}`}
+                                  >
+                                    {OCCUPANCY_OPTIONS.map((o) => (
+                                      <option key={o.value} value={o.value}>
+                                        {o.label.split(" (")[0]}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </td>
+
+                              {/* 4. Height & Floors (Editable Inputs) */}
+                              <td className="py-1.5 px-2 text-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-center gap-1 min-w-[130px] mx-auto" title="Height (meters) and above-ground stories. Governs Super Highrise (>90m), Highrise (23-90m), Midrise (15-23m), Lowrise (≤15m)">
+                                  <div className="relative flex items-center">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      step="0.5"
+                                      value={b.height || ""}
+                                      disabled={isEffectiveReadOnly}
+                                      onChange={(e) => {
+                                        const v = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                                        if (!isNaN(v)) handleUpdateBuilding(b.id, { height: v }, true);
+                                      }}
+                                      className="w-14 px-1.5 py-1 text-xs font-semibold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-right pr-4"
+                                    />
+                                    <span className="absolute right-1 text-[11px] text-muted-foreground pointer-events-none">m</span>
+                                  </div>
+                                  <span className="text-muted-foreground text-xs">(G+</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={b.floors ?? ""}
+                                    disabled={isEffectiveReadOnly}
+                                    onChange={(e) => {
+                                      const v = e.target.value === "" ? 0 : parseInt(e.target.value);
+                                      if (!isNaN(v)) handleUpdateBuilding(b.id, { floors: v }, true);
+                                    }}
+                                    className="w-10 px-1 py-1 text-xs font-semibold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
+                                  />
+                                  <span className="text-muted-foreground text-xs">)</span>
+                                </div>
+                              </td>
+
+                              {/* 5. GFA (m²) (Editable Input) */}
+                              <td className="py-1.5 px-2 text-muted-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
+                                <div className="min-w-[85px] max-w-[110px] mx-auto" title="Ground Floor Area (m²). Governs code system thresholds (≤500m², 501-3600m², >3600m²)">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="10"
+                                    value={b.groundFloorArea || ""}
+                                    disabled={isEffectiveReadOnly}
+                                    onChange={(e) => {
+                                      const v = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                                      if (!isNaN(v)) handleUpdateBuilding(b.id, { groundFloorArea: v }, true);
+                                    }}
+                                    className="w-full px-2 py-1 text-xs text-foreground font-mono bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
+                                  />
+                                </div>
+                              </td>
+
+                              {/* 6. Plot Area (m²) (Editable Input) */}
+                              <td className="py-1.5 px-2 text-muted-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
+                                <div className="min-w-[90px] max-w-[115px] mx-auto" title="Plot Area (m²). If >20,000 m², triggers Section 3.11 mandatory Yard Hydrants">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="50"
+                                    value={b.plotArea || ""}
+                                    disabled={isEffectiveReadOnly}
+                                    onChange={(e) => {
+                                      const v = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                                      if (!isNaN(v)) handleUpdateBuilding(b.id, { plotArea: v }, true);
+                                    }}
+                                    className="w-full px-2 py-1 text-xs text-foreground font-mono bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
+                                  />
+                                </div>
+                              </td>
+
+                              {/* 7. Standpipes (Editable Input) */}
+                              <td className="py-1.5 px-2 text-center text-foreground font-mono" onClick={(e) => e.stopPropagation()}>
+                                <div className="w-14 mx-auto" title="Number of Standpipes/Stairs. In Highrise, ≤2 standpipes = 750 GPM (2839 LPM); >2 standpipes = 1000 GPM (3785 LPM)">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="30"
+                                    step="1"
+                                    value={b.standpipeCount || ""}
+                                    disabled={isEffectiveReadOnly}
+                                    onChange={(e) => {
+                                      const v = e.target.value === "" ? 1 : parseInt(e.target.value);
+                                      if (!isNaN(v)) handleUpdateBuilding(b.id, { standpipeCount: v }, true);
+                                    }}
+                                    className="w-full px-1 py-1 text-xs font-semibold text-center text-foreground font-mono bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded"
+                                  />
+                                </div>
+                              </td>
+
+                              {/* 8. Fire Pump Duty (OUTPUT - Editable with Overrides) */}
+                              <td className="py-1.5 px-2 font-semibold text-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-center gap-1.5 min-w-[145px] mx-auto">
+                                  {unitSystem === "si" ? (
+                                    <>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="50"
+                                        value={ev.lowestFirePumpFlowLpm || ""}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => {
+                                          const lpm = parseFloat(e.target.value);
+                                          if (!isNaN(lpm)) {
+                                            handleUpdateBuilding(b.id, { overridePumpFlowGpm: Math.round(lpm / 3.78541) });
+                                          }
+                                        }}
+                                        className={`w-16 px-1.5 py-1 text-xs font-bold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border ${
+                                          b.overridePumpFlowGpm !== undefined ? "border-amber-500/70 ring-1 ring-amber-500/40 text-amber-600 dark:text-amber-400" : "border-transparent hover:border-border/60"
+                                        } focus:border-primary focus:ring-1 focus:ring-primary rounded text-center`}
+                                        title={b.overridePumpFlowGpm !== undefined ? "Manual override active. Click reset to restore statutory formula." : `Governing Rule: ${ev.lowestPumpRemarks}`}
+                                      />
+                                      <span className="text-muted-foreground/70 font-semibold text-xs">@</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.5"
+                                        value={ev.lowestFirePumpPressureBar || ""}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => {
+                                          const bar = parseFloat(e.target.value);
+                                          if (!isNaN(bar)) {
+                                            handleUpdateBuilding(b.id, { overridePumpPressureBar: bar });
+                                          }
+                                        }}
+                                        className={`w-13 px-1.5 py-1 text-xs font-bold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border ${
+                                          b.overridePumpPressureBar !== undefined ? "border-amber-500/70 ring-1 ring-amber-500/40 text-amber-600 dark:text-amber-400" : "border-transparent hover:border-border/60"
+                                        } focus:border-primary focus:ring-1 focus:ring-primary rounded text-center`}
+                                        title={b.overridePumpPressureBar !== undefined ? "Manual override active. Click reset to restore statutory formula." : `Residual Pressure: ${ev.lowestFirePumpPressureBar} bar at remote outlet`}
+                                      />
+                                      {(b.overridePumpFlowGpm !== undefined || b.overridePumpPressureBar !== undefined) && (
+                                        <button
+                                          onClick={() => handleUpdateBuilding(b.id, { overridePumpFlowGpm: undefined, overridePumpPressureBar: undefined })}
+                                          className="text-amber-500 hover:text-amber-600 p-0.5"
+                                          title="Reset to code statutory duty"
+                                        >
+                                          <RotateCcw className="size-3" />
+                                        </button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="25"
+                                        value={ev.lowestFirePumpFlowGpm || ""}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => {
+                                          const gpm = parseFloat(e.target.value);
+                                          if (!isNaN(gpm)) {
+                                            handleUpdateBuilding(b.id, { overridePumpFlowGpm: gpm });
+                                          }
+                                        }}
+                                        className={`w-16 px-1.5 py-1 text-xs font-bold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border ${
+                                          b.overridePumpFlowGpm !== undefined ? "border-amber-500/70 ring-1 ring-amber-500/40 text-amber-600 dark:text-amber-400" : "border-transparent hover:border-border/60"
+                                        } focus:border-primary focus:ring-1 focus:ring-primary rounded text-center`}
+                                        title={b.overridePumpFlowGpm !== undefined ? "Manual override active." : `Governing Rule: ${ev.lowestPumpRemarks}`}
+                                      />
+                                      <span className="text-muted-foreground/70 font-semibold text-xs">@</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="5"
+                                        value={ev.lowestFirePumpPressurePsi || ""}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => {
+                                          const psi = parseFloat(e.target.value);
+                                          if (!isNaN(psi)) {
+                                            handleUpdateBuilding(b.id, { overridePumpPressureBar: parseFloat((psi / 14.5038).toFixed(1)) });
+                                          }
+                                        }}
+                                        className={`w-14 px-1.5 py-1 text-xs font-bold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border ${
+                                          b.overridePumpPressureBar !== undefined ? "border-amber-500/70 ring-1 ring-amber-500/40 text-amber-600 dark:text-amber-400" : "border-transparent hover:border-border/60"
+                                        } focus:border-primary focus:ring-1 focus:ring-primary rounded text-center`}
+                                        title={b.overridePumpPressureBar !== undefined ? "Manual override active." : `Residual Pressure: ${ev.lowestFirePumpPressurePsi} psi`}
+                                      />
+                                      {(b.overridePumpFlowGpm !== undefined || b.overridePumpPressureBar !== undefined) && (
+                                        <button
+                                          onClick={() => handleUpdateBuilding(b.id, { overridePumpFlowGpm: undefined, overridePumpPressureBar: undefined })}
+                                          className="text-amber-500 hover:text-amber-600 p-0.5"
+                                          title="Reset to code statutory duty"
+                                        >
+                                          <RotateCcw className="size-3" />
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* 9. Tank Duration (OUTPUT - Editable with Overrides) */}
+                              <td className="py-1.5 px-2 text-muted-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-center gap-1 min-w-[75px] mx-auto">
+                                  <input
+                                    type="number"
+                                    min="10"
+                                    max="240"
+                                    step="5"
+                                    value={ev.mainTankDurationMin || ""}
+                                    disabled={isEffectiveReadOnly}
+                                    onChange={(e) => {
+                                      const min = parseInt(e.target.value);
+                                      if (!isNaN(min)) {
+                                        handleUpdateBuilding(b.id, { overrideTankDurationMin: min });
+                                      }
+                                    }}
+                                    className={`w-14 px-1.5 py-1 text-xs font-bold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border ${
+                                      b.overrideTankDurationMin !== undefined ? "border-amber-500/70 ring-1 ring-amber-500/40 text-amber-600 dark:text-amber-400" : "border-transparent hover:border-border/60"
+                                    } focus:border-primary focus:ring-1 focus:ring-primary rounded text-center`}
+                                    title={b.overrideTankDurationMin !== undefined ? "Manual override active. Click to reset." : `Statutory duration: ${ev.mainTankDurationMin} min per UAE Code`}
+                                  />
+                                  {b.overrideTankDurationMin !== undefined && (
+                                    <button
+                                      onClick={() => handleUpdateBuilding(b.id, { overrideTankDurationMin: undefined })}
+                                      className="text-amber-500 hover:text-amber-600 p-0.5"
+                                      title="Reset to code duration"
+                                    >
+                                      <RotateCcw className="size-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* 10. Net Water Volume (OUTPUT - Editable with Overrides) */}
+                              <td className="py-1.5 px-2 font-semibold text-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-center gap-1 min-w-[90px] mx-auto">
+                                  {unitSystem === "si" ? (
+                                    <>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.5"
+                                        value={ev.mainTankNetVolumeM3 || ""}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => {
+                                          const m3 = parseFloat(e.target.value);
+                                          if (!isNaN(m3)) {
+                                            handleUpdateBuilding(b.id, { overrideNetStorageM3: m3 });
+                                          }
+                                        }}
+                                        className={`w-18 px-1.5 py-1 text-xs font-bold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border ${
+                                          b.overrideNetStorageM3 !== undefined ? "border-amber-500/70 ring-1 ring-amber-500/40 text-amber-600 dark:text-amber-400" : "border-transparent hover:border-border/60"
+                                        } focus:border-primary focus:ring-1 focus:ring-primary rounded text-center`}
+                                        title={b.overrideNetStorageM3 !== undefined ? "Manual override active. Click reset to restore statutory formula." : `Calculated Net Volume: ${ev.lowestFirePumpFlowGpm} GPM × ${ev.mainTankDurationMin} min = ${ev.mainTankNetVolumeM3} m³`}
+                                      />
+                                      {b.overrideNetStorageM3 !== undefined && (
+                                        <button
+                                          onClick={() => handleUpdateBuilding(b.id, { overrideNetStorageM3: undefined })}
+                                          className="text-amber-500 hover:text-amber-600 p-0.5"
+                                          title="Reset to code volume"
+                                        >
+                                          <RotateCcw className="size-3" />
+                                        </button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="100"
+                                        value={ev.mainTankNetVolumeGal || ""}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => {
+                                          const gal = parseFloat(e.target.value);
+                                          if (!isNaN(gal)) {
+                                            handleUpdateBuilding(b.id, { overrideNetStorageM3: parseFloat((gal * 0.00378541).toFixed(1)) });
+                                          }
+                                        }}
+                                        className={`w-20 px-1.5 py-1 text-xs font-bold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border ${
+                                          b.overrideNetStorageM3 !== undefined ? "border-amber-500/70 ring-1 ring-amber-500/40 text-amber-600 dark:text-amber-400" : "border-transparent hover:border-border/60"
+                                        } focus:border-primary focus:ring-1 focus:ring-primary rounded text-center`}
+                                        title={b.overrideNetStorageM3 !== undefined ? "Manual override active. Click reset to restore statutory formula." : `Calculated Net Volume: ${ev.lowestFirePumpFlowGpm} GPM × ${ev.mainTankDurationMin} min = ${ev.mainTankNetVolumeGal.toLocaleString()} US gal`}
+                                      />
+                                      {b.overrideNetStorageM3 !== undefined && (
+                                        <button
+                                          onClick={() => handleUpdateBuilding(b.id, { overrideNetStorageM3: undefined })}
+                                          className="text-amber-500 hover:text-amber-600 p-0.5"
+                                          title="Reset to code volume"
+                                        >
+                                          <RotateCcw className="size-3" />
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* 11. Staging Pumps (Auto-derived from >90m) */}
+                              <td className="py-2.5 px-3 text-muted-foreground text-center">
+                                {ev.requiresStagingPumps ? (
+                                  <span className="text-purple-600 dark:text-purple-400 font-semibold font-mono text-[11px] whitespace-nowrap">
+                                    {ev.stagingPumpFlowGpm} GPM @ 6.9 bar (+90m)
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground text-[11px] whitespace-nowrap">N/A (Single Set)</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Table Bottom Status / Hint Bar */}
+                  <div className="px-4 py-2 bg-surface-2/60 border-t border-border flex items-center justify-between text-xs text-muted-foreground shrink-0 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <MousePointerClick className="size-3.5 text-primary" />
+                      <span>
+                        Inputs &amp; outputs are directly editable. Altering any input dynamically recalculates outputs according to UAE Civil Defense statutory formulas. Output overrides are highlighted with ↺ reset.
+                      </span>
+                    </div>
+                    {activeItem && (
+                      <div className="flex items-center gap-2">
+                        <span>Selected: <strong className="text-foreground">{activeItem.building.name}</strong></span>
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-surface-3 text-foreground/80">
+                          {OCCUPANCY_OPTIONS.find((o) => o.value === activeItem.building.occupancy)?.label.split(" (")[0] || activeItem.building.occupancy} • {activeItem.building.height}m
+                        </span>
+                      </div>
+                    )}
+                  </div>
+              </div>
+            )}
+
+
+
+            {/* TAB 3: WATER TANK & PUMP ROOM SIZING */}
+            {tab === "tanks" && (
+              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 gap-4">
+                {activeTankSizing && activeItem && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    
+                    {/* Left: Interactive Dimensions Input */}
+                    <div className="lg:col-span-5 p-4 rounded-xl bg-card border border-border shadow-xs flex flex-col gap-3">
+                      <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Waves className="size-4 text-blue-500" />
+                          <h3 className="text-sm font-bold text-foreground">
+                            Tank Dimensions & Civil Structure
+                          </h3>
+                        </div>
+                        <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600">
+                          {activeItem.evaluation.mainTankNetVolumeM3} m³ Net
+                        </span>
+                      </div>
+
+                      <div className="space-y-3 text-xs">
+                        {/* Target Net Volume Callout */}
+                        <div className="p-2.5 rounded-lg bg-surface-2 border border-border/60 flex items-center justify-between">
+                          <div>
+                            <span className="text-muted-foreground text-[11px]">Required Net Fire Reserve:</span>
+                            <div className="text-base font-bold text-foreground font-mono">
+                              {unitSystem === "si"
+                                ? `${activeItem.evaluation.mainTankNetVolumeM3} m³`
+                                : `${activeItem.evaluation.mainTankNetVolumeGal.toLocaleString()} US gal`}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-muted-foreground text-[11px]">Duration:</span>
+                            <div className="text-sm font-bold text-foreground font-mono">
+                              {activeItem.evaluation.mainTankDurationMin} minutes
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Length & Width */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-muted-foreground font-medium mb-1">
+                              Tank Internal Length (m):
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              step="0.5"
+                              disabled={isEffectiveReadOnly}
+                              value={tankLength}
+                              onChange={(e) => setTankLength(parseFloat(e.target.value) || 1)}
+                              className="w-full px-3 py-1.5 bg-surface-2 border border-border rounded-lg text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-muted-foreground font-medium mb-1">
+                              Tank Internal Width (m):
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              step="0.5"
+                              disabled={isEffectiveReadOnly}
+                              value={tankWidth}
+                              onChange={(e) => setTankWidth(parseFloat(e.target.value) || 1)}
+                              className="w-full px-3 py-1.5 bg-surface-2 border border-border rounded-lg text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Freeboard & Dead Suction Sump */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-muted-foreground font-medium mb-1">
+                              Freeboard Air Gap (m):
+                            </label>
+                            <input
+                              type="number"
+                              min="0.1"
+                              step="0.05"
+                              disabled={isEffectiveReadOnly}
+                              value={tankFreeboard}
+                              onChange={(e) => setTankFreeboard(parseFloat(e.target.value) || 0.3)}
+                              className="w-full px-3 py-1.5 bg-surface-2 border border-border rounded-lg text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                            />
+                            <span className="text-[10px] text-muted-foreground">Min 0.30m above overflow</span>
+                          </div>
+                          <div>
+                            <label className="block text-muted-foreground font-medium mb-1">
+                              Dead Suction Sump (m):
+                            </label>
+                            <input
+                              type="number"
+                              min="0.1"
+                              step="0.05"
+                              disabled={isEffectiveReadOnly}
+                              value={tankDeadVolumeDepth}
+                              onChange={(e) => setTankDeadVolumeDepth(parseFloat(e.target.value) || 0.2)}
+                              className="w-full px-3 py-1.5 bg-surface-2 border border-border rounded-lg text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                            />
+                            <span className="text-[10px] text-muted-foreground">Anti-vortex plate zone</span>
+                          </div>
+                        </div>
+
+                        {/* City Mains Refilling Flow */}
+                        <div>
+                          <label className="block text-muted-foreground font-medium mb-1">
+                            City Water Replenishment Flow (GPM):
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="10"
+                            disabled={isEffectiveReadOnly}
+                            value={cityMainRefillFlowGpm}
+                            onChange={(e) => setCityMainRefillFlowGpm(parseFloat(e.target.value) || 0)}
+                            className="w-full px-3 py-1.5 bg-surface-2 border border-border rounded-lg text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                          />
+                          <span className="text-[10px] text-muted-foreground">
+                            Estimated time to refill from empty: {activeTankSizing.fillTimeHours} hours
+                          </span>
+                        </div>
+
+                        {/* Calculated Dimensions Summary */}
+                        <div className="pt-2 border-t border-border/60 grid grid-cols-2 gap-2 text-xs">
+                          <div className="p-2 rounded bg-surface-2">
+                            <span className="text-muted-foreground text-[10px] uppercase">Effective Water Depth:</span>
+                            <div className="font-bold font-mono text-foreground">{activeTankSizing.effectiveDepth} m</div>
+                          </div>
+                          <div className="p-2 rounded bg-surface-2">
+                            <span className="text-muted-foreground text-[10px] uppercase">Total Tank Height:</span>
+                            <div className="font-bold font-mono text-foreground">{activeTankSizing.totalHeight} m</div>
+                          </div>
+                          <div className="p-2 rounded bg-surface-2">
+                            <span className="text-muted-foreground text-[10px] uppercase">Footprint Area:</span>
+                            <div className="font-bold font-mono text-foreground">{activeTankSizing.floorArea} m²</div>
+                          </div>
+                          <div className="p-2 rounded bg-surface-2">
+                            <span className="text-muted-foreground text-[10px] uppercase">Gross Tank Volume:</span>
+                            <div className="font-bold font-mono text-foreground">{activeTankSizing.grossVolumeM3} m³</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: SVG Graphic Cross-Section & Appurtenances */}
+                    <div className="lg:col-span-7 flex flex-col gap-3">
+                      
+                      {/* Interactive Visual Tank Elevation */}
+                      <div className="p-4 rounded-xl bg-card border border-border shadow-xs flex flex-col items-center">
+                        <div className="w-full flex items-center justify-between text-xs font-bold text-foreground mb-3">
+                          <span className="flex items-center gap-1.5">
+                            <Droplets className="size-4 text-blue-500" />
+                            Civil Defense Dedicated Tank Elevation Diagram (Section 3.1)
+                          </span>
+                          <span className="text-xs text-muted-foreground font-mono">
+                            {tankLength}m × {tankWidth}m × {activeTankSizing.totalHeight}m (H)
+                          </span>
+                        </div>
+
+                        {/* Tank Elevation Graphic */}
+                        <div className="w-full max-w-md h-64 border-2 border-border/80 rounded-xl relative overflow-hidden bg-slate-900/90 p-4 flex flex-col justify-between shadow-inner">
+                          {/* Freeboard Zone */}
+                          <div className="w-full h-10 border-b border-dashed border-amber-400/60 flex items-center justify-between px-3 text-[11px] text-amber-300 font-mono">
+                            <span>Freeboard (+{tankFreeboard}m Air Gap)</span>
+                            <span>Overflow Line</span>
+                          </div>
+
+                          {/* Effective Water Body */}
+                          <div className="relative flex-1 w-full bg-gradient-to-b from-blue-500/30 to-blue-600/50 flex flex-col justify-center items-center text-center p-2">
+                            <div className="text-xs font-bold text-blue-200">
+                              EFFECTIVE FIRE WATER STORAGE
+                            </div>
+                            <div className="text-lg font-black text-white font-mono">
+                              {unitSystem === "si"
+                                ? `${activeItem.evaluation.mainTankNetVolumeM3} m³`
+                                : `${activeItem.evaluation.mainTankNetVolumeGal.toLocaleString()} US Gallons`}
+                            </div>
+                            <div className="text-[10px] text-blue-200/80 font-mono">
+                              Depth: {activeTankSizing.effectiveDepth}m ({activeItem.evaluation.mainTankDurationMin} min duration)
+                            </div>
+                          </div>
+
+                          {/* Anti-Vortex / Sump Zone */}
+                          <div className="w-full h-8 border-t border-dashed border-slate-500/60 flex items-center justify-between px-3 text-[10px] text-slate-400 font-mono bg-slate-950/60">
+                            <span>Anti-Vortex Plate Level (+{tankDeadVolumeDepth}m)</span>
+                            <span>Suction Header</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Appurtenances & Mandatory Inlets */}
+                      <div className="p-4 rounded-xl bg-surface-2 border border-border shadow-xs text-xs space-y-2">
+                        <div className="font-bold text-foreground flex items-center gap-1.5">
+                          <ShieldCheck className="size-4 text-emerald-500" />
+                          <span>Mandatory Civil Defense Appurtenances (Section 3.1)</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-muted-foreground">
+                          <div className="p-2 rounded bg-card border border-border/50">
+                            <strong>• Dedicated Direct Breeching Inlet:</strong> Installed externally on building facade for fire brigade direct refilling.
+                          </div>
+                          <div className="p-2 rounded bg-card border border-border/50">
+                            <strong>• Low Water Level Detection:</strong> Connected to fire alarm panel with audio-visual supervisory fault signaling.
+                          </div>
+                          <div className="p-2 rounded bg-card border border-border/50">
+                            <strong>• Anti-Vortex Plate:</strong> Fitted over every suction outlet to prevent air entrainment into fire pump impellers.
+                          </div>
+                          <div className="p-2 rounded bg-card border border-border/50">
+                            <strong>• Dual Chamber Tank:</strong> 2 interconnected compartments to allow maintenance without shutting down protection.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB 4: OFFICIAL ENGINEERING REPORT */}
+            {tab === "report" && reportItem && (
+              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 gap-4">
+                
+                {/* KPI Banner: Site Overall Fire Water Metrics (Positioned under Report section) */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 shrink-0">
+                  {/* 1. Governing Pump Flow */}
+                  <div className="p-3 rounded-xl bg-card border border-border shadow-xs flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground font-medium">
+                      <span>Governing Fire Pump</span>
+                      <Gauge className="size-4 text-red-500" />
+                    </div>
+                    <div className="mt-1">
+                      <div className="text-xl font-bold text-foreground tracking-tight">
+                        {unitSystem === "si" ? `${projectSummary.maxPumpFlowLpm} LPM` : `${projectSummary.maxPumpFlowGpm} GPM`}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
+                        <span>@ {unitSystem === "si" ? `${projectSummary.maxPumpPressureBar} bar` : `${projectSummary.maxPumpPressurePsi} psi`}</span>
+                        <span className="text-emerald-500 font-semibold">• Duty + Standby</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Total Net Fire Water Storage */}
+                  <div className="p-3 rounded-xl bg-card border border-border shadow-xs flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground font-medium">
+                      <span>Total Net Fire Water</span>
+                      <Droplets className="size-4 text-blue-500" />
+                    </div>
+                    <div className="mt-1">
+                      <div className="text-xl font-bold text-foreground tracking-tight">
+                        {unitSystem === "si" ? `${projectSummary.totalNetStorageM3} m³` : `${projectSummary.totalNetStorageGal.toLocaleString()} gal`}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground font-medium">
+                        Gross: {unitSystem === "si" ? `${projectSummary.totalGrossStorageM3} m³` : `${projectSummary.totalGrossStorageGal.toLocaleString()} gal`} (+10% ullage)
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Super Highrise Towers */}
+                  <div className="p-3 rounded-xl bg-card border border-border shadow-xs flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground font-medium">
+                      <span>Super Highrise (&gt;90m)</span>
+                      <Layers className="size-4 text-purple-500" />
+                    </div>
+                    <div className="mt-1">
+                      <div className="text-xl font-bold text-foreground tracking-tight flex items-baseline gap-1.5">
+                        <span>{projectSummary.superHighriseCount}</span>
+                        <span className="text-xs font-normal text-muted-foreground">tower{projectSummary.superHighriseCount !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">
+                        {projectSummary.superHighriseCount > 0 ? "Intermediate pumps every 90m" : "Single basement pump set"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4. Yard Hydrants Requirement */}
+                  <div className="p-3 rounded-xl bg-card border border-border shadow-xs flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground font-medium">
+                      <span>Plot &gt;20k m² Hydrants</span>
+                      <ShieldAlert className="size-4 text-amber-500" />
+                    </div>
+                    <div className="mt-1">
+                      <div className="text-xl font-bold text-foreground tracking-tight flex items-baseline gap-1.5">
+                        <span>{projectSummary.yardHydrantRequiredCount}</span>
+                        <span className="text-xs font-normal text-muted-foreground">zone{projectSummary.yardHydrantRequiredCount !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                        {projectSummary.yardHydrantRequiredCount > 0 ? "Requires 1000 GPM ring main" : "Exempt / Infra within 60m"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 5. Recommended NFPA 20 Header */}
+                  <div className="p-3 rounded-xl bg-card border border-border shadow-xs flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground font-medium">
+                      <span>Discharge Header</span>
+                      <Activity className="size-4 text-emerald-500" />
+                    </div>
+                    <div className="mt-1">
+                      <div className="text-xl font-bold text-foreground tracking-tight">
+                        {projectSummary.governingHeaderNps}" NPS
+                      </div>
+                      <div className="text-[11px] text-muted-foreground font-medium flex items-center justify-between">
+                        <span>DN {projectSummary.governingHeaderDn}</span>
+                        <span className="text-emerald-500 font-semibold">{projectSummary.governingHeaderVelocity} ft/s (≤15)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Building Block Selector Tabs for Report Deep-Dive */}
+                <div className="flex items-center justify-between bg-surface-2 p-2 rounded-xl border border-border shrink-0">
+                  <div className="flex items-center gap-2 overflow-x-auto py-0.5">
+                    <span className="text-xs font-semibold text-muted-foreground shrink-0 pl-1">
+                      Inspect Building Report:
+                    </span>
+                    {evaluatedBuildings.map((item) => {
+                      const isActive = item.building.id === reportBuildingId;
+                      return (
+                        <button
+                          key={item.building.id}
+                          onClick={() => setReportBuildingId(item.building.id)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0 cursor-pointer ${
+                            isActive
+                              ? "bg-background text-primary shadow-xs font-bold border border-primary/20"
+                              : "text-muted-foreground hover:text-foreground hover:bg-surface-3"
+                          }`}
+                        >
+                          {item.building.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <TBtn onClick={handleExportPDF}>
+                      <FileText className="size-3.5" /> PDF Report
+                    </TBtn>
+                    <TBtn onClick={() => window.print()}>
+                      <Printer className="size-3.5" /> Print
+                    </TBtn>
+                  </div>
+                </div>
+
+                {/* SECTION 3: GOVERNING CODE BANNER & PRIMARY CAPACITIES */}
+                <div className="flex flex-col gap-3">
                   
-                  {/* Main Grid: Inputs (Left) & Results (Right) */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    
-                    {/* LEFT COLUMN: PARAMETERS */}
-                    <div className="lg:col-span-7 space-y-5">
-                      
-                      {/* SPRINKLER SYSTEM SECTION */}
-                      <div
-                        id="card-sprinkler"
-                        className={`bg-background border rounded-2xl shadow-xs p-5 space-y-4 transition-all duration-300 ${
-                          highlightedTargetId === "card-sprinkler" || highlightedTargetId === "spFlow"
-                            ? "border-primary ring-2 ring-primary/30"
-                            : "border-border/80"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between pb-2 border-b border-border/50">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-4 bg-primary rounded-full" />
-                            <span className="text-[12.5px] font-bold text-foreground uppercase tracking-wide flex items-center gap-1.5">
-                              <Droplets className="size-4 text-primary" /> Sprinkler System Demand
-                            </span>
-                          </div>
-                          <span className="text-[10.5px] font-bold px-2 py-0.5 rounded bg-primary/10 text-primary">
-                            NFPA 13
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {/* Sprinkler Flow */}
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                id="field-spFlow"
-                                className={`p-3 rounded-xl border transition-all ${
-                                  highlightedTargetId === "spFlow" ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border/60 bg-muted/10 hover:border-border"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="text-[11px] font-bold text-muted-foreground">
-                                    System Flow ({isSI ? "L/min" : "GPM"})
-                                  </label>
-                                  {renderCommentBadge("spFlow", "Sprinkler Flow")}
-                                </div>
-                                <div className="relative">
-                                  <input
-                                    type="number"
-                                    disabled={isEffectiveReadOnly}
-                                    value={isSI && typeof spFlow === "number" ? (spFlow * GPM_TO_LMIN).toFixed(0) : spFlow}
-                                    onChange={(e) => {
-                                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                      if (val === "") setSpFlow("");
-                                      else if (isSI) setSpFlow(val / GPM_TO_LMIN);
-                                      else setSpFlow(val);
-                                      dirtyStore.set(true);
-                                    }}
-                                    className="w-full h-10 px-3 bg-background border border-input rounded-lg text-[13.5px] font-semibold outline-none focus:border-primary disabled:opacity-60"
-                                    placeholder="e.g. 500"
-                                  />
-                                </div>
-                                <span className="text-[10px] text-muted-foreground mt-1 block">
-                                  Hydraulic demand from area/density calculation
-                                </span>
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue(`Sprinkler Flow (${isSI ? "L/min" : "GPM"})`, isSI && typeof spFlow === "number" ? (spFlow * GPM_TO_LMIN).toFixed(0) : spFlow)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handlePasteValue("Sprinkler Flow", (val) => {
-                                  const num = typeof val === "number" ? val : parseFloat(val);
-                                  if (!isNaN(num)) {
-                                    if (isSI) setSpFlow(num / GPM_TO_LMIN);
-                                    else setSpFlow(num);
-                                  } else {
-                                    setSpFlow(val);
-                                  }
-                                  dirtyStore.set(true);
-                                })}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Clipboard className="size-3.5 text-muted-foreground" />
-                                <span>Paste Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleResetValue("Sprinkler Flow", setSpFlow, 500);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default ({isSI ? `${(500 * GPM_TO_LMIN).toFixed(0)} L/min` : "500 GPM"})</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleClearValue("Sprinkler Flow", setSpFlow);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Clear Field</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("spFlow", "Sprinkler Flow")}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-
-                          {/* Sprinkler Pressure */}
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                id="field-spPress"
-                                className={`p-3 rounded-xl border transition-all ${
-                                  highlightedTargetId === "spPress" ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border/60 bg-muted/10 hover:border-border"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="text-[11px] font-bold text-muted-foreground">
-                                    Required Pressure ({isSI ? "bar" : "psi"})
-                                  </label>
-                                  {renderCommentBadge("spPress", "Sprinkler Pressure")}
-                                </div>
-                                <div className="relative">
-                                  <input
-                                    type="number"
-                                    disabled={isEffectiveReadOnly}
-                                    value={isSI && typeof spPress === "number" ? (spPress * PSI_TO_BAR).toFixed(2) : spPress}
-                                    onChange={(e) => {
-                                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                      if (val === "") setSpPress("");
-                                      else if (isSI) setSpPress(val / PSI_TO_BAR);
-                                      else setSpPress(val);
-                                      dirtyStore.set(true);
-                                    }}
-                                    className="w-full h-10 px-3 bg-background border border-input rounded-lg text-[13.5px] font-semibold outline-none focus:border-primary disabled:opacity-60"
-                                    placeholder="e.g. 65"
-                                  />
-                                </div>
-                                <span className="text-[10px] text-muted-foreground mt-1 block">
-                                  Minimum pressure at remote design sprinkler
-                                </span>
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue(`Sprinkler Pressure (${isSI ? "bar" : "psi"})`, isSI && typeof spPress === "number" ? (spPress * PSI_TO_BAR).toFixed(2) : spPress)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handlePasteValue("Sprinkler Pressure", (val) => {
-                                  const num = typeof val === "number" ? val : parseFloat(val);
-                                  if (!isNaN(num)) {
-                                    if (isSI) setSpPress(num / PSI_TO_BAR);
-                                    else setSpPress(num);
-                                  } else {
-                                    setSpPress(val);
-                                  }
-                                  dirtyStore.set(true);
-                                })}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Clipboard className="size-3.5 text-muted-foreground" />
-                                <span>Paste Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleResetValue("Sprinkler Pressure", setSpPress, 65);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default ({isSI ? `${(65 * PSI_TO_BAR).toFixed(2)} bar` : "65 psi"})</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleClearValue("Sprinkler Pressure", setSpPress);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Clear Field</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("spPress", "Sprinkler Pressure")}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        </div>
+                  {/* Classification Banner */}
+                  <div className="p-4 rounded-xl bg-surface-2 border border-border shadow-xs flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Shield className="size-4 text-emerald-500" />
+                        <span className="text-sm font-bold text-foreground">
+                          {reportItem.evaluation.tableTitle.replace(/^Table\s+[\d\.]+[a-z]?[\–\-e]*:\s*/i, "")}
+                        </span>
                       </div>
-
-                      {/* HYDRANTS & STANDPIPE OUTLETS SECTION */}
-                      <div
-                        id="card-hydrants"
-                        className={`bg-background border rounded-2xl shadow-xs p-5 space-y-4 transition-all duration-300 ${
-                          highlightedTargetId === "card-hydrants" || highlightedTargetId === "hyCount"
-                            ? "border-primary ring-2 ring-primary/30"
-                            : "border-border/80"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between pb-2 border-b border-border/50">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-4 bg-primary rounded-full" />
-                            <span className="text-[12.5px] font-bold text-foreground uppercase tracking-wide flex items-center gap-1.5">
-                              <Gauge className="size-4 text-primary" /> External Hydrants / Landing Outlets
-                            </span>
-                          </div>
-                          <span className="text-[10.5px] font-bold px-2 py-0.5 rounded bg-primary/10 text-primary">
-                            NFPA 14 / NFPA 24
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {/* Hydrants Count */}
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                id="field-hyCount"
-                                className={`p-3 rounded-xl border transition-all ${
-                                  highlightedTargetId === "hyCount" ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border/60 bg-muted/10 hover:border-border"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="text-[11px] font-bold text-muted-foreground">
-                                    Simultaneous Hydrant Count
-                                  </label>
-                                  {renderCommentBadge("hyCount", "Hydrant Count")}
-                                </div>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  disabled={isEffectiveReadOnly}
-                                  value={hyCount}
-                                  onChange={(e) => {
-                                    setHyCount(e.target.value === "" ? "" : parseInt(e.target.value) || 0);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className="w-full h-10 px-3 bg-background border border-input rounded-lg text-[13.5px] font-semibold outline-none focus:border-primary disabled:opacity-60"
-                                  placeholder="e.g. 2"
-                                />
-                                <span className="text-[10px] text-muted-foreground mt-1 block">
-                                  Typically 1 to 2 simultaneous hydrants (250 GPM each)
-                                </span>
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue("Hydrant Count", hyCount)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handlePasteValue("Hydrant Count", (val) => {
-                                  const num = parseInt(val);
-                                  if (!isNaN(num)) setHyCount(num);
-                                  else setHyCount(val);
-                                  dirtyStore.set(true);
-                                })}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Clipboard className="size-3.5 text-muted-foreground" />
-                                <span>Paste Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleResetValue("Hydrant Count", setHyCount, 2);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default (2)</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleClearValue("Hydrant Count", setHyCount);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Clear Field</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("hyCount", "Hydrant Count")}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-
-                          {/* Flow per Hydrant */}
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                id="field-hyFlow"
-                                className={`p-3 rounded-xl border transition-all ${
-                                  highlightedTargetId === "hyFlow" ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border/60 bg-muted/10 hover:border-border"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="text-[11px] font-bold text-muted-foreground">
-                                    Flow per Hydrant ({isSI ? "L/min" : "GPM"})
-                                  </label>
-                                  {renderCommentBadge("hyFlow", "Flow per Hydrant")}
-                                </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={isSI && typeof hyFlow === "number" ? (hyFlow * GPM_TO_LMIN).toFixed(0) : hyFlow}
-                                  onChange={(e) => {
-                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                    if (val === "") setHyFlow("");
-                                    else if (isSI) setHyFlow(val / GPM_TO_LMIN);
-                                    else setHyFlow(val);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className="w-full h-10 px-3 bg-background border border-input rounded-lg text-[13.5px] font-semibold outline-none focus:border-primary disabled:opacity-60"
-                                  placeholder="e.g. 250"
-                                />
-                                <span className="text-[10px] text-muted-foreground mt-1 block">
-                                  Total Hydrant: {isSI ? `${(calcResults.hyTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hyTotal} GPM`}
-                                </span>
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue(`Flow per Hydrant (${isSI ? "L/min" : "GPM"})`, isSI && typeof hyFlow === "number" ? (hyFlow * GPM_TO_LMIN).toFixed(0) : hyFlow)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handlePasteValue("Flow per Hydrant", (val) => {
-                                  const num = typeof val === "number" ? val : parseFloat(val);
-                                  if (!isNaN(num)) {
-                                    if (isSI) setHyFlow(num / GPM_TO_LMIN);
-                                    else setHyFlow(num);
-                                  } else {
-                                    setHyFlow(val);
-                                  }
-                                  dirtyStore.set(true);
-                                })}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Clipboard className="size-3.5 text-muted-foreground" />
-                                <span>Paste Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleResetValue("Flow per Hydrant", setHyFlow, 250);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default ({isSI ? `${(250 * GPM_TO_LMIN).toFixed(0)} L/min` : "250 GPM"})</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleClearValue("Flow per Hydrant", setHyFlow);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Clear Field</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("hyFlow", "Flow per Hydrant")}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        </div>
-                      </div>
-
-                      {/* FIRST-AID HOSE REELS SECTION */}
-                      <div
-                        id="card-hose-reels"
-                        className={`bg-background border rounded-2xl shadow-xs p-5 space-y-4 transition-all duration-300 ${
-                          highlightedTargetId === "card-hose-reels" || highlightedTargetId === "hrCount"
-                            ? "border-primary ring-2 ring-primary/30"
-                            : "border-border/80"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between pb-2 border-b border-border/50">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-4 bg-primary rounded-full" />
-                            <span className="text-[12.5px] font-bold text-foreground uppercase tracking-wide flex items-center gap-1.5">
-                              <Waves className="size-4 text-primary" /> First-Aid Hose Reels (Internal)
-                            </span>
-                          </div>
-                          <span className="text-[10.5px] font-bold px-2 py-0.5 rounded bg-primary/10 text-primary">
-                            NFPA 14 Class II
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {/* Hose Reel Count */}
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                id="field-hrCount"
-                                className={`p-3 rounded-xl border transition-all ${
-                                  highlightedTargetId === "hrCount" ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border/60 bg-muted/10 hover:border-border"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="text-[11px] font-bold text-muted-foreground">
-                                    Simultaneous Hose Reels
-                                  </label>
-                                  {renderCommentBadge("hrCount", "Hose Reel Count")}
-                                </div>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  disabled={isEffectiveReadOnly}
-                                  value={hrCount}
-                                  onChange={(e) => {
-                                    setHrCount(e.target.value === "" ? "" : parseInt(e.target.value) || 0);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className="w-full h-10 px-3 bg-background border border-input rounded-lg text-[13.5px] font-semibold outline-none focus:border-primary disabled:opacity-60"
-                                  placeholder="e.g. 2"
-                                />
-                                <span className="text-[10px] text-muted-foreground mt-1 block">
-                                  Inside hose allowance (25–30 GPM per reel)
-                                </span>
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue("Hose Reel Count", hrCount)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handlePasteValue("Hose Reel Count", (val) => {
-                                  const num = parseInt(val);
-                                  if (!isNaN(num)) setHrCount(num);
-                                  else setHrCount(val);
-                                  dirtyStore.set(true);
-                                })}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Clipboard className="size-3.5 text-muted-foreground" />
-                                <span>Paste Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleResetValue("Hose Reel Count", setHrCount, 2);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default (2)</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleClearValue("Hose Reel Count", setHrCount);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Clear Field</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("hrCount", "Hose Reel Count")}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-
-                          {/* Flow per Hose Reel */}
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                id="field-hrFlow"
-                                className={`p-3 rounded-xl border transition-all ${
-                                  highlightedTargetId === "hrFlow" ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border/60 bg-muted/10 hover:border-border"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="text-[11px] font-bold text-muted-foreground">
-                                    Flow per Reel ({isSI ? "L/min" : "GPM"})
-                                  </label>
-                                  {renderCommentBadge("hrFlow", "Flow per Reel")}
-                                </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={isSI && typeof hrFlow === "number" ? (hrFlow * GPM_TO_LMIN).toFixed(0) : hrFlow}
-                                  onChange={(e) => {
-                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                    if (val === "") setHrFlow("");
-                                    else if (isSI) setHrFlow(val / GPM_TO_LMIN);
-                                    else setHrFlow(val);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className="w-full h-10 px-3 bg-background border border-input rounded-lg text-[13.5px] font-semibold outline-none focus:border-primary disabled:opacity-60"
-                                  placeholder="e.g. 30"
-                                />
-                                <span className="text-[10px] text-muted-foreground mt-1 block">
-                                  Total Hose Reel: {isSI ? `${(calcResults.hrTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hrTotal} GPM`}
-                                </span>
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue(`Flow per Reel (${isSI ? "L/min" : "GPM"})`, isSI && typeof hrFlow === "number" ? (hrFlow * GPM_TO_LMIN).toFixed(0) : hrFlow)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handlePasteValue("Flow per Reel", (val) => {
-                                  const num = typeof val === "number" ? val : parseFloat(val);
-                                  if (!isNaN(num)) {
-                                    if (isSI) setHrFlow(num / GPM_TO_LMIN);
-                                    else setHrFlow(num);
-                                  } else {
-                                    setHrFlow(val);
-                                  }
-                                  dirtyStore.set(true);
-                                })}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Clipboard className="size-3.5 text-muted-foreground" />
-                                <span>Paste Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleResetValue("Flow per Reel", setHrFlow, 30);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default ({isSI ? `${(30 * GPM_TO_LMIN).toFixed(0)} L/min` : "30 GPM"})</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleClearValue("Flow per Reel", setHrFlow);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Clear Field</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("hrFlow", "Flow per Reel")}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        </div>
-                      </div>
-
-                      {/* DURATION & STORAGE TANK PARAMETERS */}
-                      <div
-                        id="card-duration"
-                        className={`bg-background border rounded-2xl shadow-xs p-5 space-y-4 transition-all duration-300 ${
-                          highlightedTargetId === "card-duration" || highlightedTargetId === "designDuration"
-                            ? "border-primary ring-2 ring-primary/30"
-                            : "border-border/80"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between pb-2 border-b border-border/50">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-4 bg-primary rounded-full" />
-                            <span className="text-[12.5px] font-bold text-foreground uppercase tracking-wide flex items-center gap-1.5">
-                              <Clock className="size-4 text-primary" /> Storage Tank Sizing Parameters
-                            </span>
-                          </div>
-                          <span className="text-[10.5px] font-bold px-2 py-0.5 rounded bg-primary/10 text-primary">
-                            NFPA 22
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          {/* Duration */}
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                id="field-designDuration"
-                                className={`p-3 rounded-xl border transition-all ${
-                                  highlightedTargetId === "designDuration" ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border/60 bg-muted/10 hover:border-border"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="text-[11px] font-bold text-muted-foreground">
-                                    Design Duration (min)
-                                  </label>
-                                  {renderCommentBadge("designDuration", "Design Duration")}
-                                </div>
-                                <select
-                                  disabled={isEffectiveReadOnly}
-                                  value={designDuration}
-                                  onChange={(e) => {
-                                    setDesignDuration(parseInt(e.target.value) || 60);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className="w-full h-10 px-2.5 bg-background border border-input rounded-lg text-[13px] font-semibold outline-none focus:border-primary disabled:opacity-60"
-                                >
-                                  <option value="30">30 min (Light Hazard)</option>
-                                  <option value="60">60 min (Ordinary 1)</option>
-                                  <option value="90">90 min (Ordinary 2 / Standpipe)</option>
-                                  <option value="120">120 min (Extra Hazard)</option>
-                                  <option value="180">180 min (Special Hazard)</option>
-                                </select>
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue("Design Duration", `${designDuration} min`)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleResetValue("Design Duration", setDesignDuration, 60);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default (60 min)</span>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("designDuration", "Design Duration")}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-
-                          {/* Safety Allowance */}
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                id="field-tankReservePct"
-                                className={`p-3 rounded-xl border transition-all ${
-                                  highlightedTargetId === "tankReservePct" ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border/60 bg-muted/10 hover:border-border"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="text-[11px] font-bold text-muted-foreground">
-                                    Ullage & Silt Reserve (%)
-                                  </label>
-                                  {renderCommentBadge("tankReservePct", "Ullage & Silt Reserve")}
-                                </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={tankReservePct}
-                                  onChange={(e) => {
-                                    setTankReservePct(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                    dirtyStore.set(true);
-                                  }}
-                                  className="w-full h-10 px-3 bg-background border border-input rounded-lg text-[13.5px] font-semibold outline-none focus:border-primary disabled:opacity-60"
-                                  placeholder="e.g. 10"
-                                />
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue("Ullage & Silt Reserve", `${tankReservePct}%`)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handlePasteValue("Ullage & Silt Reserve", (val) => {
-                                  const num = parseFloat(val);
-                                  if (!isNaN(num)) setTankReservePct(num);
-                                  else setTankReservePct(val);
-                                  dirtyStore.set(true);
-                                })}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Clipboard className="size-3.5 text-muted-foreground" />
-                                <span>Paste Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleResetValue("Ullage & Silt Reserve", setTankReservePct, 10);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default (10%)</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleClearValue("Ullage & Silt Reserve", setTankReservePct);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Clear Field</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("tankReservePct", "Ullage & Silt Reserve")}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-
-                          {/* City Mains Refill */}
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                id="field-mainsReplenishFlow"
-                                className={`p-3 rounded-xl border transition-all ${
-                                  highlightedTargetId === "mainsReplenishFlow" ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border/60 bg-muted/10 hover:border-border"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <label className="text-[11px] font-bold text-muted-foreground">
-                                    Mains Replenish ({isSI ? "L/min" : "GPM"})
-                                  </label>
-                                  {renderCommentBadge("mainsReplenishFlow", "Mains Replenish Flow")}
-                                </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={isSI && typeof mainsReplenishFlow === "number" ? (mainsReplenishFlow * GPM_TO_LMIN).toFixed(0) : mainsReplenishFlow}
-                                  onChange={(e) => {
-                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                    if (val === "") setMainsReplenishFlow("");
-                                    else if (isSI) setMainsReplenishFlow(val / GPM_TO_LMIN);
-                                    else setMainsReplenishFlow(val);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className="w-full h-10 px-3 bg-background border border-input rounded-lg text-[13.5px] font-semibold outline-none focus:border-primary disabled:opacity-60"
-                                  placeholder="0 for isolated"
-                                />
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleCopyValue(`Mains Replenish (${isSI ? "L/min" : "GPM"})`, isSI && typeof mainsReplenishFlow === "number" ? (mainsReplenishFlow * GPM_TO_LMIN).toFixed(0) : mainsReplenishFlow)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                              >
-                                <Copy className="size-3.5 text-muted-foreground" />
-                                <span>Copy Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => handlePasteValue("Mains Replenish", (val) => {
-                                  const num = typeof val === "number" ? val : parseFloat(val);
-                                  if (!isNaN(num)) {
-                                    if (isSI) setMainsReplenishFlow(num / GPM_TO_LMIN);
-                                    else setMainsReplenishFlow(num);
-                                  } else {
-                                    setMainsReplenishFlow(val);
-                                  }
-                                  dirtyStore.set(true);
-                                })}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Clipboard className="size-3.5 text-muted-foreground" />
-                                <span>Paste Value</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleResetValue("Mains Replenish", setMainsReplenishFlow, 0);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <RotateCcw className="size-3.5 text-muted-foreground" />
-                                <span>Reset to Default (0)</span>
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => {
-                                  handleClearValue("Mains Replenish", setMainsReplenishFlow);
-                                  dirtyStore.set(true);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 text-destructive rounded-lg cursor-pointer font-medium disabled:opacity-50"
-                              >
-                                <Trash2 className="size-3.5" />
-                                <span>Clear Field</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment("mainsReplenishFlow", "Mains Replenish Flow")}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment / Assign Task</span>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        </div>
-                      </div>
-
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                        {reportItem.evaluation.categoryCode.replace(/^Table\s+[\d\.]+[a-z]?[\–\-e]*\s*/i, "") || "Standard"}
+                      </span>
                     </div>
-
-                    {/* RIGHT COLUMN: CALCULATION RESULTS & ACTION */}
-                    <div className="lg:col-span-5 space-y-5">
-                      
-                      {/* WARNING NOTICES */}
-                      {calcResults.showLargeDemandWarning && (
-                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex gap-3 items-start">
-                          <AlertTriangle className="size-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                          <div>
-                            <h4 className="text-[12.5px] font-bold text-amber-900 dark:text-amber-200">
-                              High Flow Demand ({isSI ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.totalFlow} GPM`})
-                            </h4>
-                            <p className="text-[11.5px] text-amber-800/80 dark:text-amber-300/80 mt-0.5 leading-relaxed">
-                              Total simultaneous demand exceeds 2,000 GPM. Consider a dual pump arrangement (e.g. 2 × 50% duty pumps) or verify simultaneous diversity factors with the local Authority Having Jurisdiction (AHJ).
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      {calcResults.showRefillExceeds8h && (
-                        <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex gap-3 items-start">
-                          <AlertTriangle className="size-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                          <div>
-                            <h4 className="text-[12.5px] font-bold text-rose-900 dark:text-rose-200">
-                              Replenishment Time Warning ({calcResults.refillHours?.toFixed(1)} hours)
-                            </h4>
-                            <p className="text-[11.5px] text-rose-800/80 dark:text-rose-300/80 mt-0.5 leading-relaxed">
-                              NFPA 22 Section 5.2 recommends complete tank refill within 8.0 hours. Increase municipal replenishment inflow or adjust storage compartment volume.
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* HERO SUMMARY CARD */}
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div
-                            id="card-hero-results"
-                            className="bg-background border border-border/80 rounded-2xl shadow-xs p-6 space-y-6 relative overflow-hidden"
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <div className="w-1.5 h-5 bg-primary rounded-full" />
-                                <h3 className="text-[15px] font-bold text-foreground tracking-wide">
-                                  Simultaneous Demand Summary
-                                </h3>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {renderCommentBadge("card-hero-results", "Simultaneous Fire Demand Summary")}
-                                <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-primary/10 text-primary">
-                                  NFPA 13 / 14 / 20 / 22
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Top 4 KPI Metrics */}
-                            <div className="grid grid-cols-2 gap-3.5">
-                              {/* Sprinkler Flow */}
-                              <div className="p-3.5 rounded-xl bg-muted/30 border border-border/50">
-                                <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                                  Sprinkler Demand
-                                </div>
-                                <div className="text-xl font-black text-foreground">
-                                  {isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`}
-                                </div>
-                                <div className="text-[10px] text-muted-foreground mt-0.5">
-                                  @ {isSI ? `${(calcResults.spP * PSI_TO_BAR).toFixed(2)} bar` : `${calcResults.spP.toFixed(0)} psi`} residual
-                                </div>
-                              </div>
-
-                              {/* Hydrants Total */}
-                              <div className="p-3.5 rounded-xl bg-muted/30 border border-border/50">
-                                <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                                  Hydrants Total
-                                </div>
-                                <div className="text-xl font-black text-foreground">
-                                  {isSI ? `${(calcResults.hyTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hyTotal.toFixed(0)} GPM`}
-                                </div>
-                                <div className="text-[10px] text-muted-foreground mt-0.5">
-                                  {calcResults.hyC} Outlets × {isSI ? (calcResults.hyF * GPM_TO_LMIN).toFixed(0) + " L/min" : calcResults.hyF.toFixed(0) + " GPM"}
-                                </div>
-                              </div>
-
-                              {/* Hose Reels Total */}
-                              <div className="p-3.5 rounded-xl bg-muted/30 border border-border/50">
-                                <div className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                                  Hose Reels Total
-                                </div>
-                                <div className="text-xl font-black text-foreground">
-                                  {isSI ? `${(calcResults.hrTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hrTotal.toFixed(0)} GPM`}
-                                </div>
-                                <div className="text-[10px] text-muted-foreground mt-0.5">
-                                  {calcResults.hrC} Reels × {isSI ? (calcResults.hrF * GPM_TO_LMIN).toFixed(0) + " L/min" : calcResults.hrF.toFixed(0) + " GPM"}
-                                </div>
-                              </div>
-
-                              {/* Combined Total Demand (Hero) */}
-                              <div className="p-3.5 rounded-xl bg-[#0A7BC7]/10 dark:bg-[#0A7BC7]/20 border border-[#0A7BC7]/30">
-                                <div className="text-[10.5px] font-bold text-[#06456F] dark:text-sky-300 uppercase tracking-wider mb-1">
-                                  Total Fire Demand
-                                </div>
-                                <div className="text-2xl font-black text-[#0A7BC7] dark:text-sky-400">
-                                  {isSI ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.totalFlow.toFixed(0)} GPM`}
-                                </div>
-                                <div className="text-[10px] font-semibold text-[#06456F]/80 dark:text-sky-300/80 mt-0.5">
-                                  ({(calcResults.totalFlow * GPM_TO_M3H).toFixed(1)} m³/h)
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Pump & Header Sizing Card */}
-                            <div className="p-4 rounded-xl bg-muted/20 border border-border/60 space-y-3">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[12px] font-bold text-foreground flex items-center gap-1.5">
-                                  <ShieldCheck className="size-4 text-emerald-500" /> Recommended Fire Pump Rating (NFPA 20)
-                                </span>
-                                <span className="text-[13px] font-extrabold text-emerald-600 dark:text-emerald-400">
-                                  {isSI ? `${(calcResults.recommendedPumpGPM * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.recommendedPumpGPM} GPM`}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between text-[11.5px] text-muted-foreground pt-2 border-t border-border/40">
-                                <span>Minimum Discharge Header Size:</span>
-                                <span className="font-bold text-foreground">
-                                  {calcResults.recommendedNps}" NPS ({calcResults.recommendedNps * 25} mm) (vel &le; 15 fps)
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Storage Tank Breakdown Table */}
-                            <div className="border border-border/70 rounded-xl overflow-hidden">
-                              <div className="bg-muted/40 px-4 py-2.5 border-b border-border/70 flex justify-between items-center">
-                                <span className="text-[11.5px] font-bold text-foreground uppercase tracking-wider">
-                                  Dedicated Fire Water Storage Sizing
-                                </span>
-                                <span className="text-[10.5px] font-bold text-primary">
-                                  {calcResults.duration} min duration basis
-                                </span>
-                              </div>
-
-                              <div className="divide-y divide-border/40 text-[12px]">
-                                <div className="px-4 py-2 flex justify-between items-center hover:bg-muted/10">
-                                  <span className="text-muted-foreground">30 min Duration (Light Hazard)</span>
-                                  <span className="font-bold text-foreground">
-                                    {calcResults.tank30Effective.toLocaleString()} gal / {(calcResults.tank30Effective * GAL_TO_M3).toFixed(1)} m³
-                                  </span>
-                                </div>
-                                <div className="px-4 py-2 flex justify-between items-center hover:bg-muted/10">
-                                  <span className="text-muted-foreground">60 min Duration (Ordinary 1)</span>
-                                  <span className="font-bold text-foreground">
-                                    {calcResults.tank60Effective.toLocaleString()} gal / {(calcResults.tank60Effective * GAL_TO_M3).toFixed(1)} m³
-                                  </span>
-                                </div>
-                                <div className="px-4 py-2 flex justify-between items-center hover:bg-muted/10">
-                                  <span className="text-muted-foreground">90 min Duration (Ordinary 2 / High-Rise)</span>
-                                  <span className="font-bold text-foreground">
-                                    {calcResults.tank90Effective.toLocaleString()} gal / {(calcResults.tank90Effective * GAL_TO_M3).toFixed(1)} m³
-                                  </span>
-                                </div>
-                                <div className="px-4 py-2 flex justify-between items-center hover:bg-muted/10">
-                                  <span className="text-muted-foreground">120 min Duration (Extra Hazard)</span>
-                                  <span className="font-bold text-foreground">
-                                    {calcResults.tank120Effective.toLocaleString()} gal / {(calcResults.tank120Effective * GAL_TO_M3).toFixed(1)} m³
-                                  </span>
-                                </div>
-                                <div className="px-4 py-3 flex justify-between items-center bg-primary/5 font-bold">
-                                  <span className="text-foreground">Total Required Gross Tank Volume (+{calcResults.reservePct}% Ullage)</span>
-                                  <span className="text-[14px] text-primary">
-                                    {calcResults.selectedDurationGross.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal ({(calcResults.selectedDurationGross * GAL_TO_M3).toFixed(1)} m³)
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                          <ContextMenuItem
-                            onClick={() => handleCopyValue("Total Fire Demand", isSI ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.totalFlow.toFixed(0)} GPM`)}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                          >
-                            <Copy className="size-3.5 text-muted-foreground" />
-                            <span>Copy Total Demand</span>
-                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            onClick={() => handleCopyValue("Gross Tank Volume", `${calcResults.selectedDurationGross.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal (${(calcResults.selectedDurationGross * GAL_TO_M3).toFixed(1)} m³)`)}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                          >
-                            <Copy className="size-3.5 text-muted-foreground" />
-                            <span>Copy Gross Tank Volume</span>
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            onClick={() => handleCopyValue("Recommended Fire Pump", isSI ? `${(calcResults.recommendedPumpGPM * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.recommendedPumpGPM} GPM`)}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                          >
-                            <Copy className="size-3.5 text-muted-foreground" />
-                            <span>Copy Pump Rating</span>
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            onClick={() => setFormulaModalOpen(true)}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                          >
-                            <HelpCircle className="size-3.5 text-primary" />
-                            <span>View Mathematical Equations</span>
-                          </ContextMenuItem>
-                          <ContextMenuSeparator className="h-px bg-border my-1" />
-                          <ContextMenuItem
-                            onClick={() => handleOpenComment("card-hero-results", "Fire Water Demand Summary")}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                          >
-                            <MessageSquare className="size-3.5" />
-                            <span>Add Comment / Assign Task</span>
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
-
+                    <div className="text-xs text-muted-foreground">
+                      {reportItem.evaluation.lowestPumpRemarks}
                     </div>
                   </div>
 
-                </div>
-              ) : (
-                /* PRINTABLE REPORT PREVIEW TAB */
-                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                  <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
+                  {/* Side-by-Side Cards: Lowest Fire Pump Set & Dedicated Water Tank */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     
-                    <div className="flex justify-between items-start pb-4 border-b border-border">
+                    {/* Lowest Fire Pump Set Card */}
+                    <div className="p-4 rounded-xl bg-card border border-border shadow-xs flex flex-col justify-between">
                       <div>
-                        <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-                          Fire Water Demand & Storage Tank Sizing Report
-                        </h2>
-                        <p className="text-[12px] text-muted-foreground mt-0.5">
-                          Design Standards: NFPA 13, NFPA 14, NFPA 20, NFPA 22 (Simultaneous Operation Method)
-                        </p>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground font-semibold">
+                          <span>Lowest Fire Pump Set</span>
+                          <Gauge className="size-4 text-red-500" />
+                        </div>
+                        <div className="mt-2 text-2xl font-bold text-foreground tracking-tight">
+                          {unitSystem === "si"
+                            ? `${reportItem.evaluation.lowestFirePumpFlowLpm} LPM`
+                            : `${reportItem.evaluation.lowestFirePumpFlowGpm} GPM`}
+                        </div>
+                        <div className="text-xs font-semibold text-red-600 dark:text-red-400 mt-0.5">
+                          @ {unitSystem === "si"
+                            ? `${reportItem.evaluation.lowestFirePumpPressureBar} bar`
+                            : `${reportItem.evaluation.lowestFirePumpPressurePsi} psi`}{" "}
+                          residual
+                        </div>
+                      </div>
+                      <div className="mt-3 pt-2.5 border-t border-border/60 text-[11px] text-muted-foreground">
+                        1 Duty Electric + 1 Standby Diesel + 1 Jockey Pump
                       </div>
                     </div>
 
-                    {/* Enclosed Project Metadata Grid (3 rows x 2 cols) */}
-                    <div className="border border-border rounded-xl overflow-hidden text-[12px]">
-                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border bg-muted/20">
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">Calculation No.:</span>
-                          <span className="text-muted-foreground font-mono">CALC-FWD-{(project?.id || "0000").slice(-4).toUpperCase()}</span>
+                    {/* Dedicated Water Tank Card */}
+                    <div className="p-4 rounded-xl bg-card border border-border shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground font-semibold">
+                          <span>Dedicated Water Tank</span>
+                          <Droplets className="size-4 text-blue-500" />
                         </div>
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">Date:</span>
-                          <span className="text-muted-foreground">{formatDateStr(new Date())}</span>
+                        <div className="mt-2 text-2xl font-bold text-foreground tracking-tight">
+                          {unitSystem === "si"
+                            ? `${reportItem.evaluation.mainTankNetVolumeM3} m³`
+                            : `${reportItem.evaluation.mainTankNetVolumeGal.toLocaleString()} gal`}
                         </div>
-                      </div>
-                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">Project No.:</span>
-                          <span className="text-muted-foreground">{project?.code || project?.id?.substring(0, 8) || "P000"}</span>
-                        </div>
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">Client:</span>
-                          <span className="text-muted-foreground">{project?.client || "General Contracting Co."}</span>
+                        <div className="text-xs font-semibold text-blue-600 dark:text-blue-400 mt-0.5">
+                          {reportItem.evaluation.mainTankDurationMin} min design duration basis
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 divide-x divide-border bg-muted/10">
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">Project Name:</span>
-                          <span className="text-muted-foreground font-semibold">{project?.name || "Fire Fighting Hydraulic System"}</span>
+                      <div className="mt-3 pt-2.5 border-t border-border/60 text-[11px] text-muted-foreground">
+                        Gross: {unitSystem === "si" ? `${reportItem.evaluation.mainTankGrossVolumeM3} m³` : `${reportItem.evaluation.mainTankGrossVolumeGal.toLocaleString()} gal`} (+10% ullage & sump)
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SECTION 4: MANDATORY UAE CIVIL DEFENSE FIRE PROTECTION SYSTEMS */}
+                  <div className="p-4 rounded-xl bg-card border border-border shadow-xs">
+                    <div className="text-xs font-bold text-foreground mb-3 flex items-center justify-between">
+                      <span>Mandatory UAE Civil Defense Fire Protection Systems</span>
+                      <CheckCircle2 className="size-4 text-emerald-500" />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                      <div className="flex items-start gap-2.5 p-3 rounded-lg bg-surface-2 border border-border/60">
+                        <Check className="size-4 text-emerald-500 mt-0.5 shrink-0" />
+                        <div>
+                          <span className="font-semibold text-foreground">Sprinkler System:</span>
+                          <div className="text-muted-foreground text-[11px] mt-0.5">{reportItem.evaluation.sprinklerRequirement}</div>
                         </div>
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">End User:</span>
-                          <span className="text-muted-foreground">{project?.endUser || project?.location || "Standard Facility"}</span>
+                      </div>
+                      <div className="flex items-start gap-2.5 p-3 rounded-lg bg-surface-2 border border-border/60">
+                        <Check className="size-4 text-emerald-500 mt-0.5 shrink-0" />
+                        <div>
+                          <span className="font-semibold text-foreground">Risers & Landing Valves:</span>
+                          <div className="text-muted-foreground text-[11px] mt-0.5">{reportItem.evaluation.riserRequirement}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2.5 p-3 rounded-lg bg-surface-2 border border-border/60">
+                        <Check className="size-4 text-emerald-500 mt-0.5 shrink-0" />
+                        <div>
+                          <span className="font-semibold text-foreground">Hose Reels:</span>
+                          <div className="text-muted-foreground text-[11px] mt-0.5">{reportItem.evaluation.hoseReelRequirement}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2.5 p-3 rounded-lg bg-surface-2 border border-border/60">
+                        <Check className="size-4 text-emerald-500 mt-0.5 shrink-0" />
+                        <div>
+                          <span className="font-semibold text-foreground">Yard Hydrants:</span>
+                          <div className="text-muted-foreground text-[11px] mt-0.5">{reportItem.evaluation.yardHydrantRequirement}</div>
                         </div>
                       </div>
                     </div>
+                  </div>
 
-                    {/* Table 1: Design Parameters & Hazard Classification */}
-                    <div className="space-y-2">
-                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                        1. Design Parameters & Hazard Classification Basis
-                      </h3>
-                      <table className="w-full text-[12px] border-collapse border border-border">
-                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                  {/* Super Highrise Intermediate Staging Requirement (Purple Box) */}
+                  {reportItem.evaluation.requiresStagingPumps && (
+                    <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/30 shadow-xs flex flex-col gap-2">
+                      <div className="flex items-center gap-2 text-purple-700 dark:text-purple-300 font-bold text-xs">
+                        <Layers className="size-4" />
+                        <span>Super Highrise Intermediate Staging Pump & Upper Tanks Requirement</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground space-y-1.5">
+                        <div>• <strong>Upper Staging Pumps:</strong> Additional intermediate fire pump set of <strong>{reportItem.evaluation.stagingPumpFlowGpm} GPM @ 6.9 bar</strong> every 90 m of building height.</div>
+                        <div>• <strong>Intermediate Upper Tanks:</strong> Dedicated <strong>30-minute water storage ({reportItem.evaluation.stagingTankNetVolumeM3} m³)</strong> provided on intermediate mechanical floors with automatic utility refill.</div>
+                        <div>• <strong>Bypass & Interconnection:</strong> Intermediate pumps shall have direct suction from staging tanks with emergency direct bypass risers from lowest basement pumps.</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Formal Calculation Document Block */}
+                <div className="p-5 rounded-xl bg-card border border-border shadow-xs space-y-4 mt-2">
+                  <div className="flex justify-between items-start border-b border-border/80 pb-4">
+                    <div>
+                      <div className="text-[11px] font-bold text-primary uppercase tracking-wider">
+                        Official Engineering Calculation Document
+                      </div>
+                      <h2 className="text-xl font-bold text-foreground">
+                        UAE Civil Defense Fire Water Demand & Life Safety Compliance Report
+                      </h2>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Governing Standard: UAE Fire & Life Safety Code of Practice Chapter 9 (Tables 9.18 to 9.21.e)
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                        calcReviewState?.status === "APPROVED"
+                          ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/30"
+                          : "bg-amber-500/10 text-amber-600 border border-amber-500/30"
+                      }`}>
+                        {calcReviewState?.status || "DRAFT DESIGN"}
+                      </span>
+                      <div className="text-[11px] text-muted-foreground mt-1">
+                        Date: {formatDateStr(new Date())}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Project Metadata */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div className="p-2.5 rounded-lg bg-surface-2">
+                      <span className="text-muted-foreground text-[10px] uppercase">Project Name:</span>
+                      <div className="font-bold text-foreground">{project?.name || "MEP Development Complex"}</div>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-surface-2">
+                      <span className="text-muted-foreground text-[10px] uppercase">Governing Pump Flow:</span>
+                      <div className="font-bold text-foreground font-mono">{projectSummary.maxPumpFlowGpm} GPM ({projectSummary.maxPumpFlowLpm} LPM)</div>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-surface-2">
+                      <span className="text-muted-foreground text-[10px] uppercase">Total Site Net Storage:</span>
+                      <div className="font-bold text-foreground font-mono">{projectSummary.totalNetStorageM3} m³ ({projectSummary.totalNetStorageGal.toLocaleString()} gal)</div>
+                    </div>
+                    <div className="p-2.5 rounded-lg bg-surface-2">
+                      <span className="text-muted-foreground text-[10px] uppercase">Prepared By:</span>
+                      <div className="font-bold text-foreground">{currentUserName}</div>
+                    </div>
+                  </div>
+
+                  {/* Summary Schedule Table */}
+                  <div>
+                    <h3 className="text-xs font-bold text-foreground mb-2 uppercase tracking-wider">
+                      Schedule of Buildings & Fire Protection Capacities
+                    </h3>
+                    <div className="rounded-lg border border-border overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-surface-2 text-muted-foreground font-semibold">
                           <tr>
-                            <th className="border border-border p-2 text-center w-10">#</th>
-                            <th className="border border-border p-2 text-left">Design Parameter Description</th>
-                            <th className="border border-border p-2 text-center w-48">Value / Specification</th>
-                            <th className="border border-border p-2 text-left">Code Reference / Engineering Basis</th>
+                            <th className="p-2">Building Block</th>
+                            <th className="p-2">Height / Floors</th>
+                            <th className="p-2">Occupancy</th>
+                            <th className="p-2">Civil Defense Code</th>
+                            <th className="p-2">Fire Pump Capacity</th>
+                            <th className="p-2">Tank Duration</th>
+                            <th className="p-2">Net Storage</th>
                           </tr>
                         </thead>
-                        <tbody>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                            <td className="border border-border p-2 font-bold">Hazard Classification / Preset</td>
-                            <td className="border border-border p-2 text-center font-bold">{preset === "custom" ? customProfileName : (HAZARD_PRESETS[preset]?.label || "Custom")}</td>
-                            <td className="border border-border p-2 text-muted-foreground">{HAZARD_PRESETS[preset]?.category || "NFPA 13 / NFPA 14"}</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                            <td className="border border-border p-2 font-bold">Sprinkler System Design Flow</td>
-                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`}</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 Hydraulic Demand Area/Density</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                            <td className="border border-border p-2 font-bold">Sprinkler Minimum Residual Pressure</td>
-                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.spP * PSI_TO_BAR).toFixed(2)} bar` : `${calcResults.spP.toFixed(0)} psi`}</td>
-                            <td className="border border-border p-2 text-muted-foreground">At most hydraulically remote sprinkler</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                            <td className="border border-border p-2 font-bold">Simultaneous Hydrant Outlets</td>
-                            <td className="border border-border p-2 text-center font-bold">{calcResults.hyC} Outlets @ {isSI ? `${(calcResults.hyF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hyF.toFixed(0)} GPM`} each</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 14 / NFPA 24 Yard / Landing Outlets</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">5</td>
-                            <td className="border border-border p-2 font-bold">Simultaneous First-Aid Hose Reels</td>
-                            <td className="border border-border p-2 text-center font-bold">{calcResults.hrC} Reels @ {isSI ? `${(calcResults.hrF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hrF.toFixed(0)} GPM`} each</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 14 Class II / BS 5306</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">6</td>
-                            <td className="border border-border p-2 font-bold">Design Fire Duration</td>
-                            <td className="border border-border p-2 text-center font-bold">{calcResults.duration} Minutes</td>
-                            <td className="border border-border p-2 text-muted-foreground">Per Hazard Group / NFPA 13 Table 19.3.2</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">7</td>
-                            <td className="border border-border p-2 font-bold">Tank Ullage & Silt Reserve Allowance</td>
-                            <td className="border border-border p-2 text-center font-bold">+{calcResults.reservePct}% Safety Allowance</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 22 Dead Storage & Vortex Allowance</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">8</td>
-                            <td className="border border-border p-2 font-bold">Municipal Main Replenishment Flow</td>
-                            <td className="border border-border p-2 text-center font-bold">{calcResults.mainsRefill > 0 ? (isSI ? `${(calcResults.mainsRefill * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.mainsRefill.toFixed(0)} GPM`) : "0 (Isolated Storage Tank)"}</td>
-                            <td className="border border-border p-2 text-muted-foreground">Continuous City Water Inflow Credit</td>
-                          </tr>
+                        <tbody className="divide-y divide-border/60">
+                          {evaluatedBuildings.map((item) => (
+                            <tr key={item.building.id} className="hover:bg-surface-2/50">
+                              <td className="p-2 font-medium text-foreground">{item.building.name}</td>
+                              <td className="p-2 font-mono">{item.building.height}m (G+{item.building.floors})</td>
+                              <td className="p-2 text-muted-foreground">
+                                {OCCUPANCY_OPTIONS.find((o) => o.value === item.building.occupancy)?.label.split(" (")[0] || item.building.occupancy}
+                              </td>
+                              <td className="p-2 font-mono font-semibold text-primary">{item.evaluation.tableRef}</td>
+                              <td className="p-2 font-mono font-semibold">{item.evaluation.lowestFirePumpFlowGpm} GPM @ {item.evaluation.lowestFirePumpPressureBar} bar</td>
+                              <td className="p-2 font-mono">{item.evaluation.mainTankDurationMin} min</td>
+                              <td className="p-2 font-mono font-semibold">{item.evaluation.mainTankNetVolumeM3} m³</td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
+                  </div>
 
-                    {/* Table 2: Simultaneous Demand Breakdown & Fire Pump Sizing */}
-                    <div className="space-y-2">
-                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                        2. Simultaneous Fire Water Demand & Fire Pump Sizing (NFPA 20)
-                      </h3>
-                      <table className="w-full text-[12px] border-collapse border border-border">
-                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                          <tr>
-                            <th className="border border-border p-2 text-center w-10">Item</th>
-                            <th className="border border-border p-2 text-left">Hydraulic Demand Component</th>
-                            <th className="border border-border p-2 text-center w-36">Flow Rate (Primary)</th>
-                            <th className="border border-border p-2 text-center w-28">Flow Rate (m³/h)</th>
-                            <th className="border border-border p-2 text-left">Notes & NFPA 20 Criteria</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="border border-border p-2 text-center font-bold">A</td>
-                            <td className="border border-border p-2 font-medium">Sprinkler System Demand (Q_sp)</td>
-                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.spF.toFixed(0)} GPM`}</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.spF * GPM_TO_M3H).toFixed(1)} m³/h</td>
-                            <td className="border border-border p-2 text-muted-foreground">Primary automatic fire suppression</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center font-bold">B</td>
-                            <td className="border border-border p-2 font-medium">External Hydrant Demand (Q_hy)</td>
-                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.hyTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hyTotal.toFixed(0)} GPM`}</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.hyTotal * GPM_TO_M3H).toFixed(1)} m³/h</td>
-                            <td className="border border-border p-2 text-muted-foreground">{calcResults.hyC} &times; {calcResults.hyF} GPM simultaneous hydrants</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center font-bold">C</td>
-                            <td className="border border-border p-2 font-medium">First-Aid Hose Reel Demand (Q_hr)</td>
-                            <td className="border border-border p-2 text-center font-bold">{isSI ? `${(calcResults.hrTotal * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.hrTotal.toFixed(0)} GPM`}</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.hrTotal * GPM_TO_M3H).toFixed(1)} m³/h</td>
-                            <td className="border border-border p-2 text-muted-foreground">{calcResults.hrC} &times; {calcResults.hrF} GPM first-aid hose reels</td>
-                          </tr>
-                          <tr className="bg-[#DAE9F8] dark:bg-blue-950/50 text-blue-950 dark:text-blue-200 font-bold">
-                            <td className="border border-border p-2 text-center">D</td>
-                            <td className="border border-border p-2">TOTAL SIMULTANEOUS FIRE DEMAND (Q_total)</td>
-                            <td className="border border-border p-2 text-center text-[13px]">{isSI ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.totalFlow.toFixed(0)} GPM`}</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.totalFlow * GPM_TO_M3H).toFixed(1)} m³/h</td>
-                            <td className="border border-border p-2">Q_sp + Q_hy + Q_hr (Simultaneous Sum)</td>
-                          </tr>
-                          <tr className="bg-[#DAE9F8] dark:bg-blue-950/50 text-blue-950 dark:text-blue-200 font-bold">
-                            <td className="border border-border p-2 text-center">E</td>
-                            <td className="border border-border p-2">Recommended NFPA 20 Fire Pump Capacity</td>
-                            <td className="border border-border p-2 text-center text-[13px]">{isSI ? `${(calcResults.recommendedPumpGPM * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.recommendedPumpGPM.toFixed(0)} GPM`}</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.recommendedPumpGPM * GPM_TO_M3H).toFixed(1)} m³/h</td>
-                            <td className="border border-border p-2">Standard NFPA 20 Listed Fire Pump Rating</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center font-bold">F</td>
-                            <td className="border border-border p-2 font-medium">Recommended Pump Discharge Header Size</td>
-                            <td className="border border-border p-2 text-center font-bold">{calcResults.recommendedNps}&quot; NPS ({calcResults.recommendedNps * 25} mm DN)</td>
-                            <td className="border border-border p-2 text-center">-</td>
-                            <td className="border border-border p-2 text-muted-foreground">Velocity &le; 15 fps (4.57 m/s) at rated flow</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                  {/* Mandatory Code Notes */}
+                  <div className="p-3.5 rounded-lg bg-surface-2 border border-border text-xs space-y-1.5 text-muted-foreground">
+                    <div className="font-bold text-foreground">STATUTORY GENERAL NOTES & REQUIREMENTS:</div>
+                    <div>1. All fire pump installations shall comprise 1 Main Electric Duty Pump + 1 Standby Diesel/Electric Pump (100% capacity) + 1 Jockey Pump.</div>
+                    <div>2. Dedicated fire water storage shall be physically separated from domestic/irrigation tanks and provided with direct breeching inlets for refilling.</div>
+                    <div>3. Towers exceeding 90 meters require multi-stage intermediate booster pumps and 30-min intermediate staging tanks every 90m.</div>
+                  </div>
+
+                  {/* Signatures Block */}
+                  <div className="pt-6 border-t border-border grid grid-cols-3 gap-6 text-center text-xs">
+                    <div>
+                      <div className="h-10 border-b border-border flex items-end justify-center pb-1 text-muted-foreground font-mono">
+                        {currentUserName}
+                      </div>
+                      <div className="font-bold text-foreground mt-1">Lead MEP Engineer</div>
+                      <div className="text-[10px] text-muted-foreground">Prepared & Checked</div>
                     </div>
-
-                    {/* Table 3: Dedicated Storage Tank Capacity Breakdown */}
-                    <div className="space-y-2">
-                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                        3. Dedicated Fire Water Storage Tank Capacity Breakdown (NFPA 22)
-                      </h3>
-                      <table className="w-full text-[12px] border-collapse border border-border">
-                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                          <tr>
-                            <th className="border border-border p-2 text-left">Storage Duration / Basis</th>
-                            <th className="border border-border p-2 text-center w-36">Net Volume (gal)</th>
-                            <th className="border border-border p-2 text-center w-48">Volume in Metric (m³ / L)</th>
-                            <th className="border border-border p-2 text-left">Design Standard / Applicability</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="border border-border p-2 font-bold">30 Minutes Duration (Light Hazard)</td>
-                            <td className="border border-border p-2 text-center font-bold">{calcResults.tank30Effective.toLocaleString()} gal</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.tank30Effective * GAL_TO_M3).toFixed(1)} m³ ({(calcResults.tank30Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 Light Hazard minimum requirement</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 font-bold">60 Minutes Duration (OH-1 Basis)</td>
-                            <td className="border border-border p-2 text-center font-bold">{calcResults.tank60Effective.toLocaleString()} gal</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.tank60Effective * GAL_TO_M3).toFixed(1)} m³ ({(calcResults.tank60Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 Ordinary Hazard Group 1 standard</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 font-bold">90 Minutes Duration (OH-2 / High-Rise)</td>
-                            <td className="border border-border p-2 text-center font-bold">{calcResults.tank90Effective.toLocaleString()} gal</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.tank90Effective * GAL_TO_M3).toFixed(1)} m³ ({(calcResults.tank90Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 OH-2 & NFPA 14 Standpipe baseline</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 font-bold">120 Minutes Duration (Extra Hazard / Heavy)</td>
-                            <td className="border border-border p-2 text-center font-bold">{calcResults.tank120Effective.toLocaleString()} gal</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.tank120Effective * GAL_TO_M3).toFixed(1)} m³ ({(calcResults.tank120Effective * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)</td>
-                            <td className="border border-border p-2 text-muted-foreground">NFPA 13 Extra Hazard / Industrial storage</td>
-                          </tr>
-                          <tr className="bg-[#DAE9F8] dark:bg-blue-950/50 text-blue-950 dark:text-blue-200 font-bold">
-                            <td className="border border-border p-2">DESIGN SELECTION: {calcResults.duration} MIN NET CAPACITY</td>
-                            <td className="border border-border p-2 text-center text-[13px]">{calcResults.selectedDurationEffective.toLocaleString()} gal</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.selectedDurationEffective * GAL_TO_M3).toFixed(1)} m³</td>
-                            <td className="border border-border p-2">Net Effective Fire Protection Storage (V_eff)</td>
-                          </tr>
-                          <tr className="bg-[#DAE9F8] dark:bg-blue-950/50 text-blue-950 dark:text-blue-200 font-bold">
-                            <td className="border border-border p-2">TOTAL GROSS TANK CAPACITY (+{calcResults.reservePct}% ULLAGE)</td>
-                            <td className="border border-border p-2 text-center text-[13px]">{calcResults.selectedDurationGross.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal</td>
-                            <td className="border border-border p-2 text-center">{(calcResults.selectedDurationGross * GAL_TO_M3).toFixed(1)} m³ ({(calcResults.selectedDurationGross * GAL_TO_L).toLocaleString(undefined, { maximumFractionDigits: 0 })} L)</td>
-                            <td className="border border-border p-2">Total Dedicated Fire Water Tank Construction Volume</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                    <div>
+                      <div className="h-10 border-b border-border flex items-end justify-center pb-1 text-muted-foreground font-mono">
+                        Civil Defense Approved Consultant
+                      </div>
+                      <div className="font-bold text-foreground mt-1">Consulting Engineering Firm</div>
+                      <div className="text-[10px] text-muted-foreground">Reviewed & Stamped</div>
                     </div>
-
-                    {/* Table 4: Mandatory NFPA Standards & Compliance Guidelines */}
-                    <div className="space-y-2">
-                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                        4. Mandatory NFPA Standards & Compliance Guidelines
-                      </h3>
-                      <table className="w-full text-[12px] border-collapse border border-border">
-                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                          <tr>
-                            <th className="border border-border p-2 text-center w-10">#</th>
-                            <th className="border border-border p-2 text-left w-52">NFPA Clause / Standard</th>
-                            <th className="border border-border p-2 text-left">Mandatory Engineering Compliance & System Criteria</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                            <td className="border border-border p-2 font-bold">NFPA 13 Section 19.3</td>
-                            <td className="border border-border p-2 text-muted-foreground">Inside & outside hose stream allowances must be added simultaneously to sprinkler demand for total demand.</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                            <td className="border border-border p-2 font-bold">NFPA 20 Section 4.14</td>
-                            <td className="border border-border p-2 text-muted-foreground">Fire pump suction piping velocity must not exceed 15 fps (4.57 m/s) at 150% pump rated flow.</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                            <td className="border border-border p-2 font-bold">NFPA 20 Section 6.2</td>
-                            <td className="border border-border p-2 text-muted-foreground">Fire pump must provide 150% of rated flow at &ge; 65% of rated pressure; shutoff head &le; 140%.</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                            <td className="border border-border p-2 font-bold">NFPA 22 Section 5.2</td>
-                            <td className="border border-border p-2 text-muted-foreground">Fire water storage tanks must be dedicated with low-level alarms, anti-vortex plate, and automatic makeup.</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">5</td>
-                            <td className="border border-border p-2 font-bold">NFPA 22 Refill Rule</td>
-                            <td className="border border-border p-2 text-muted-foreground">
-                              {calcResults.refillHours !== null 
-                                ? `Replenishment at ${calcResults.mainsRefill} GPM refills tank in ${calcResults.refillHours.toFixed(1)} hrs (${calcResults.refillHours <= 8 ? "PASS: <= 8 hrs per NFPA 22" : "FAIL: Exceeds 8 hrs"})`
-                                : "Dedicated tank without city credit; replenishment rate must be verified with municipal authority."}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
+                    <div>
+                      <div className="h-10 border-b border-border flex items-end justify-center pb-1 text-muted-foreground font-mono">
+                        Pending AHJ Inspection
+                      </div>
+                      <div className="font-bold text-foreground mt-1">UAE Civil Defense Authority</div>
+                      <div className="text-[10px] text-muted-foreground">Authority Having Jurisdiction</div>
                     </div>
-
-                    {/* Table 5: 3-Tier Dynamic Engineering Signature Block */}
-                    <div className="pt-2">
-                      {(() => {
-                        const sig = getSignatureBlockDetails(project?.id || "default", "/plumbing-fire-water-demand", currentUserName, calcReviewState);
-                        return (
-                          <div className="border border-border rounded-xl overflow-hidden text-[12px] shadow-2xs">
-                            <div className="grid grid-cols-4 bg-[#FFE6CC] dark:bg-amber-950/40 text-amber-950 dark:text-amber-200 font-bold border-b border-border text-center">
-                              <div className="p-2 border-r border-border bg-muted/20">Designation</div>
-                              <div className="p-2 border-r border-border">Originator</div>
-                              <div className="p-2 border-r border-border">Reviewer</div>
-                              <div className="p-2">Approver</div>
-                            </div>
-                            <div className="grid grid-cols-4 divide-x divide-border border-b border-border text-center">
-                              <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Name:</div>
-                              <div className="p-2.5 font-medium text-foreground">{sig.originatedName || currentUserName || "Design Engineer"}</div>
-                              <div className="p-2.5 font-medium text-foreground">{sig.reviewerName || "-"}</div>
-                              <div className="p-2.5 font-medium text-foreground">{sig.approverName || "-"}</div>
-                            </div>
-                            <div className="grid grid-cols-4 divide-x divide-border border-b border-border text-center">
-                              <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Role:</div>
-                              <div className="p-2.5 text-muted-foreground">Design Engineer</div>
-                              <div className="p-2.5 text-muted-foreground">Sr. Design Engineer</div>
-                              <div className="p-2.5 text-muted-foreground">Discipline Coordinator</div>
-                            </div>
-                            <div className="grid grid-cols-4 divide-x divide-border text-center">
-                              <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Date:</div>
-                              <div className="p-2.5 text-muted-foreground">{sig.originatedDate || formatDateStr(new Date().toISOString())}</div>
-                              <div className="p-2.5 text-muted-foreground">{sig.reviewerDate || "-"}</div>
-                              <div className="p-2.5 text-muted-foreground">{sig.approverDate || "-"}</div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
-
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Collapsible Intelligence Drawer (Smooth Flex Transition Matching Ventilation/FM200) */}
-        <div
-          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] my-2 ml-4 mr-2 border border-border rounded-2xl bg-card shadow-lg" : "w-0"
-          }`}
-        >
-          {intelOpen && (
-            <FireWaterDemandIntelligenceDrawer
-              onClose={() => setIntelOpen(false)}
-              calcResults={calcResults}
-              preset={preset}
-              onSelectPreset={handleApplyPreset}
-              isEffectiveReadOnly={isEffectiveReadOnly}
-              unitSystem={unitSystem}
-              setFormulaModalOpen={setFormulaModalOpen}
-            />
-          )}
-        </div>
+        {/* Intelligence Drawer (Right Slide-out) */}
+        {intelOpen && (
+          <aside className="w-80 border-l border-border bg-card shrink-0 flex flex-col h-full animate-in slide-in-from-right duration-200 shadow-xl">
+            <div className="p-3 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" />
+                <h3 className="text-xs font-bold text-foreground">Civil Defense AI Intelligence</h3>
+              </div>
+              <button
+                onClick={() => setIntelOpen(false)}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
+              {/* Insight 1: Super Highrise Alert */}
+              {projectSummary.superHighriseCount > 0 ? (
+                <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-purple-700 dark:text-purple-300">
+                    <Layers className="size-3.5" />
+                    <span>Super Highrise Staging Active</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {projectSummary.superHighriseCount} tower(s) exceed 90m height. Civil Defense mandates intermediate 750/1000 GPM pump sets and 30-min intermediate upper tanks every 90m.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-surface-2 border border-border space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-foreground">
+                    <CheckCircle2 className="size-3.5 text-emerald-500" />
+                    <span>No Towers &gt; 90m</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    All buildings are within standard single-zone or two-zone height limits. Single basement pump station is sufficient.
+                  </p>
+                </div>
+              )}
+
+              {/* Insight 2: Plot Area & Yard Hydrants */}
+              {projectSummary.yardHydrantRequiredCount > 0 ? (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-300">
+                    <ShieldAlert className="size-3.5" />
+                    <span>Yard Fire Hydrants Required</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Plot area exceeds 20,000 m² without existing infrastructure hydrants within 60m. 1000 GPM @ 6.9 bar pump flow required to cover ring hydrants per Section 3.11.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-surface-2 border border-border space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-foreground">
+                    <CheckCircle2 className="size-3.5 text-emerald-500" />
+                    <span>Yard Hydrant Exemption Verified</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Infrastructure hydrants available within 60m radius or plot area ≤ 20,000 m². Internal systems govern pump capacity.
+                  </p>
+                </div>
+              )}
+
+              {/* Insight 3: NFPA 20 Pipe Sizing Velocity */}
+              <div className="p-3 rounded-xl bg-card border border-border space-y-1">
+                <div className="flex items-center justify-between font-bold text-foreground">
+                  <span>Discharge Header Velocity Check</span>
+                  <span className="text-emerald-500 font-mono text-[11px]">
+                    {projectSummary.governingHeaderVelocity} ft/s
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Discharge header of <strong>{projectSummary.governingHeaderNps}" NPS (DN {projectSummary.governingHeaderDn})</strong> keeps water velocity under the NFPA 20 statutory limit of 15 ft/s.
+                </p>
+              </div>
+
+              {/* Insight 4: Water Tank Ullage Check */}
+              <div className="p-3 rounded-xl bg-card border border-border space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-foreground">
+                  <Droplets className="size-3.5 text-blue-500" />
+                  <span>Tank Freeboard & Dead Sump</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  A minimum 10% safety factor (freeboard + anti-vortex sump depth) is incorporated into the gross tank sizing calculation to ensure full effective capacity.
+                </p>
+              </div>
+            </div>
+          </aside>
+        )}
       </div>
 
-      {/* Custom Fire Demand & Tank Configuration Modal */}
-      <CustomFireDemandConfigModal
-        isOpen={customModalOpen}
-        onClose={() => setCustomModalOpen(false)}
-        unitSystem={unitSystem}
-        currentValues={{
-          spFlow,
-          spPress,
-          hyCount,
-          hyFlow,
-          hrCount,
-          hrFlow,
-          designDuration,
-          tankReservePct,
-          mainsReplenishFlow,
-          customProfileName,
-          customWorkflow,
-        }}
-        onApply={handleApplyCustomConfig}
-      />
-
-      {/* Task Assignment Modal (Matching Preliminary Cooling Load & FM-200) */}
-      {commentModalOpen && commentTargetItem && (
-        <AssignCommentModal
-          isOpen={commentModalOpen}
-          onClose={() => setCommentModalOpen(false)}
-          targetId={commentTargetItem.id}
-          targetName={commentTargetItem.name}
-          targetType="Fire Water Demand Parameter"
-          calculatorTitle="Fire Water Demand"
-          calculatorPath="/plumbing-fire-water-demand"
-          existingComments={getItemComments(commentTargetItem.id)}
-          onSave={handleSaveComment}
-        />
-      )}
-
-      {/* Mathematical Formula Reference Modal */}
-      {formulaModalOpen && (
-        <FireWaterDemandFormulaModal
-          onClose={() => setFormulaModalOpen(false)}
-          calcResults={calcResults}
-          preset={preset}
+      {/* Edit Building Parameters Modal (Opened via Double-Click or Edit Button) */}
+      {editingBuilding && (
+        <EditBuildingModal
+          open={editModalOpen}
+          onClose={() => setEditModalOpen(false)}
+          building={editingBuilding}
+          onSave={handleSaveEditedBuilding}
+          isReadOnly={isEffectiveReadOnly}
+          occupancyOptions={OCCUPANCY_OPTIONS}
           unitSystem={unitSystem}
         />
       )}
+
+      {/* Assign Comment Modal */}
+      <AssignCommentModal
+        open={commentModalOpen}
+        onOpenChange={setCommentModalOpen}
+        targetId={commentTargetId || "fire-water-demand-calc"}
+        targetName="Civil Defense Fire Water Demand Calculator"
+      />
     </AppShell>
   );
 }
-
-// Live Intelligence Drawer Component
-function FireWaterDemandIntelligenceDrawer({
-  onClose,
-  calcResults,
-  preset,
-  onSelectPreset,
-  isEffectiveReadOnly,
-  unitSystem,
-  setFormulaModalOpen,
-}: {
-  onClose: () => void;
-  calcResults: any;
-  preset: HazardPresetKey;
-  onSelectPreset: (key: HazardPresetKey) => void;
-  isEffectiveReadOnly: boolean;
-  unitSystem: "ip" | "si";
-  setFormulaModalOpen: (open: boolean) => void;
-}) {
-  const isSI = unitSystem === "si";
-
-  return (
-    <div className="h-full flex flex-col min-w-[360px] p-4 space-y-4 overflow-y-auto custom-scrollbar">
-      <div className="flex items-center justify-between pb-3 border-b border-border/70">
-        <div className="flex items-center gap-2">
-          <Sparkles className="size-4 text-primary" />
-          <h3 className="text-[13px] font-bold text-foreground">NFPA 13/20/22 Intelligence</h3>
-        </div>
-        <button
-          onClick={onClose}
-          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-        >
-          <X className="size-4" />
-        </button>
-      </div>
-
-      {/* Active Hazard Summary */}
-      <div className="p-3.5 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
-        <div className="flex justify-between items-center">
-          <span className="text-[11px] font-bold text-primary uppercase tracking-wider">Active Preset</span>
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/20 text-primary">
-            {HAZARD_PRESETS[preset]?.category}
-          </span>
-        </div>
-        <p className="text-[12px] font-bold text-foreground">
-          {HAZARD_PRESETS[preset]?.label}
-        </p>
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          {HAZARD_PRESETS[preset]?.description}
-        </p>
-      </div>
-
-      {/* Key Quick Checks */}
-      <div className="space-y-2">
-        <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-          Live Engineering Verification
-        </div>
-
-        <div className="p-3 rounded-xl bg-muted/30 border border-border/60 space-y-2 text-[11.5px]">
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Total Simultaneous Demand:</span>
-            <span className="font-bold text-foreground">
-              {isSI ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.totalFlow} GPM`}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">NFPA 20 Listed Pump Size:</span>
-            <span className="font-bold text-emerald-600 dark:text-emerald-400">
-              {isSI ? `${(calcResults.recommendedPumpGPM * GPM_TO_LMIN).toFixed(0)} L/min` : `${calcResults.recommendedPumpGPM} GPM`}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Gross Storage Volume:</span>
-            <span className="font-bold text-primary">
-              {calcResults.selectedDurationGross.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal ({(calcResults.selectedDurationGross * GAL_TO_M3).toFixed(1)} m³)
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Discharge Header Size:</span>
-            <span className="font-bold text-foreground">{calcResults.recommendedNps}" NPS ({calcResults.recommendedNps * 25} mm)</span>
-          </div>
-        </div>
-      </div>
-
-      {/* NFPA Guidelines Cheat Sheet */}
-      <div className="space-y-2">
-        <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-          NFPA Standards Summary
-        </div>
-        <div className="space-y-2 text-[11px] text-muted-foreground">
-          <div className="p-2.5 rounded-lg border border-border/50 bg-background space-y-1">
-            <div className="font-bold text-foreground">NFPA 13 Table 19.3.2 - Hose Streams</div>
-            <p>LH: 100 GPM (30 min), OH: 250 GPM (60–90 min), EH: 500 GPM (90–120 min) hose stream allowances added to sprinkler demand.</p>
-          </div>
-          <div className="p-2.5 rounded-lg border border-border/50 bg-background space-y-1">
-            <div className="font-bold text-foreground">NFPA 20 Section 4.14 - Pump Sizing</div>
-            <p>Select closest rated standard pump capacity &ge; total simultaneous demand. Max velocity in suction pipe &le; 15 fps.</p>
-          </div>
-          <div className="p-2.5 rounded-lg border border-border/50 bg-background space-y-1">
-            <div className="font-bold text-foreground">NFPA 22 Section 5.2 - Dedicated Storage</div>
-            <p>Provide minimum +10% dead storage and vortex allowance. Refill replenishment should recharge within 8.0 hours.</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Open Formula Reference Button */}
-      <div className="pt-2">
-        <button
-          onClick={() => setFormulaModalOpen(true)}
-          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary text-[12px] font-bold transition-colors cursor-pointer"
-        >
-          <HelpCircle className="size-3.5" /> View Mathematical Equations
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// Formula Reference Modal
-function FireWaterDemandFormulaModal({
-  onClose,
-  calcResults,
-  preset,
-  unitSystem,
-}: {
-  onClose: () => void;
-  calcResults: any;
-  preset: HazardPresetKey;
-  unitSystem: "ip" | "si";
-}) {
-  const isSI = unitSystem === "si";
-  const presetConfig = HAZARD_PRESETS[preset];
-
-  return (
-    <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 font-sans animate-in fade-in duration-150"
-      onClick={onClose}
-    >
-      <div
-        className="bg-card border border-border rounded-3xl w-full max-w-2xl p-6 flex flex-col gap-4 shadow-2xl animate-in zoom-in-95 duration-200 select-none max-h-[88vh] overflow-y-auto custom-scrollbar"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex justify-between items-center pb-3 border-b border-border/80">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-primary/10 rounded-xl text-primary">
-              <FileText className="size-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-base text-foreground">NFPA 13 / 14 / 20 / 22 Formula Breakdown</h3>
-              <p className="text-[11.5px] text-muted-foreground">
-                Step-by-step hydraulic demand & storage reservoir capacity calculation
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="size-7 rounded-lg hover:bg-surface-2 grid place-items-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="text-[12.5px] text-foreground space-y-4">
-          
-          {/* Section 1: Total Demand */}
-          <div className="border border-border/70 rounded-2xl p-4 bg-surface-2/40 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[13px] text-foreground flex items-center gap-1.5">
-                <Flame className="size-4 text-orange-500" />
-                <span>1. Total Simultaneous Fire Water Demand (Q_total)</span>
-              </span>
-              <span className="text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-                NFPA 13 & 14
-              </span>
-            </div>
-
-            <div className="bg-surface-2 p-2.5 rounded-xl font-mono text-xs text-center border border-border font-bold text-primary">
-              Q_total = Q_sprinkler + Q_hydrant + Q_hose_reel
-            </div>
-
-            <div className="space-y-1.5 bg-background p-3 rounded-xl border border-border/60 text-xs">
-              <div className="flex justify-between border-b border-border/40 py-1">
-                <span className="text-muted-foreground">Automatic Sprinklers (Q_sp):</span>
-                <span className="font-mono font-medium text-foreground">
-                  {isSI
-                    ? `${(calcResults.spF * GPM_TO_LMIN).toFixed(0)} L/min (${calcResults.spF} GPM)`
-                    : `${calcResults.spF} GPM`}
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-border/40 py-1">
-                <span className="text-muted-foreground">
-                  External Hydrants (Q_hy = N_hy × q_hy):
-                </span>
-                <span className="font-mono font-medium text-foreground">
-                  {calcResults.hyC} ea × {calcResults.hyF} GPM ={" "}
-                  {isSI
-                    ? `${(calcResults.hyTotal * GPM_TO_LMIN).toFixed(0)} L/min (${calcResults.hyTotal} GPM)`
-                    : `${calcResults.hyTotal} GPM`}
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-border/40 py-1">
-                <span className="text-muted-foreground">
-                  First-Aid Hose Reels (Q_hr = N_hr × q_hr):
-                </span>
-                <span className="font-mono font-medium text-foreground">
-                  {calcResults.hrC} ea × {calcResults.hrF} GPM ={" "}
-                  {isSI
-                    ? `${(calcResults.hrTotal * GPM_TO_LMIN).toFixed(0)} L/min (${calcResults.hrTotal} GPM)`
-                    : `${calcResults.hrTotal} GPM`}
-                </span>
-              </div>
-              <div className="flex justify-between pt-1.5 text-primary font-bold text-[13px]">
-                <span>Total Simultaneous Demand (Q_total):</span>
-                <span className="font-mono">
-                  {isSI
-                    ? `${(calcResults.totalFlow * GPM_TO_LMIN).toFixed(0)} L/min (${calcResults.totalFlow} GPM)`
-                    : `${calcResults.totalFlow} GPM`}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 2: Dedicated Water Storage Tank */}
-          <div className="border border-border/70 rounded-2xl p-4 bg-surface-2/40 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[13px] text-foreground flex items-center gap-1.5">
-                <Droplets className="size-4 text-blue-500" />
-                <span>2. Water Storage Reservoir Sizing (V_effective & V_gross)</span>
-              </span>
-              <span className="text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                NFPA 22 Standard
-              </span>
-            </div>
-
-            <div className="bg-surface-2 p-2.5 rounded-xl font-mono text-xs text-center border border-border font-bold text-primary space-y-0.5">
-              <div>V_effective = Q_total × T_duration</div>
-              <div>V_gross = V_effective × (1 + Allowance% / 100)</div>
-            </div>
-
-            <div className="space-y-1.5 bg-background p-3 rounded-xl border border-border/60 text-xs">
-              <div className="flex justify-between border-b border-border/40 py-1">
-                <span className="text-muted-foreground">Hazard Class & Mandatory Duration:</span>
-                <span className="font-medium text-foreground">
-                  {presetConfig?.label || preset} ({calcResults.duration} min)
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-border/40 py-1">
-                <span className="text-muted-foreground">Net Effective Volume (V_eff):</span>
-                <span className="font-mono font-medium text-foreground">
-                  {calcResults.totalFlow} GPM × {calcResults.duration} min ={" "}
-                  {calcResults.selectedDurationEffective.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal (
-                  {(calcResults.selectedDurationEffective * GAL_TO_M3).toFixed(1)} m³)
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-border/40 py-1">
-                <span className="text-muted-foreground">Dead Storage / Vortex Plate Allowance:</span>
-                <span className="font-mono font-medium text-foreground">+{calcResults.reservePct}%</span>
-              </div>
-              <div className="flex justify-between pt-1.5 text-blue-600 dark:text-blue-400 font-bold text-[13px]">
-                <span>Total Dedicated Storage Required (V_gross):</span>
-                <span className="font-mono">
-                  {calcResults.selectedDurationGross.toLocaleString(undefined, { maximumFractionDigits: 0 })} gal (
-                  {(calcResults.selectedDurationGross * GAL_TO_M3).toFixed(1)} m³)
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 3: Fire Pump Sizing & Velocity Header */}
-          <div className="border border-border/70 rounded-2xl p-4 bg-surface-2/40 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[13px] text-foreground flex items-center gap-1.5">
-                <Gauge className="size-4 text-emerald-500" />
-                <span>3. NFPA 20 Fire Pump Selection & Header Hydraulics</span>
-              </span>
-              <span className="text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                NFPA 20 Section 4.14
-              </span>
-            </div>
-
-            <div className="bg-surface-2 p-2.5 rounded-xl font-mono text-xs text-center border border-border font-bold text-primary">
-              d_header = √((0.4085 × Q_total) / v_max) where v_max = 15 fps (4.57 m/s)
-            </div>
-
-            <div className="space-y-1.5 bg-background p-3 rounded-xl border border-border/60 text-xs">
-              <div className="flex justify-between border-b border-border/40 py-1">
-                <span className="text-muted-foreground">NFPA 20 Listed Rated Pump Size:</span>
-                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                  {isSI
-                    ? `${(calcResults.recommendedPumpGPM * GPM_TO_LMIN).toFixed(0)} L/min (${calcResults.recommendedPumpGPM} GPM)`
-                    : `${calcResults.recommendedPumpGPM} GPM`}
-                </span>
-              </div>
-              <div className="flex justify-between border-b border-border/40 py-1">
-                <span className="text-muted-foreground">Calculated Min Header Internal Diameter:</span>
-                <span className="font-mono font-medium text-foreground">
-                  {calcResults.calculatedPipeDiaInches.toFixed(2)} inches ({(calcResults.calculatedPipeDiaInches * 25.4).toFixed(1)} mm)
-                </span>
-              </div>
-              <div className="flex justify-between pt-1.5 text-foreground font-semibold text-xs">
-                <span>Recommended Standard Header Size:</span>
-                <span className="font-mono font-bold text-primary">
-                  {calcResults.recommendedNps}" NPS ({calcResults.recommendedNps * 25} mm Nominal)
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 4: Refill Rate (if configured) */}
-          {calcResults.mainsRefill > 0 && (
-            <div className="border border-border/70 rounded-2xl p-4 bg-surface-2/40 space-y-2 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="font-bold text-foreground">Municipal Replenishment Refill Time</span>
-                <span className="font-mono font-semibold text-primary">
-                  {calcResults.refillHours !== null ? `${calcResults.refillHours.toFixed(1)} hours` : "N/A"}
-                </span>
-              </div>
-              <p className="text-muted-foreground text-[11px] leading-relaxed">
-                Refill rate: <strong>{calcResults.mainsRefill} GPM</strong>. NFPA 22 Section 5.2 recommends automatic replenishment to fully refill the dedicated fire reservoir within <strong>8.0 hours</strong>.
-              </p>
-            </div>
-          )}
-
-          {/* Code Reference Footnote */}
-          <div className="bg-surface-2/70 p-3 rounded-xl border border-border/60 text-[11px] text-muted-foreground leading-relaxed">
-            <strong>NFPA Compliance Summary:</strong> All calculations adhere to NFPA 13 (Standard for Installation of Sprinkler Systems), NFPA 14 (Standpipe and Hose Systems), NFPA 20 (Stationary Fire Pumps), and NFPA 22 (Water Storage Tanks for Fire Protection).
-          </div>
-
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-end pt-2 border-t border-border/60">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition cursor-pointer shadow-xs"
-          >
-            Close Reference
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+export default FireWaterDemandPage;

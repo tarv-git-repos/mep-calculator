@@ -217,7 +217,7 @@ function SewagePumpPage() {
   const [formulaModalOpen, setFormulaModalOpen] = useState(false);
 
   // Unit system (IP: GPM, ft, inches, gal, HP / SI: L/s, m, mm, m³ & L, kW)
-  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("ip");
+  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("si");
   const isSI = unitSystem === "si";
 
   // Preset

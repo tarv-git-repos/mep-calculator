@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { X, Info, Flame, Zap, Shield, CheckCircle2, AlertTriangle, Sparkles, Flag } from "lucide-react";
 import { PclCategorySelect } from "./PclCategorySelect";
+import { inferTypeFromName } from "@/routes/preliminary-cooling-load";
 
 export interface PclSpace {
   id: string;
@@ -16,6 +17,7 @@ export interface PclSpace {
   selected?: boolean;
   comments?: any[];
   flagged?: boolean;
+  aiDetected?: boolean;
 }
 
 interface EditPclSpaceModalProps {
@@ -95,6 +97,7 @@ export function EditPclSpaceModal({
           dissipation: watts,
           kw: Number(kw.toFixed(2)),
           tr: Number(tr.toFixed(2)),
+          aiDetected: false,
         };
       });
       return;
@@ -114,6 +117,7 @@ export function EditPclSpaceModal({
         dissipation: watts,
         kw: Number(kw.toFixed(2)),
         tr: Number(tr.toFixed(2)),
+        aiDetected: false,
       };
     });
   };
@@ -184,6 +188,7 @@ export function EditPclSpaceModal({
     const finalized: PclSpace = {
       ...tempSpace,
       name: tempSpace.name.trim() || space.name,
+      floor: tempSpace.floor?.trim() || space.floor || "Default",
       area: tempSpace.area === "" ? "" : areaNum,
       type: resolvedType,
       density: finalDensity,
@@ -267,13 +272,53 @@ export function EditPclSpaceModal({
                   <input
                     type="text"
                     value={tempSpace.name}
-                    onChange={(e) => setTempSpace(prev => ({ ...prev, name: e.target.value }))}
+                    onChange={(e) => {
+                      const newName = e.target.value;
+                      const inferred = inferTypeFromName(newName);
+
+                      setTempSpace((prev) => {
+                        let nextType = prev.type || "";
+                        let nextDensity = prev.density;
+                        let nextAiDetected = prev.aiDetected;
+
+                        if (inferred && (!prev.type || prev.type === "" || inferred !== prev.type) && !customDensityOverride) {
+                          nextType = inferred;
+                          nextDensity = spaceDensities[inferred] || 120;
+                          nextAiDetected = true;
+                        }
+
+                        const areaNum = typeof prev.area === "number" ? prev.area : (prev.area === "" ? 0 : parseFloat(String(prev.area)) || 0);
+                        const densityToUse = nextType ? (customDensityOverride ? nextDensity : (spaceDensities[nextType] || nextDensity || 0)) : 0;
+                        const watts = areaNum * densityToUse;
+                        const kw = watts / 1000;
+                        const tr = kw / 3.51685;
+
+                        return {
+                          ...prev,
+                          name: newName,
+                          type: nextType,
+                          density: nextDensity,
+                          dissipation: watts,
+                          kw: Number(kw.toFixed(2)),
+                          tr: Number(tr.toFixed(2)),
+                          aiDetected: nextAiDetected,
+                        };
+                      });
+                    }}
                     className={inputClass}
                     placeholder="e.g. BEDROOM 2"
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>Category Classification</label>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <label className="block text-[11px] font-bold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">Category Classification</label>
+                    {tempSpace.aiDetected && (
+                      <span
+                        title="Automatically identified"
+                        className="size-1.5 rounded-full bg-primary cursor-help"
+                      />
+                    )}
+                  </div>
                   <PclCategorySelect
                     value={tempSpace.type && (tempSpace.type.endsWith(" (Custom)") || tempSpace.type === "Other") ? "Other" : (tempSpace.type || "")}
                     densities={spaceDensities}

@@ -418,7 +418,7 @@ function RefrigerantPipeSizingPage() {
   const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole || calcReviewState?.status === "APPROVED");
 
   // State definitions
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [sizingParams, setSizingParams] = useState<RefrigerantParams>(DEFAULT_PARAMS);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [showFormulaModal, setShowFormulaModal] = useState<boolean>(false);

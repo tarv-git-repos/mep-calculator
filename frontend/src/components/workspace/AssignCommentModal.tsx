@@ -8,39 +8,57 @@ import { toast } from 'sonner';
 import { dispatchGlobalCommentNotification } from '@/utils/notificationHelpers';
 
 interface AssignCommentModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
+  open?: boolean;
   onClose: () => void;
   targetId?: string;
+  spaceId?: string;
   targetName?: string;
+  spaceName?: string;
   targetLabel?: string;
   targetItem?: any;
   targetType?: string;
+  category?: string;
   calculatorTitle?: string;
   calculatorPath?: string;
   onSave?: (comment: TaskComment) => void | Promise<void>;
+  onSaveComment?: (comment: TaskComment) => void | Promise<void>;
   onCommentAdded?: (comment: TaskComment) => void | Promise<void>;
   existingComments?: TaskComment[];
+  initialComments?: TaskComment[];
   comments?: TaskComment[];
 }
 
 export function AssignCommentModal({
   isOpen,
+  open,
   onClose,
   targetId,
+  spaceId,
   targetName,
+  spaceName,
   targetLabel,
   targetItem,
   targetType = 'space',
+  category,
   calculatorTitle,
   calculatorPath,
   onSave,
+  onSaveComment,
   onCommentAdded,
   existingComments = [],
+  initialComments = [],
   comments = []
 }: AssignCommentModalProps) {
-  const effectiveTargetId = targetId || (typeof targetItem === 'object' ? targetItem?.id : '') || '';
-  const effectiveTargetName = targetName || targetLabel || (typeof targetItem === 'object' ? targetItem?.name || targetItem?.label : '') || 'Parameter';
-  const effectiveExistingComments = (existingComments && existingComments.length > 0) ? existingComments : (comments || []);
+  const isModalOpen = Boolean(isOpen ?? open);
+  const effectiveTargetId = targetId || spaceId || (typeof targetItem === 'object' ? targetItem?.id : '') || '';
+  const effectiveTargetName = targetName || spaceName || targetLabel || (typeof targetItem === 'object' ? targetItem?.name || targetItem?.label : '') || 'Parameter';
+  const effectiveTargetType = targetType || category || 'space';
+  const effectiveExistingComments = (existingComments && existingComments.length > 0)
+    ? existingComments
+    : (initialComments && initialComments.length > 0)
+    ? initialComments
+    : (comments || []);
   const { userData, profile } = useAuth();
   const { project, isReadOnly } = useWorkspace();
   const isEffectiveReadOnly = isReadOnly || (typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly));
@@ -54,7 +72,7 @@ export function AssignCommentModal({
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!isModalOpen) {
       setCommentText('');
       setSelectedUsers([]);
       setSelectedTeams([]);
@@ -257,7 +275,7 @@ export function AssignCommentModal({
       projectId: project?.id || 'default',
     };
 
-    const saveFn = onSave || onCommentAdded;
+    const saveFn = onSave || onSaveComment || onCommentAdded;
     try {
       if (saveFn) {
         await saveFn(newComment);

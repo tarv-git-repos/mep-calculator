@@ -21,12 +21,12 @@ export const Route = createFileRoute("/condensate-drain")({
 type CondMode = "tr" | "lat";
 
 function CondensateDrainPage() {
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [condMode, setCondMode] = useState<CondMode>("tr");
-  const [trLoad, setTrLoad] = useState<number>(10);
-  const [latentLoad, setLatentLoad] = useState<number>(12000);
+  const [trLoad, setTrLoad] = useState<number>(35);
+  const [latentLoad, setLatentLoad] = useState<number>(3.5);
   const [unitsQty, setUnitsQty] = useState<number>(1);
-  const [drainLength, setDrainLength] = useState<number>(10);
+  const [drainLength, setDrainLength] = useState<number>(3);
   const [hasCalculated, setHasCalculated] = useState<boolean>(false);
   const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(false);
 

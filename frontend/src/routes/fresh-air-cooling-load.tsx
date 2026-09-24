@@ -92,12 +92,12 @@ function FreshAirCoolingLoadPage() {
     notes: "Outdoor fresh air conditioning coil sensible, latent, and total heat load sizing study.",
   });
 
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
-  const [dbIn, setDbIn] = useState<number | "">(95);
-  const [wbIn, setWbIn] = useState<number | "">(78);
-  const [dbOut, setDbOut] = useState<number | "">(55);
-  const [wbOut, setWbOut] = useState<number | "">(54);
-  const [flowRate, setFlowRate] = useState<number | "">(1000);
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [dbIn, setDbIn] = useState<number | "">(35);
+  const [wbIn, setWbIn] = useState<number | "">(26);
+  const [dbOut, setDbOut] = useState<number | "">(13);
+  const [wbOut, setWbOut] = useState<number | "">(12);
+  const [flowRate, setFlowRate] = useState<number | "">(0.472);
   const [safetyFactor, setSafetyFactor] = useState<number>(5);
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [showFormulaPanel, setShowFormulaPanel] = useState(false);

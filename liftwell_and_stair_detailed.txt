@@ -1,0 +1,237 @@
+
+========================================
+DETAILS FOR SHEET: LIFTWELL-01
+========================================
+Range: A1:U90
+Row 1: A1: Calculation No: CEC-MED-P509-105   Rev. No: 00 | B1: undefined | C1: undefined | D1: undefined | E1: Date       : 25.07.2025 | F1: undefined | G1: undefined | H1: undefined | I1: undefined
+Row 2: A2: Project No      : P509 | B2: undefined | C2: undefined | D2: undefined | E2: Client     : STUDIO INTERNATIONAL | F2: undefined | G2: undefined | H2: undefined | I2: undefined | U2: undefined
+Row 3: A3: Project Name :  BT WAADA DUBAI SOUTH, DUBAI     | B3: undefined | C3: undefined | D3: undefined | E3: End User : ASICO DEVELOPMENT | F3: undefined | G3: undefined | H3: undefined | I3: undefined
+Row 4: A4: LIFTWELL - SINGLE LIFT / FIRE LIFT | B4: undefined | C4: undefined | D4: undefined | E4: undefined | F4: undefined | G4: undefined | H4: undefined | I4: undefined
+Row 5: A5: LIFT PRESSURISATION AS PER BS-12101-6 | B5: undefined | C5: undefined | D5: undefined | E5: undefined | F5: undefined | G5: undefined | H5: undefined | I5: undefined
+Row 6: A6: S.NO | B6: DESCRIPTION | C6: DOOR | D6: DOOR | E6: CRACK | F6: undefined | G6: LEAKAGE AREA | H6:  AIR LEAKAGE IN | I6: undefined
+Row 7: A7: undefined | B7: undefined | C7: WIDTH IN | D7: HEIGHT IN | E7: LENGTH IN | F7: undefined | G7: IN SQ.M | H7: CU.M/S at 12.5 | I7: undefined
+Row 8: A8: undefined | B8: undefined | C8: M | D8: M | E8: M | F8: undefined | G8: (TABLE-3) | H8:  PASCAL (TABLE-4) | I8: undefined
+Row 9: A9: 1 | B9: AS PER THE BS-EN 12101-6 | C9: 1.2 | D9: 2.3 | E9: [FORMULA: 2*(C9+D9)] = 7 | F9: undefined | G9: 0.06 | H9: 0.19 | I9: undefined
+Row 10: A10: 2 | B10: AS PER ARCHITECTURAL | C10: 1.2 | D10: 2.3 | E10: 7 | F10: undefined | G10: 0.06 | H10: 0.19 | I10: undefined
+Row 11: A11: undefined | B11: DRAWINGS | C11: undefined | D11: undefined | E11: undefined | F11: undefined | G11: undefined | H11: undefined | I11: undefined
+Row 12: A12: undefined | B12: undefined | C12: undefined | D12: undefined | E12: undefined | F12: undefined | G12: undefined | H12: undefined | I12: undefined
+Row 13: A13: THE EGRESS VELOCITY                                      | B13: undefined | C13: undefined | D13: undefined | E13: undefined | F13: 1 | G13: m/s | H13: undefined | I13: undefined
+Row 14: A14: TOTAL AIR VOLUME FOR LIFT WELL | B14: undefined | C14: AIR FLOW THRO' OPEN DOORS | D14: undefined | E14: undefined | F14: + | G14: AIR FLOW THRO' CLOSED DOORS | H14: undefined | I14: undefined
+Row 15: A15: undefined | B15: undefined | C15: DOOR AREA*VELOCITY*NO.OF OPEN DOORS                             | D15: undefined | E15: undefined | F15: + | G15:  AIR LEAKAGE IN  * | H15: NO.OF CLOSED * | I15: SAFETY
+Row 16: A16: undefined | B16: undefined | C16: undefined | D16: undefined | E16: undefined | F16: undefined | G16: CU.M/S @ 12.5 PASCAL | H16: DOORS | I16: 0.25
+Row 17: A17: FOR LIFT WELL FROM BASEMENT TO ROOF
+GROUND TO ROOF FLOOR | B17: undefined | C17: [FORMULA: 1.2*2.3] = 2.76 | D17: 1 | E17: 1 | F17: + | G17: 0.19 | H17: 17 | I17: [FORMULA: 0.25*H17*G17] = 0.8075
+Row 18: A18: undefined | B18: undefined | C18: [FORMULA: C17*D17*E17] = 2.76 | D18: undefined | E18: undefined | F18: + | G18: [FORMULA: (G17*H17)+I17] = 4.0375 | H18: undefined | I18: undefined
+Row 19: A19: undefined | B19: undefined | C19: [FORMULA: C18+G18] = 6.797499999999999 | D19: undefined | E19: undefined | F19: undefined | G19: undefined | H19: undefined | I19: undefined
+Row 20: A20: undefined | B20: undefined | C20: undefined | D20: undefined | E20: undefined | F20: undefined | G20: undefined | H20: undefined | I20: undefined
+Row 21: A21: undefined | B21: undefined | C21: undefined | D21: undefined | E21: undefined | F21: undefined | G21: undefined | H21: undefined | I21: undefined
+Row 22: A22: undefined | B22: undefined | C22: undefined | D22: undefined | E22: undefined | F22: undefined | G22: undefined | H22: undefined | I22: undefined
+Row 23: A23: undefined | B23: undefined | C23: undefined | D23: undefined | E23: undefined | F23: undefined | G23: undefined | H23: undefined | I23: undefined
+Row 24: A24: undefined | B24: undefined | C24: undefined | D24: undefined | E24: undefined | F24: undefined | G24: undefined | H24: undefined | I24: undefined
+Row 25: A25: TOTAL AIR VOLUME ( CU.M PER SEC) | B25: undefined | C25: [FORMULA: C19] = 6.797499999999999 | D25: undefined | E25: undefined | F25: undefined | G25: Pressure Drop Calculation | H25: undefined | I25: undefined
+Row 26: A26: FOR  | B26: undefined | C26: undefined | D26: undefined | E26: Total Fan Capacity= | F26: undefined | G26: undefined | H26: [FORMULA: C29] = 7.47725 | I26: Cu.Mt./Sec
+Row 27: A27: LIFTWELL | B27: undefined | C27: undefined | D27: undefined | E27: Initial Duct Velocity= | F27: undefined | G27: undefined | H27: 8 | I27: m/s
+Row 28: A28: undefined | B28: SAFETY (10%) | C28: [FORMULA: C25*0.1] = 0.67975 | D28: undefined | E28: Pressure drop at Initial Duct velocity= | F28: undefined | G28: undefined | H28: 1 | I28: Pa/m
+Row 29: A29: undefined | B29: TOTAL ( CU. M PER SEC ) | C29: [FORMULA: C25+C28] = 7.47725 | D29: undefined | E29: Total length of duct= | F29: undefined | G29: undefined | H29: 10 | I29: Mtr
+Row 30: A30: TOTAL AIR VOLUME ( L/S) | B30: undefined | C30: [FORMULA: CEILING((C29*1000),5)] = 7480 | D30: undefined | E30: Pressure drop= | F30: undefined | G30: undefined | H30: 0.18 | I30: in wg.
+Row 31: A31: FOR  | B31: undefined | C31: undefined | D31: undefined | E31: Duct Pressure Drop(Pa)= | F31: undefined | G31: undefined | H31: [FORMULA: H28*H29] = 10 | I31: Pa
+Row 32: A32: LIFT WELL | B32: undefined | C32: undefined | D32: undefined | E32: Louver + Grill Pressure Drop(Pa)= | F32: undefined | G32: undefined | H32: [FORMULA: 70+15] = 85 | I32: Pa
+Row 33: A33: undefined | B33: undefined | C33: undefined | D33: undefined | E33: Total Duct Pressure Drop(Pa)= | F33: undefined | G33: undefined | H33: [FORMULA: H32+H31] = 95 | I33: Pa
+Row 34: A34: undefined | B34: undefined | C34: undefined | D34: undefined | E34: Differential Pressure across the staircase and lobby(Pa)= | F34: undefined | G34: undefined | H34: 12.5 | I34: Pa
+Row 35: A35: undefined | B35: undefined | C35: undefined | D35: undefined | E35: Total Pressure drop(Pa)= | F35: undefined | G35: undefined | H35: [FORMULA: H34+H33] = 107.5 | I35: Pa
+Row 36: A36: undefined | B36: undefined | C36: undefined | D36: undefined | E36: Safety (25%)= | F36: undefined | G36: undefined | H36: [FORMULA: H35*0.25] = 26.875 | I36: Pa
+Row 37: A37: undefined | B37: undefined | C37: undefined | D37: undefined | E37: Pressure Drop(Pa)= | F37: undefined | G37: undefined | H37: [FORMULA: CEILING(H36+H35,5)] = 135 | I37: Pa
+Row 38: A38: undefined | B38: undefined | C38: undefined | D38: undefined | E38: undefined | F38: undefined | G38: undefined | H38: undefined | I38: undefined
+Row 39: A39: undefined | B39: [FORMULA: A4] = LIFTWELL - SINGLE LIFT / FIRE LIFT | C39: undefined | D39: undefined | E39: undefined | F39: undefined | G39: Pressure Relief Calculation: | H39: undefined | I39: undefined
+Row 40: A40: undefined | B40: TOTAL AIR VOLUME FOR LIFTWELL | C40: undefined | D40: undefined | E40: [FORMULA: C30] = 7480 | F40: L/S | G40: Q= 0.827*AE*P^1/2 | H40: undefined | I40: undefined
+Row 41: A41: undefined | B41: EACH FAN CAPACITY (1 W) | C41: undefined | D41: undefined | E41: [FORMULA: E40] = 7480 | F41: L/S | G41: Q = Required Air Volume (Cu.Mt./Sec) | H41: undefined | I41: undefined
+Row 42: A42: undefined | B42: ROUND FIGURE | C42: undefined | D42: undefined | E42: [FORMULA: ROUND(E41,-1)] = 7480 | F42: L/S | G42: AE = Leakage Rate(Sq.Mt.) | H42: undefined | I42: undefined
+Row 43: A43: undefined | B43: TOTAL NO. OF OUTLETS | C43: undefined | D43: undefined | E43: 1 | F43: NOS | G43: P = Pressure Differential | H43: undefined | I43: undefined
+Row 44: A44: undefined | B44: AIR VOLUME PER OUTLET | C44: undefined | D44: undefined | E44: [FORMULA: E42/E43] = 7480 | F44: L/S | G44: Pressure Relief Area =  | H44: [FORMULA: C29/(0.827*3.53)] = 2.5613072952170204 | I44: Sq.Mt.
+Row 45: A45: undefined | B45: undefined | C45: undefined | D45: undefined | E45: undefined | F45: undefined | G45: Size of the relief louver area | H45: undefined | I45: undefined
+Row 46: A46: undefined | B46: Reference: 1. Architectural Drawings:  | C46: undefined | D46: undefined | E46: undefined | F46: undefined | G46: undefined | H46: undefined | I46: undefined
+Row 47: A47: undefined | B47:                   2. ASHRAE | C47: undefined | D47: undefined | E47: undefined | F47: undefined | G47: undefined | H47: undefined | I47: undefined
+Row 48: A48: undefined | B48:                   3. BS-EN 12101-6 | C48: undefined | D48: undefined | E48: undefined | F48: undefined | G48: undefined | H48: undefined | I48: undefined
+Row 49: A49: undefined | B49: undefined | C49: undefined | D49: undefined | E49: undefined | F49: undefined | G49: undefined | H49: undefined | I49: undefined
+Row 50: A50: undefined | B50: undefined | C50: Originated by | D50: undefined | E50: Reviewed by | F50: undefined | G50: undefined | H50: Approved by | I50: undefined
+Row 51: A51: Name: | B51: undefined | C51: MUHAMMED IRSHAD | D51: undefined | E51: WAEL | F51: undefined | G51: undefined | H51: HARIS | I51: undefined
+Row 52: A52: Signature: | B52: undefined | C52: undefined | D52: undefined | E52: undefined | F52: undefined | G52: undefined | H52: undefined | I52: undefined
+Row 53: A53: Date: | B53: undefined | C53: 09.10.2021 | D53: undefined | E53: 09.10.2021 | F53: undefined | G53: undefined | H53: 09.10.2021 | I53: undefined
+Row 54: A54: undefined | B54: undefined | C54: Originated by | D54: undefined | E54: Reviewed by | F54: undefined | G54: undefined | H54: Approved by | I54: undefined
+Row 55: A55: Name: | B55: undefined | C55: ABIN | D55: undefined | E55: SHAFEEQUE  | F55: undefined | G55: undefined | H55: AAKASH | I55: undefined
+Row 56: A56: Signature: | B56: undefined | C56: 15 | D56: undefined | E56: 15 | F56: undefined | G56: undefined | H56: 15 | I56: undefined
+Row 57: A57: Date: | B57: undefined | C57: 23.08.2024 | D57: undefined | E57: [FORMULA: C57] = 23.08.2024 | F57: undefined | G57: undefined | H57: [FORMULA: E57] = 23.08.2024 | I57: undefined
+Row 58: A58: undefined | B58: undefined | C58: undefined | D58: undefined | E58: undefined | F58: undefined | G58: undefined | H58: undefined
+Row 59: A59: undefined | B59: undefined | C59: undefined | D59: undefined | E59: undefined | F59: undefined | G59: undefined | H59: undefined
+Row 60: A60: undefined | B60: undefined | C60: undefined | D60: undefined | E60: undefined | F60: undefined | G60: undefined | H60: undefined
+Row 61: A61: undefined | B61: undefined | C61: undefined | D61: undefined | E61: undefined | F61: undefined | G61: undefined | H61: undefined
+Row 62: A62: undefined | B62: undefined | C62: undefined | D62: undefined | E62: undefined | F62: undefined | G62: undefined | H62: undefined
+Row 63: A63: undefined | B63: undefined | C63: undefined | D63: undefined | E63: undefined | F63: undefined | G63: undefined | H63: undefined
+Row 64: A64: undefined | B64: undefined | C64: undefined | D64: undefined | E64: undefined | F64: undefined | G64: undefined | H64: undefined
+Row 65: A65: undefined | B65: undefined | C65: undefined | D65: undefined | E65: undefined | F65: undefined | G65: undefined | H65: undefined
+Row 66: A66: undefined | B66: undefined | C66: undefined | D66: undefined | E66: undefined | F66: undefined | G66: undefined | H66: undefined
+Row 67: A67: undefined | B67: undefined | C67: undefined | D67: undefined | E67: undefined | F67: undefined | G67: undefined | H67: undefined
+Row 68: A68: undefined | B68: undefined | C68: undefined | D68: undefined | E68: undefined | F68: undefined | G68: undefined | H68: undefined
+Row 69: A69: undefined | B69: undefined | C69: undefined | D69: undefined | E69: undefined | F69: undefined | G69: undefined | H69: undefined
+Row 70: A70: undefined | B70: undefined | C70: undefined | D70: undefined | E70: undefined | F70: undefined | G70: undefined | H70: undefined
+Row 71: A71: undefined | B71: undefined | C71: undefined | D71: undefined | E71: undefined | F71: undefined | G71: undefined | H71: undefined
+Row 72: A72: undefined | B72: undefined | C72: undefined | D72: undefined | E72: undefined | F72: undefined | G72: undefined | H72: undefined
+Row 73: A73: undefined | B73: undefined | C73: undefined | D73: undefined | E73: undefined | F73: undefined | G73: undefined | H73: undefined
+
+========================================
+DETAILS FOR SHEET: STAIR 01&03
+========================================
+Range: A1:U90
+Row 1: A1: Calculation No: CEC-MED-P509-105   Rev. No: 00 | B1: undefined | C1: undefined | D1: undefined | E1: Date       : 25.07.2025 | F1: undefined | G1: undefined | H1: undefined | I1: undefined
+Row 2: A2: Project No      : P509 | B2: undefined | C2: undefined | D2: undefined | E2: Client     : STUDIO INTERNATIONAL | F2: undefined | G2: undefined | H2: undefined | I2: undefined
+Row 3: A3: Project Name :  BT WAADA DUBAI SOUTH, DUBAI     | B3: undefined | C3: undefined | D3: undefined | E3: End User : ASICO DEVELOPMENT | F3: undefined | G3: undefined | H3: undefined | I3: undefined | L3: undefined
+Row 4: A4: STAIRCASE 01 & STAIRCASE 03 | B4: undefined | C4: undefined | D4: undefined | E4: undefined | F4: undefined | G4: undefined | H4: undefined | I4: undefined
+Row 5: A5: STAIRCASE PRESSURISATION AS PER BS-12101-6 | B5: undefined | C5: undefined | D5: undefined | E5: undefined | F5: undefined | G5: undefined | H5: undefined | I5: undefined
+Row 6: A6: S.NO | B6: DESCRIPTION | C6: DOOR | D6: DOOR | E6: CRACK | F6: undefined | G6: LEAKAGE AREA | H6:  AIR LEAKAGE IN | I6: undefined
+Row 7: A7: undefined | B7: undefined | C7: WIDTH IN | D7: HEIGHT IN | E7: LENGTH IN | F7: undefined | G7: IN SQ.M | H7: CU.M/S at 12.5 | I7: undefined
+Row 8: A8: undefined | B8: undefined | C8: M | D8: M | E8: M | F8: undefined | G8: (TABLE-3) | H8:  PASCAL (TABLE-4) | I8: undefined
+Row 9: A9: 1 | B9: AS PER THE BS-EN 12101-6 | C9: 1.1 | D9: 2.3 | E9: [FORMULA: 2*(C9+D9)] = 6.8 | F9: undefined | G9: 0.01 | H9: 0.03 | I9: undefined
+Row 10: A10: 2 | B10: AS PER ARCHITECTURAL | C10: 1.1 | D10: 2.3 | E10: 6.8 | F10: undefined | G10: 0.01 | H10: 0.03 | I10: undefined
+Row 11: A11: undefined | B11: DRAWINGS | C11: undefined | D11: undefined | E11: undefined | F11: undefined | G11: undefined | H11: undefined | I11: undefined
+Row 12: A12: undefined | B12: undefined | C12: undefined | D12: undefined | E12: undefined | F12: undefined | G12: undefined | H12: undefined | I12: undefined
+Row 13: A13: THE EGRESS VELOCITY                                      | B13: undefined | C13: undefined | D13: undefined | E13: undefined | F13: 1 | G13: m/s | H13: undefined | I13: undefined
+Row 14: A14: TOTAL AIR VOLUME FOR STAIRCASE - 01 & 03 | B14: undefined | C14: AIR FLOW THRO' OPEN DOORS | D14: undefined | E14: undefined | F14: + | G14: AIR FLOW THRO' CLOSED DOORS | H14: undefined | I14: undefined
+Row 15: A15: undefined | B15: undefined | C15: DOOR AREA*VELOCITY*NO.OF OPEN DOORS                             | D15: undefined | E15: undefined | F15: + | G15:  AIR LEAKAGE IN  * | H15: NO.OF CLOSED * | I15: SAFETY
+Row 16: A16: undefined | B16: undefined | C16: undefined | D16: undefined | E16: undefined | F16: undefined | G16: CU.M/S @ 12.5 PASCAL | H16: DOORS | I16: 0.25
+Row 17: A17: FOR STAIR CASE- 01 & 03
+BASEMENT TO 16TH FLOOR | B17: undefined | C17: [FORMULA: C10*D10] = 2.53 | D17: 1 | E17: 2 | F17: + | G17: 0.03 | H17: 16 | I17: [FORMULA: 0.25*H17*G17] = 0.12
+Row 18: A18: undefined | B18: undefined | C18: [FORMULA: C17*D17*E17] = 5.06 | D18: undefined | E18: undefined | F18: + | G18: [FORMULA: (G17*H17)+I17] = 0.6 | H18: undefined | I18: undefined
+Row 19: A19: undefined | B19: undefined | C19: [FORMULA: C18+G18] = 5.659999999999999 | D19: undefined | E19: undefined | F19: undefined | G19: undefined | H19: undefined | I19: undefined
+Row 20: A20: undefined | B20: undefined | C20: undefined | D20: undefined | E20: undefined | F20: undefined | G20: undefined | H20: undefined | I20: undefined
+Row 21: A21: undefined | B21: undefined | C21: undefined | D21: undefined | E21: undefined | F21: undefined | G21: undefined | H21: undefined | I21: undefined
+Row 22: A22: undefined | B22: undefined | C22: undefined | D22: undefined | E22: undefined | F22: undefined | G22: undefined | H22: undefined | I22: undefined
+Row 23: A23: undefined | B23: undefined | C23: undefined | D23: undefined | E23: undefined | F23: undefined | G23: undefined | H23: undefined | I23: undefined
+Row 24: A24: undefined | B24: undefined | C24: undefined | D24: undefined | E24: undefined | F24: undefined | G24: undefined | H24: undefined | I24: undefined
+Row 25: A25: TOTAL AIR VOLUME ( CU.M PER SEC) | B25: undefined | C25: [FORMULA: C19] = 5.659999999999999 | D25: undefined | E25: undefined | F25: undefined | G25: Pressure Drop Calculation | H25: undefined | I25: undefined | U25: undefined
+Row 26: A26: FOR  | B26: undefined | C26: undefined | D26: undefined | E26: Total Fan Capacity= | F26: undefined | G26: undefined | H26: [FORMULA: C29] = 6.225999999999999 | I26: Cu.Mt./Sec
+Row 27: A27: STAIR CASE- 01 & 03 | B27: undefined | C27: undefined | D27: undefined | E27: Initial Duct Velocity= | F27: undefined | G27: undefined | H27: 8.12 | I27: m/s
+Row 28: A28: undefined | B28: SAFETY (10%) | C28: [FORMULA: C25*0.1] = 0.566 | D28: undefined | E28: Pressure drop at Initial Duct velocity= | F28: undefined | G28: undefined | H28: 1 | I28: Pa/m
+Row 29: A29: undefined | B29: TOTAL ( CU. M PER SEC ) | C29: [FORMULA: C25+C28] = 6.225999999999999 | D29: undefined | E29: Total length of duct= | F29: undefined | G29: undefined | H29: 68 | I29: mtr
+Row 30: A30: TOTAL AIR VOLUME ( L/S) | B30: undefined | C30: [FORMULA: CEILING((C29*1000),5)] = 6230 | D30: undefined | E30: Pressure drop= | F30: undefined | G30: undefined | H30: 0.18 | I30: in wg.
+Row 31: A31: FOR  | B31: undefined | C31: undefined | D31: undefined | E31: Duct Pressure Drop(Pa)= | F31: undefined | G31: undefined | H31: [FORMULA: H28*H29] = 68 | I31: Pa
+Row 32: A32: STAIR CASE- 01 & 03 | B32: undefined | C32: undefined | D32: undefined | E32: Louver + Grill Pressure Drop(Pa)= | F32: undefined | G32: undefined | H32: [FORMULA: 70+15] = 85 | I32: Pa
+Row 33: A33: undefined | B33: undefined | C33: undefined | D33: undefined | E33: Total Duct Pressure Drop(Pa)= | F33: undefined | G33: undefined | H33: [FORMULA: H32+H31] = 153 | I33: Pa
+Row 34: A34: undefined | B34: undefined | C34: undefined | D34: undefined | E34: Differential Pressure across the staircase and lobby(Pa)= | F34: undefined | G34: undefined | H34: 12.5 | I34: Pa | P34: undefined
+Row 35: A35: undefined | B35: undefined | C35: undefined | D35: undefined | E35: Total Pressure drop(Pa)= | F35: undefined | G35: undefined | H35: [FORMULA: H34+H33] = 165.5 | I35: Pa
+Row 36: A36: undefined | B36: undefined | C36: undefined | D36: undefined | E36: Safety (25%)= | F36: undefined | G36: undefined | H36: [FORMULA: H35*0.25] = 41.375 | I36: Pa
+Row 37: A37: undefined | B37: undefined | C37: undefined | D37: undefined | E37: Pressure Drop(Pa)= | F37: undefined | G37: undefined | H37: [FORMULA: CEILING(H36+H35,5)] = 210 | I37: Pa
+Row 38: A38: undefined | B38: undefined | C38: undefined | D38: undefined | E38: undefined | F38: undefined | G38: undefined | H38: undefined | I38: undefined
+Row 39: A39: undefined | B39: STAIRCASE 02 & 03 | C39: undefined | D39: undefined | E39: undefined | F39: undefined | G39: Pressure Relief Calculation: | H39: undefined | I39: undefined
+Row 40: A40: undefined | B40: TOTAL AIR VOLUME FOR STAIRCASE-01&03 | C40: undefined | D40: undefined | E40: [FORMULA: C30] = 6230 | F40: L/S | G40: Q= 0.827*AE*P^1/2 | H40: undefined | I40: undefined
+Row 41: A41: undefined | B41: EACH FAN CAPACITY (1 W) | C41: undefined | D41: undefined | E41: [FORMULA: E40] = 6230 | F41: L/S | G41: Q = Required Air Volume (Cu.Mt./Sec) | H41: undefined | I41: undefined
+Row 42: A42: undefined | B42: ROUND FIGURE | C42: undefined | D42: undefined | E42: [FORMULA: ROUND(E41,-1)] = 6230 | F42: L/S | G42: AE = Leakage Rate(Sq.Mt.) | H42: undefined | I42: undefined | M42: undefined
+Row 43: A43: undefined | B43: TOTAL NO. OF OUTLETS | C43: undefined | D43: undefined | E43: 9 | F43: NOS | G43: P = Pressure Differential | H43: undefined | I43: undefined
+Row 44: A44: undefined | B44: AIR VOLUME PER OUTLET | C44: undefined | D44: undefined | E44: [FORMULA: E42/E43] = 692.2222222222222 | F44: L/S | G44: Pressure Relief Area =  | H44: [FORMULA: C29/(0.827*3.53)] = 2.1326957397467208 | I44: Sq.Mt.
+Row 45: A45: undefined | B45: undefined | C45: undefined | D45: undefined | E45: undefined | F45: undefined | G45: Size of the relief louver area | H45: undefined | I45: undefined
+Row 46: A46: undefined | B46: Reference: 1. Architectural Drawings:  | C46: undefined | D46: undefined | E46: undefined | F46: undefined | G46: undefined | H46: undefined | I46: undefined
+Row 47: A47: undefined | B47:                   2. ASHRAE | C47: undefined | D47: undefined | E47: undefined | F47: undefined | G47: undefined | H47: undefined | I47: undefined
+Row 48: A48: undefined | B48:                   3. BS-EN 12101-6 | C48: undefined | D48: undefined | E48: undefined | F48: undefined | G48: undefined | H48: undefined | I48: undefined
+Row 49: A49: undefined | B49: undefined | C49: undefined | D49: undefined | E49: undefined | F49: undefined | G49: undefined | H49: undefined | I49: undefined
+Row 50: A50: undefined | B50: undefined | C50: Originated by | D50: undefined | E50: Reviewed by | F50: undefined | G50: undefined | H50: Approved by | I50: undefined
+Row 51: A51: Name: | B51: undefined | C51: MUHAMMED IRSHAD | D51: undefined | E51: WAEL | F51: undefined | G51: undefined | H51: HARIS | I51: undefined
+Row 52: A52: Signature: | B52: undefined | C52: undefined | D52: undefined | E52: undefined | F52: undefined | G52: undefined | H52: undefined | I52: undefined
+Row 53: A53: Date: | B53: undefined | C53: 09.10.2021 | D53: undefined | E53: 09.10.2021 | F53: undefined | G53: undefined | H53: 09.10.2021 | I53: undefined
+Row 54: A54: undefined | B54: undefined | C54: Originated by | D54: undefined | E54: Reviewed by | F54: undefined | G54: undefined | H54: Approved by | I54: undefined
+Row 55: A55: Name: | B55: undefined | C55: ABIN | D55: undefined | E55: SHAFEEQUE  | F55: undefined | G55: undefined | H55: AAKASH | I55: undefined
+Row 56: A56: Signature: | B56: undefined | C56: 15 | D56: undefined | E56: 15 | F56: undefined | G56: undefined | H56: 15 | I56: undefined
+Row 57: A57: Date: | B57: undefined | C57: 23.08.2024 | D57: undefined | E57: [FORMULA: C57] = 23.08.2024 | F57: undefined | G57: undefined | H57: [FORMULA: E57] = 23.08.2024 | I57: undefined
+Row 58: A58: undefined | B58: undefined | C58: undefined | D58: undefined | E58: undefined | F58: undefined | G58: undefined | H58: undefined
+Row 59: A59: undefined | B59: undefined | C59: undefined | D59: undefined | E59: undefined | F59: undefined | G59: undefined | H59: undefined
+Row 60: A60: undefined | B60: undefined | C60: undefined | D60: undefined | E60: undefined | F60: undefined | G60: undefined | H60: undefined
+Row 61: A61: undefined | B61: undefined | C61: undefined | D61: undefined | E61: undefined | F61: undefined | G61: undefined | H61: undefined
+Row 62: A62: undefined | B62: undefined | C62: undefined | D62: undefined | E62: undefined | F62: undefined | G62: undefined | H62: undefined
+Row 63: A63: undefined | B63: undefined | C63: undefined | D63: undefined | E63: undefined | F63: undefined | G63: undefined | H63: undefined
+Row 64: A64: undefined | B64: undefined | C64: undefined | D64: undefined | E64: undefined | F64: undefined | G64: undefined | H64: undefined
+Row 65: A65: undefined | B65: undefined | C65: undefined | D65: undefined | E65: undefined | F65: undefined | G65: undefined | H65: undefined
+Row 66: A66: undefined | B66: undefined | C66: undefined | D66: undefined | E66: undefined | F66: undefined | G66: undefined | H66: undefined
+Row 67: A67: undefined | B67: undefined | C67: undefined | D67: undefined | E67: undefined | F67: undefined | G67: undefined | H67: undefined
+Row 68: A68: undefined | B68: undefined | C68: undefined | D68: undefined | E68: undefined | F68: undefined | G68: undefined | H68: undefined
+Row 69: A69: undefined | B69: undefined | C69: undefined | D69: undefined | E69: undefined | F69: undefined | G69: undefined | H69: undefined
+Row 70: A70: undefined | B70: undefined | C70: undefined | D70: undefined | E70: undefined | F70: undefined | G70: undefined | H70: undefined
+Row 71: A71: undefined | B71: undefined | C71: undefined | D71: undefined | E71: undefined | F71: undefined | G71: undefined | H71: undefined
+Row 72: A72: undefined | B72: undefined | C72: undefined | D72: undefined | E72: undefined | F72: undefined | G72: undefined | H72: undefined
+Row 73: A73: undefined | B73: undefined | C73: undefined | D73: undefined | E73: undefined | F73: undefined | G73: undefined | H73: undefined
+
+========================================
+DETAILS FOR SHEET: STAIR 02
+========================================
+Range: A1:U90
+Row 1: A1: Calculation No: CEC-MED-P509-105   Rev. No: 00 | B1: undefined | C1: undefined | D1: undefined | E1: Date       : 25.07.2025 | F1: undefined | G1: undefined | H1: undefined | I1: undefined
+Row 2: A2: Project No      : P509 | B2: undefined | C2: undefined | D2: undefined | E2: Client     : STUDIO INTERNATIONAL | F2: undefined | G2: undefined | H2: undefined | I2: undefined
+Row 3: A3: Project Name :  BT WAADA DUBAI SOUTH, DUBAI     | B3: undefined | C3: undefined | D3: undefined | E3: End User : ASICO DEVELOPMENT | F3: undefined | G3: undefined | H3: undefined | I3: undefined | L3: undefined
+Row 4: A4: STAIRCASE 02 | B4: undefined | C4: undefined | D4: undefined | E4: undefined | F4: undefined | G4: undefined | H4: undefined | I4: undefined
+Row 5: A5: STAIRCASE PRESSURISATION AS PER BS-12101-6 | B5: undefined | C5: undefined | D5: undefined | E5: undefined | F5: undefined | G5: undefined | H5: undefined | I5: undefined
+Row 6: A6: S.NO | B6: DESCRIPTION | C6: DOOR | D6: DOOR | E6: CRACK | F6: undefined | G6: LEAKAGE AREA | H6:  AIR LEAKAGE IN | I6: undefined
+Row 7: A7: undefined | B7: undefined | C7: WIDTH IN | D7: HEIGHT IN | E7: LENGTH IN | F7: undefined | G7: IN SQ.M | H7: CU.M/S at 12.5 | I7: undefined
+Row 8: A8: undefined | B8: undefined | C8: M | D8: M | E8: M | F8: undefined | G8: (TABLE-3) | H8:  PASCAL (TABLE-4) | I8: undefined
+Row 9: A9: 1 | B9: AS PER THE BS-EN 12101-6 | C9: 1.1 | D9: 2.3 | E9: [FORMULA: 2*(C9+D9)] = 6.8 | F9: undefined | G9: 0.01 | H9: 0.03 | I9: undefined
+Row 10: A10: 2 | B10: AS PER ARCHITECTURAL | C10: 1.1 | D10: 2.3 | E10: 6.8 | F10: undefined | G10: 0.01 | H10: 0.03 | I10: undefined
+Row 11: A11: undefined | B11: DRAWINGS | C11: undefined | D11: undefined | E11: undefined | F11: undefined | G11: undefined | H11: undefined | I11: undefined
+Row 12: A12: undefined | B12: undefined | C12: undefined | D12: undefined | E12: undefined | F12: undefined | G12: undefined | H12: undefined | I12: undefined
+Row 13: A13: THE EGRESS VELOCITY                                      | B13: undefined | C13: undefined | D13: undefined | E13: undefined | F13: 1 | G13: m/s | H13: undefined | I13: undefined
+Row 14: A14: TOTAL AIR VOLUME FOR STAIRCASE- 02 | B14: undefined | C14: AIR FLOW THRO' OPEN DOORS | D14: undefined | E14: undefined | F14: + | G14: AIR FLOW THRO' CLOSED DOORS | H14: undefined | I14: undefined
+Row 15: A15: undefined | B15: undefined | C15: DOOR AREA*VELOCITY*NO.OF OPEN DOORS                             | D15: undefined | E15: undefined | F15: + | G15:  AIR LEAKAGE IN  * | H15: NO.OF CLOSED * | I15: SAFETY
+Row 16: A16: undefined | B16: undefined | C16: undefined | D16: undefined | E16: undefined | F16: undefined | G16: CU.M/S @ 12.5 PASCAL | H16: DOORS | I16: 0.25
+Row 17: A17: FOR STAIR CASE-02
+BASEMENT TO ROOF | B17: undefined | C17: [FORMULA: C10*D10] = 2.53 | D17: 1 | E17: 2 | F17: + | G17: 0.03 | H17: 17 | I17: [FORMULA: 0.25*H17*G17] = 0.1275
+Row 18: A18: undefined | B18: undefined | C18: [FORMULA: C17*D17*E17] = 5.06 | D18: undefined | E18: undefined | F18: + | G18: [FORMULA: (G17*H17)+I17] = 0.6375 | H18: undefined | I18: undefined
+Row 19: A19: undefined | B19: undefined | C19: [FORMULA: C18+G18] = 5.6975 | D19: undefined | E19: undefined | F19: undefined | G19: undefined | H19: undefined | I19: undefined
+Row 20: A20: undefined | B20: undefined | C20: undefined | D20: undefined | E20: undefined | F20: undefined | G20: undefined | H20: undefined | I20: undefined
+Row 21: A21: undefined | B21: undefined | C21: undefined | D21: undefined | E21: undefined | F21: undefined | G21: undefined | H21: undefined | I21: undefined
+Row 22: A22: undefined | B22: undefined | C22: undefined | D22: undefined | E22: undefined | F22: undefined | G22: undefined | H22: undefined | I22: undefined
+Row 23: A23: undefined | B23: undefined | C23: undefined | D23: undefined | E23: undefined | F23: undefined | G23: undefined | H23: undefined | I23: undefined
+Row 24: A24: undefined | B24: undefined | C24: undefined | D24: undefined | E24: undefined | F24: undefined | G24: undefined | H24: undefined | I24: undefined
+Row 25: A25: TOTAL AIR VOLUME ( CU.M PER SEC) | B25: undefined | C25: [FORMULA: C19] = 5.6975 | D25: undefined | E25: undefined | F25: undefined | G25: Pressure Drop Calculation | H25: undefined | I25: undefined | U25: undefined
+Row 26: A26: FOR  | B26: undefined | C26: undefined | D26: undefined | E26: Total Fan Capacity= | F26: undefined | G26: undefined | H26: [FORMULA: C29] = 6.26725 | I26: Cu.Mt./Sec
+Row 27: A27: STAIR CASE- 02 | B27: undefined | C27: undefined | D27: undefined | E27: Initial Duct Velocity= | F27: undefined | G27: undefined | H27: 8.12 | I27: m/s
+Row 28: A28: undefined | B28: SAFETY (10%) | C28: [FORMULA: C25*0.1] = 0.56975 | D28: undefined | E28: Pressure drop at Initial Duct velocity= | F28: undefined | G28: undefined | H28: 1 | I28: Pa/m
+Row 29: A29: undefined | B29: TOTAL ( CU. M PER SEC ) | C29: [FORMULA: C25+C28] = 6.26725 | D29: undefined | E29: Total length of duct= | F29: undefined | G29: undefined | H29: 68 | I29: mtr
+Row 30: A30: TOTAL AIR VOLUME ( L/S) | B30: undefined | C30: [FORMULA: CEILING((C29*1000),5)] = 6270 | D30: undefined | E30: Pressure drop= | F30: undefined | G30: undefined | H30: 0.18 | I30: in wg.
+Row 31: A31: FOR  | B31: undefined | C31: undefined | D31: undefined | E31: Duct Pressure Drop(Pa)= | F31: undefined | G31: undefined | H31: [FORMULA: H28*H29] = 68 | I31: Pa
+Row 32: A32: STAIR CASE- 02 | B32: undefined | C32: undefined | D32: undefined | E32: Louver + Grill Pressure Drop(Pa)= | F32: undefined | G32: undefined | H32: [FORMULA: 70+15] = 85 | I32: Pa
+Row 33: A33: undefined | B33: undefined | C33: undefined | D33: undefined | E33: Total Duct Pressure Drop(Pa)= | F33: undefined | G33: undefined | H33: [FORMULA: H32+H31] = 153 | I33: Pa
+Row 34: A34: undefined | B34: undefined | C34: undefined | D34: undefined | E34: Differential Pressure across the staircase and lobby(Pa)= | F34: undefined | G34: undefined | H34: 12.5 | I34: Pa | P34: undefined
+Row 35: A35: undefined | B35: undefined | C35: undefined | D35: undefined | E35: Total Pressure drop(Pa)= | F35: undefined | G35: undefined | H35: [FORMULA: H34+H33] = 165.5 | I35: Pa
+Row 36: A36: undefined | B36: undefined | C36: undefined | D36: undefined | E36: Safety (25%)= | F36: undefined | G36: undefined | H36: [FORMULA: H35*0.25] = 41.375 | I36: Pa
+Row 37: A37: undefined | B37: undefined | C37: undefined | D37: undefined | E37: Pressure Drop(Pa)= | F37: undefined | G37: undefined | H37: [FORMULA: CEILING(H36+H35,5)] = 210 | I37: Pa
+Row 38: A38: undefined | B38: undefined | C38: undefined | D38: undefined | E38: undefined | F38: undefined | G38: undefined | H38: undefined | I38: undefined
+Row 39: A39: undefined | B39: STAIRCASE 02 | C39: undefined | D39: undefined | E39: undefined | F39: undefined | G39: Pressure Relief Calculation: | H39: undefined | I39: undefined
+Row 40: A40: undefined | B40: TOTAL AIR VOLUME FOR STAIRCASE-02 | C40: undefined | D40: undefined | E40: [FORMULA: C30] = 6270 | F40: L/S | G40: Q= 0.827*AE*P^1/2 | H40: undefined | I40: undefined
+Row 41: A41: undefined | B41: EACH FAN CAPACITY (1 W) | C41: undefined | D41: undefined | E41: [FORMULA: E40] = 6270 | F41: L/S | G41: Q = Required Air Volume (Cu.Mt./Sec) | H41: undefined | I41: undefined
+Row 42: A42: undefined | B42: ROUND FIGURE | C42: undefined | D42: undefined | E42: [FORMULA: ROUND(E41,-1)] = 6270 | F42: L/S | G42: AE = Leakage Rate(Sq.Mt.) | H42: undefined | I42: undefined | M42: undefined
+Row 43: A43: undefined | B43: TOTAL NO. OF OUTLETS | C43: undefined | D43: undefined | E43: 9 | F43: NOS | G43: P = Pressure Differential | H43: undefined | I43: undefined
+Row 44: A44: undefined | B44: AIR VOLUME PER OUTLET | C44: undefined | D44: undefined | E44: [FORMULA: E42/E43] = 696.6666666666666 | F44: L/S | G44: Pressure Relief Area =  | H44: [FORMULA: C29/(0.827*3.53)] = 2.146825791025962 | I44: Sq.Mt.
+Row 45: A45: undefined | B45: undefined | C45: undefined | D45: undefined | E45: undefined | F45: undefined | G45: Size of the relief louver area | H45: undefined | I45: undefined
+Row 46: A46: undefined | B46: Reference: 1. Architectural Drawings:  | C46: undefined | D46: undefined | E46: undefined | F46: undefined | G46: undefined | H46: undefined | I46: undefined
+Row 47: A47: undefined | B47:                   2. ASHRAE | C47: undefined | D47: undefined | E47: undefined | F47: undefined | G47: undefined | H47: undefined | I47: undefined
+Row 48: A48: undefined | B48:                   3. BS-EN 12101-6 | C48: undefined | D48: undefined | E48: undefined | F48: undefined | G48: undefined | H48: undefined | I48: undefined
+Row 49: A49: undefined | B49: undefined | C49: undefined | D49: undefined | E49: undefined | F49: undefined | G49: undefined | H49: undefined | I49: undefined
+Row 50: A50: undefined | B50: undefined | C50: Originated by | D50: undefined | E50: Reviewed by | F50: undefined | G50: undefined | H50: Approved by | I50: undefined
+Row 51: A51: Name: | B51: undefined | C51: MUHAMMED IRSHAD | D51: undefined | E51: WAEL | F51: undefined | G51: undefined | H51: HARIS | I51: undefined
+Row 52: A52: Signature: | B52: undefined | C52: undefined | D52: undefined | E52: undefined | F52: undefined | G52: undefined | H52: undefined | I52: undefined
+Row 53: A53: Date: | B53: undefined | C53: 09.10.2021 | D53: undefined | E53: 09.10.2021 | F53: undefined | G53: undefined | H53: 09.10.2021 | I53: undefined
+Row 54: A54: undefined | B54: undefined | C54: Originated by | D54: undefined | E54: Reviewed by | F54: undefined | G54: undefined | H54: Approved by | I54: undefined
+Row 55: A55: Name: | B55: undefined | C55: ABIN | D55: undefined | E55: SHAFEEQUE  | F55: undefined | G55: undefined | H55: AAKASH | I55: undefined
+Row 56: A56: Signature: | B56: undefined | C56: 15 | D56: undefined | E56: 15 | F56: undefined | G56: undefined | H56: 15 | I56: undefined
+Row 57: A57: Date: | B57: undefined | C57: 23.08.2024 | D57: undefined | E57: [FORMULA: C57] = 23.08.2024 | F57: undefined | G57: undefined | H57: [FORMULA: E57] = 23.08.2024 | I57: undefined
+Row 58: A58: undefined | B58: undefined | C58: undefined | D58: undefined | E58: undefined | F58: undefined | G58: undefined | H58: undefined
+Row 59: A59: undefined | B59: undefined | C59: undefined | D59: undefined | E59: undefined | F59: undefined | G59: undefined | H59: undefined
+Row 60: A60: undefined | B60: undefined | C60: undefined | D60: undefined | E60: undefined | F60: undefined | G60: undefined | H60: undefined
+Row 61: A61: undefined | B61: undefined | C61: undefined | D61: undefined | E61: undefined | F61: undefined | G61: undefined | H61: undefined
+Row 62: A62: undefined | B62: undefined | C62: undefined | D62: undefined | E62: undefined | F62: undefined | G62: undefined | H62: undefined
+Row 63: A63: undefined | B63: undefined | C63: undefined | D63: undefined | E63: undefined | F63: undefined | G63: undefined | H63: undefined
+Row 64: A64: undefined | B64: undefined | C64: undefined | D64: undefined | E64: undefined | F64: undefined | G64: undefined | H64: undefined
+Row 65: A65: undefined | B65: undefined | C65: undefined | D65: undefined | E65: undefined | F65: undefined | G65: undefined | H65: undefined
+Row 66: A66: undefined | B66: undefined | C66: undefined | D66: undefined | E66: undefined | F66: undefined | G66: undefined | H66: undefined
+Row 67: A67: undefined | B67: undefined | C67: undefined | D67: undefined | E67: undefined | F67: undefined | G67: undefined | H67: undefined
+Row 68: A68: undefined | B68: undefined | C68: undefined | D68: undefined | E68: undefined | F68: undefined | G68: undefined | H68: undefined
+Row 69: A69: undefined | B69: undefined | C69: undefined | D69: undefined | E69: undefined | F69: undefined | G69: undefined | H69: undefined
+Row 70: A70: undefined | B70: undefined | C70: undefined | D70: undefined | E70: undefined | F70: undefined | G70: undefined | H70: undefined
+Row 71: A71: undefined | B71: undefined | C71: undefined | D71: undefined | E71: undefined | F71: undefined | G71: undefined | H71: undefined
+Row 72: A72: undefined | B72: undefined | C72: undefined | D72: undefined | E72: undefined | F72: undefined | G72: undefined | H72: undefined
+Row 73: A73: undefined | B73: undefined | C73: undefined | D73: undefined | E73: undefined | F73: undefined | G73: undefined | H73: undefined

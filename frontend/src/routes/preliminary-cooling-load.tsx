@@ -84,7 +84,7 @@ interface PclRow {
   name: string;
   area: number | "";
   type: string;
-  density: number; // W/mÂ²
+  density: number; // W/m²
   dissipation: number; // Watts
   kw: number;
   tr: number;
@@ -92,9 +92,30 @@ interface PclRow {
   selected?: boolean;
   comments?: any[];
   flagged?: boolean;
+  aiDetected?: boolean;
 }
 
 const INFER_MAP: [string, string][] = [
+  // Retail & Supermarket (Multilingual & Typos first)
+  ["supermarkter", "Supermarket"],
+  ["markter", "Supermarket"],
+  ["supermarket", "Supermarket"],
+  ["super market", "Supermarket"],
+  ["hypermarket", "Supermarket"],
+  ["hyper market", "Supermarket"],
+  ["grocery", "Supermarket"],
+  ["minimart", "Supermarket"],
+  ["mini mart", "Supermarket"],
+  ["mini-mart", "Supermarket"],
+  ["convenience store", "Supermarket"],
+  ["general store", "Supermarket"],
+  ["provision store", "Supermarket"],
+  ["superstore", "Supermarket"],
+  ["foodmart", "Supermarket"],
+  ["food mart", "Supermarket"],
+  ["market", "Supermarket"],
+  ["mart", "Supermarket"],
+
   // Specific Multilingual / Multi-word first
   ["master bed", "Apartment - Dwelling Unit"],
   ["guest bed", "Apartment - Dwelling Unit"],
@@ -207,9 +228,6 @@ const INFER_MAP: [string, string][] = [
   ["triage", "Clinic"],
 
   // F&B / Kitchens
-  ["supermarket", "Supermarket"],
-  ["grocery", "Supermarket"],
-  ["hypermarket", "Supermarket"],
   ["public kitchen", "Kitchen - Public"],
   ["central kitchen", "Kitchen - Public"],
   ["main kitchen", "Kitchen - Public"],
@@ -217,9 +235,9 @@ const INFER_MAP: [string, string][] = [
   ["pantry", "Kitchen - Private"],
   ["kitchenette", "Kitchen - Private"],
   ["kitchen", "Kitchen - Public"],
-  ["cafe", "CafÃ©"],
-  ["cafÃ©", "CafÃ©"],
-  ["coffee", "CafÃ©"],
+  ["cafe", "Café"],
+  ["café", "Café"],
+  ["coffee", "Café"],
   ["restaurant", "Food & Beverage"],
   ["food", "Food & Beverage"],
   ["dining area", "Food & Beverage"],
@@ -230,11 +248,11 @@ const INFER_MAP: [string, string][] = [
   // Retail
   ["mall", "Retail Shop - Mall"],
   ["retail shop - mixed", "Retail Shop - Mixed Building"],
+  ["retail shop", "Retail Shop - Mixed Building"],
   ["retail", "Retail Shop - Mixed Building"],
   ["shop", "Retail Shop - Mixed Building"],
   ["showroom", "Retail Shop - Mixed Building"],
   ["boutique", "Retail Shop - Mixed Building"],
-  ["store", "Storage - Dry"],
 
   // Wet areas / Toilets / Restrooms
   ["eyfs toilet", "Toilet - EYFS Attached"],
@@ -316,7 +334,7 @@ const INFER_MAP: [string, string][] = [
   ["depot", "Storage - Dry"]
 ];
 
-const SPACE_DENSITIES: Record<string, number> = {
+export const SPACE_DENSITIES: Record<string, number> = {
   // Residential
   "Apartment - Dwelling Unit": 120,
   "Corridor - Residential": 60,
@@ -328,7 +346,7 @@ const SPACE_DENSITIES: Record<string, number> = {
   "Food & Beverage": 2000,
   "Kitchen - Public": 600,
   "Kitchen - Private": 120,
-  "CafÃ©": 140,
+  "Café": 140,
   // Office & Coworking
   "Office - Cabin": 120,
   "Office - Meeting Room": 120,
@@ -385,33 +403,118 @@ const SPACE_DENSITIES: Record<string, number> = {
   "Storage - Occupied": 120,
 };
 
-const extractFloor = (name: string): string => {
-  const match = name.match(/^([0-9]|B|G|LG|UG|SF|RF|M|P)[FLfli]?/i);
-  return match ? match[0].toUpperCase().replace(/L$/i, "F") : "General";
+export const extractFloor = (name: string): string => {
+  if (!name || typeof name !== "string") return "";
+  const match = name.match(/^([0-9]|B|G|LG|UG|SF|RF|M|P)[FLfli]?(?=[-\s_]|\b)/i);
+  return match ? match[0].toUpperCase().replace(/L$/i, "F") : "";
 };
 
-const inferTypeFromName = (name: string): string => {
-  if (!name || typeof name !== "string") return "Apartment - Dwelling Unit";
-  const q = name.toLowerCase().trim();
+export const inferTypeFromName = (name: string): string => {
+  if (!name || typeof name !== "string") return "";
+  const raw = name.trim();
+  if (!raw) return "";
+
+  const q = raw.toLowerCase().replace(/[\-_]/g, " ").replace(/\s+/g, " ");
 
   // 1. Direct match with SPACE_DENSITIES
-  if (SPACE_DENSITIES[name]) return name;
-  const exactKey = Object.keys(SPACE_DENSITIES).find(k => k.toLowerCase() === q);
+  if (SPACE_DENSITIES[raw]) return raw;
+  const exactKey = Object.keys(SPACE_DENSITIES).find(
+    (k) => k.toLowerCase() === q || k.toLowerCase().replace(/[\-_]/g, " ") === q
+  );
   if (exactKey) return exactKey;
 
-  // 2. Keyword inference from INFER_MAP
+  // 2. Multi-word & keyword inference from INFER_MAP
   for (const [kw, targetType] of INFER_MAP) {
     if (q.includes(kw)) {
       return targetType;
     }
   }
 
-  // 3. Smart fallbacks
-  if (q.includes("bed") || q.includes("room") || q.includes("unit") || q.includes("apt")) {
-    return "Apartment - Dwelling Unit";
+  // 3. Token-based word boundary checks & typo tolerance
+  const words = q.split(/[^a-z0-9]/).filter(Boolean);
+  for (const w of words) {
+    if (
+      w === "market" ||
+      w === "markter" ||
+      w === "supermarkter" ||
+      w === "supermarket" ||
+      w === "mart" ||
+      w === "grocery" ||
+      w === "hypermarket" ||
+      w === "bazaar" ||
+      w === "minimart"
+    ) {
+      return "Supermarket";
+    }
+    if (w === "bed" || w === "bedroom" || w === "flat" || w === "apartment" || w === "dwelling" || w === "studio" || w === "bhk" || w === "living" || w === "balcony") {
+      return "Apartment - Dwelling Unit";
+    }
+    if (w === "corridor" || w === "hallway" || w === "passage" || w === "aisle") {
+      return "Corridor - Residential";
+    }
+    if (w === "lobby" || w === "reception" || w === "foyer" || w === "atrium") {
+      return "Lobby - Residential";
+    }
+    if (w === "office" || w === "cabin" || w === "manager" || w === "director" || w === "executive") {
+      return "Office - Cabin";
+    }
+    if (w === "meeting" || w === "conference" || w === "boardroom" || w === "huddle" || w === "seminar") {
+      return "Office - Meeting Room";
+    }
+    if (w === "cowork" || w === "workstation") {
+      return "Coworking Space";
+    }
+    if (w === "gym" || w === "fitness" || w === "cardio" || w === "workout") {
+      return "GYM";
+    }
+    if (w === "spa" || w === "sauna" || w === "steam" || w === "massage") {
+      return "SPA";
+    }
+    if (w === "toilet" || w === "wc" || w === "restroom" || w === "washroom" || w === "bath" || w === "bathroom" || w === "lavatory") {
+      return "Toilet - Public";
+    }
+    if (w === "pantry" || w === "kitchenette") {
+      return "Kitchen - Private";
+    }
+    if (w === "kitchen" || w === "canteen" || w === "restaurant" || w === "dining") {
+      return "Food & Beverage";
+    }
+    if (w === "cafe" || w === "coffee" || w === "bistro") {
+      return "Café";
+    }
+    if (w === "server" || w === "datacenter" || w === "data") {
+      return "Server Room";
+    }
+    if (w === "electrical" || w === "elec") {
+      return "Typ. Electrical Room";
+    }
+    if (w === "storage" || w === "store" || w === "warehouse") {
+      return "Storage - Dry";
+    }
+    if (w === "prayer" || w === "mosque" || w === "masjid" || w === "namaz") {
+      return "Male Prayer Room";
+    }
+    if (w === "classroom" || w === "school" || w === "lecture") {
+      return "Classroom - Middle School";
+    }
+    if (w === "lab" || w === "laboratory") {
+      return "Lab - School";
+    }
+    if (w === "clinic" || w === "doctor" || w === "medical" || w === "pharmacy") {
+      return "Clinic";
+    }
+    if (w === "stairs" || w === "staircase" || w === "stairwell") {
+      return "Stairs";
+    }
+    if (w === "laundry" || w === "janitor" || w === "housekeeping") {
+      return "Laundry / House Keeping";
+    }
+    if (w === "garbage" || w === "trash" || w === "waste" || w === "refuse") {
+      return "Garbage Room";
+    }
   }
 
-  return "Office - Cabin";
+  return "";
 };
 
 
@@ -868,6 +971,7 @@ function PreliminaryCoolingLoadPage() {
       tr: Number(tr.toFixed(2)),
       flagged: isMissing,
       source: "3d-viewer",
+      aiDetected: Boolean(inferredType),
     };
   };
 
@@ -1005,6 +1109,7 @@ function PreliminaryCoolingLoadPage() {
         tr: Number(tr.toFixed(2)),
         flagged: isMissing,
         source: "ventilation",
+        aiDetected: Boolean(inferredType),
       };
     });
 
@@ -1482,8 +1587,8 @@ function PreliminaryCoolingLoadPage() {
       return;
     }
     const defaultNum = rows.length + 1;
-    const defaultName = `GF-Space ${defaultNum}`;
-    const floor = extractFloor(defaultName) || "GF";
+    const targetFloor = selectedFloor || "Default";
+    const defaultName = `Space ${defaultNum}`;
 
     const newRow: PclRow = {
       id: `pcl-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
@@ -1494,12 +1599,12 @@ function PreliminaryCoolingLoadPage() {
       dissipation: 0,
       kw: 0,
       tr: 0,
-      floor: floor,
+      floor: targetFloor,
       flagged: true, // Auto-flagged: area and type are missing
     };
 
     saveRows([...rows, newRow]);
-    toast.success(`New space "${newRow.name}" added`);
+    toast.success(`New space "${newRow.name}" added on floor "${targetFloor}"`);
   };
 
   const handleDeleteSelected = async () => {
@@ -1805,21 +1910,28 @@ function PreliminaryCoolingLoadPage() {
     const baseRows = isDefaultData ? [] : [...rows];
 
     const importedSpaces: PclRow[] = importList.map((r, idx) => {
-      const isNoArea = !r.area || parseFloat(String(r.area)) === 0 || isNaN(parseFloat(String(r.area)));
-      const isNoType = !r.type || r.type.trim() === "";
+      let resolvedType = r.type || inferTypeFromName(r.name) || "";
+      let density = r.density || (resolvedType ? (SPACE_DENSITIES[resolvedType] || 0) : 0);
+      const numArea = Number(r.area) || 0;
+      const dissipation = numArea * density;
+      const kw = dissipation / 1000;
+      const tr = kw / 3.517;
+      const isNoArea = !r.area || numArea === 0 || isNaN(numArea);
+      const isNoType = !resolvedType || resolvedType.trim() === "";
       const isFlagged = Boolean(r.flagged || isNoArea || isNoType);
 
       return {
         id: `pcl-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
         name: r.name,
         area: r.area,
-        type: r.type || "",
-        density: r.density || (SPACE_DENSITIES[r.type] || 0),
-        dissipation: (Number(r.area) || 0) * (r.density || 0),
-        kw: r.kw || 0,
-        tr: r.tr || 0,
-        floor: r.floor || "GF",
+        type: resolvedType,
+        density,
+        dissipation,
+        kw,
+        tr,
+        floor: r.floor || "Default",
         flagged: isFlagged,
+        aiDetected: Boolean(resolvedType),
       };
     });
 
@@ -2184,11 +2296,23 @@ function PreliminaryCoolingLoadPage() {
               const editIds = getSpaceEditIds(r.id);
               const editSet = new Set(editIds);
               const floor = extractFloor(newName);
+              const inferred = inferTypeFromName(newName);
 
               saveRows(rows.map(row => {
                 if (!editSet.has(row.id)) return row;
-                const nextType = row.type || "";
-                const density = nextType ? (SPACE_DENSITIES[nextType] || row.density || 0) : 0;
+                let nextType = row.type || "";
+                let density = row.density || 0;
+                let aiDetected = row.aiDetected;
+
+                // If row has no type or inferred a valid type from name change
+                if (inferred && (!row.type || row.type === "" || inferred !== row.type)) {
+                  nextType = inferred;
+                  density = SPACE_DENSITIES[inferred] || 120;
+                  aiDetected = true;
+                } else if (nextType && !density) {
+                  density = SPACE_DENSITIES[nextType] || 0;
+                }
+
                 const numArea = row.area !== "" ? Number(row.area) : 0;
                 const dissipation = numArea * density;
                 const kw = dissipation / 1000;
@@ -2217,9 +2341,14 @@ function PreliminaryCoolingLoadPage() {
                   dissipation,
                   kw,
                   tr,
-                  flagged
+                  flagged,
+                  aiDetected
                 };
               }));
+
+              if (inferred && (!r.type || r.type === "" || inferred !== r.type)) {
+                toast.success(`Auto-selected category: ${inferred} (${SPACE_DENSITIES[inferred] || 0} W/m²)`);
+              }
             }}
             className="font-normal text-[13px] font-sans flex-1 min-w-0"
           />
@@ -2227,8 +2356,29 @@ function PreliminaryCoolingLoadPage() {
       ),
     },
     {
+      key: "floor",
+      header: "Floor",
+      width: 100,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (r) => (
+        <InlineInput disabled={isApprovedLocked} readOnly={isApprovedLocked}
+          value={r.floor || "Default"}
+          onCommit={(newFloor) => {
+            const editIds = getSpaceEditIds(r.id);
+            const editSet = new Set(editIds);
+            const cleanFloor = newFloor.trim() || "Default";
+            saveRows(rows.map((row) => editSet.has(row.id) ? { ...row, floor: cleanFloor } : row));
+          }}
+          className="font-mono text-center text-[13px]"
+          placeholder="Default"
+        />
+      ),
+    },
+    {
       key: "area",
-      header: "Area (mÂ²)",
+      header: "Area (m²)",
       width: 90,
       align: "center",
       mono: true,
@@ -2238,7 +2388,7 @@ function PreliminaryCoolingLoadPage() {
           type="number"
           min={1}
           value={r.area}
-          placeholder="â€”"
+          placeholder="—"
           onCommit={(newAreaStr) => {
             const editIds = getSpaceEditIds(r.id);
             const editSet = new Set(editIds);
@@ -2286,79 +2436,86 @@ function PreliminaryCoolingLoadPage() {
       render: (r) => {
         const isCustom = Boolean(r.type && (r.type.endsWith(" (Custom)") || r.type === "Other"));
         return (
-          <div className="flex items-center justify-between gap-1 w-full h-full pr-1" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-            <PclCategorySelect
-              value={r.type || ""}
-              densities={SPACE_DENSITIES}
-              hideChevron={isCustom}
-              onChange={(nextType) => {
-                const editIds = getSpaceEditIds(r.id);
-                const editSet = new Set(editIds);
-
-                if (nextType === "Other" || nextType === "OTHER") {
-                  const categoryName = r.type && r.type.endsWith(" (Custom)") ? r.type : "Custom (Custom)";
-                  setCustomParamModalRow({
-                    ...r,
-                    type: categoryName,
-                  });
-                  setCustomParamName(categoryName.replace(/\s*\(Custom\)$/, ""));
-                  setCustomParamDensity(r.density || 120);
-                  setCustomParamWorkflow("calculate");
-                  return;
-                }
-
-                const density = nextType ? (SPACE_DENSITIES[nextType] || 0) : 0;
-                saveRows(
-                  rows.map((row) => {
-                    if (!editSet.has(row.id)) return row;
-                    const numArea = row.area !== "" ? Number(row.area) : 0;
-                    const dissipation = numArea * density;
-                    const kw = dissipation / 1000;
-                    const tr = kw / 3.517;
-
-                    const wasMissing = checkIfPclMissingData(row).isMissing;
-                    const check = checkIfPclMissingData({
-                      ...row,
-                      type: nextType,
-                    });
-                    let flagged = row.flagged;
-                    if (check.isMissing) {
-                      flagged = true;
-                    } else if (wasMissing && !check.isMissing) {
-                      flagged = false;
-                    }
-
-                    return {
-                      ...row,
-                      type: nextType,
-                      density,
-                      dissipation,
-                      kw,
-                      tr,
-                      flagged,
-                    };
-                  })
-                );
-              }}
-              triggerClassName="pl-1 pr-1.5 flex-1"
+          <span className="inline-flex items-center gap-1.5 w-full h-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            <span
+              title={r.aiDetected ? "Automatically identified" : undefined}
+              className={`size-1.5 rounded-full shrink-0 ${r.aiDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
             />
-            {isCustom && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCustomParamModalRow(r);
-                  setCustomParamName(r.type.replace(/\s*\(Custom\)$/, ""));
-                  setCustomParamDensity(r.density || 120);
-                  setCustomParamWorkflow("calculate");
+            <div className="flex items-center justify-between gap-1 w-full min-w-0 pr-1">
+              <PclCategorySelect
+                value={r.type || ""}
+                densities={SPACE_DENSITIES}
+                hideChevron={isCustom}
+                onChange={(nextType) => {
+                  const editIds = getSpaceEditIds(r.id);
+                  const editSet = new Set(editIds);
+
+                  if (nextType === "Other" || nextType === "OTHER") {
+                    const categoryName = r.type && r.type.endsWith(" (Custom)") ? r.type : "Custom (Custom)";
+                    setCustomParamModalRow({
+                      ...r,
+                      type: categoryName,
+                    });
+                    setCustomParamName(categoryName.replace(/\s*\(Custom\)$/, ""));
+                    setCustomParamDensity(r.density || 120);
+                    setCustomParamWorkflow("calculate");
+                    return;
+                  }
+
+                  const density = nextType ? (SPACE_DENSITIES[nextType] || 0) : 0;
+                  saveRows(
+                    rows.map((row) => {
+                      if (!editSet.has(row.id)) return row;
+                      const numArea = row.area !== "" ? Number(row.area) : 0;
+                      const dissipation = numArea * density;
+                      const kw = dissipation / 1000;
+                      const tr = kw / 3.517;
+
+                      const wasMissing = checkIfPclMissingData(row).isMissing;
+                      const check = checkIfPclMissingData({
+                        ...row,
+                        type: nextType,
+                      });
+                      let flagged = row.flagged;
+                      if (check.isMissing) {
+                        flagged = true;
+                      } else if (wasMissing && !check.isMissing) {
+                        flagged = false;
+                      }
+
+                      return {
+                        ...row,
+                        type: nextType,
+                        density,
+                        dissipation,
+                        kw,
+                        tr,
+                        flagged,
+                        aiDetected: false,
+                      };
+                    })
+                  );
                 }}
-                className="flex items-center justify-center p-1 rounded hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors cursor-pointer w-6 h-6 shrink-0"
-                title="Configure Custom Parameters"
-              >
-                <Wrench className="size-3.5" />
-              </button>
-            )}
-          </div>
+                triggerClassName="pl-1 pr-1.5 flex-1"
+              />
+              {isCustom && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCustomParamModalRow(r);
+                    setCustomParamName(r.type.replace(/\s*\(Custom\)$/, ""));
+                    setCustomParamDensity(r.density || 120);
+                    setCustomParamWorkflow("calculate");
+                  }}
+                  className="flex items-center justify-center p-1 rounded hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors cursor-pointer w-6 h-6 shrink-0"
+                  title="Configure Custom Parameters"
+                >
+                  <Wrench className="size-3.5" />
+                </button>
+              )}
+            </div>
+          </span>
         );
       },
     },
@@ -3101,6 +3258,7 @@ function PreliminaryCoolingLoadPage() {
                           <tr>
                             <th className="border border-border p-2 text-center w-12">No.</th>
                             <th className="border border-border p-2 text-left">Name of Space</th>
+                            <th className="border border-border p-2 text-center w-20">Floor</th>
                             <th className="border border-border p-2 text-right w-24">Area (m²)</th>
                             <th className="border border-border p-2 text-left">Type of Space / Classification</th>
                             <th className="border border-border p-2 text-right w-36">Cooling Density (W/m²)</th>
@@ -3124,12 +3282,13 @@ function PreliminaryCoolingLoadPage() {
                                 {Object.keys(grouped).sort().map(floor => (
                                   <React.Fragment key={floor}>
                                     <tr className="bg-[#DCEFFB] dark:bg-blue-950/40 font-bold text-[#06456F] dark:text-blue-300">
-                                      <td colSpan={7} className="border border-border p-2 font-sans">Floor: {floor}</td>
+                                      <td colSpan={8} className="border border-border p-2 font-sans">Floor: {floor}</td>
                                     </tr>
                                     {grouped[floor].map(r => (
                                       <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                                         <td className="border border-border p-2 text-center text-muted-foreground">{sNo++}</td>
                                         <td className="border border-border p-2 font-medium">{r.name}</td>
+                                        <td className="border border-border p-2 text-center font-mono">{r.floor || "GF"}</td>
                                         <td className="border border-border p-2 text-right font-mono">{(typeof r.area === 'number' ? r.area : (parseFloat(String(r.area)) || 0)).toFixed(1)}</td>
                                         <td className="border border-border p-2 text-muted-foreground">{r.type || "Unassigned"}</td>
                                         <td className="border border-border p-2 text-right font-mono">{(r.density || 120).toFixed(1)}</td>
@@ -3140,7 +3299,7 @@ function PreliminaryCoolingLoadPage() {
                                   </React.Fragment>
                                 ))}
                                 <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                                  <td colSpan={2} className="border border-border p-2 font-sans">TOTAL</td>
+                                  <td colSpan={3} className="border border-border p-2 font-sans">TOTAL</td>
                                   <td className="border border-border p-2 text-right font-mono">{calculatedData.totalArea.toFixed(1)}</td>
                                   <td className="border border-border p-2"></td>
                                   <td className="border border-border p-2 text-right font-mono">{calculatedData.avgDensity.toFixed(1)}</td>

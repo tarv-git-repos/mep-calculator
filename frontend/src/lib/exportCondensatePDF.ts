@@ -70,7 +70,7 @@ export const exportCondensatePDF = async (
     doc.setFont("helvetica", "bold");
     doc.setFontSize(13);
     doc.setTextColor(20, 20, 20);
-    doc.text("Cooling Coil Condensate Calculation Report", 14, 15);
+    doc.text("Cooling Coil Condensate Calculation", 14, 15);
 
     // Title underline
     doc.setDrawColor(200, 200, 200);
@@ -119,29 +119,6 @@ export const exportCondensatePDF = async (
     const totalFlow = rows.reduce((a, b) => a + (b.flow || 0), 0);
     const totalCondLps = rows.reduce((a, b) => a + (b.condFlow || 0), 0);
     const totalCondGpm = lpsToGpm(totalCondLps);
-    const totalCondLhr = totalCondLps * 3600;
-
-    // Recommended pipe diameter per IPC Table 307.2.2
-    let recPipeMm = "20 mm";
-    let recPipeInch = '3/4"';
-    let recPipeDn = "DN20";
-    if (totalCondGpm > 6.00) {
-      recPipeMm = "80 mm"; recPipeInch = '3"'; recPipeDn = "DN80";
-    } else if (totalCondGpm > 3.00) {
-      recPipeMm = "65 mm"; recPipeInch = '2-1/2"'; recPipeDn = "DN65";
-    } else if (totalCondGpm > 1.20) {
-      recPipeMm = "50 mm"; recPipeInch = '2"'; recPipeDn = "DN50";
-    } else if (totalCondGpm > 0.50) {
-      recPipeMm = "40 mm"; recPipeInch = '1-1/2"'; recPipeDn = "DN40";
-    } else if (totalCondGpm > 0.20) {
-      recPipeMm = "32 mm"; recPipeInch = '1-1/4"'; recPipeDn = "DN32";
-    } else if (totalCondGpm > 0.05) {
-      recPipeMm = "25 mm"; recPipeInch = '1"'; recPipeDn = "DN25";
-    }
-
-    // Recommended trap depth: min 50 mm (2 in) + ESP allowance (typ 25-50 mm)
-    const trapDepthMm = "75 mm";
-    const trapDepthIn = "3.0 in";
 
     // Table 1: Coil Condensate Schedule
     const tableBody = rows.map((r, idx) => {
@@ -153,8 +130,6 @@ export const exportCondensatePDF = async (
         r.flow.toLocaleString(),
         `${r.dbIn.toFixed(1)} / ${r.wbIn.toFixed(1)}`,
         `${r.dbOut.toFixed(1)} / ${r.wbOut.toFixed(1)}`,
-        (r.wIn || 0).toFixed(5),
-        (r.wOut || 0).toFixed(5),
         dw.toFixed(5),
         condVal,
       ];
@@ -169,8 +144,6 @@ export const exportCondensatePDF = async (
       "-",
       "-",
       "-",
-      "-",
-      "-",
       totalCondDisplay,
     ]);
 
@@ -179,15 +152,13 @@ export const exportCondensatePDF = async (
       margin: { left: 14, right: 14 },
       head: [
         [
-          "Sr.",
-          "Unit Ref",
-          `Air Flow (${uFlow})`,
-          `On-Coil DB/WB (${uTemp})`,
-          `Off-Coil DB/WB (${uTemp})`,
-          "W_in (kg/kg)",
-          "W_out (kg/kg)",
-          "dW (kg/kg)",
-          `Condensate (${uCond})`,
+          "Sr. No.",
+          "Unit",
+          `Air Flow\n(${uFlow})`,
+          `On-Coil DB/WB\n(${uTemp})`,
+          `Off-Coil DB/WB\n(${uTemp})`,
+          "ΔW\n(kg/kg)",
+          `Condensate\n(${uCond})`,
         ],
       ],
       body: tableBody,
@@ -208,15 +179,13 @@ export const exportCondensatePDF = async (
         halign: "center",
       },
       columnStyles: {
-        0: { cellWidth: 10, halign: "center" },
-        1: { cellWidth: 28, halign: "left", fontStyle: "bold" },
-        2: { cellWidth: 22, halign: "right" },
-        3: { cellWidth: 28, halign: "center" },
-        4: { cellWidth: 28, halign: "center" },
-        5: { cellWidth: 18, halign: "right" },
-        6: { cellWidth: 18, halign: "right" },
-        7: { cellWidth: 16, halign: "right" },
-        8: { cellWidth: 18, halign: "right", fontStyle: "bold" },
+        0: { cellWidth: 12, halign: "center" },
+        1: { cellWidth: 36, halign: "left", fontStyle: "bold" },
+        2: { cellWidth: 26, halign: "center" },
+        3: { cellWidth: 34, halign: "center" },
+        4: { cellWidth: 34, halign: "center" },
+        5: { cellWidth: 18, halign: "center" },
+        6: { cellWidth: 22, halign: "center", fontStyle: "bold" },
       },
       didParseCell: (data: any) => {
         if (data.section === "body" && data.row.index === tableBody.length - 1) {
@@ -226,100 +195,7 @@ export const exportCondensatePDF = async (
       },
     });
 
-    currentY = (doc as any).lastAutoTable?.finalY + 3.5 || currentY + 45;
-
-    // Table 2: Aggregate Condensate Drainage Summary & Sizing Guidance
-    const summaryBody = [
-      [
-        "1",
-        "Total Active Cooling Coils",
-        "Quantity",
-        `${rows.length} Units`,
-        "units",
-        "Total scheduled cooling units contributing to drain header",
-      ],
-      [
-        "2",
-        "Aggregate Airflow Volume",
-        "Sum(Airflow)",
-        totalFlow.toLocaleString(),
-        uFlow,
-        "Total processed supply air across all cooling coils",
-      ],
-      [
-        "3",
-        "TOTAL AGGREGATE CONDENSATE FLOW",
-        "Sum(m_dot_air * dW)",
-        isIP ? `${totalCondGpm.toFixed(4)} GPM (${totalCondLps.toFixed(4)} L/s)` : `${totalCondLps.toFixed(4)} L/s (${totalCondGpm.toFixed(4)} GPM)`,
-        isIP ? "GPM" : "L/s",
-        `Equivalent to ${totalCondLhr.toFixed(2)} L/hr moisture removal rate`,
-      ],
-      [
-        "4",
-        "Recommended Drain Header Pipe Size",
-        "IPC 307.2.2 / ASHRAE",
-        isIP ? `${recPipeInch} (${recPipeDn})` : `${recPipeDn} (${recPipeInch})`,
-        isIP ? "inch" : "mm",
-        `Gravity drainage sloped at min 1% (1/8 in/ft) to floor drain`,
-      ],
-      [
-        "5",
-        "Recommended Min P-Trap Seal Depth",
-        "H = 1 in + Fan ESP",
-        isIP ? trapDepthIn : trapDepthMm,
-        isIP ? "in" : "mm",
-        "Prevents air ingress/blowout and allows unhindered condensate drain",
-      ],
-    ];
-
-    callAutoTable(doc, {
-      startY: currentY,
-      margin: { left: 14, right: 14 },
-      head: [
-        [
-          "Sr.",
-          "Drainage Sizing Parameter",
-          "Governing Rule / Standard",
-          "Calculated Value",
-          "Unit",
-          "Engineering Design Notes",
-        ],
-      ],
-      body: summaryBody,
-      theme: "grid",
-      styles: {
-        fontSize: 7,
-        cellPadding: 1.1,
-        lineColor: [210, 210, 210],
-        lineWidth: 0.2,
-        textColor: [30, 30, 30],
-        valign: "middle",
-        minCellHeight: 4.3,
-      },
-      headStyles: {
-        fillColor: [217, 217, 217],
-        textColor: [0, 0, 0],
-        fontStyle: "bold",
-        halign: "center",
-      },
-      columnStyles: {
-        0: { cellWidth: 10, halign: "center" },
-        1: { cellWidth: 46, halign: "left" },
-        2: { cellWidth: 32, halign: "left" },
-        3: { cellWidth: 34, halign: "right", fontStyle: "bold" },
-        4: { cellWidth: 14, halign: "center" },
-        5: { cellWidth: 50, halign: "left" },
-      },
-      didParseCell: (data: any) => {
-        // Highlight rows 3 & 4 in #DAE9F8
-        if (data.section === "body" && (data.row.index === 2 || data.row.index === 3)) {
-          data.cell.styles.fillColor = [218, 233, 248]; // #DAE9F8
-          data.cell.styles.fontStyle = "bold";
-        }
-      },
-    });
-
-    currentY = (doc as any).lastAutoTable?.finalY + 3.5 || currentY + 35;
+    currentY = (doc as any).lastAutoTable?.finalY + 5 || currentY + 45;
 
     // Table 3: 4-Column Signature Block (Designation, Originator, Reviewer, Approver)
     const sigDetails = getSignatureBlockDetails(activeProjectId, "/condensate-drain-calc");

@@ -2572,8 +2572,7 @@ function LoadingUnitPage() {
                       className="bg-transparent text-foreground text-xs font-bold outline-none cursor-pointer max-w-[200px] sm:max-w-[250px] truncate"
                     >
                       <optgroup label="Regional UAE">
-                        <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10Ã—âˆšLU)</option>
-                        <option value="abudhabi">Abu Dhabi Standard (ADM Table 6-7 & 6-9)</option>
+                        <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10 * √LU)</option>
                       </optgroup>
                       <optgroup label="British Standards & CIPHE">
                         <option value="iop_bs">IoP PESDG / BS EN 806 / BS 8558 (LU Standard)</option>
@@ -2583,23 +2582,10 @@ function LoadingUnitPage() {
                         <option value="iop_med">IoP / CIPHE Medium Demand</option>
                         <option value="iop_high">IoP / CIPHE High Demand</option>
                       </optgroup>
-                      <optgroup label="German DIN 1988-300">
-                        <option value="din_res">DIN 1988-300 Residential (Equation)</option>
-                        <option value="din_hosp">DIN 1988-300 Hospital (Equation)</option>
-                        <option value="din_hotel">DIN 1988-300 Hotel (Equation)</option>
-                        <option value="din_school">DIN 1988-300 School (Equation)</option>
-                        <option value="din_office">DIN 1988-300 Office (Equation)</option>
-                        <option value="din_assisted">DIN 1988-300 Assisted Living (Equation)</option>
-                        <option value="din_nursing">DIN 1988-300 Nursing Home (Equation)</option>
-                      </optgroup>
                       <optgroup label="International Codes (US)">
                         <option value="ipc_upc">IPC / UPC Combined Standard (WSFU)</option>
                         <option value="ipc">IPC (International Plumbing Code - Table E103.3)</option>
                         <option value="upc">UPC (Uniform Plumbing Code)</option>
-                      </optgroup>
-                      <optgroup label="Australia & Other">
-                        <option value="as_nzs_3500">AS/NZS 3500 (Australia / New Zealand)</option>
-                        <option value="barrie">Barrie's Book Method</option>
                       </optgroup>
                     </select>
                   </div>

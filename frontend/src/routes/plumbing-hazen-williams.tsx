@@ -81,7 +81,7 @@ function HazenWilliamsPage() {
   const { project, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
   // Core Parameters (Default 2.5" pipe, 100 GPM, C=120, 100 ft)
   const [sizingParams, setSizingParams] = useState<HazenSizingParams>({

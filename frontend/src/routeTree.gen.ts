@@ -47,6 +47,7 @@ import { Route as PlumbingFireTankDurationRouteImport } from './routes/plumbing-
 import { Route as PlumbingFireTankCapacityRouteImport } from './routes/plumbing-fire-tank-capacity'
 import { Route as PlumbingFirePumpDutyRouteImport } from './routes/plumbing-fire-pump-duty'
 import { Route as PlumbingDrainageRouteImport } from './routes/plumbing-drainage'
+import { Route as PlumbingDischargeUnitRouteImport } from './routes/plumbing-discharge-unit'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as LpdCalculationRouteImport } from './routes/lpd-calculation'
 import { Route as LoginRouteImport } from './routes/login'
@@ -275,6 +276,11 @@ const PlumbingDrainageRoute = PlumbingDrainageRouteImport.update({
   path: '/plumbing-drainage',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PlumbingDischargeUnitRoute = PlumbingDischargeUnitRouteImport.update({
+  id: '/plumbing-discharge-unit',
+  path: '/plumbing-discharge-unit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NotificationsRoute = NotificationsRouteImport.update({
   id: '/notifications',
   path: '/notifications',
@@ -469,6 +475,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/lpd-calculation': typeof LpdCalculationRoute
   '/notifications': typeof NotificationsRoute
+  '/plumbing-discharge-unit': typeof PlumbingDischargeUnitRoute
   '/plumbing-drainage': typeof PlumbingDrainageRoute
   '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
   '/plumbing-fire-tank-capacity': typeof PlumbingFireTankCapacityRoute
@@ -541,6 +548,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/lpd-calculation': typeof LpdCalculationRoute
   '/notifications': typeof NotificationsRoute
+  '/plumbing-discharge-unit': typeof PlumbingDischargeUnitRoute
   '/plumbing-drainage': typeof PlumbingDrainageRoute
   '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
   '/plumbing-fire-tank-capacity': typeof PlumbingFireTankCapacityRoute
@@ -614,6 +622,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/lpd-calculation': typeof LpdCalculationRoute
   '/notifications': typeof NotificationsRoute
+  '/plumbing-discharge-unit': typeof PlumbingDischargeUnitRoute
   '/plumbing-drainage': typeof PlumbingDrainageRoute
   '/plumbing-fire-pump-duty': typeof PlumbingFirePumpDutyRoute
   '/plumbing-fire-tank-capacity': typeof PlumbingFireTankCapacityRoute
@@ -688,6 +697,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/lpd-calculation'
     | '/notifications'
+    | '/plumbing-discharge-unit'
     | '/plumbing-drainage'
     | '/plumbing-fire-pump-duty'
     | '/plumbing-fire-tank-capacity'
@@ -760,6 +770,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/lpd-calculation'
     | '/notifications'
+    | '/plumbing-discharge-unit'
     | '/plumbing-drainage'
     | '/plumbing-fire-pump-duty'
     | '/plumbing-fire-tank-capacity'
@@ -832,6 +843,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/lpd-calculation'
     | '/notifications'
+    | '/plumbing-discharge-unit'
     | '/plumbing-drainage'
     | '/plumbing-fire-pump-duty'
     | '/plumbing-fire-tank-capacity'
@@ -905,6 +917,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   LpdCalculationRoute: typeof LpdCalculationRoute
   NotificationsRoute: typeof NotificationsRoute
+  PlumbingDischargeUnitRoute: typeof PlumbingDischargeUnitRoute
   PlumbingDrainageRoute: typeof PlumbingDrainageRoute
   PlumbingFirePumpDutyRoute: typeof PlumbingFirePumpDutyRoute
   PlumbingFireTankCapacityRoute: typeof PlumbingFireTankCapacityRoute
@@ -1213,6 +1226,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlumbingDrainageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/plumbing-discharge-unit': {
+      id: '/plumbing-discharge-unit'
+      path: '/plumbing-discharge-unit'
+      fullPath: '/plumbing-discharge-unit'
+      preLoaderRoute: typeof PlumbingDischargeUnitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/notifications': {
       id: '/notifications'
       path: '/notifications'
@@ -1473,6 +1493,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   LpdCalculationRoute: LpdCalculationRoute,
   NotificationsRoute: NotificationsRoute,
+  PlumbingDischargeUnitRoute: PlumbingDischargeUnitRoute,
   PlumbingDrainageRoute: PlumbingDrainageRoute,
   PlumbingFirePumpDutyRoute: PlumbingFirePumpDutyRoute,
   PlumbingFireTankCapacityRoute: PlumbingFireTankCapacityRoute,

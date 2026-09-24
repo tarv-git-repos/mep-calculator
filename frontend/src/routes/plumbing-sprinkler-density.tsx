@@ -60,7 +60,7 @@ function SprinklerDensityPage() {
   const [customArea, setCustomArea] = useState<number | "">(1500);
   const [coverage, setCoverage] = useState<number | "">(130);
   const [kFactor, setKFactor] = useState(5.6);
-  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("ip");
+  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("si");
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
 

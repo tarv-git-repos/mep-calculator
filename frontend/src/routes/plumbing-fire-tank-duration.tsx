@@ -14,7 +14,7 @@ import {
   FileText, Printer, HelpCircle, X, Check,
   Copy, Clipboard, RotateCcw, MessageSquare, Download,
   Activity, ShieldCheck, Gauge, Zap, FileSpreadsheet,
-  Layers, ArrowUpRight, Flame, ShieldAlert, ChevronUp, Info,
+  Layers, ArrowUpRight, Flame, ShieldAlert, ChevronUp, ChevronDown, Info,
   CheckCircle2, AlertTriangle, Clock, Droplets, Waves, Timer
 } from "lucide-react";
 import {
@@ -328,26 +328,140 @@ export function FireTankDurationPage() {
     toast.success("Comment / Task assigned successfully!");
   };
 
-  // Reusable Parameter Input Tile
+  const renderCommentBadge = (id: string, label: string) => {
+    const itemComments = commentsMap[id] || [];
+    if (itemComments.length === 0) return null;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleOpenComment(id, label);
+        }}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
+        title={`${itemComments.length} comment(s)/task(s) assigned`}
+      >
+        <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+        <span>{itemComments.length}</span>
+      </button>
+    );
+  };
+
+  const renderResultRowWithContext = (
+    id: string,
+    label: string,
+    value: string,
+    options: {
+      modalKey?: boolean;
+      rowClassName?: string;
+      labelClassName?: string;
+      valueClassName?: string;
+    } = {}
+  ) => {
+    const { modalKey, rowClassName = "", labelClassName = "", valueClassName = "" } = options;
+    const itemComments = commentsMap[id] || [];
+    const isHighlighted = highlightedTargetId === id || highlightedTargetId === `res-${id}`;
+
+    return (
+      <ContextMenu key={id}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`res-${id}`}
+            data-item-id={id}
+            data-field-id={id}
+            className={`flex items-center justify-between py-1 transition cursor-context-menu hover:bg-slate-100/60 dark:hover:bg-slate-800/40 px-1.5 rounded-lg ${
+              isHighlighted ? "ring-2 ring-primary bg-primary/20 z-10" : ""
+            } ${rowClassName}`}
+          >
+            <span className={`font-sans flex items-center gap-1.5 ${labelClassName || "text-muted-foreground text-xs sm:text-sm"}`}>
+              <span>{label}</span>
+              {modalKey && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowFormulaModal(true);
+                  }}
+                  className="cursor-pointer text-[#0A7BC7] hover:opacity-80 p-0.5"
+                  title="View Calculation Formula"
+                >
+                  <Info className="size-3.5" />
+                </button>
+              )}
+              {renderCommentBadge(id, label)}
+            </span>
+            <span className={`font-bold font-mono ${valueClassName || "text-foreground text-xs sm:text-sm"}`}>
+              {value}
+            </span>
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+          <ContextMenuItem
+            onClick={() => handleCopyValue(label, value)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+          </ContextMenuItem>
+
+          <ContextMenuItem
+            onClick={() => {
+              if (typeof navigator !== "undefined" && navigator.clipboard) {
+                navigator.clipboard.writeText(`${label}: ${value}`);
+                toast.success(`Copied: "${label}: ${value}"`);
+              }
+            }}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <FileText className="size-3.5 text-muted-foreground" />
+            <span>Copy Full Line</span>
+          </ContextMenuItem>
+
+          {modalKey && (
+            <ContextMenuItem
+              onClick={() => setShowFormulaModal(true)}
+              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium text-[#0A7BC7]"
+            >
+              <Info className="size-3.5" />
+              <span>View Calculation Formula</span>
+            </ContextMenuItem>
+          )}
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{itemComments.length ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
   const renderInputBox = (
     id: string,
     field: keyof FireTankDurationParams,
     label: string,
+    sublabel: string,
     value: number | "",
     unit: string,
     step: string = "1",
     min: number = 0,
-    placeholder: string = "0"
+    placeholder: string = "0",
+    description?: string,
+    colSpan: string = "sm:col-span-1"
   ) => {
     const itemComments = commentsMap[id] || [];
-    const hasComments = itemComments.length > 0;
     const isHighlighted =
       highlightedTargetId === id ||
       highlightedTargetId === `field-${id}` ||
       (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
       (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
-
-    const displayLabel = unit ? `${label} (${unit})` : label;
 
     return (
       <ContextMenu key={id}>
@@ -356,85 +470,80 @@ export function FireTankDurationPage() {
             id={`field-${id}`}
             data-item-id={id}
             data-field-id={id}
-            className={`flex flex-col gap-1.5 group cursor-context-menu p-1.5 rounded-xl transition-all ${
-              isHighlighted
-                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
-                : ""
+            className={`flex flex-col gap-1.5 ${colSpan} rounded-xl p-1 transition cursor-context-menu ${
+              isHighlighted ? "ring-2 ring-[#0A7BC7] bg-[#0A7BC7]/10" : ""
             }`}
           >
-            <label className="font-semibold text-foreground flex items-center justify-between gap-2 text-xs">
+            <label className="text-xs font-bold text-foreground flex items-center justify-between">
               <span className="flex items-center gap-1.5">
-                <span>{displayLabel}</span>
-                {hasComments && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
-                  >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
-                  </button>
-                )}
+                <span>{label}</span>
+                {renderCommentBadge(id, label)}
               </span>
-              <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">
-                Right-click for options
-              </span>
+              {sublabel && <span className="text-[11px] font-mono font-normal text-muted-foreground">{sublabel}</span>}
             </label>
-            <input
-              id={id}
-              type="number"
-              disabled={isEffectiveReadOnly}
-              min={min}
-              step={step}
-              placeholder={placeholder}
-              value={value === "" ? "" : value}
-              onChange={(e) => {
-                const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                const updated = { ...sizingParams, [field]: isNaN(val as number) ? "" : val };
-                setSizingParams(updated);
-                saveState(updated, unitSystem);
-              }}
-              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal transition hover:border-[#0A7BC7]/50 disabled:opacity-60 disabled:cursor-not-allowed"
-            />
+            <div className="relative flex items-center">
+              <input
+                id={id}
+                type="number"
+                disabled={isEffectiveReadOnly}
+                min={min}
+                step={step}
+                placeholder={placeholder}
+                value={value === "" ? "" : value}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                  const updated = { ...sizingParams, [field]: isNaN(val as number) ? "" : val };
+                  setSizingParams(updated);
+                  saveState(updated, unitSystem);
+                }}
+                className="w-full bg-background border border-border focus:ring-[#0A7BC7]/40 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-foreground focus:ring-2 focus:border-[#0A7BC7] outline-none transition"
+              />
+              {unit && (
+                <span className="absolute right-3 text-xs font-semibold text-muted-foreground pointer-events-none">
+                  {unit}
+                </span>
+              )}
+            </div>
+            {description && (
+              <span className="text-[10.5px] text-muted-foreground">
+                {description}
+              </span>
+            )}
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-56 font-sans text-xs bg-card border border-border rounded-xl shadow-xl z-50">
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
           <ContextMenuItem
-            onClick={() => handleCopyValue(label, value)}
-            className="flex items-center gap-2 cursor-pointer py-1.5 px-2.5 rounded-lg hover:bg-accent"
+            onClick={() => handleCopyValue(label, `${value} ${unit}`.trim())}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
           >
             <Copy className="size-3.5 text-muted-foreground" />
-            <span>Copy Parameter</span>
-            <ContextMenuShortcut className="text-[10px]">Ctrl+C</ContextMenuShortcut>
+            <span>Copy Value</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem
             disabled={isEffectiveReadOnly}
             onClick={() => handlePasteValue(field, label)}
-            className="flex items-center gap-2 cursor-pointer py-1.5 px-2.5 rounded-lg hover:bg-accent disabled:opacity-50"
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
           >
             <Clipboard className="size-3.5 text-muted-foreground" />
             <span>Paste Value</span>
-            <ContextMenuShortcut className="text-[10px]">Ctrl+V</ContextMenuShortcut>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuItem
             disabled={isEffectiveReadOnly}
             onClick={() => handleResetValue(field, label)}
-            className="flex items-center gap-2 cursor-pointer py-1.5 px-2.5 rounded-lg hover:bg-accent disabled:opacity-50"
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
           >
             <RotateCcw className="size-3.5 text-muted-foreground" />
             <span>Reset to Default</span>
           </ContextMenuItem>
-          <ContextMenuSeparator className="my-1 bg-border/60" />
+          <ContextMenuSeparator className="h-px bg-border my-1" />
           <ContextMenuItem
             onClick={() => handleOpenComment(id, label)}
-            className="flex items-center gap-2 cursor-pointer py-1.5 px-2.5 rounded-lg hover:bg-accent text-primary font-semibold"
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>Assign Comment / Task</span>
+            <span>{itemComments.length ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -608,335 +717,552 @@ export function FireTankDurationPage() {
 
   return (
     <AppShell title="Fire Tank Duration" hideSubHeader={true}>
-      <div className="flex flex-col flex-1 bg-background text-foreground min-h-screen">
-        <div className="flex-1 p-5 max-w-7xl mx-auto w-full flex flex-col gap-5">
-          
-          {/* Top Title & Action Bar */}
-          <div className="flex flex-col gap-2 border-b border-border/80 pb-4">
-            <div className="flex flex-col gap-1 w-full">
-              <div className="flex items-center justify-between gap-3 mt-0.5 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Fire Tank Duration</h1>
-                  <CalculationReviewBar
-                    projectId={project?.id || "default"}
-                    calculatorPath="/plumbing-fire-tank-duration"
-                    calculatorTitle="Fire Water Tank Duration"
-                  />
-                  {totalCommentsCount > 0 && (
-                    <span
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 text-xs font-bold border border-blue-200 dark:border-blue-900/60 shadow-2xs"
-                      title={`${totalCommentsCount} active comment(s)/task(s) in Fire Tank Duration`}
-                    >
-                      <MessageSquare className="size-3.5 fill-blue-500/20" />
-                      <span>{totalCommentsCount} Active Task{totalCommentsCount === 1 ? "" : "s"}</span>
-                    </span>
-                  )}
+      <div className="flex flex-col h-full min-h-0 bg-transparent font-sans">
+
+        {/* Header Bar */}
+        <div className="flex justify-between items-start shrink-0 select-none pt-4 pb-2 border-b border-border/60 no-print">
+          <div className="flex flex-col gap-1 w-full">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className="flex items-baseline gap-2">
+                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+                    Fire Tank Duration Calculation
+                  </h1>
                 </div>
+                <CalculationReviewBar
+                  projectId={project?.id || "default"}
+                  calculatorPath="/plumbing-fire-tank-duration"
+                  calculatorTitle="Fire Water Tank Duration"
+                />
+              </div>
 
-                <div className="flex items-center gap-2">
-                  <UnitToggle
-                    unitSystem={unitSystem}
-                    onChange={handleUnitSystemChange}
-                    ipLabel="IP"
-                    siLabel="SI"
-                    inputDescriptions="Demand flows, tank volumes, and refill rates"
-                    conversionExample={unitSystem === "si" ? "Convert 1,000 L → 264 gal" : "Convert 264 gal → 1,000 L"}
-                  />
+              <div className="flex items-center gap-2">
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  ipLabel="IP"
+                  siLabel="SI"
+                  inputDescriptions="Demand flows, tank volumes, and refill rates"
+                  conversionExample={unitSystem === "si" ? "Convert 1,000 L → 264 gal" : "Convert 264 gal → 1,000 L"}
+                />
 
-                  <button
-                    type="button"
-                    onClick={() => setShowFormulaModal(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-card hover:bg-muted/70 transition cursor-pointer text-foreground"
-                    title="Detailed Derivations, Formulas & NFPA 22 Standards"
-                  >
-                    <Info className="size-3.5 text-[#0A7BC7]" />
-                    <span>Formulas & Derivations</span>
-                  </button>
+                <button
+                  type="button"
+                  onClick={() => setShowFormulaModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-card hover:bg-muted/70 transition cursor-pointer text-foreground shadow-2xs"
+                  title="View Calculation Formulas & Step-by-Step Breakdown"
+                >
+                  <Info className="size-3.5 text-[#0A7BC7]" />
+                  <span>Calculations (i)</span>
+                </button>
 
-                  {/* Export PDF Button */}
-                  <button
-                    type="button"
-                    onClick={handleExportPdf}
-                    className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full bg-[#0A7BC7] text-white hover:bg-[#0866A5] transition shadow-xs cursor-pointer"
-                    title="Export PDF Report"
-                  >
-                    <Download className="size-3.5" />
-                    <span>Export PDF</span>
-                  </button>
-                </div>
+                {/* Export PDF Button */}
+                <button
+                  type="button"
+                  onClick={handleExportPdf}
+                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full bg-[#0A7BC7] text-white hover:bg-[#0866A5] transition shadow-xs cursor-pointer"
+                  title="Export PDF Report"
+                >
+                  <FileText className="size-3.5" />
+                  <span>Export PDF</span>
+                </button>
+
+                {/* Export Excel Button */}
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-xs cursor-pointer"
+                  title="Export Excel Report"
+                >
+                  <FileSpreadsheet className="size-3.5" />
+                  <span>Export Excel</span>
+                </button>
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Main Content Layout Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-            
-            {/* Left Column: Input Parameter Cards */}
-            <div className="lg:col-span-6 flex flex-col gap-4">
-              
-              {/* Card 1: System Fire Demand & Target Duration */}
-              <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
-                <div className="flex items-center justify-between pb-2 border-b border-border/60">
+        {/* Main 2-Column Layout (Left: Inputs (50%) | Right: Results (50%)) */}
+        <div className="flex-1 min-h-0 pt-4 pb-4 overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 h-full">
+
+            {/* Left Column: Scrollable Inputs */}
+            <div className="h-full overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-4">
+
+              {/* CORE INPUTS CARD */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center justify-between pb-3 border-b border-border/60">
                   <div className="flex items-center gap-2">
-                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                      1. FIRE DEMAND & HAZARD DURATION
+                    <div className="w-1.5 h-4 bg-[#0A7BC7] rounded-full"></div>
+                    <h3 className="text-sm font-bold text-foreground">
+                      Core Inputs
                     </h3>
                   </div>
-                  <Flame className="size-4 text-[#0A7BC7]" />
+                  <button
+                    type="button"
+                    onClick={() => setShowFormulaModal(true)}
+                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-blue-50 dark:bg-blue-950/50 text-[#0A7BC7] hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800/40 transition cursor-pointer"
+                    title="View NFPA 22 / NFPA 13 Standards Reference"
+                  >
+                    <Info className="size-3.5" />
+                    <span>NFPA 22 Reference</span>
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* INPUT 1: DEMAND FLOW */}
                   {renderInputBox(
                     "demandRate",
                     "demandRate",
-                    "Total Fire Demand Flow",
+                    "1. Total Fire Demand Flow",
+                    "NFPA 13 / 14",
                     sizingParams.demandRate,
                     calc.flowUnit,
                     calc.isIp ? "10" : "50",
                     0,
-                    calc.isIp ? "500" : "1892.7"
+                    calc.isIp ? "500" : "1892.7",
+                    "Design fire suppression demand flowrate",
+                    "sm:col-span-2"
                   )}
 
-                  {/* Hazard Preset Select */}
-                  <div className="flex flex-col gap-1.5 p-1.5">
-                    <label className="font-semibold text-foreground text-xs">
-                      Hazard Classification (NFPA 13)
-                    </label>
-                    <select
-                      disabled={isEffectiveReadOnly}
-                      value={sizingParams.hazardPreset}
-                      onChange={(e) => handlePresetChange(e.target.value as any)}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none transition hover:border-[#0A7BC7]/50 disabled:opacity-60 cursor-pointer"
-                    >
-                      <option value="30">30 min (Light Hazard - LH)</option>
-                      <option value="60">60 min (Ordinary Hazard - OH-1)</option>
-                      <option value="90">90 min (Ordinary Hazard - OH-2)</option>
-                      <option value="120">120 min (Extra Hazard - EH)</option>
-                      <option value="custom">Custom Duration</option>
-                    </select>
-                  </div>
+                  {/* INPUT 2: HAZARD CLASSIFICATION PRESET */}
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        id="field-hazardPreset"
+                        data-item-id="hazardPreset"
+                        className={`flex flex-col gap-1.5 sm:col-span-1 rounded-xl p-1 transition cursor-context-menu ${
+                          highlightedTargetId === "hazardPreset" || highlightedTargetId === "field-hazardPreset" ? "ring-2 ring-[#0A7BC7] bg-[#0A7BC7]/10" : ""
+                        }`}
+                      >
+                        <label className="text-xs font-bold text-foreground flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span>2. Hazard Preset</span>
+                            {renderCommentBadge("hazardPreset", "2. Hazard Preset")}
+                          </span>
+                          <span className="text-[11px] font-mono font-normal text-muted-foreground">NFPA 13</span>
+                        </label>
+                        <div className="relative">
+                          <select
+                            disabled={isEffectiveReadOnly}
+                            value={sizingParams.hazardPreset}
+                            onChange={(e) => handlePresetChange(e.target.value as any)}
+                            className="w-full bg-background border border-border focus:ring-[#0A7BC7]/40 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-foreground focus:ring-2 focus:border-[#0A7BC7] outline-none transition appearance-none cursor-pointer pr-9"
+                          >
+                            <option value="30">30 min (Light Hazard - LH)</option>
+                            <option value="60">60 min (Ordinary Hazard 1 - OH-1)</option>
+                            <option value="90">90 min (Ordinary Hazard 2 - OH-2)</option>
+                            <option value="120">120 min (Extra Hazard - EH)</option>
+                            <option value="custom">Custom Duration</option>
+                          </select>
+                          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+                        </div>
+                        <span className="text-[10.5px] text-muted-foreground">
+                          Standard hazard duration classification
+                        </span>
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+                      <ContextMenuItem
+                        onClick={() => handleCopyValue("Hazard Preset", `${sizingParams.hazardPreset} min`)}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                      >
+                        <Copy className="size-3.5 text-muted-foreground" />
+                        <span>Copy Value</span>
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() => handlePresetChange("60")}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                      >
+                        <RotateCcw className="size-3.5 text-muted-foreground" />
+                        <span>Reset to Default (60 min)</span>
+                      </ContextMenuItem>
+                      <ContextMenuSeparator className="h-px bg-border my-1" />
+                      <ContextMenuItem
+                        onClick={() => handleOpenComment("hazardPreset", "2. Hazard Preset")}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                      >
+                        <MessageSquare className="size-3.5" />
+                        <span>{commentsMap["hazardPreset"]?.length ? `View / Add Comments (${commentsMap["hazardPreset"].length})` : "Add Comment / Assign Task"}</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
 
+                  {/* INPUT 3: TARGET FIRE DURATION */}
                   {renderInputBox(
                     "targetDurationMin",
                     "targetDurationMin",
-                    "Target Fire Duration",
+                    "3. Target Duration",
+                    "Operating Time",
                     sizingParams.targetDurationMin,
                     "min",
                     "5",
                     1,
-                    "60"
+                    "60",
+                    "Required fire operating duration",
+                    "sm:col-span-1"
                   )}
 
+                  {/* INPUT 4: SAFETY RESERVE MARGIN */}
                   {renderInputBox(
                     "reserveMarginPct",
                     "reserveMarginPct",
-                    "Safety Reserve Margin",
+                    "4. Reserve Margin",
+                    "Dead Water",
                     sizingParams.reserveMarginPct,
                     "%",
                     "1",
                     0,
-                    "10"
+                    "10",
+                    "Dead water and pump priming margin",
+                    "sm:col-span-1"
                   )}
-                </div>
-              </div>
 
-              {/* Card 2: Storage Tank Capacity & Dedicated Refill */}
-              <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
-                <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                      2. TANK CAPACITY & REFILL SUPPLY
-                    </h3>
-                  </div>
-                  <Waves className="size-4 text-[#0A7BC7]" />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* INPUT 5: ACTUAL TANK WATER VOLUME */}
                   {renderInputBox(
                     "tankCapacity",
                     "tankCapacity",
-                    "Actual Tank Water Volume",
+                    "5. Actual Tank Volume",
+                    "Storage Capacity",
                     sizingParams.tankCapacity,
                     calc.volUnit,
                     calc.isIp ? "500" : "1000",
                     0,
-                    calc.isIp ? "33000" : "125000"
+                    calc.isIp ? "33000" : "125000",
+                    "Usable fire water volume in tank",
+                    "sm:col-span-1"
                   )}
 
+                  {/* INPUT 6: DEDICATED REFILL RATE */}
                   {renderInputBox(
                     "refillRate",
                     "refillRate",
-                    "Dedicated Refill Rate",
+                    "6. Dedicated Refill Rate",
+                    "Replenishment",
                     sizingParams.refillRate,
                     calc.flowUnit,
                     calc.isIp ? "5" : "20",
                     0,
-                    calc.isIp ? "66" : "250"
+                    calc.isIp ? "66" : "250",
+                    "Dedicated supply flow from main/source",
+                    "sm:col-span-1"
                   )}
 
+                  {/* INPUT 7: MAX REFILL TIME */}
                   {renderInputBox(
                     "maxRefillHours",
                     "maxRefillHours",
-                    "Max Permissible Refill Time",
+                    "7. Max Refill Time",
+                    "Restoration Goal",
                     sizingParams.maxRefillHours,
                     "hours",
                     "1",
                     1,
-                    "8"
+                    "8",
+                    "NFPA 22 restoration benchmark (typically 8 hrs)",
+                    "sm:col-span-1"
                   )}
 
-                  {/* Allow Inflow Credit Toggle */}
-                  <div className="flex flex-col gap-1.5 p-1.5">
-                    <label className="font-semibold text-foreground text-xs flex items-center justify-between">
-                      <span>NFPA 22 Inflow Credit</span>
-                      <span className="text-[10px] text-muted-foreground font-normal">Continuous supply</span>
-                    </label>
-                    <button
-                      type="button"
-                      disabled={isEffectiveReadOnly}
-                      onClick={() => {
-                        const updated = { ...sizingParams, allowInflowCredit: !sizingParams.allowInflowCredit };
-                        setSizingParams(updated);
-                        saveState(updated, unitSystem);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-bold transition cursor-pointer ${
-                        sizingParams.allowInflowCredit
-                          ? "bg-blue-50 dark:bg-blue-950/40 border-[#0A7BC7] text-[#0A7BC7]"
-                          : "bg-slate-100/50 dark:bg-slate-950/40 border-border text-muted-foreground hover:border-[#0A7BC7]/50"
-                      }`}
-                    >
-                      <span>{sizingParams.allowInflowCredit ? "Deduct Inflow from Storage" : "No Inflow Credit"}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 border border-border">
-                        {sizingParams.allowInflowCredit ? "Active" : "Off"}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+                  {/* INPUT 8: CONTINUOUS INFLOW CREDIT TOGGLE */}
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        id="field-allowInflowCredit"
+                        data-item-id="allowInflowCredit"
+                        className={`flex flex-col gap-1.5 sm:col-span-2 rounded-xl p-1 transition cursor-context-menu ${
+                          highlightedTargetId === "allowInflowCredit" || highlightedTargetId === "field-allowInflowCredit" ? "ring-2 ring-[#0A7BC7] bg-[#0A7BC7]/10" : ""
+                        }`}
+                      >
+                        <label className="text-xs font-bold text-foreground flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <span>8. Continuous Inflow Credit</span>
+                            {renderCommentBadge("allowInflowCredit", "8. Continuous Inflow Credit")}
+                          </span>
+                          <span className="text-[11px] font-mono font-normal text-muted-foreground">NFPA 22 §14.4</span>
+                        </label>
+                        <button
+                          type="button"
+                          disabled={isEffectiveReadOnly}
+                          onClick={() => {
+                            const updated = { ...sizingParams, allowInflowCredit: !sizingParams.allowInflowCredit };
+                            setSizingParams(updated);
+                            saveState(updated, unitSystem);
+                          }}
+                          className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                            sizingParams.allowInflowCredit
+                              ? "bg-blue-50 dark:bg-blue-950/40 border-[#0A7BC7] text-[#0A7BC7]"
+                              : "bg-background border-border text-muted-foreground hover:border-[#0A7BC7]/50"
+                          }`}
+                        >
+                          <span className="font-semibold">{sizingParams.allowInflowCredit ? "Deduct Continuous Inflow from Required Storage" : "No Inflow Credit (Conservative NFPA Sizing)"}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                            sizingParams.allowInflowCredit ? "bg-[#0A7BC7] text-white" : "bg-muted text-muted-foreground"
+                          }`}>
+                            {sizingParams.allowInflowCredit ? "Active" : "Off"}
+                          </span>
+                        </button>
+                        <span className="text-[10.5px] text-muted-foreground">
+                          Only allow when continuous replenishment source is automatic and certified reliable under emergency power.
+                        </span>
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+                      <ContextMenuItem
+                        onClick={() => {
+                          const updated = { ...sizingParams, allowInflowCredit: !sizingParams.allowInflowCredit };
+                          setSizingParams(updated);
+                          saveState(updated, unitSystem);
+                        }}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                      >
+                        <RotateCcw className="size-3.5 text-muted-foreground" />
+                        <span>Toggle Inflow Credit</span>
+                      </ContextMenuItem>
+                      <ContextMenuSeparator className="h-px bg-border my-1" />
+                      <ContextMenuItem
+                        onClick={() => handleOpenComment("allowInflowCredit", "8. Continuous Inflow Credit")}
+                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                      >
+                        <MessageSquare className="size-3.5" />
+                        <span>{commentsMap["allowInflowCredit"]?.length ? `View / Add Comments (${commentsMap["allowInflowCredit"].length})` : "Add Comment / Assign Task"}</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
 
-            {/* Right Column: Sizing Results Dashboard */}
-            <div className="lg:col-span-6 flex flex-col gap-4">
-              
-              {/* Primary Results Highlight Card */}
-              <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
-                <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                      CALCULATION RESULTS
-                    </h3>
+                </div>
+
+                {/* AUTOMATIC ENGINEERING PARAMETERS (DERIVED VALUES) */}
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-border/80 flex flex-col gap-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-foreground flex items-center gap-1.5">
+                      <ShieldCheck className="size-3.5 text-[#0A7BC7]" />
+                      <span>Automatic Engineering Parameters (Standards Derived)</span>
+                    </span>
                     <button
                       type="button"
                       onClick={() => setShowFormulaModal(true)}
-                      className="inline-flex items-center justify-center size-5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 text-[#0A7BC7] transition cursor-pointer"
-                      title="View Detailed Calculations & Formulas"
+                      className="text-[10.5px] text-[#0A7BC7] font-semibold hover:underline flex items-center gap-0.5 cursor-pointer"
                     >
-                      <Info className="size-3.5" />
+                      <Info className="size-3" />
+                      <span>Formulas &amp; Methodology</span>
                     </button>
                   </div>
-                  
-                  {/* Status Badge */}
-                  <div
-                    className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-bold text-xs ${
-                      calc.isAdequate
-                        ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400"
-                        : "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400"
-                    }`}
-                  >
-                    {calc.isAdequate ? <ShieldCheck className="size-3.5" /> : <AlertTriangle className="size-3.5" />}
-                    <span>{calc.isAdequate ? "Adequate Capacity" : "Undersized Storage"}</span>
-                  </div>
-                </div>
-
-                {/* Main Metric Tile */}
-                <div className="p-4 rounded-xl bg-slate-100/70 dark:bg-slate-900/60 border border-border flex items-center justify-between">
-                  <div>
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Actual Fire Autonomy Duration
-                    </span>
-                    <div className="text-2xl font-bold font-mono text-[#0A7BC7] mt-0.5">
-                      {calc.actualDurMin} minutes
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1">
+                    <div className="p-2 rounded-lg bg-card border border-border/60">
+                      <span className="text-[10px] text-muted-foreground block">Safety Reserve</span>
+                      <strong className="font-mono text-foreground">{calc.marginPct}%</strong>
+                      <span className="text-[9.5px] text-muted-foreground block">Dead Water Margin</span>
                     </div>
-                    <span className="text-[11px] text-muted-foreground">
-                      ({calc.actualDurHrs} hrs · Target: {calc.targetDur} min)
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Storage Adequacy
-                    </span>
-                    <div
-                      className={`text-lg font-bold font-mono mt-0.5 ${
-                        calc.isAdequate ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
-                      }`}
-                    >
-                      {calc.compliancePct}%
+                    <div className="p-2 rounded-lg bg-card border border-border/60">
+                      <span className="text-[10px] text-muted-foreground block">Refill Benchmark</span>
+                      <strong className="font-mono text-[#0A7BC7]">{sizingParams.maxRefillHours || 8} hrs</strong>
+                      <span className="text-[9.5px] text-muted-foreground block">NFPA 22 §14.4</span>
                     </div>
-                    <span className="text-[11px] text-muted-foreground font-mono">
-                      {calc.volumeSurplusDeficit >= 0 ? `+${calc.volumeSurplusDeficit.toLocaleString()} ${calc.volUnit} surplus` : `${calc.volumeSurplusDeficit.toLocaleString()} ${calc.volUnit} deficit`}
-                    </span>
+                    <div className="p-2 rounded-lg bg-card border border-border/60">
+                      <span className="text-[10px] text-muted-foreground block">Inflow Credit</span>
+                      <strong className="font-mono text-foreground">{sizingParams.allowInflowCredit ? "Allowed" : "Zero Credit"}</strong>
+                      <span className="text-[9.5px] text-muted-foreground block">NFPA 22 Design</span>
+                    </div>
+                    <div className="p-2 rounded-lg bg-card border border-border/60">
+                      <span className="text-[10px] text-muted-foreground block">Compliance Autonomy</span>
+                      <strong className={`font-mono ${calc.isAdequate ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                        {calc.compliancePct}%
+                      </strong>
+                      <span className="text-[9.5px] text-muted-foreground block">{calc.isAdequate ? "Compliant" : "Undersized"}</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Sub-Metrics Grid */}
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="p-3 bg-surface-2/60 rounded-xl border border-border/60 flex flex-col gap-1">
-                    <span className="text-muted-foreground font-semibold">Required Fire Storage</span>
-                    <strong className="font-mono text-foreground text-sm">
-                      {calc.actualReqVol.toLocaleString()} {calc.volUnit} ({calc.actualReqVolM3} m³)
-                    </strong>
-                  </div>
-
-                  <div className="p-3 bg-surface-2/60 rounded-xl border border-border/60 flex flex-col gap-1">
-                    <span className="text-muted-foreground font-semibold">Available Tank Storage</span>
-                    <strong className="font-mono text-foreground text-sm">
-                      {calc.tankCap.toLocaleString()} {calc.volUnit} ({calc.tankCapM3} m³)
-                    </strong>
-                  </div>
-
-                  <div className="p-3 bg-surface-2/60 rounded-xl border border-border/60 flex flex-col gap-1">
-                    <span className="text-muted-foreground font-semibold">Replenishment Refill Time</span>
-                    <strong className="font-mono text-foreground text-sm">
-                      {calc.refillTimeHrs === Infinity ? "No refill supply" : `${calc.refillTimeHrs} hrs (${calc.refillTimeMin} min)`}
-                    </strong>
-                  </div>
-
-                  <div className="p-3 bg-surface-2/60 rounded-xl border border-border/60 flex flex-col gap-1">
-                    <span className="text-muted-foreground font-semibold">Refill Compliance (NFPA 22)</span>
-                    <strong
-                      className={`font-mono text-sm ${
-                        calc.isRefillCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
-                      }`}
-                    >
-                      {calc.refillTimeHrs === Infinity ? "N/A" : calc.isRefillCompliant ? `Pass (≤${sizingParams.maxRefillHours}h)` : `Slow (>${sizingParams.maxRefillHours}h)`}
-                    </strong>
-                  </div>
-                </div>
               </div>
 
-              {/* Status Advisory Banner */}
-              {!calc.isAdequate && (
-                <div className="p-3.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 flex items-start gap-2.5 text-xs text-muted-foreground leading-relaxed">
-                  <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
-                  <span>
-                    <strong>Storage Deficit:</strong> Current tank capacity {calc.tankCap.toLocaleString()} {calc.volUnit} is short of the required {calc.actualReqVol.toLocaleString()} {calc.volUnit} by <strong>{Math.abs(calc.volumeSurplusDeficit).toLocaleString()} {calc.volUnit}</strong> ({calc.isIp ? `${(Math.abs(calc.volumeSurplusDeficit)*0.00378541).toFixed(1)} m³` : `${(Math.abs(calc.volumeSurplusDeficit)/1000).toFixed(1)} m³`}). Increase tank dimensions or connect a certified continuous inflow source.
-                  </span>
-                </div>
-              )}
-
-              {calc.refillTimeHrs > (Number(sizingParams.maxRefillHours) || 8) && (
-                <div className="p-3.5 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 flex items-start gap-2.5 text-xs text-muted-foreground leading-relaxed">
-                  <Clock className="size-4 text-[#0A7BC7] shrink-0 mt-0.5" />
-                  <span>
-                    <strong>NFPA 22 Refill Advisory:</strong> Tank refill time of {calc.refillTimeHrs} hours exceeds the {sizingParams.maxRefillHours}-hour restoration benchmark. Ensure municipal feed or booster supply lines can restore full capacity within the AHJ-prescribed duration.
-                  </span>
-                </div>
-              )}
             </div>
+
+            {/* Right Column: Results Card (Equal 50% Width & Standard Readable Fonts) */}
+            <div className="h-full overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-4 select-none">
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                
+                {/* Result Header */}
+                <div className="flex items-center justify-between pb-3 border-b border-border/60">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-4 bg-[#0A7BC7] rounded-full"></div>
+                    <h3 className="text-sm font-bold text-foreground font-sans">
+                      Calculation Results
+                    </h3>
+                  </div>
+                  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full font-bold text-xs border ${
+                    calc.isAdequate
+                      ? "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40"
+                      : "bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/40"
+                  }`}>
+                    {calc.isAdequate ? <ShieldCheck className="size-3.5" /> : <AlertTriangle className="size-3.5" />}
+                    <span>{calc.isAdequate ? "Compliant" : "Undersized Storage"}</span>
+                  </div>
+                </div>
+
+                {/* Primary Hero Result Metric: Actual Fire Autonomy Duration */}
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <div
+                      id="res-actual-dur"
+                      data-item-id="actual-dur"
+                      className={`p-4 rounded-xl bg-slate-100/90 dark:bg-slate-900/90 border border-border flex flex-col gap-2 relative transition cursor-context-menu ${
+                        highlightedTargetId === "actual-dur" || highlightedTargetId === "res-actual-dur" ? "ring-2 ring-primary bg-primary/20" : ""
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                          <span>Actual Fire Autonomy Duration</span>
+                          {renderCommentBadge("actual-dur", "Actual Fire Autonomy Duration")}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowFormulaModal(true)}
+                          className="p-1 rounded-md text-[#0A7BC7] hover:bg-[#0A7BC7]/10 transition cursor-pointer"
+                          title="Click to view calculation formula"
+                        >
+                          <Info className="size-4" />
+                        </button>
+                      </div>
+                      <div className="flex items-baseline justify-between flex-wrap gap-2">
+                        <div className="text-3xl sm:text-4xl font-black font-mono text-[#0A7BC7] tracking-tight">
+                          {calc.actualDurMin} <span className="text-base sm:text-lg font-semibold text-muted-foreground">min</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm sm:text-base font-bold font-mono text-foreground block">
+                            {calc.actualDurHrs} hours continuous
+                          </span>
+                          <span className="text-xs text-muted-foreground block font-mono">
+                            (Target: {calc.targetDur} min · {calc.compliancePct}% autonomy)
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-xs text-muted-foreground border-t border-border/60 pt-2 mt-1 flex justify-between items-center">
+                        <span>Includes {calc.marginPct}% safety reserve margin</span>
+                        <span className={`font-mono font-bold ${calc.isAdequate ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                          {calc.isAdequate ? "NFPA 22 Compliant" : "Capacity Shortfall"}
+                        </span>
+                      </div>
+                    </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+                    <ContextMenuItem
+                      onClick={() => handleCopyValue("Actual Fire Autonomy Duration", `${calc.actualDurMin} min`)}
+                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                    >
+                      <Copy className="size-3.5 text-muted-foreground" />
+                      <span>Copy Value ({calc.actualDurMin} min)</span>
+                      <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => {
+                        if (typeof navigator !== "undefined" && navigator.clipboard) {
+                          navigator.clipboard.writeText(`Actual Fire Autonomy Duration: ${calc.actualDurMin} min (${calc.actualDurHrs} hrs continuous supply, Target: ${calc.targetDur} min)`);
+                          toast.success("Copied summary to clipboard");
+                        }
+                      }}
+                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                    >
+                      <FileText className="size-3.5 text-muted-foreground" />
+                      <span>Copy Full Specification</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => setShowFormulaModal(true)}
+                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium text-[#0A7BC7]"
+                    >
+                      <Info className="size-3.5" />
+                      <span>View Calculation Formula</span>
+                    </ContextMenuItem>
+                    <ContextMenuSeparator className="h-px bg-border my-1" />
+                    <ContextMenuItem
+                      onClick={() => handleOpenComment("actual-dur", "Actual Fire Autonomy Duration")}
+                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                    >
+                      <MessageSquare className="size-3.5" />
+                      <span>{commentsMap["actual-dur"]?.length ? `View / Add Comments (${commentsMap["actual-dur"].length})` : "Add Comment / Assign Task"}</span>
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+
+                {/* Step-by-Step Clean Summary Rows */}
+                <div className="flex flex-col gap-1 p-2.5 rounded-xl bg-slate-50/90 dark:bg-slate-900/60 border border-border/70 text-xs sm:text-sm font-mono">
+                  {renderResultRowWithContext("demand-rate", "Total Fire Demand Flow:", `${calc.demand.toLocaleString()} ${calc.flowUnit}`, {
+                    modalKey: true,
+                    rowClassName: "border-b border-border/50",
+                  })}
+                  {renderResultRowWithContext("target-duration", "Target Fire Duration:", `${calc.targetDur} min`, {
+                    modalKey: true,
+                    rowClassName: "border-b border-border/50",
+                  })}
+                  {renderResultRowWithContext("gross-storage", "Gross Water Requirement:", `${calc.grossReqVol.toLocaleString()} ${calc.volUnit}`, {
+                    modalKey: true,
+                    rowClassName: "border-b border-border/50",
+                  })}
+                  {renderResultRowWithContext("reserve-margin", "Safety Reserve Margin:", `${calc.marginPct}% (${calc.reserveVol.toLocaleString()} ${calc.volUnit})`, {
+                    modalKey: true,
+                    rowClassName: "border-b border-border/50",
+                  })}
+                  {renderResultRowWithContext("net-storage", "Required Effective Storage:", `${calc.actualReqVol.toLocaleString()} ${calc.volUnit} (${calc.actualReqVolM3} m³)`, {
+                    modalKey: true,
+                    rowClassName: "bg-blue-50/60 dark:bg-blue-950/40 px-2 py-1.5 rounded-lg border-b border-border/50",
+                    labelClassName: "text-[#0A7BC7] font-semibold text-xs sm:text-sm",
+                    valueClassName: "text-[#0A7BC7] text-xs sm:text-sm font-bold",
+                  })}
+                  {renderResultRowWithContext("tank-capacity", "Available Tank Capacity:", `${calc.tankCap.toLocaleString()} ${calc.volUnit} (${calc.tankCapM3} m³)`, {
+                    modalKey: true,
+                    rowClassName: "border-b border-border/50",
+                  })}
+                  {renderResultRowWithContext("surplus-deficit", "Storage Surplus / Deficit:", `${calc.volumeSurplusDeficit >= 0 ? `+${calc.volumeSurplusDeficit.toLocaleString()}` : calc.volumeSurplusDeficit.toLocaleString()} ${calc.volUnit}`, {
+                    modalKey: true,
+                    rowClassName: "bg-sky-50/60 dark:bg-sky-950/40 px-2 py-1.5 rounded-lg border-b border-border/50",
+                    labelClassName: "text-sky-700 dark:text-sky-300 font-semibold text-xs sm:text-sm",
+                    valueClassName: `${calc.isAdequate ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"} text-xs sm:text-sm font-bold`,
+                  })}
+                  {renderResultRowWithContext("refill-rate", "Dedicated Refill Rate:", `${calc.refill.toLocaleString()} ${calc.flowUnit}`, {
+                    modalKey: true,
+                    rowClassName: "border-b border-border/50",
+                  })}
+                  {renderResultRowWithContext("refill-time", "Replenishment Refill Time:", calc.refillTimeHrs === Infinity ? "No refill supply" : `${calc.refillTimeHrs} hrs (${calc.refillTimeMin} min)`, {
+                    modalKey: true,
+                    valueClassName: `${calc.isRefillCompliant ? "text-foreground" : "text-amber-600 dark:text-amber-400"} text-xs sm:text-sm font-bold`,
+                  })}
+                </div>
+
+                {/* Additional Derived Engineering Results */}
+                <div className="flex flex-col gap-1 p-2.5 rounded-xl bg-slate-50/60 dark:bg-slate-900/40 border border-border/70 text-xs sm:text-sm">
+                  {renderResultRowWithContext("refill-benchmark", "NFPA 22 Refill Benchmark:", `≤ ${sizingParams.maxRefillHours || 8} Hours (${calc.isRefillCompliant ? "Compliant" : "Exceeded"})`, {
+                    modalKey: true,
+                    valueClassName: `${calc.isRefillCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"} font-bold text-xs sm:text-sm font-mono`,
+                  })}
+                  {renderResultRowWithContext("compliance-ratio", "Autonomy Compliance Ratio:", `${calc.compliancePct}% of Design Autonomy`, {
+                    modalKey: true,
+                    rowClassName: "border-t border-border/50 pt-1.5",
+                    valueClassName: `${calc.isAdequate ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"} font-bold text-xs sm:text-sm font-mono`,
+                  })}
+                </div>
+
+                {/* Confirmation Badge */}
+                <div className="p-2.5 rounded-xl border flex items-center gap-2.5 text-xs bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/40 text-emerald-800 dark:text-emerald-300">
+                  <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+                  <div className="flex-1 min-w-0">
+                    <span className="font-bold">Standard Verified:</span> Verified against NFPA 22 Section 14 &amp; NFPA 13 duration tables.
+                  </div>
+                </div>
+
+                {/* Status Advisory Banner */}
+                {!calc.isAdequate && (
+                  <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 flex items-start gap-2.5 text-xs text-muted-foreground leading-relaxed">
+                    <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Storage Deficit:</strong> Current tank capacity {calc.tankCap.toLocaleString()} {calc.volUnit} is short of the required {calc.actualReqVol.toLocaleString()} {calc.volUnit} by <strong>{Math.abs(calc.volumeSurplusDeficit).toLocaleString()} {calc.volUnit}</strong> ({calc.isIp ? `${(Math.abs(calc.volumeSurplusDeficit)*0.00378541).toFixed(1)} m³` : `${(Math.abs(calc.volumeSurplusDeficit)/1000).toFixed(1)} m³`}). Increase tank volume or connect certified continuous replenishment.
+                    </span>
+                  </div>
+                )}
+
+              </div>
+            </div>
+
           </div>
+        </div>
 
           {/* Formulas & NFPA 22 Engineering Modal */}
           {showFormulaModal && (
@@ -1071,22 +1397,21 @@ export function FireTankDurationPage() {
             </div>
           )}
 
-          {/* Comment Assignment Modal */}
-          {activeCommentTarget && (
-            <AssignCommentModal
-              isOpen={Boolean(activeCommentTarget)}
-              targetId={activeCommentTarget.id}
-              targetName={activeCommentTarget.label}
-              calculatorPath="/plumbing-fire-tank-duration"
-              calculatorTitle="Fire Water Tank Duration"
-              existingComments={commentsMap[activeCommentTarget.id] || []}
-              onClose={() => setActiveCommentTarget(null)}
-              onSave={handleSaveComment}
-              onCommentAdded={handleSaveComment}
-            />
-          )}
+        {/* Comment Assignment Modal */}
+        {activeCommentTarget && (
+          <AssignCommentModal
+            isOpen={Boolean(activeCommentTarget)}
+            targetId={activeCommentTarget.id}
+            targetName={activeCommentTarget.label}
+            calculatorPath="/plumbing-fire-tank-duration"
+            calculatorTitle="Fire Water Tank Duration"
+            existingComments={commentsMap[activeCommentTarget.id] || []}
+            onClose={() => setActiveCommentTarget(null)}
+            onSave={handleSaveComment}
+            onCommentAdded={handleSaveComment}
+          />
+        )}
 
-        </div>
       </div>
     </AppShell>
   );

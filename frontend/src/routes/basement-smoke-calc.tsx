@@ -116,7 +116,7 @@ function BasementSmokeCalcPage() {
   const { project, forceSaveToCloud, isInitializing, updateProject } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   
   // Active section view state
   const [activeSection, setActiveSection] = useState<"schedule" | "fan-systems">("schedule");

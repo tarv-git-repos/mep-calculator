@@ -57,7 +57,7 @@ function TankSizingPage() {
   const { project, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
   // Core Sizing Parameters
   const [sizingParams, setSizingParams] = useState<TankSizingParams>({

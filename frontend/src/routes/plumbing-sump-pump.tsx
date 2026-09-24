@@ -294,7 +294,7 @@ function SumpPumpPage() {
     const P_motor = P_shaft / (eM/100);
     const HP = P_motor * 1.34102;
 
-    return { Q_flow, pitVol, invertVal, propDepth, L_equiv, H_loss, H_pump_calc, selHead, P_motor, HP };
+    return { Q_flow, pitVol, invertVal, propDepth, pv, phz, ff, L_elbows, L_valves, L_sum, L_equiv, H_loss, H_pump_calc, selHead, P_motor, HP };
   }, [req, time, flow, pitFlow, pitHold, longestPipe, propSide, pipeVert, pipeHoriz, fricFactor, staticHead, presid, suction, sfHead, selectedHead, effPump, effMotor]);
 
   // View state handlers (IP/SI)
@@ -686,7 +686,7 @@ function SumpPumpPage() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                           <div className="flex flex-col gap-1.5">
                             <label className="font-semibold text-foreground flex justify-between">
                               <span>Vert Pipe</span>
@@ -728,6 +728,13 @@ function SumpPumpPage() {
                               <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">{isSI ? "bar" : "psi"}</span>
                             </label>
                             <input type="number" disabled={isEffectiveReadOnly} value={valOrEmpty(isSI ? suction : (typeof suction === "number" ? suction / PSI_TO_BAR : ""))} onChange={e => { const val = parseNum(e.target.value); setSuction(val === "" ? "" : (isSI ? val : val * PSI_TO_BAR)); dirtyStore.set(true); }} className={inputClass} />
+                          </div>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="font-semibold text-foreground flex justify-between">
+                              <span>Safety Margin</span>
+                              <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.2 rounded font-bold">%</span>
+                            </label>
+                            <input type="number" disabled={isEffectiveReadOnly} value={valOrEmpty(sfHead)} onChange={e => { setSfHead(parseNum(e.target.value)); dirtyStore.set(true); }} className={inputClass} />
                           </div>
                         </div>
                       </div>
@@ -999,11 +1006,13 @@ function SumpPumpPreviewModal({
 
           <div className="space-y-4">
             <div className="border-b border-border pb-2">
-              <span className="font-bold text-primary">2. FRICTION LOSS</span>
+              <span className="font-bold text-primary">2. EQUIVALENT LENGTH & FRICTION LOSS</span>
             </div>
             <div className="flex flex-col gap-1 pl-4">
-              <span className="text-muted-foreground">Total Equivalent Length (L_equiv) = {equivLength.toFixed(2)} {lengthUnit}</span>
-              <span className="text-muted-foreground">Friction Loss (H_loss) = L_equiv × Friction Factor / 100</span>
+              <span className="text-muted-foreground">L_elbows (Fittings 30%) = ({isSI ? `${calcResults.pv || 0}m + ${calcResults.phz || 0}m` : `${((calcResults.pv || 0)/FT_TO_M).toFixed(1)}ft + ${((calcResults.phz || 0)/FT_TO_M).toFixed(1)}ft`}) × 0.30 = {isSI ? `${(calcResults.L_elbows || 0).toFixed(2)} m` : `${((calcResults.L_elbows || 0) / FT_TO_M).toFixed(1)} ft`}</span>
+              <span className="text-muted-foreground">L_valves (Valves 30%) = ({isSI ? `${calcResults.pv || 0}m + ${calcResults.phz || 0}m` : `${((calcResults.pv || 0)/FT_TO_M).toFixed(1)}ft + ${((calcResults.phz || 0)/FT_TO_M).toFixed(1)}ft`}) × 0.30 = {isSI ? `${(calcResults.L_valves || 0).toFixed(2)} m` : `${((calcResults.L_valves || 0) / FT_TO_M).toFixed(1)} ft`}</span>
+              <span className="text-muted-foreground">Total Equivalent Length (L_equiv with 5% safety) = {equivLength.toFixed(2)} {lengthUnit}</span>
+              <span className="text-muted-foreground">Friction Loss (H_loss) = {equivLength.toFixed(2)} × ({isSI ? `${calcResults.ff || 0.4}` : `${((calcResults.ff || 0.4) / PSI_TO_BAR) * (FT_TO_M/100) * 100}`} / 100)</span>
               <span className="text-foreground font-bold mt-1">H_loss = {headLoss.toFixed(3)} {tdhUnit}</span>
             </div>
           </div>
