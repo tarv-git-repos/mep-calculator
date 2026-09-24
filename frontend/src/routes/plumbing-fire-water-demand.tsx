@@ -4,6 +4,7 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditBuildingModal } from "@/components/workspace/EditBuildingModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { notifyCommentAssigned, dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import jsPDF from "jspdf";
@@ -14,7 +15,7 @@ import {
   Trash2, Edit3, Lock, Droplets, Waves, Gauge, Clock, ShieldCheck, Layers, ArrowRight,
   Building2, Building, Factory, SlidersHorizontal, Plus, Download, Search, CheckSquare,
   Square, Eye, ExternalLink, ChevronDown, ChevronRight, RefreshCw, BarChart2, Shield,
-  FileSpreadsheet, ArrowUpDown, MousePointerClick
+  FileSpreadsheet, ArrowUpDown, MousePointerClick, Scissors, ClipboardPaste
 } from "lucide-react";
 import {
   ContextMenu,
@@ -168,9 +169,12 @@ export function FireWaterDemandPage() {
   const [tankDeadVolumeDepth, setTankDeadVolumeDepth] = useState<number>(0.20); // meters (anti-vortex sump)
   const [cityMainRefillFlowGpm, setCityMainRefillFlowGpm] = useState<number>(150); // GPM refill from city network
 
-  // Assign Comment Modal State
-  const [commentModalOpen, setCommentModalOpen] = useState(false);
-  const [commentTargetId, setCommentTargetId] = useState<string | null>(null);
+  // Comments & Task State (matching Plumbing Sewage Pump & Ventilation)
+  const [commentsList, setCommentsList] = useState<any[]>([]);
+  const [commentModalOpen, setCommentModalOpen] = useState<boolean>(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<any>(null);
 
   // Storage key for persistence
   const storageKey = useMemo(() => {
@@ -195,8 +199,258 @@ export function FireWaterDemandPage() {
     }
   }, [storageKey]);
 
-  // Persist changes
-  const saveSchedule = (newBuildings: CivilDefenseBuilding[]) => {
+  // Load comments on mount or project switch
+  useEffect(() => {
+    const pId = project?.id || "default";
+    const cStorageKey = `mep_calc_comments_${pId}_/plumbing-fire-water-demand`;
+    try {
+      const stored = localStorage.getItem(cStorageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setCommentsList(parsed);
+        }
+      } else {
+        setCommentsList([]);
+      }
+    } catch (e) {
+      console.error("Failed to load comments", e);
+    }
+  }, [project?.id]);
+
+  // Scroll and highlight notification target item (exact parity with Sewage Pump & Ventilation)
+  useEffect(() => {
+    const handleScrollTarget = (targetId?: string, targetName?: string) => {
+      if (!targetId && !targetName) return;
+      const cleanId = (targetId || "").toLowerCase().trim();
+      const cleanRaw = cleanId.replace(/^(field-|card-|res-|row-|building-row-)/, "");
+      const cleanName = (targetName || "").toLowerCase().trim();
+
+      const el = document.getElementById(targetId || "") ||
+                 document.getElementById(`building-row-${cleanRaw}`) ||
+                 document.getElementById(`building-row-${targetId}`) ||
+                 document.getElementById(`row-${cleanRaw}`) ||
+                 document.getElementById(`row-${targetId}`) ||
+                 document.querySelector(`[data-row-id="${cleanRaw}"]`) ||
+                 document.querySelector(`[data-row-id="${targetId}"]`) ||
+                 document.querySelector(`[data-comment-target="${cleanRaw}"]`) ||
+                 document.querySelector(`[data-comment-target="${targetId}"]`);
+
+      setHighlightedTargetId(cleanRaw || cleanId || targetId || null);
+
+      // Ensure schedule tab is active and select matching building
+      setTab("schedule");
+      const matchedBld = buildings.find(
+        (b) =>
+          b.id.toLowerCase() === cleanRaw ||
+          b.id.toLowerCase() === cleanId ||
+          (cleanName && b.name.toLowerCase().includes(cleanName))
+      );
+      if (matchedBld) {
+        setSelectedBuildingId(matchedBld.id);
+        setSelectedRowIds(new Set([matchedBld.id]));
+        setReportBuildingId(matchedBld.id);
+      }
+
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = setTimeout(() => {
+        setHighlightedTargetId(null);
+        highlightTimeoutRef.current = null;
+      }, 4500);
+
+      if (el) {
+        setTimeout(() => {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 120);
+      }
+    };
+
+    // 1. Check URL parameters on mount / location change
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const targetId = params.get("commentTargetId") || params.get("targetId") || params.get("highlight") || params.get("commentId");
+      const targetName = params.get("commentTargetName") || params.get("targetName");
+      if (targetId || targetName) {
+        setTimeout(() => {
+          handleScrollTarget(targetId || undefined, targetName || undefined);
+        }, 300);
+      }
+    }
+
+    // 2. Listen to custom event from Notification Center navigation
+    const handleScrollEvent = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail) {
+        handleScrollTarget(detail.id || detail.targetId, detail.name || detail.targetName);
+      }
+    };
+
+    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
+    window.addEventListener("mep_scroll_to_comment_target", handleScrollEvent);
+
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
+      window.removeEventListener("mep_scroll_to_comment_target", handleScrollEvent);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, [typeof window !== "undefined" ? window.location.search : "", buildings]);
+
+  const saveComments = (newList: any[]) => {
+    setCommentsList(newList);
+    const pId = project?.id || "default";
+    localStorage.setItem(`mep_calc_comments_${pId}_/plumbing-fire-water-demand`, JSON.stringify(newList));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("mep_notif_tick"));
+      window.dispatchEvent(new CustomEvent("mep_notification_received"));
+      window.dispatchEvent(new CustomEvent("mep-notification-added"));
+      window.dispatchEvent(new Event("storage"));
+      if ("BroadcastChannel" in window) {
+        try {
+          const bc = new BroadcastChannel("mep_notifications_channel");
+          bc.postMessage({ type: "COMMENTS_UPDATED", calcPath: "/plumbing-fire-water-demand", count: newList.length });
+          bc.close();
+        } catch (e) {}
+      }
+    }
+    try {
+      if (typeof forceSaveToCloud === "function") {
+        setTimeout(() => forceSaveToCloud(false), 50);
+      }
+    } catch (e) {}
+  };
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (commentData: any) => {
+    const targetId = commentTargetItem?.id || commentData?.targetId || commentData?.spaceId || commentData?.itemId || (activeItem ? activeItem.building.id : "bld-general");
+    const targetName = commentTargetItem?.name || commentData?.targetName || commentData?.spaceName || (activeItem ? activeItem.building.name : "Fire Water Demand Building");
+
+    const commentWithMeta = {
+      ...commentData,
+      targetId,
+      targetName,
+      spaceId: targetId,
+      spaceName: targetName,
+      itemId: targetId,
+      targetType: "Civil Defense Building",
+      calculatorTitle: "Fire Water Demand",
+      calculatorPath: "/plumbing-fire-water-demand",
+      projectId: project?.id || "default",
+      projectName: project?.name || "Civil Defense Fire Water Demand",
+      authorName: userData?.name || profile?.name || "System Admin",
+      authorId: profile?.id || userData?.id || "unknown",
+    };
+
+    const existingIndex = commentsList.findIndex((c) => c.id === commentData.id);
+    let updated: any[];
+    if (existingIndex >= 0) {
+      updated = [...commentsList];
+      updated[existingIndex] = commentWithMeta;
+    } else {
+      updated = [commentWithMeta, ...commentsList.filter((c) => c.id !== commentData.id)];
+    }
+    saveComments(updated);
+
+    try {
+      dispatchGlobalCommentNotification(commentWithMeta, {
+        project,
+        currentUserName: userData?.name || profile?.name || "System Admin",
+        currentUserId: profile?.id || userData?.id || "unknown",
+      });
+    } catch (e) {
+      console.error("Failed to dispatch global notification", e);
+    }
+
+    toast.success(`Comment / task assigned on "${targetName}"`);
+    setCommentModalOpen(false);
+  };
+
+  const getItemComments = (id: string) => {
+    if (!id) return [];
+    const clean = id.toLowerCase().trim();
+    const cleanRaw = clean.replace(/^(field-|card-|row-|building-row-)/, "");
+
+    return commentsList.filter((c) => {
+      if (!c) return false;
+      const tId = String(c.targetId || c.spaceId || c.itemId || c.id || "").toLowerCase().trim();
+      const tIdRaw = tId.replace(/^(field-|card-|row-|building-row-)/, "");
+
+      if (
+        tId === clean ||
+        tIdRaw === cleanRaw ||
+        tId === `building-row-${cleanRaw}` ||
+        `building-row-${tIdRaw}` === clean
+      ) {
+        return true;
+      }
+
+      const tName = String(c.targetName || c.spaceName || "").toLowerCase().trim();
+      if (tName && cleanRaw.length > 2 && tName.includes(cleanRaw)) return true;
+
+      return false;
+    });
+  };
+
+  const isItemHighlighted = (id: string, name?: string) => {
+    if (!highlightedTargetId) return false;
+    const cleanHighlight = highlightedTargetId.toLowerCase().trim();
+    const cleanHighlightRaw = cleanHighlight.replace(/^(field-|card-|row-|building-row-)/, "");
+    const cleanId = id.toLowerCase().trim();
+    const cleanRawId = cleanId.replace(/^(field-|card-|row-|building-row-)/, "");
+
+    if (
+      cleanHighlight === cleanId ||
+      cleanHighlightRaw === cleanRawId ||
+      cleanHighlight === `building-row-${cleanRawId}`
+    ) {
+      return true;
+    }
+
+    if (name && cleanHighlight.length > 2) {
+      const cleanName = name.toLowerCase();
+      if (cleanName.includes(cleanHighlight) || cleanHighlight.includes(cleanName)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const renderCommentBadge = (id: string, name: string) => {
+    const itemComments = getItemComments(id);
+    if (itemComments.length === 0) return null;
+
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleOpenComment(id, name);
+        }}
+        title={`${itemComments.length} comment(s)/task(s) on ${name}`}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer shadow-2xs shrink-0"
+      >
+        <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+        <span>{itemComments.length}</span>
+      </button>
+    );
+  };
+
+  // Internal Clipboard & Undo/Redo Stacks (Ventilation-style)
+  const [copiedBuildings, setCopiedBuildings] = useState<CivilDefenseBuilding[]>([]);
+  const [undoStack, setUndoStack] = useState<CivilDefenseBuilding[][]>([]);
+  const [redoStack, setRedoStack] = useState<CivilDefenseBuilding[][]>([]);
+
+  // Persist changes with optional undo history snapshot
+  const saveSchedule = (newBuildings: CivilDefenseBuilding[], pushHistory = true) => {
+    if (pushHistory) {
+      setUndoStack((prev) => [...prev.slice(-25), buildings]);
+      setRedoStack([]);
+    }
     setBuildings(newBuildings);
     try {
       localStorage.setItem(storageKey, JSON.stringify(newBuildings));
@@ -463,15 +717,70 @@ export function FireWaterDemandPage() {
     toast.success("Added new building block. Configure parameters in modal.");
   };
 
-  // Duplicate Selected
+  // Copy Selected
+  const handleCopySelected = () => {
+    const toCopy = buildings.filter((b) => selectedRowIds.has(b.id));
+    if (toCopy.length > 0) {
+      setCopiedBuildings(toCopy);
+      toast.info(`Copied ${toCopy.length} building(s) to clipboard`);
+    } else if (activeItem) {
+      setCopiedBuildings([activeItem.building]);
+      toast.info(`Copied "${activeItem.building.name}" to clipboard`);
+    }
+  };
+
+  // Cut Selected
+  const handleCutSelected = () => {
+    if (isEffectiveReadOnly) return;
+    const toCut = buildings.filter((b) => selectedRowIds.has(b.id));
+    if (toCut.length === 0 && activeItem) {
+      toCut.push(activeItem.building);
+    }
+    if (toCut.length === 0) return;
+    if (buildings.length <= toCut.length) {
+      toast.error("At least one building is required in the schedule");
+      return;
+    }
+    setCopiedBuildings(toCut);
+    const cutIds = new Set(toCut.map((b) => b.id));
+    const nextList = buildings.filter((b) => !cutIds.has(b.id));
+    saveSchedule(nextList);
+    setSelectedRowIds(new Set([nextList[0].id]));
+    setSelectedBuildingId(nextList[0].id);
+    setReportBuildingId(nextList[0].id);
+    toast.info(`Cut ${toCut.length} building(s) to clipboard`);
+  };
+
+  // Paste Selected
+  const handlePasteSelected = () => {
+    if (isEffectiveReadOnly) return;
+    if (!copiedBuildings || copiedBuildings.length === 0) {
+      toast.info("Clipboard is empty");
+      return;
+    }
+    const pasted: CivilDefenseBuilding[] = copiedBuildings.map((cb, idx) => ({
+      ...cb,
+      id: `bld-${Date.now().toString(36)}-${idx}-${Math.random().toString(36).substr(2, 4)}`,
+      name: `${cb.name} (Copy)`,
+    }));
+    const nextList = [...buildings, ...pasted];
+    saveSchedule(nextList);
+    setSelectedRowIds(new Set(pasted.map((p) => p.id)));
+    setSelectedBuildingId(pasted[0].id);
+    setReportBuildingId(pasted[0].id);
+    toast.success(`Pasted ${pasted.length} building(s)`);
+  };
+
+  // Duplicate Selected (Ctrl+D)
   const handleDuplicateSelected = () => {
     if (isEffectiveReadOnly) return;
     const toDuplicate = buildings.filter((b) => selectedRowIds.has(b.id));
-    if (toDuplicate.length === 0) {
+    const targets = toDuplicate.length > 0 ? toDuplicate : activeItem ? [activeItem.building] : [];
+    if (targets.length === 0) {
       toast.error("No buildings selected to duplicate");
       return;
     }
-    const clones: CivilDefenseBuilding[] = toDuplicate.map((b) => ({
+    const clones: CivilDefenseBuilding[] = targets.map((b) => ({
       ...b,
       id: `bld-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 4)}`,
       name: `${b.name} (Copy)`,
@@ -481,26 +790,373 @@ export function FireWaterDemandPage() {
     setSelectedRowIds(new Set(clones.map((c) => c.id)));
     setSelectedBuildingId(clones[0].id);
     setReportBuildingId(clones[0].id);
-    toast.success(`Duplicated ${toDuplicate.length} building(s)`);
+    toast.success(`Duplicated ${targets.length} building(s)`);
   };
 
-  // Delete Selected
+  // Delete Selected (Delete / Backspace)
   const handleDeleteSelected = () => {
     if (isEffectiveReadOnly) return;
     if (buildings.length <= 1) {
       toast.error("At least one building is required in the schedule");
       return;
     }
-    const nextList = buildings.filter((b) => !selectedRowIds.has(b.id));
+    const targetIds = selectedRowIds.size > 0 
+      ? selectedRowIds 
+      : activeItem ? new Set([activeItem.building.id]) : new Set<string>();
+    
+    if (targetIds.size === 0) return;
+    const nextList = buildings.filter((b) => !targetIds.has(b.id));
     if (nextList.length === 0) {
       toast.error("Cannot delete all buildings");
       return;
     }
+    const count = buildings.length - nextList.length;
     saveSchedule(nextList);
     setSelectedBuildingId(nextList[0].id);
     setSelectedRowIds(new Set([nextList[0].id]));
     setReportBuildingId(nextList[0].id);
-    toast.success("Deleted selected building(s)");
+    toast.success(`Deleted ${count} building(s)`);
+  };
+
+  // Undo Handler (Ctrl+Z)
+  const handleUndo = () => {
+    if (isEffectiveReadOnly) return;
+    if (undoStack.length === 0) {
+      toast.info("Nothing to undo");
+      return;
+    }
+    const prev = undoStack[undoStack.length - 1];
+    setRedoStack((r) => [buildings, ...r]);
+    setUndoStack((u) => u.slice(0, -1));
+    saveSchedule(prev, false);
+    if (prev.length > 0) {
+      setSelectedBuildingId(prev[0].id);
+      setSelectedRowIds(new Set([prev[0].id]));
+      setReportBuildingId(prev[0].id);
+    }
+    toast.info("Undo");
+  };
+
+  // Redo Handler (Ctrl+Y / Ctrl+Shift+Z)
+  const handleRedo = () => {
+    if (isEffectiveReadOnly) return;
+    if (redoStack.length === 0) {
+      toast.info("Nothing to redo");
+      return;
+    }
+    const next = redoStack[0];
+    setUndoStack((u) => [...u, buildings]);
+    setRedoStack((r) => r.slice(1));
+    saveSchedule(next, false);
+    if (next.length > 0) {
+      setSelectedBuildingId(next[0].id);
+      setSelectedRowIds(new Set([next[0].id]));
+      setReportBuildingId(next[0].id);
+    }
+    toast.info("Redo");
+  };
+
+  // ==============================================================
+  // GLOBAL KEYBOARD SHORTCUTS LISTENER (MATCHING VENTILATION EXACTLY)
+  // ==============================================================
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: deselect all rows
+      if (e.key === "Escape") {
+        if (selectedRowIds.size > 0) {
+          e.preventDefault();
+          setSelectedRowIds(new Set());
+        }
+        return;
+      }
+
+      // Do NOT intercept if typing inside an active form control
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (
+        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
+        activeEl.tagName === "TEXTAREA" ||
+        (activeEl as HTMLElement).isContentEditable ||
+        activeEl.tagName === "SELECT"
+      );
+      if (isInput) return;
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // 1. Ctrl+A (Select All)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+        if (tab === "schedule" && buildings.length > 0) {
+          e.preventDefault();
+          setSelectedRowIds(new Set(buildings.map((b) => b.id)));
+          toast.info(`Selected all ${buildings.length} building(s)`);
+        }
+        return;
+      }
+
+      // 2. Delete / Backspace (Delete Selected)
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (isEffectiveReadOnly) {
+          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (tab === "schedule" && (selectedRowIds.size > 0 || activeItem)) {
+          e.preventDefault();
+          handleDeleteSelected();
+        }
+        return;
+      }
+
+      // 3. Copy: Ctrl+C
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
+        if (tab === "schedule" && (selectedRowIds.size > 0 || activeItem)) {
+          e.preventDefault();
+          handleCopySelected();
+        }
+        return;
+      }
+
+      // 4. Cut: Ctrl+X
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (isEffectiveReadOnly) {
+          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (tab === "schedule" && (selectedRowIds.size > 0 || activeItem)) {
+          e.preventDefault();
+          handleCutSelected();
+        }
+        return;
+      }
+
+      // 5. Paste: Ctrl+V
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        if (isEffectiveReadOnly) {
+          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (tab === "schedule") {
+          e.preventDefault();
+          handlePasteSelected();
+        }
+        return;
+      }
+
+      // 6. Duplicate: Ctrl+D
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (isEffectiveReadOnly) {
+          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (tab === "schedule") {
+          e.preventDefault();
+          handleDuplicateSelected();
+        }
+        return;
+      }
+
+      // 7. Undo/Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    tab,
+    buildings,
+    selectedRowIds,
+    activeItem,
+    isEffectiveReadOnly,
+    copiedBuildings,
+    undoStack,
+    redoStack,
+  ]);
+
+  // ==============================================================
+  // RIGHT-CLICK CONTEXT MENU CONTENT (CUSTOM TAILORED FOR FIRE DEMAND)
+  // ==============================================================
+  const renderBuildingContextMenu = (b: CivilDefenseBuilding) => {
+    const isMulti = selectedRowIds.size > 1 && selectedRowIds.has(b.id);
+    const targetsCount = isMulti ? selectedRowIds.size : 1;
+    const targetIds = isMulti ? Array.from(selectedRowIds) : [b.id];
+    const targetBuildings = buildings.filter((item) => targetIds.includes(item.id));
+    const hasAnyOverrides = targetBuildings.some(
+      (item) =>
+        item.overridePumpFlowGpm !== undefined ||
+        item.overridePumpPressureBar !== undefined ||
+        item.overrideTankDurationMin !== undefined ||
+        item.overrideNetStorageM3 !== undefined
+    );
+
+    return (
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-xs text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+        {/* 1. Edit Parameters */}
+        <ContextMenuItem
+          disabled={isEffectiveReadOnly}
+          onClick={() => {
+            if (isEffectiveReadOnly) {
+              toast.info("Calculation is APPROVED and locked. Unlock to edit.", { id: "readonly-notice" });
+              return;
+            }
+            handleOpenEditModal(b.id);
+          }}
+          className="flex items-center gap-2 p-1.5 font-medium cursor-pointer"
+        >
+          <Edit3 className="size-3.5 text-muted-foreground" />
+          <span>Edit Parameters</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double-click</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        {/* 2. Duplicate */}
+        <ContextMenuItem
+          disabled={isEffectiveReadOnly}
+          onClick={() => {
+            if (isEffectiveReadOnly) return;
+            if (!selectedRowIds.has(b.id)) {
+              setSelectedRowIds(new Set([b.id]));
+              setSelectedBuildingId(b.id);
+            }
+            handleDuplicateSelected();
+          }}
+          className="flex items-center gap-2 p-1.5 font-medium cursor-pointer"
+        >
+          <Copy className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? `Duplicate Selected (${targetsCount})` : "Duplicate Building"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        {/* 3. Copy */}
+        <ContextMenuItem
+          onClick={() => {
+            if (!selectedRowIds.has(b.id)) {
+              setSelectedRowIds(new Set([b.id]));
+              setCopiedBuildings([b]);
+              toast.info(`Copied "${b.name}" to clipboard`);
+            } else {
+              handleCopySelected();
+            }
+          }}
+          className="flex items-center gap-2 p-1.5 font-medium cursor-pointer"
+        >
+          <Copy className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? `Copy Selected (${targetsCount})` : "Copy Building"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        {/* 4. Cut */}
+        <ContextMenuItem
+          disabled={isEffectiveReadOnly}
+          onClick={() => {
+            if (isEffectiveReadOnly) return;
+            if (!selectedRowIds.has(b.id)) {
+              setSelectedRowIds(new Set([b.id]));
+            }
+            handleCutSelected();
+          }}
+          className="flex items-center gap-2 p-1.5 font-medium cursor-pointer"
+        >
+          <Scissors className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? `Cut Selected (${targetsCount})` : "Cut Building"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        {/* 5. Paste */}
+        <ContextMenuItem
+          disabled={isEffectiveReadOnly || copiedBuildings.length === 0}
+          onClick={() => {
+            if (isEffectiveReadOnly) return;
+            handlePasteSelected();
+          }}
+          className="flex items-center gap-2 p-1.5 font-medium cursor-pointer data-[disabled]:opacity-40 data-[disabled]:pointer-events-none"
+        >
+          <ClipboardPaste className="size-3.5 text-muted-foreground" />
+          <span>Paste Building{copiedBuildings.length > 0 ? ` (${copiedBuildings.length})` : ""}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        {/* 6. Reset Code Overrides (if any) */}
+        {hasAnyOverrides && (
+          <ContextMenuItem
+            disabled={isEffectiveReadOnly}
+            onClick={() => {
+              targetIds.forEach((id) => handleResetRowOverrides(id));
+            }}
+            className="flex items-center gap-2 p-1.5 font-medium text-amber-600 dark:text-amber-400 cursor-pointer"
+          >
+            <RotateCcw className="size-3.5" />
+            <span>Reset Overrides to Code</span>
+          </ContextMenuItem>
+        )}
+
+        {/* 7. Dedicated Water Tank Tab */}
+        <ContextMenuItem
+          onClick={() => {
+            setSelectedBuildingId(b.id);
+            setTab("tanks");
+          }}
+          className="flex items-center gap-2 p-1.5 font-medium cursor-pointer"
+        >
+          <Waves className="size-3.5 text-blue-500" />
+          <span>Configure Water Tank</span>
+        </ContextMenuItem>
+
+        {/* 8. Engineering Calculation Report Tab */}
+        <ContextMenuItem
+          onClick={() => {
+            setSelectedBuildingId(b.id);
+            setReportBuildingId(b.id);
+            setTab("report");
+          }}
+          className="flex items-center gap-2 p-1.5 font-medium cursor-pointer"
+        >
+          <FileText className="size-3.5 text-emerald-500" />
+          <span>View Calculation Report</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        {/* 9. Add Comment / Assign Task */}
+        <ContextMenuItem
+          onClick={() => handleOpenComment(b.id, b.name)}
+          className="flex items-center gap-2 p-1.5 font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer"
+        >
+          <MessageSquare className="size-3.5" />
+          <span>Add Comment / Assign Task</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        {/* 10. Delete */}
+        <ContextMenuItem
+          disabled={isEffectiveReadOnly}
+          onClick={() => {
+            if (isEffectiveReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Deleting is locked.", { id: "readonly-notice" });
+              return;
+            }
+            if (!selectedRowIds.has(b.id)) {
+              setSelectedRowIds(new Set([b.id]));
+            }
+            handleDeleteSelected();
+          }}
+          className="flex items-center gap-2 p-1.5 font-medium text-destructive hover:bg-destructive/10 cursor-pointer"
+        >
+          <Trash2 className="size-3.5" />
+          <span>{isMulti ? `Delete Selected (${targetsCount})` : "Delete Building"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
   };
 
   // Export Engineering Report as PDF
@@ -865,6 +1521,19 @@ export function FireWaterDemandPage() {
                       <Trash2 className="size-3.5" />
                       Delete ({selectedRowIds.size})
                     </button>
+                    <button
+                      disabled={!activeItem}
+                      onClick={() => {
+                        if (activeItem) {
+                          handleOpenComment(activeItem.building.id, activeItem.building.name);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-xs font-medium transition-all cursor-pointer disabled:opacity-50"
+                      title="Add Comment or Assign Task to Selected Building"
+                    >
+                      <MessageSquare className="size-3.5" />
+                      Comment
+                    </button>
                   </div>
                 </div>
 
@@ -936,23 +1605,37 @@ export function FireWaterDemandPage() {
                             b.overrideNetStorageM3 !== undefined;
 
                           return (
-                            <tr
-                              key={b.id}
-                              onClick={() => {
-                                setSelectedBuildingId(b.id);
-                                setReportBuildingId(b.id);
-                                if (!selectedRowIds.has(b.id)) {
-                                  setSelectedRowIds(new Set([b.id]));
-                                }
-                              }}
-                              onDoubleClick={() => handleOpenEditModal(b.id)}
-                              className={`transition-colors group ${
-                                isSelected
-                                  ? "bg-primary/10 hover:bg-primary/15 font-medium"
-                                  : "hover:bg-surface-2"
-                              }`}
-                              title="Double-click row to open full architectural parameters modal"
-                            >
+                            <ContextMenu key={b.id}>
+                              <ContextMenuTrigger asChild>
+                                <tr
+                                  key={b.id}
+                                  id={`building-row-${b.id}`}
+                                  data-row-id={b.id}
+                                  data-comment-target={b.id}
+                                  onContextMenu={() => {
+                                    if (!selectedRowIds.has(b.id)) {
+                                      setSelectedBuildingId(b.id);
+                                      setSelectedRowIds(new Set([b.id]));
+                                      setReportBuildingId(b.id);
+                                    }
+                                  }}
+                                  onClick={() => {
+                                    setSelectedBuildingId(b.id);
+                                    setReportBuildingId(b.id);
+                                    if (!selectedRowIds.has(b.id)) {
+                                      setSelectedRowIds(new Set([b.id]));
+                                    }
+                                  }}
+                                  onDoubleClick={() => handleOpenEditModal(b.id)}
+                                  className={`transition-colors group cursor-pointer ${
+                                    isItemHighlighted(b.id, b.name)
+                                      ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
+                                      : isSelected
+                                      ? "bg-primary/10 hover:bg-primary/15 font-medium"
+                                      : "hover:bg-surface-2"
+                                  }`}
+                                  title="Right-click for options • Double-click to edit • Ctrl+Click to select"
+                                >
                               {/* 1. Selection Checkbox */}
                               <td className="py-2 px-3 text-center" onClick={(e) => toggleSelectRow(b.id, e)}>
                                 <input
@@ -974,6 +1657,7 @@ export function FireWaterDemandPage() {
                                     className="w-full px-2 py-1 text-xs font-semibold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded transition-all"
                                     placeholder="Building Name"
                                   />
+                                  {renderCommentBadge(b.id, b.name)}
                                   {ev.requiresStagingPumps && (
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 font-mono font-semibold shrink-0" title="Super Highrise (>90m): Mandates intermediate multi-level staging pumps and transfer tanks">
                                       &gt;90m
@@ -1306,20 +1990,23 @@ export function FireWaterDemandPage() {
                                 )}
                               </td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                          </ContextMenuTrigger>
+                          {renderBuildingContextMenu(b)}
+                        </ContextMenu>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
-                  {/* Table Bottom Status / Hint Bar */}
-                  <div className="px-4 py-2 bg-surface-2/60 border-t border-border flex items-center justify-between text-xs text-muted-foreground shrink-0 flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <MousePointerClick className="size-3.5 text-primary" />
-                      <span>
-                        Inputs &amp; outputs are directly editable. Altering any input dynamically recalculates outputs according to UAE Civil Defense statutory formulas. Output overrides are highlighted with ↺ reset.
-                      </span>
-                    </div>
+              {/* Table Bottom Status / Hint Bar */}
+              <div className="px-4 py-2 bg-surface-2/60 border-t border-border flex items-center justify-between text-xs text-muted-foreground shrink-0 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <MousePointerClick className="size-3.5 text-primary" />
+                  <span>
+                    Right-click any row for actions (Duplicate, Copy, Cut, Paste, Tank Sizing, Report, Delete). Shortcuts: Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D, Ctrl+Z, Delete, Esc.
+                  </span>
+                </div>
                     {activeItem && (
                       <div className="flex items-center gap-2">
                         <span>Selected: <strong className="text-foreground">{activeItem.building.name}</strong></span>
@@ -2029,13 +2716,20 @@ export function FireWaterDemandPage() {
         />
       )}
 
-      {/* Assign Comment Modal */}
-      <AssignCommentModal
-        open={commentModalOpen}
-        onOpenChange={setCommentModalOpen}
-        targetId={commentTargetId || "fire-water-demand-calc"}
-        targetName="Civil Defense Fire Water Demand Calculator"
-      />
+      {/* Assign Comment / Task Modal */}
+      {commentModalOpen && commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => setCommentModalOpen(false)}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType="Civil Defense Building"
+          calculatorTitle="Fire Water Demand"
+          calculatorPath="/plumbing-fire-water-demand"
+          existingComments={getItemComments(commentTargetItem.id)}
+          onSave={handleSaveComment}
+        />
+      )}
     </AppShell>
   );
 }

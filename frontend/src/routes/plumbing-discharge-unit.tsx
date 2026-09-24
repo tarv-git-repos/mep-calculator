@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
-import { Trash2, Plus, FileSpreadsheet, Info, ChevronDown, ChevronUp, Save, X, Download, Flag } from "lucide-react";
+import { Trash2, Plus, FileSpreadsheet, Info, ChevronDown, ChevronUp, Save, X, Download, Flag, Search, Filter, SlidersHorizontal, FileText } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -128,7 +128,7 @@ function DischargeUnitPage() {
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
   const [fuSpaces, setFuSpaces] = useState<FUSpace[]>([]);
   const [previewSpace, setPreviewSpace] = useState<FUSpace | null>(null);
-  const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
+  const [activeTab, setActiveTab] = useState<"spaces" | "report">("spaces");
 
   // Form states
   const [newDesc, setNewDesc] = useState("");
