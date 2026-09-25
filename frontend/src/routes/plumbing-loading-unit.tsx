@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -634,7 +634,7 @@ function FloorNameInput({
 
 function LoadingUnitPage() {
   const { userData, profile } = useAuth();
-  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const { project, activeProjectId, forceSaveToCloud, isReadOnly } = useWorkspace();
   const [calcReviewState, setCalcReviewState] = useState<any>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -645,7 +645,9 @@ function LoadingUnitPage() {
     return { status: "DRAFT" };
   });
 
-  const isApprovedLocked = Boolean(project?.id || activeProjectId) && calcReviewState?.status === "APPROVED";
+  const isApprovedLocked = useCalculationLock("/plumbing-loading-unit", project?.id || activeProjectId);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
+  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole || calcReviewState?.status === "APPROVED");
   const [activeTab, setActiveTab] = useState<"spaces" | "report">("spaces");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [standardPreset, setStandardPreset] = useState<StandardPreset>("dubai");
