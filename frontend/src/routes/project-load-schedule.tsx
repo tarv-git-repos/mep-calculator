@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useElectricalNetworkStore } from "@/store/electrical-network";
 
 import { AppShell } from "@/components/workspace/AppShell";
+import { useWorkspace } from "@/lib/workspace-store";
 import { NetworkSLD } from "@/components/workspace/NetworkSLD";
 import { Plus, Trash2, Network, Table as TableIcon, Copy, Zap, Download, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,7 @@ const POINT_TYPES = [
 ];
 
 function createDefaultBoard(id: string, name: string) {
+  
   return {
     id,
     name,
@@ -109,6 +111,8 @@ function generateDefaultMDBCircuit(id: string, index: number) {
 
 // --- Main Component ---
 function ProjectLoadSchedulePage() {
+  const { activeProjectId } = useWorkspace();
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/project-load-schedule", activeProjectId);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
@@ -1064,7 +1068,7 @@ function ProjectLoadSchedulePage() {
             <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               Load Schedule <span className="text-xs font-normal text-slate-500">Hierarchical MEP Load Distribution Manager</span>
             </h1>
-              <CalculationReviewBar calculatorPath="/project-load-schedule" calculatorTitle="Project Load Schedule" />
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/project-load-schedule" calculatorTitle="Project Load Schedule" />
           </div>
           <div className="flex items-center gap-3">
             <button onClick={globalNetworkBalance} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#3178c6] text-white rounded hover:bg-[#2968ad] transition shadow-sm">
@@ -1081,7 +1085,13 @@ function ProjectLoadSchedulePage() {
           </div>
         </div>
 
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} overflow-hidden`}>
           {view === "sld" ? (
             <div className="flex-1 m-4 rounded-xl overflow-hidden bg-slate-50 border border-slate-200 shadow-inner relative">
               <NetworkSLD 
