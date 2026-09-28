@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -12,8 +12,11 @@ import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import {
   Plus, Trash2, Download, Upload, X, AlertTriangle, CheckCircle2,
   Gauge, FileText, Printer, FileSpreadsheet, Copy, RefreshCw,
-  Filter, ArrowUpDown, Search, SlidersHorizontal, Flag, Sparkles
+  Filter, ArrowUpDown, Search, SlidersHorizontal, Flag, Sparkles,
+  MessageSquare
 } from "lucide-react";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
@@ -46,16 +49,7 @@ export const Route = createFileRoute("/central-battery-sizing")({
   component: CentralBatterySizingPage,
 });
 
-interface CBSRow {
-  id: string;
-  description: string;
-  emLightQty: number;
-  emLightW: number;
-  exitLightQty: number;
-  exitLightW: number;
-  remarks: string;
-  flagged?: boolean;
-}
+import { CBSRow, STANDARD_CBS_SIZES, calculateCentralBattery } from "@/lib/calc-central-battery";
 
 interface InlineInputProps {
   value: string | number;
@@ -99,13 +93,13 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "report", label: "Report" },
 ];
 
-const STANDARD_CBS_SIZES = [
-  5, 10, 15, 20, 30, 40, 50, 60, 80, 100, 120, 160, 200, 250, 315, 400
-];
+
 
 function CentralBatterySizingPage() {
+  const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/central-battery-sizing", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/central-battery-sizing", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
-  const { project } = useWorkspace();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -151,42 +145,27 @@ function CentralBatterySizingPage() {
   const { selectedIds: selected, toggleSelection, selectAll, clearSelection } = useSelection(rows);
   const { copy, cut, paste } = useClipboard<CBSRow>(rows, selected, setRows);
 
+  // Comment Modal State & Handlers
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (comment: any) => {
+    if (!commentTargetItem) return;
+    setRows(rows.map(r => r.id === commentTargetItem.id ? {
+      ...r,
+      comments: [...((r as any).comments || []), comment]
+    } : r));
+    setCommentModalOpen(false);
+    setCommentTargetItem(null);
+  };
+
   // Sizing Calculations Engine
-  const calculatedData = useMemo(() => {
-    let totalConnectedW = 0;
-
-    rows.forEach((r) => {
-      const emQty = r.emLightQty || 0;
-      const emW = r.emLightW || 0;
-      const exitQty = r.exitLightQty || 0;
-      const exitW = r.exitLightW || 0;
-
-      const rowConnected = (emQty * emW) + (exitQty * exitW);
-      totalConnectedW += rowConnected;
-    });
-
-    const totalConnectedKw = totalConnectedW / 1000;
-    
-    const safeLF = loadingFactor <= 0 ? 0.9 : loadingFactor;
-    const totalLoadAfterLFFactorKw = totalConnectedKw / safeLF;
-
-    const safePF = powerFactor <= 0 ? 0.8 : powerFactor;
-    const batteryRatingKva = totalLoadAfterLFFactorKw / safePF;
-
-    const finalRecommendedKva = batteryRatingKva * (1 + spareCapacity / 100);
-
-    // Recommend standard size
-    const recStandardSize = STANDARD_CBS_SIZES.find(size => size >= finalRecommendedKva) || 400;
-
-    return {
-      totalConnectedW,
-      totalConnectedKw,
-      totalLoadAfterLFFactorKw,
-      batteryRatingKva,
-      finalRecommendedKva,
-      recStandardSize
-    };
-  }, [rows, loadingFactor, powerFactor, spareCapacity]);
+  const calculatedData = useMemo(() => calculateCentralBattery(rows, loadingFactor, powerFactor, spareCapacity), [rows, loadingFactor, powerFactor, spareCapacity]);
 
   // Validation Rules
   const validations = useMemo(() => {
@@ -641,14 +620,33 @@ function CentralBatterySizingPage() {
       header: "Description",
       width: 280,
       editable: true,
-      render: (r) => (
-        <InlineInput
-          value={r.description}
-          onCommit={(val) => handleUpdateRow(r.id, "description", val)}
-          onDoubleClick={() => setPreviewRow(r)}
-          className="font-medium text-[13px]"
-        />
-      )
+      render: (r) => {
+        const itemComments = getMergedItemComments(r.id, r.description, (r as any).comments, "/central-battery-sizing", project?.id);
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            {itemComments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(r.id, r.description);
+                }}
+                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                <span className="text-[10px] font-bold">{itemComments.length}</span>
+              </button>
+            )}
+            <InlineInput
+              value={r.description}
+              onCommit={(val) => handleUpdateRow(r.id, "description", val)}
+              onDoubleClick={() => setPreviewRow(r)}
+              className="font-medium text-[13px]"
+            />
+          </div>
+        );
+      }
     },
     {
       key: "emLightQty",
@@ -907,7 +905,7 @@ function CentralBatterySizingPage() {
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Central Battery Sizing</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} areas</span>
                 </div>
-                <CalculationReviewBar calculatorPath="/central-battery-sizing" calculatorTitle="Central Battery Sizing" />
+                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/central-battery-sizing" calculatorTitle="Central Battery Sizing" />
               </div>
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
@@ -918,7 +916,13 @@ function CentralBatterySizingPage() {
 
           {/* Sizing Schedule workspace container */}
           <div className="flex-1 flex flex-col gap-6 min-h-[450px] mb-6">
-            <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden">
+            <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} min-h-[450px] overflow-hidden`}>
               
               {/* Tab Selector row */}
               <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
@@ -1542,6 +1546,24 @@ function CentralBatterySizingPage() {
       </div>
 
       {/* Calculation Preview Modal on Double-click */}
+      
+      {/* Assign Comment Modal */}
+      {commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => {
+            setCommentModalOpen(false);
+            setCommentTargetItem(null);
+          }}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType="circuit"
+          calculatorTitle="Central Battery Sizing"
+          calculatorPath="/central-battery-sizing"
+          existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, (rows.find(r => r.id === commentTargetItem.id) as any)?.comments, "/central-battery-sizing", project?.id)}
+          onSave={handleSaveComment}
+        />
+      )}
       <CalculationPreviewModal
         isOpen={!!previewRow}
         onClose={() => setPreviewRow(null)}

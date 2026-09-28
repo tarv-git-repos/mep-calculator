@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -73,7 +73,9 @@ const DEFAULT_PARAMS_IP: FireTankDurationParams = {
 };
 
 export function FireTankDurationPage() {
-  const { project, forceSaveToCloud } = useWorkspace();
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-fire-tank-duration", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-fire-tank-duration", activeProjectId || project?.id);
   const { user } = useAuth();
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [sizingParams, setSizingParams] = useState<FireTankDurationParams>(DEFAULT_PARAMS_SI);
@@ -84,7 +86,6 @@ export function FireTankDurationPage() {
   const [isLoaded, setIsLoaded] = useState(false);
 
   const { isLocked: isReviewLocked } = useCalculationLock("/plumbing-fire-tank-duration");
-  const isEffectiveReadOnly = isReviewLocked;
 
   // Deep-link from comment notifications and URL query params
   useEffect(() => {
@@ -783,7 +784,13 @@ export function FireTankDurationPage() {
         </div>
 
         {/* Main 2-Column Layout (Left: Inputs (50%) | Right: Results (50%)) */}
-        <div className="flex-1 min-h-0 pt-4 pb-4 overflow-hidden">
+        <div className={`flex-1 min-h-0 p-4 rounded-2xl transition-all duration-300 overflow-hidden ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 h-full">
 
             {/* Left Column: Scrollable Inputs */}

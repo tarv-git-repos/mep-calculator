@@ -3809,11 +3809,12 @@ const server = http.createServer(async (req, res) => {
       
       const { data, error } = await query;
       
-      if (error) throw error;
+      if (error) {
+        return sendJSON(res, 200, { success: true, announcements: [] });
+      }
       return sendJSON(res, 200, { success: true, announcements: data || [] });
     } catch (err) {
-      console.error('Error fetching announcements:', err);
-      return sendJSON(res, 500, { success: false, message: 'Server error fetching announcements' });
+      return sendJSON(res, 200, { success: true, announcements: [] });
     }
   }
 
@@ -3952,26 +3953,29 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && url === '/api/notifications/delete') {
     try {
       const { id, ids } = await getRequestBody(req);
-      const targetIds = new Set(Array.isArray(ids) ? ids : (id ? [id] : []));
+      const targetIds = new Set(Array.isArray(ids) ? ids.map(String) : (id ? [String(id)] : []));
       if (targetIds.size > 0) {
         const targetArray = Array.from(targetIds);
 
-        // 1. Filter local notifications file strictly by notification ID or metadata.id
+        // 1. Filter local notifications file strictly by notification ID, commentId, metadata.id, metadata.commentId
         const localNotifs = readNotificationsData();
         const filtered = localNotifs.filter(n => {
           if (!n) return false;
-          if (targetIds.has(n.id)) return false;
-          if (n.metadata?.id && targetIds.has(n.metadata.id)) return false;
+          if (targetIds.has(String(n.id))) return false;
+          if (n.commentId && targetIds.has(String(n.commentId))) return false;
+          if (n.metadata?.id && targetIds.has(String(n.metadata.id))) return false;
+          if (n.metadata?.commentId && targetIds.has(String(n.metadata.commentId))) return false;
           return true;
         });
         writeNotificationsData(filtered);
 
-        // 2. Delete from Supabase notifications table comprehensively by ID
+        // 2. Delete from Supabase notifications table comprehensively by ID & JSON metadata
         try {
           await supabase.from('notifications').delete().in('id', targetArray);
           for (const tId of targetArray) {
             if (tId && typeof tId === 'string') {
               await supabase.from('notifications').delete().eq('metadata->>id', tId);
+              await supabase.from('notifications').delete().eq('metadata->>commentId', tId);
             }
           }
         } catch (e) {}

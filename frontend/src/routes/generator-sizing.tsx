@@ -1,4 +1,5 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { calculateGeneratorSizing, getGenRowValidation, STANDARD_SIZES, STARTER_MULTIPLIERS, type GenRow, type StarterType } from "@/lib/calc-generator";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -9,6 +10,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { Download, FileSpreadsheet, FileText, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles, Flag, ChevronRight, ChevronLeft, ChevronUp, ChevronDown, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditGeneratorRowModal } from "@/components/workspace/EditGeneratorRowModal";
@@ -115,12 +117,14 @@ const STANDARD_SIZES = [
 ];
 
 function GeneratorSizingPage() {
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/generator-sizing", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/generator-sizing", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
   const prompt = usePrompt();
-  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/generator-sizing", project?.id);
   const isLocked = isApprovedLocked;
 
@@ -299,15 +303,6 @@ function GeneratorSizingPage() {
   };
 
   const activeProject = workspaceStore.getState().project;
-  const [calcReviewState, setCalcReviewState] = useState<any>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(`mep_calc_review_${activeProject?.id || "default"}_/generator-sizing`);
-        if (saved) return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return { status: "DRAFT" };
-  });
 
   // Version History Restore Listener
   useEffect(() => {
@@ -1264,7 +1259,13 @@ function GeneratorSizingPage() {
       subtitle="Calculate DG set size based on connected and emergency loads"
     >
       
-      <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
+      <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
         <div className="relative z-10 flex flex-col h-full w-full">
           {/* Sections Navigation (Tabs) */}
           <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center justify-between gap-3">
@@ -2318,7 +2319,7 @@ function GeneratorSizingPage() {
           targetId={commentTarget.id}
           targetName={commentTarget.name}
           targetType={commentTarget.type}
-          existingComments={rows.find((r) => r.id === commentTarget.id)?.comments || []}
+          existingComments={getMergedItemComments(commentTarget.id, commentTarget.name, rows.find((r) => r.id === commentTarget.id)?.comments, "/generator-sizing", project?.id)}
           onSave={async (newComment) => {
             if (!commentTarget) return;
             const targetId = commentTarget.id;

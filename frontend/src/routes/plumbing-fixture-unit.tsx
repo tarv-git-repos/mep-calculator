@@ -1,14 +1,17 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
-import { Trash2, Plus, FileSpreadsheet, Info, ChevronDown, ChevronUp, Save } from "lucide-react";
+import { Trash2, Plus, FileSpreadsheet, Info, ChevronDown, ChevronUp, Save, MessageSquare } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
+import { useAuth } from "@/contexts/AuthContext";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 
 export const Route = createFileRoute("/plumbing-fixture-unit")({
   head: () => ({
@@ -125,7 +128,12 @@ function extractFloorFU(name: string) {
 }
 
 function FixtureUnitPage() {
-  const { project, forceSaveToCloud } = useWorkspace();
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-fixture-unit", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-fixture-unit", activeProjectId || project?.id);
+  const { profile, userData } = useAuth();
+  const isApprovedLocked = useCalculationLock("/plumbing-fixture-unit", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [headerStd, setHeaderStd] = useState<string>("ipc-total");
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
@@ -140,6 +148,19 @@ function FixtureUnitPage() {
   // Selection states for batch update
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [bulkStd, setBulkStd] = useState("ipc-total");
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<any>(null);
+
+  const handleSaveComment = (newComment: any) => {
+    if (!commentTargetItem) return;
+    const nextSpaces = fuSpaces.map((s: any) => {
+      if (String(s.id) === String(commentTargetItem.id)) {
+        return { ...s, comments: [...(s.comments || []), newComment] };
+      }
+      return s;
+    });
+    setFuSpaces(nextSpaces);
+  };
 
   // Load state from localStorage on project change
   useEffect(() => {
@@ -525,12 +546,18 @@ function FixtureUnitPage() {
   return (
     <AppShell title="Fixture Unit Calculator" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full animate-in fade-in-50 duration-200">
+        <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} animate-in fade-in-50 duration-200`}>
           <div className="flex justify-between items-start select-none">
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground mt-0.5">Fixture Unit Calculator</h1>
-              <CalculationReviewBar calculatorPath="/plumbing-fixture-unit" calculatorTitle="Plumbing Fixture Unit" />
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-fixture-unit" calculatorTitle="Plumbing Fixture Unit" />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Select fixtures, quantity, and apply usage standards to calculate Water Supply Fixture Units (WSFU) and peak demand flow.
@@ -802,6 +829,24 @@ function FixtureUnitPage() {
           </div>
         </div>
       </div>
+    
+      {/* Assign Comment Modal */}
+      {commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => {
+            setCommentModalOpen(false);
+            setCommentTargetItem(null);
+          }}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType="space"
+          calculatorTitle="Fixture Unit Calculator"
+          calculatorPath="/plumbing-fixture-unit"
+          existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, (fuSpaces.find(s => String(s.id) === commentTargetItem.id) as any)?.comments, "/plumbing-fixture-unit", project?.id)}
+          onSave={handleSaveComment}
+        />
+      )}
     </AppShell>
   );
 }

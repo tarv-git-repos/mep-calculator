@@ -1,21 +1,28 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
+import { useWorkspace } from "@/lib/workspace-store";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
-import { TBtn } from "@/components/workspace/Button";
+import { TBtn, BulkBtn } from "@/components/workspace/Button";
+import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import {
-  Plus, Trash2, Download, Upload, Sparkles, Gauge, FileText, Printer, FileSpreadsheet, RotateCcw
+  Plus, Trash2, Download, Upload, Sparkles, Gauge, FileText, Printer, FileSpreadsheet, RotateCcw, Filter, ArrowUpDown, Copy, X, Check, MessageSquare, Search, SlidersHorizontal, PanelRightClose, PanelRightOpen
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { toast } from "sonner";
 import { useConfirm } from "@/hooks/use-confirm";
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { STANDARD_BREAKER_RATINGS_A } from "@/core/standards/breakers";
 
 interface InlineInputProps {
@@ -85,26 +92,64 @@ export const Route = createFileRoute("/circuit-breaker-sizing")({
   component: CircuitBreakerSizingPage,
 });
 
-interface BreakerRow {
-  id: string;
-  selected?: boolean;
-  description: string;
-  connectedLoad: number | "";
-  voltage: number | "";
-  phase: "Select..." | "Single Phase" | "Three Phase";
-  powerFactor: number | "";
-  demandFactor: number | "";
-  remarks: string;
-}
+import { BreakerRow, calculateCircuitBreakers } from "@/lib/calc-circuit-breaker";
 
 function CircuitBreakerSizingPage() {
+  const { project, activeProjectId, isReadOnly } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/circuit-breaker-sizing", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/circuit-breaker-sizing", activeProjectId || project?.id);
+  const isApprovedLocked = useCalculationLock("/circuit-breaker-sizing", project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
 
+  
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (comment: any) => {
+    setRows(prev => prev.map(r => r.id === commentTargetItem?.id ? {
+      ...r,
+      comments: [...((r as any).comments || []), comment]
+    } : r));
+    setCommentModalOpen(false);
+    toast.success("Comment saved");
+  };
+
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
-  const [showSummary, setShowSummary] = useState(false);
+  const [showSummary, setShowSummary] = useState(true);
+
+  // Search, Filter & Sort State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterPhase, setFilterPhase] = useState<"all" | "Single Phase" | "Three Phase">("all");
+  const [filterMinLoad, setFilterMinLoad] = useState<number | null>(null);
+  const [filterMinCurrent, setFilterMinCurrent] = useState<number | null>(null);
+  const [filterSelectedOnly, setFilterSelectedOnly] = useState(false);
+  const [sortKey, setSortKey] = useState<"default" | "description" | "connectedLoad" | "voltage" | "designCurrent" | "recBreaker">("default");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterPhase !== "all") count++;
+    if (filterMinLoad !== null) count++;
+    if (filterMinCurrent !== null) count++;
+    if (filterSelectedOnly) count++;
+    return count;
+  }, [filterPhase, filterMinLoad, filterMinCurrent, filterSelectedOnly]);
+
+  const handleResetFilters = () => {
+    setFilterPhase("all");
+    setFilterMinLoad(null);
+    setFilterMinCurrent(null);
+    setFilterSelectedOnly(false);
+  };
 
   // Table rows matching screenshot
   const [rows, setRows] = useState<BreakerRow[]>([
@@ -122,72 +167,88 @@ function CircuitBreakerSizingPage() {
   ]);
 
   // Calculations
-  const calculatedData = useMemo(() => {
-    let totalConnectedKw = 0;
-    let totalDesignLoadKw = 0;
-    let maxDesignCurrentA = 0;
+  const calculatedData = useMemo(() => calculateCircuitBreakers(rows), [rows]);
 
-    const rowDetails = rows.map(row => {
-      const load = Number(row.connectedLoad) || 0;
-      const volt = Number(row.voltage) || 0;
-      const pf = Number(row.powerFactor) || 0.8;
-      const df = Number(row.demandFactor) || 1.0;
 
-      const designLoad = load * df;
-      let designCurrent = 0;
+  // Filtered & Sorted Rows for Display
+  const displayedRows = useMemo(() => {
+    let list = [...calculatedData.rowDetails];
 
-      if (volt > 0 && pf > 0) {
-        if (row.phase === "Single Phase") {
-          designCurrent = (designLoad * 1000) / (volt * pf);
-        } else if (row.phase === "Three Phase") {
-          designCurrent = (designLoad * 1000) / (1.7320508 * volt * pf);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(r =>
+        r.description.toLowerCase().includes(q) ||
+        r.remarks.toLowerCase().includes(q) ||
+        String(r.voltage).includes(q) ||
+        String(r.connectedLoad).includes(q) ||
+        String(r.recBreaker).includes(q)
+      );
+    }
+
+    if (filterPhase !== "all") {
+      list = list.filter(r => r.phase === filterPhase);
+    }
+
+    if (filterMinLoad !== null) {
+      list = list.filter(r => (Number(r.connectedLoad) || 0) >= filterMinLoad);
+    }
+
+    if (filterMinCurrent !== null) {
+      list = list.filter(r => r.designCurrent >= filterMinCurrent);
+    }
+
+    if (filterSelectedOnly) {
+      list = list.filter(r => r.selected);
+    }
+
+    if (sortKey !== "default") {
+      list.sort((a, b) => {
+        let valA: any = a[sortKey];
+        let valB: any = b[sortKey];
+        if (sortKey === "connectedLoad" || sortKey === "voltage" || sortKey === "designCurrent" || sortKey === "recBreaker") {
+          valA = Number(valA) || 0;
+          valB = Number(valB) || 0;
+        } else {
+          valA = String(valA || "").toLowerCase();
+          valB = String(valB || "").toLowerCase();
         }
-      }
+        if (valA < valB) return sortDirection === "asc" ? -1 : 1;
+        if (valA > valB) return sortDirection === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
 
-      const recBreaker = STANDARD_BREAKER_RATINGS_A.find(r => r >= designCurrent) || STANDARD_BREAKER_RATINGS_A[STANDARD_BREAKER_RATINGS_A.length - 1];
-
-      totalConnectedKw += load;
-      totalDesignLoadKw += designLoad;
-      if (designCurrent > maxDesignCurrentA) {
-        maxDesignCurrentA = designCurrent;
-      }
-
-      return {
-        ...row,
-        designLoad,
-        designCurrent,
-        recBreaker
-      };
-    });
-
-    const recSummaryBreaker = STANDARD_BREAKER_RATINGS_A.find(r => r >= maxDesignCurrentA) || STANDARD_BREAKER_RATINGS_A[STANDARD_BREAKER_RATINGS_A.length - 1];
-    const breakerUtilization = recSummaryBreaker > 0 ? (maxDesignCurrentA / recSummaryBreaker) * 100 : 0;
-
-    return {
-      rowDetails,
-      totalConnectedKw,
-      totalDesignLoadKw,
-      maxDesignCurrentA,
-      recSummaryBreaker,
-      breakerUtilization: isNaN(breakerUtilization) ? 0 : breakerUtilization,
-    };
-  }, [rows]);
-
+    return list;
+  }, [calculatedData.rowDetails, searchQuery, filterPhase, filterMinLoad, filterMinCurrent, filterSelectedOnly, sortKey, sortDirection]);
 
   // Handlers
   const handleAddRow = () => {
     const newRow: BreakerRow = {
       id: Date.now().toString(),
       selected: false,
-      description: `New Feeder Load`,
+      description: `New Feeder Load ${rows.length + 1}`,
       connectedLoad: 10,
       voltage: 400,
-      phase: "Select...",
+      phase: "Three Phase",
       powerFactor: 0.8,
       demandFactor: 1,
       remarks: "",
     };
-    setRows([...rows, newRow]);
+    setRows(prev => [...prev, newRow]);
+    toast.success("New circuit added");
+  };
+
+  const handleDuplicateSelected = () => {
+    const selectedRows = rows.filter(r => r.selected);
+    if (selectedRows.length === 0) return;
+    const duplicated = selectedRows.map(r => ({
+      ...r,
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      description: `${r.description} (Copy)`,
+      selected: false
+    }));
+    setRows(prev => [...prev, ...duplicated]);
+    toast.success(`Duplicated ${duplicated.length} circuit(s)`);
   };
 
   const handleUpdateRow = (id: string, field: keyof BreakerRow, val: any) => {
@@ -239,31 +300,37 @@ function CircuitBreakerSizingPage() {
   };
 
   const handleDeleteSelected = async () => {
-    if (await confirm({ title: "Delete Selected", body: "Are you sure you want to delete the selected rows?" })) {
-      setRows(rows.filter(r => !r.selected));
+    const selectedCount = rows.filter(r => r.selected).length;
+    if (selectedCount === 0) return;
+    if (await confirm({ title: "Delete Selected", body: `Are you sure you want to delete ${selectedCount} selected circuit(s)?` })) {
+      setRows(prev => prev.filter(r => !r.selected));
+      toast.success(`Deleted ${selectedCount} circuit(s)`);
     }
   };
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     const checked = e.target.checked;
-    setRows(rows.map(r => ({ ...r, selected: checked })));
+    const visibleIds = new Set(displayedRows.map(r => r.id));
+    setRows(prev => prev.map(r => visibleIds.has(r.id) ? { ...r, selected: checked } : r));
   };
 
   const handleReset = async () => {
-    if (await confirm({ title: "Reset Data", body: "This will clear all rows. Continue?" })) {
+    if (await confirm({ title: "Reset Data", body: "This will clear all circuits. Continue?" })) {
       setRows([]);
       setShowSummary(false);
+      toast.info("All circuits cleared");
     }
   };
 
   const handleExportJSON = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ rows }));
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ rows }, null, 2));
     const downloadAnchor = document.createElement("a");
     downloadAnchor.setAttribute("href", dataStr);
     downloadAnchor.setAttribute("download", `circuit_breaker_sizing_data.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+    toast.success("JSON data exported!");
   };
 
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -273,43 +340,122 @@ function CircuitBreakerSizingPage() {
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.rows) setRows(parsed.rows);
+        if (parsed.rows && Array.isArray(parsed.rows)) {
+          setRows(parsed.rows);
+          toast.success(`Imported ${parsed.rows.length} circuit(s) successfully!`);
+        } else {
+          toast.error("Invalid JSON format. Expected { rows: [...] }");
+        }
       } catch (err) {
-        alert("Failed to parse JSON file.");
+        toast.error("Failed to parse JSON file.");
       }
     };
     reader.readAsText(file);
     e.target.value = '';
   };
 
+  const excelColumnMapping = {
+    description: ["Description", "Circuit Description", "Load Description", "Desc", "Circuit", "Space"],
+    connectedLoad: ["Connected Load (kW)", "Connected Load", "Load (kW)", "kW", "Load", "Watt"],
+    voltage: ["Voltage (V)", "Voltage", "Volts", "V"],
+    phase: ["Phase", "Phases", "Phase Type"],
+    powerFactor: ["Power Factor", "PF", "P.F."],
+    demandFactor: ["Demand Factor", "DF", "D.F."],
+    remarks: ["Remarks", "Remark", "Notes", "Comments"],
+  };
+
+  const handleImportExcelRows = (imported: any[]) => {
+    if (!imported || imported.length === 0) return;
+    const newRows: BreakerRow[] = imported.map((r, i) => {
+      let phaseVal: "Single Phase" | "Three Phase" = "Three Phase";
+      if (r.phase) {
+        const pStr = String(r.phase).toLowerCase();
+        if (pStr.includes("1") || pStr.includes("single")) phaseVal = "Single Phase";
+      } else if (r.voltage && Number(r.voltage) <= 240) {
+        phaseVal = "Single Phase";
+      }
+
+      return {
+        id: `imported-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 4)}`,
+        description: r.description || `Circuit ${rows.length + i + 1}`,
+        connectedLoad: r.connectedLoad !== undefined && r.connectedLoad !== "" ? Number(r.connectedLoad) : 10,
+        voltage: r.voltage !== undefined && r.voltage !== "" ? Number(r.voltage) : (phaseVal === "Single Phase" ? 230 : 400),
+        phase: phaseVal,
+        powerFactor: r.powerFactor !== undefined && r.powerFactor !== "" ? Number(r.powerFactor) : 0.8,
+        demandFactor: r.demandFactor !== undefined && r.demandFactor !== "" ? Number(r.demandFactor) : 1.0,
+        remarks: r.remarks || "",
+        selected: false,
+      };
+    });
+    setRows(prev => [...prev, ...newRows]);
+    toast.success(`Imported ${newRows.length} circuit(s) successfully!`);
+  };
+
   const handleExportExcel = async () => {
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Breaker Sizing");
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("Breaker Sizing");
 
-    sheet.getColumn(1).width = 25;
-    sheet.getColumn(2).width = 15;
-    sheet.getColumn(3).width = 15;
-    sheet.getColumn(4).width = 15;
+      sheet.columns = [
+        { header: "Sr.", key: "sr", width: 8 },
+        { header: "Description", key: "desc", width: 28 },
+        { header: "Connected Load (kW)", key: "load", width: 22 },
+        { header: "Voltage (V)", key: "volt", width: 14 },
+        { header: "Phase", key: "phase", width: 16 },
+        { header: "Power Factor", key: "pf", width: 14 },
+        { header: "Demand Factor", key: "df", width: 14 },
+        { header: "Design Current (A)", key: "current", width: 18 },
+        { header: "Recommended Breaker (A)", key: "breaker", width: 24 },
+        { header: "Remarks", key: "remarks", width: 24 },
+      ];
 
-    sheet.mergeCells("A1:D1");
-    const cellA1 = sheet.getCell("A1");
-    cellA1.value = "CIRCUIT BREAKER SIZING REPORT";
-    cellA1.font = { name: "Calibri", size: 16, bold: true, color: { argb: "FFFFFF" } };
-    cellA1.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "333F48" } };
-    cellA1.alignment = { horizontal: "center" };
+      // Insert title row
+      sheet.spliceRows(1, 0, ["CIRCUIT BREAKER SIZING REPORT"]);
+      sheet.mergeCells("A1:J1");
+      const cellA1 = sheet.getCell("A1");
+      cellA1.value = "CIRCUIT BREAKER SIZING REPORT";
+      cellA1.font = { name: "Calibri", size: 16, bold: true, color: { argb: "FFFFFF" } };
+      cellA1.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "333F48" } };
+      cellA1.alignment = { horizontal: "center", vertical: "middle" };
+      sheet.getRow(1).height = 32;
 
-    sheet.addRow([]);
-    sheet.addRow(["Results Summary"]);
-    sheet.getCell("A3").font = { name: "Calibri", size: 13, bold: true };
-    sheet.addRow(["Total Connected Load (kW)", `${calculatedData.totalConnectedKw.toFixed(1)} kW`]);
-    sheet.addRow(["Total Design Load (kW)", `${calculatedData.totalDesignLoadKw.toFixed(1)} kW`]);
-    sheet.addRow(["Maximum Design Current (A)", `${calculatedData.maxDesignCurrentA.toFixed(2)} A`]);
+      // Table Header Row styling
+      const headerRow = sheet.getRow(2);
+      headerRow.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FFFFFF" } };
+      headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "2563EB" } };
+      headerRow.alignment = { horizontal: "center", vertical: "middle" };
+      headerRow.height = 24;
 
-    
-    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "circuit-breaker-sizing");
-    const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), `circuit_breaker_sizing_report.xlsx`);
+      calculatedData.rowDetails.forEach((r, idx) => {
+        sheet.addRow({
+          sr: idx + 1,
+          desc: r.description,
+          load: r.connectedLoad !== "" ? Number(r.connectedLoad) : 0,
+          volt: r.voltage !== "" ? Number(r.voltage) : 0,
+          phase: r.phase,
+          pf: r.powerFactor !== "" ? Number(r.powerFactor) : 0.8,
+          df: r.demandFactor !== "" ? Number(r.demandFactor) : 1,
+          current: Number(r.designCurrent.toFixed(2)),
+          breaker: `${r.recBreaker} A`,
+          remarks: r.remarks,
+        });
+      });
+
+      sheet.addRow([]);
+      const summaryTitle = sheet.addRow(["Results Summary"]);
+      summaryTitle.font = { name: "Calibri", size: 12, bold: true };
+      sheet.addRow(["Total Connected Load (kW)", `${calculatedData.totalConnectedKw.toFixed(1)} kW`]);
+      sheet.addRow(["Total Design Load (kW)", `${calculatedData.totalDesignLoadKw.toFixed(1)} kW`]);
+      sheet.addRow(["Maximum Design Current (A)", `${calculatedData.maxDesignCurrentA.toFixed(2)} A`]);
+
+      const sigRow = sheet.rowCount ? sheet.rowCount + 2 : 20;
+      addExcelSignatureBlock(sheet, sigRow, currentUserName, project?.id || "default", "circuit-breaker-sizing");
+      const buffer = await workbook.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), `circuit_breaker_sizing_report.xlsx`);
+      toast.success("Excel report exported successfully!");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to export Excel report.");
+    }
   };
 
   const handlePrintPDF = () => {
@@ -382,10 +528,14 @@ function CircuitBreakerSizingPage() {
     addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "circuit-breaker-sizing");
     const pdfBuffer = doc.output("arraybuffer");
     downloadFile(new Uint8Array(pdfBuffer), `circuit_breaker_sizing_report.pdf`, "PDF Document", ["pdf"]);
+    toast.success("PDF report exported successfully!");
   };
 
   return (
-    <AppShell>
+    <AppShell
+      title="Circuit Breaker Sizing"
+      subtitle="Preliminary circuit breaker capacity rating sizing based on connected loads, voltage, and phase parameters"
+    >
       <div className="p-6 h-full flex flex-col bg-slate-50 dark:bg-slate-950 font-sans overflow-y-auto">
         
         {/* Header & Title */}
@@ -393,58 +543,306 @@ function CircuitBreakerSizingPage() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
             Circuit Breaker Sizing <span className="text-sm font-normal text-slate-400">({rows.length} circuits)</span>
           </h1>
-              <CalculationReviewBar calculatorPath="/circuit-breaker-sizing" calculatorTitle="Circuit Breaker Sizing" />
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/circuit-breaker-sizing" calculatorTitle="Circuit Breaker Sizing" />
           <p className="text-xs text-muted-foreground mt-1">Preliminary circuit breaker capacity rating sizing based on connected loads, voltage, and phase parameters.</p>
         </div>
 
-        {/* Tabs */}
-        <div className="flex items-center gap-2 mb-6 border-b border-slate-200 dark:border-slate-800 pb-3">
-          <button 
-            onClick={() => setActiveTab('calculator')}
-            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${activeTab === 'calculator' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
-            Sizing Schedule
-          </button>
-          <button 
-            onClick={() => setActiveTab('report')}
-            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-colors ${activeTab === 'report' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
-            Report
-          </button>
-        </div>
-
-        {activeTab === 'calculator' ? (
-          <div className="flex flex-col gap-4">
-            
-            {/* Toolbar / Global Inputs */}
-            <div className="flex flex-wrap items-center justify-end gap-2 mb-2">
-              <button onClick={handleReset} className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 px-2 py-1 transition-colors bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-sm">
-                <RotateCcw className="size-3.5" /> Reset
-              </button>
-              <label className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 px-3 py-1 cursor-pointer transition-colors bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-sm">
-                <Download className="size-3.5" /> Import
-                <input type="file" onChange={handleImportJSON} accept=".json" className="hidden" />
-              </label>
-              <button onClick={handleExportJSON} className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 px-3 py-1 transition-colors bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full shadow-sm">
-                <Upload className="size-3.5" /> Export
-              </button>
-              <button onClick={handleAddRow} className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-4 py-1.5 text-xs font-semibold transition-colors flex items-center gap-1.5 ml-2 shadow-sm">
-                <Plus className="size-3.5" /> Add Row
-              </button>
-              {rows.some(r => r.selected) && (
-                <button onClick={handleDeleteSelected} className="bg-rose-600 hover:bg-rose-700 text-white rounded-full px-4 py-1.5 text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
-                  <Trash2 className="size-3.5" /> Delete
-                </button>
-              )}
-              <button onClick={() => setShowSummary(true)} className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ml-1 shadow-sm">
-                Calculate
-              </button>
+        {/* Main Card Container with 3-State Status Highlight */}
+        <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${
+          calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+        } h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
+          <div className="relative z-10 flex flex-col h-full w-full">
+            {/* Sections Navigation (Tabs) */}
+            <div className="px-4 py-2 border-b border-border/60 bg-surface-1/50 shrink-0 select-none flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("calculator")}
+                    className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                      activeTab === "calculator"
+                        ? "bg-white dark:bg-slate-900 text-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Breaker Sizing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("report")}
+                    className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                      activeTab === "report"
+                        ? "bg-white dark:bg-slate-900 text-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Sizing &amp; Report
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* Table */}
-            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-x-auto">
+            {activeTab === "calculator" ? (
+              <div className="flex flex-col h-full overflow-hidden">
+                {/* Filter & Action Toolbar */}
+                <div className="flex flex-wrap items-center justify-between px-3 sm:px-4 py-2 min-h-[44px] h-auto border-b border-border bg-background shrink-0 select-none gap-2 overflow-visible relative">
+                  {/* Left Side: Filter circuits input, Filter popover, Sort popover */}
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                    <div className="relative w-full sm:w-auto">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                      <input
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Filter circuits..."
+                        className="h-7 w-full sm:w-56 pl-8 pr-3 bg-surface-2 text-foreground border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all placeholder:text-muted-foreground"
+                      />
+                    </div>
+
+                    {/* Filter Popover */}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                            activeFiltersCount > 0
+                              ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                              : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                          }`}
+                          title="Filter Circuits"
+                        >
+                          <Filter className="size-3.5 shrink-0" />
+                          <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                            Filter
+                          </span>
+                          {activeFiltersCount > 0 && (
+                            <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                              {activeFiltersCount}
+                            </span>
+                          )}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50 text-xs">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                          <span className="text-[12px] font-semibold text-foreground">Filter Circuits</span>
+                          {activeFiltersCount > 0 && (
+                            <button
+                              onClick={handleResetFilters}
+                              className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                            >
+                              Clear All
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Phase filter */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Phase</span>
+                          <select
+                            value={filterPhase}
+                            onChange={(e) => setFilterPhase(e.target.value as any)}
+                            className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-[12px] outline-none cursor-pointer text-foreground"
+                          >
+                            <option value="all">All Phases</option>
+                            <option value="Single Phase">Single Phase (1P)</option>
+                            <option value="Three Phase">Three Phase (3P)</option>
+                          </select>
+                        </div>
+
+                        {/* Min Connected Load filter */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Min Load (kW)</span>
+                          <input
+                            type="number"
+                            placeholder="e.g. 5"
+                            value={filterMinLoad ?? ""}
+                            onChange={(e) => setFilterMinLoad(e.target.value ? Number(e.target.value) : null)}
+                            className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none text-foreground"
+                          />
+                        </div>
+
+                        {/* Min Current filter */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Min Current (A)</span>
+                          <input
+                            type="number"
+                            placeholder="e.g. 16"
+                            value={filterMinCurrent ?? ""}
+                            onChange={(e) => setFilterMinCurrent(e.target.value ? Number(e.target.value) : null)}
+                            className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none text-foreground"
+                          />
+                        </div>
+
+                        {/* Selected Only */}
+                        <label className="flex items-center gap-2 pt-1 border-t border-border/60 text-[11.5px] font-medium text-foreground cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={filterSelectedOnly}
+                            onChange={(e) => setFilterSelectedOnly(e.target.checked)}
+                            className="rounded border-gray-300 text-primary size-3.5 focus:ring-primary cursor-pointer"
+                          />
+                          <span>Selected circuits only</span>
+                        </label>
+                      </PopoverContent>
+                    </Popover>
+
+                    {/* View / Sort Popover */}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                            sortKey !== "default"
+                              ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                              : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                          }`}
+                          title="View / Sort"
+                        >
+                          <SlidersHorizontal className="size-3.5 shrink-0" />
+                          <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                            View / Sort
+                          </span>
+                          {sortKey !== "default" && (
+                            <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                              ✓
+                            </span>
+                          )}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50 text-xs">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                          <span className="text-[12px] font-semibold text-foreground">Sort Circuits</span>
+                          {sortKey !== "default" && (
+                            <button
+                              onClick={() => { setSortKey("default"); setSortDirection("asc"); }}
+                              className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort Field</span>
+                          <select
+                            value={sortKey}
+                            onChange={(e) => setSortKey(e.target.value as any)}
+                            className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-[12px] outline-none cursor-pointer text-foreground"
+                          >
+                            <option value="default">Default (Sr. No.)</option>
+                            <option value="description">Description</option>
+                            <option value="connectedLoad">Connected Load (kW)</option>
+                            <option value="voltage">Voltage (V)</option>
+                            <option value="designCurrent">Design Current (A)</option>
+                            <option value="recBreaker">Breaker Rating (A)</option>
+                          </select>
+                        </div>
+
+                        {sortKey !== "default" && (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Direction</span>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setSortDirection("asc")}
+                                className={`flex-1 py-1 px-2 rounded text-[11.5px] border cursor-pointer ${sortDirection === "asc" ? "bg-primary text-primary-foreground border-primary font-semibold" : "bg-slate-100 dark:bg-slate-900 text-foreground border-border"}`}
+                              >
+                                Ascending
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSortDirection("desc")}
+                                className={`flex-1 py-1 px-2 rounded text-[11.5px] border cursor-pointer ${sortDirection === "desc" ? "bg-primary text-primary-foreground border-primary font-semibold" : "bg-slate-100 dark:bg-slate-900 text-foreground border-border"}`}
+                              >
+                                Descending
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Right Side: Import Excel, Hide Results, Export PDF, New Row */}
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-start sm:justify-end">
+                    <ImportExcelBtn
+                      columnMapping={excelColumnMapping}
+                      onImport={handleImportExcelRows}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setShowSummary((prev) => !prev)}
+                      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border transition-all cursor-pointer shadow-2xs ${
+                        showSummary
+                          ? "border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800"
+                          : "border-primary/50 bg-primary/10 text-primary hover:bg-primary/20"
+                      }`}
+                      title={showSummary ? "Hide Results Panel" : "Show Results Panel"}
+                    >
+                      {showSummary ? (
+                        <>
+                          <PanelRightClose className="size-3.5" />
+                          <span className="hidden sm:inline">Hide Results</span>
+                        </>
+                      ) : (
+                        <>
+                          <PanelRightOpen className="size-3.5" />
+                          <span>Show Results</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={handlePrintPDF}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
+                    >
+                      <FileText className="size-3.5" /> Export PDF
+                    </button>
+
+                    <button
+                      onClick={handleAddRow}
+                      className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer"
+                    >
+                      <Plus className="size-3.5" /> New Row
+                    </button>
+                  </div>
+
+                  {/* Bulk Actions Overlay Bar */}
+                  {!isEffectiveReadOnly && rows.some(r => r.selected) && (
+                    <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] rounded-none z-20 no-print">
+                      <span className="font-semibold">{rows.filter(r => r.selected).length} selected</span>
+                      <span className="text-primary/30">·</span>
+                      <BulkBtn icon={Copy} onClick={handleDuplicateSelected}>
+                        Duplicate
+                      </BulkBtn>
+                      <BulkBtn icon={Trash2} onClick={handleDeleteSelected}>
+                        Delete
+                      </BulkBtn>
+                      <BulkBtn icon={RotateCcw} onClick={handleReset}>
+                        Reset All
+                      </BulkBtn>
+                      <button
+                        onClick={() => setRows(prev => prev.map(r => ({ ...r, selected: false })))}
+                        className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+                      >
+                        <X className="size-3" /> Clear
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Main Content Area: Table and Summary Cards */}
+                <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 gap-4">
+                  {/* Table */}
+                  <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-x-auto">
               <table className="w-full text-left text-xs whitespace-nowrap min-w-[1000px]">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-[10px] text-slate-500">
-                    <th className="p-3 w-10 text-center"><input type="checkbox" onChange={handleSelectAll} checked={rows.length > 0 && rows.every(r => r.selected)} className="cursor-pointer" /></th>
+                    <th className="p-3 w-10 text-center"><input type="checkbox" onChange={handleSelectAll} checked={displayedRows.length > 0 && displayedRows.every(r => r.selected)} className="cursor-pointer" /></th>
                     <th className="p-3 w-16 text-center">Sr. No.</th>
                     <th className="p-3">Description</th>
                     <th className="p-3 w-32">Connected Load (kW)</th>
@@ -458,7 +856,7 @@ function CircuitBreakerSizingPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                  {calculatedData.rowDetails.map((row, idx) => (
+                  {displayedRows.map((row, idx) => (
                     <tr 
                       key={row.id} 
                       onClick={() => handleUpdateRow(row.id, "selected", !row.selected)}
@@ -469,13 +867,32 @@ function CircuitBreakerSizingPage() {
                       </td>
                       <td className="p-3 font-mono text-slate-400 text-center">{idx + 1}</td>
                       <td className="p-2">
-                        <InlineInput 
-                          value={row.description} 
-                          onCommit={(val) => handleUpdateRow(row.id, "description", val)}
-                          onFocus={() => handleRowFocus(row.id)}
-                          placeholder="e.g. New Feeder Load"
-                          className="font-medium text-slate-900 dark:text-slate-100"
-                        />
+                        <div className="flex items-center gap-1.5 w-full">
+                          {(() => {
+                            const itemComments = getMergedItemComments(row.id, row.description, (row as any).comments, "/circuit-breaker-sizing", project?.id);
+                            return itemComments.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenComment(row.id, row.description);
+                                }}
+                                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                              >
+                                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                                <span className="text-[10px] font-bold">{itemComments.length}</span>
+                              </button>
+                            ) : null;
+                          })()}
+                          <InlineInput 
+                            value={row.description} 
+                            onCommit={(val) => handleUpdateRow(row.id, "description", val)}
+                            onFocus={() => handleRowFocus(row.id)}
+                            placeholder="e.g. New Feeder Load"
+                            className="font-medium text-slate-900 dark:text-slate-100"
+                          />
+                        </div>
                       </td>
                       <td className="p-2">
                         <div className="flex items-center gap-1">
@@ -557,9 +974,25 @@ function CircuitBreakerSizingPage() {
                   ))}
                 </tbody>
               </table>
-              {rows.length === 0 && (
-                <div className="p-8 text-center text-slate-400 text-xs">
-                  No loads added. Click "Add Row" to begin sizing.
+              {displayedRows.length === 0 && (
+                <div className="p-8 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
+                  <Filter className="size-6 text-slate-300 dark:text-slate-600 mb-1" />
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">
+                    {rows.length === 0
+                      ? 'No circuits added. Click "New Space" to begin sizing.'
+                      : "No matching circuits found for current filter."}
+                  </span>
+                  {rows.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery("");
+                        handleResetFilters();
+                      }}
+                      className="text-xs text-primary font-semibold hover:underline cursor-pointer"
+                    >
+                      Clear search & filters
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -586,10 +1019,11 @@ function CircuitBreakerSizingPage() {
                 </div>
               </div>
             )}
-
           </div>
-        ) : (
-          <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto py-6">
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto p-6 space-y-6">
+          <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto py-2">
             <div className="flex items-center justify-end gap-3 no-print border-b border-border/80 pb-4">
               <button
                 onClick={handlePrintPDF}
@@ -687,11 +1121,32 @@ function CircuitBreakerSizingPage() {
                 </div>
               </div>
 
+              </div>
             </div>
           </div>
         )}
 
+          </div>
+        </div>
       </div>
+    
+      {/* Assign Comment Modal */}
+      {commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => {
+            setCommentModalOpen(false);
+            setCommentTargetItem(null);
+          }}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType="breaker"
+          calculatorTitle="Circuit Breaker Sizing"
+          calculatorPath="/circuit-breaker-sizing"
+          existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, (rows.find(r => r.id === commentTargetItem.id) as any)?.comments, "/circuit-breaker-sizing", project?.id)}
+          onSave={handleSaveComment}
+        />
+      )}
     </AppShell>
   );
 }

@@ -21,7 +21,7 @@ import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile } from "@/lib/bimViewerSpaceExtractor";
 import { getProjectIfcFile } from "@/lib/projectIfcStorage";
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { CategorySelect } from "@/components/workspace/CategorySelect";
@@ -101,7 +101,7 @@ export function VentilationModule() {
   const totalArea = Math.round(spaces.reduce((sum, s) => sum + ((s.area || 0) * (s.multiplier || 1)), 0));
   const totalMinFresh = Math.round(spaces.reduce((sum, s) => sum + (s.minOA || 0), 0));
   const totalMinExtract = Math.round(spaces.reduce((sum, s) => sum + (s.minExt || 0), 0));
-  
+
   const actualFA = spaces.reduce((sum, s) => sum + (s.freshAir || 0), 0);
   const actualEA = spaces.reduce((sum, s) => sum + (s.extractAir || 0), 0);
   const netFlow = actualFA - actualEA;
@@ -110,16 +110,16 @@ export function VentilationModule() {
   const getSyncedReviewState = useMemo(() => {
     if (!activeProjectId) return { status: "DRAFT" };
     const storageKey = `mep_calc_review_${activeProjectId}_/ventilation`;
-    
-    if (project?.workspace_data) {
-      let wdata = project.workspace_data;
+
+    if ((project as any)?.workspace_data) {
+      let wdata = (project as any).workspace_data;
       if (typeof wdata === 'string') {
-        try { wdata = JSON.parse(wdata); } catch(e) {}
+        try { wdata = JSON.parse(wdata); } catch (e) { }
       }
       if (wdata?.review_states?.[storageKey]) {
         const stateFromDb = wdata.review_states[storageKey];
         if (typeof window !== 'undefined') {
-          try { localStorage.setItem(storageKey, JSON.stringify(stateFromDb)); } catch(e) {}
+          try { localStorage.setItem(storageKey, JSON.stringify(stateFromDb)); } catch (e) { }
         }
         return stateFromDb;
       }
@@ -129,82 +129,24 @@ export function VentilationModule() {
       try {
         const saved = localStorage.getItem(storageKey);
         if (saved) return JSON.parse(saved);
-      } catch(e) {}
+      } catch (e) { }
     }
     return { status: "DRAFT" };
   }, [project, activeProjectId]);
 
-  const [calcReviewState, setCalcReviewState] = useState<any>(getSyncedReviewState);
+  const calcReviewState = useCalculationReviewState("/ventilation", activeProjectId);
 
   const isApprovedLocked = Boolean(activeProjectId) && calcReviewState?.status === "APPROVED";
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      (window as any).__mep_approved_readonly = isApprovedLocked;
-    }
-  }, [isApprovedLocked]);
 
-  useEffect(() => {
-    setCalcReviewState(getSyncedReviewState);
-  }, [getSyncedReviewState]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const handleUpdate = (e: CustomEvent) => {
-      if (e.detail) {
-        setCalcReviewState(e.detail);
-      }
-    };
-    window.addEventListener("mep-review-state-updated" as any, handleUpdate);
-    return () => window.removeEventListener("mep-review-state-updated" as any, handleUpdate);
-  }, []);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    const targetType = (params.get("commentTargetType") || "").toLowerCase();
-    const targetId = params.get("commentTargetId");
-    const targetName = params.get("commentTargetName");
 
-    if (targetType === "zone") {
-      setTab("zones");
-    } else if (targetType === "equipment") {
-      setTab("equipment");
-    } else if (targetType === "space") {
-      setTab("spaces");
-    }
 
-    if (targetId || targetName) {
-      const timer = setTimeout(() => {
-        window.dispatchEvent(
-          new CustomEvent("mep-scroll-to-item", {
-            detail: { id: targetId, name: targetName },
-          })
-        );
-      }, 450);
-      return () => clearTimeout(timer);
-    }
-  }, [typeof window !== 'undefined' ? window.location.search : '']);
-
-  useEffect(() => {
-    const handleUpdate = (e: any) => {
-      if (e.detail) {
-        setCalcReviewState(e.detail);
-      }
-    };
-    if (typeof window !== 'undefined') {
-      window.addEventListener("mep-review-state-updated", handleUpdate);
-    }
-    return () => {
-      if (typeof window !== 'undefined') {
-        window.removeEventListener("mep-review-state-updated", handleUpdate);
-      }
-    };
-  }, []);
 
   return (
-    <AppShell 
-      title="Ventilation" 
+    <AppShell
+      title="Ventilation"
       hideSubHeader={true}
       onIntelClick={() => setIntelOpen((v) => !v)}
       intelOpen={intelOpen}
@@ -218,13 +160,12 @@ export function VentilationModule() {
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Ventilation</h1>
                 <span className="text-[15px] font-semibold text-muted-foreground">{spaces.length} spaces</span>
               </div>
-              <button 
+              <button
                 onClick={() => setIntelOpen(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                  intelOpen
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
               >
                 <Sparkles className="size-3.5" />
                 Intelligence
@@ -233,17 +174,19 @@ export function VentilationModule() {
                 projectId={activeProjectId}
                 calculatorPath="/ventilation"
                 calculatorTitle="Ventilation"
-                onReviewStateChange={setCalcReviewState}
               />
             </div>
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            calcReviewState?.status === "APPROVED" 
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-          }`}>
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED"
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
+            : calcReviewState?.status === "REJECTED"
+              ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+              : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            }`}>
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
@@ -253,11 +196,10 @@ export function VentilationModule() {
                     <button
                       key={t.id}
                       onClick={() => setTab(t.id)}
-                      className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                        active
-                          ? "bg-background text-foreground shadow-sm font-bold"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${active
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       {t.label}
                     </button>
@@ -277,11 +219,10 @@ export function VentilationModule() {
                       <button
                         key={preset}
                         onClick={() => setRoundOffPreset(preset)}
-                        className={`px-3.5 py-1.5 text-[11px] font-bold rounded-full transition-all duration-150 cursor-pointer ${
-                          active
-                            ? "bg-white dark:bg-zinc-900 text-slate-850 dark:text-zinc-150 shadow-xs border border-slate-200/20 dark:border-zinc-800/20"
-                            : "text-slate-500 dark:text-zinc-400 hover:text-slate-850 dark:hover:text-zinc-150"
-                        }`}
+                        className={`px-3.5 py-1.5 text-[11px] font-bold rounded-full transition-all duration-150 cursor-pointer ${active
+                          ? "bg-white dark:bg-zinc-900 text-slate-850 dark:text-zinc-150 shadow-xs border border-slate-200/20 dark:border-zinc-800/20"
+                          : "text-slate-500 dark:text-zinc-400 hover:text-slate-850 dark:hover:text-zinc-150"
+                          }`}
                       >
                         {preset} L/s
                       </button>
@@ -303,9 +244,8 @@ export function VentilationModule() {
 
         {/* Intelligence drawer */}
         <div
-          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
-          }`}
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+            }`}
         >
           {intelOpen && <IntelligenceDrawer onClose={() => setIntelOpen(false)} setTab={setTab} />}
         </div>
@@ -386,11 +326,10 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       onDoubleClick={(e) => {
         e.stopPropagation();
       }}
-      className={`bg-transparent w-full border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${
-        isEffectiveDisabled 
-          ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent" 
-          : "hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 cursor-text"
-      } ${className}`}
+      className={`bg-transparent w-full border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${isEffectiveDisabled
+        ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent"
+        : "hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 cursor-text"
+        } ${className}`}
     />
   );
 }
@@ -410,6 +349,7 @@ interface SavedView {
 
 /* ─────────── Spaces ─────────── */
 function SpacesView() {
+  const navigate = useNavigate();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
@@ -444,8 +384,10 @@ function SpacesView() {
   const lockOwnerObj = getLockOwner("/ventilation");
   const isLockedByOther = Boolean(lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
   const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
-
-  const isEffectiveReadOnly = isReadOnly || isLockedByOther || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
+  const calcReviewState = useCalculationReviewState("/ventilation", activeProjectId);
+  const isApprovedLocked = Boolean(activeProjectId) && calcReviewState?.status === "APPROVED";
+  const calcEffectiveReadOnly = useCalculationEffectiveReadOnly("/ventilation", activeProjectId);
+  const isEffectiveReadOnly = isReadOnly || isLockedByOther || isApprovedLocked || calcEffectiveReadOnly || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
 
   const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null);
   const [selectedFloor, setSelectedFloor] = useState<string | null>(null);
@@ -769,10 +711,10 @@ function SpacesView() {
         const idxZone = headers.indexOf("zone");
         const idxName = headers.indexOf("name");
         const idxArea = headers.indexOf("area");
-        
+
         let idxHeight = headers.indexOf("room: unbounded height");
         if (idxHeight === -1) idxHeight = headers.indexOf("unbounded height");
-        
+
         let idxPeople = headers.indexOf("number of people");
         if (idxPeople === -1) idxPeople = headers.indexOf("occupants");
         if (idxPeople === -1) idxPeople = headers.indexOf("fixtures");
@@ -1010,7 +952,7 @@ function SpacesView() {
       const hasHeight = !isNaN(heightVal) && heightVal > 0;
       const multVal = parseFloat(String(s.multiplier));
       const hasMultiplier = !isNaN(multVal) && multVal > 0;
-      
+
       return !hasCategory || !hasArea || !hasHeight || !hasMultiplier;
     });
 
@@ -1025,7 +967,7 @@ function SpacesView() {
           if (isNaN(heightVal) || heightVal <= 0) missing.push("Height");
           const multVal = parseFloat(String(s.multiplier));
           if (isNaN(multVal) || multVal <= 0) missing.push("Multiplier");
-          
+
           return `- ${s.name} (${s.floor || "L01"}): Missing ${missing.join(", ")}`;
         })
         .join("\n");
@@ -1233,8 +1175,8 @@ function SpacesView() {
       const finalZoneName = existingZone?.name || trimmedZone;
       const finalSpacesInZone = spaces.map((s) => {
         if (spaceIds.includes(s.id)) {
-          return { 
-            ...s, 
+          return {
+            ...s,
             zone: finalZoneName,
             category: bulkEditFields.category ? bulkEditValues.category : s.category,
             area: s.area,
@@ -1274,7 +1216,7 @@ function SpacesView() {
         const message = spacesAlreadyInZone.length === 1
           ? `Space "${spacesAlreadyInZone[0].name}" is already assigned to zone "${spacesAlreadyInZone[0].zone}". Do you want to reassign it to zone "${finalZoneName}"?`
           : `${spacesAlreadyInZone.length} spaces are already assigned to other zones (e.g. "${spacesAlreadyInZone[0].name}" in "${spacesAlreadyInZone[0].zone}"). Do you want to reassign them to zone "${finalZoneName}"?`;
-        
+
         const proceed = await confirm(message, {
           title: "Reassign Zone?",
           confirmText: "Reassign",
@@ -1345,7 +1287,7 @@ function SpacesView() {
           const categoryVal = bulkEditValues.category;
           nextSpace.category = categoryVal;
           nextSpace.aiDetected = false;
-          
+
           if (categoryVal === "Other" || categoryVal === "OTHER" || categoryVal.endsWith(" (Custom)")) {
             nextSpace.category = (categoryVal === "Other" || categoryVal === "OTHER") ? "Custom (Custom)" : categoryVal;
           } else if (categoryVal) {
@@ -1383,12 +1325,12 @@ function SpacesView() {
         if (bulkEditFields.fixtures) {
           const fixturesVal = bulkEditValues.fixtures.trim();
           nextSpace.fixtures = fixturesVal;
-          
+
           if (nextSpace.category) {
             const data = getOccupancyData(nextSpace.category);
             if (data) {
-              nextSpace.occupancy = fixturesVal === "" 
-                ? Math.ceil((s.area * (data.defaultDensity || 0)) / 100) 
+              nextSpace.occupancy = fixturesVal === ""
+                ? Math.ceil((s.area * (data.defaultDensity || 0)) / 100)
                 : parseFloat(fixturesVal) || 0;
             } else {
               nextSpace.occupancy = fixturesVal === "" ? 0 : parseFloat(fixturesVal) || 0;
@@ -1519,7 +1461,7 @@ function SpacesView() {
       const message = spacesAlreadyInZone.length === 1
         ? `Space "${spacesAlreadyInZone[0].name}" is already assigned to zone "${spacesAlreadyInZone[0].zone}". Do you want to reassign it to zone "${finalZoneName}"?`
         : `${spacesAlreadyInZone.length} spaces are already assigned to other zones (e.g. "${spacesAlreadyInZone[0].name}" in "${spacesAlreadyInZone[0].zone}"). Do you want to reassign them to zone "${finalZoneName}"?`;
-      
+
       const proceed = await confirm(message, {
         title: "Reassign Zone?",
         confirmText: "Reassign",
@@ -1567,7 +1509,7 @@ function SpacesView() {
         equipment: [],
         pressureType: "neutral" as const,
       };
-      
+
       addZone(newZone);
     }
 
@@ -1659,7 +1601,7 @@ function SpacesView() {
             <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
           </ContextMenuItem>
         )}
-        
+
         <ContextMenuItem
           onClick={() => {
             if (isReadOnly) {
@@ -1676,7 +1618,7 @@ function SpacesView() {
                 name: `${targetRow.name} (Clone)`,
               };
             }).filter(Boolean) as Space[];
-            
+
             if (clones.length > 0) {
               addSpacesBulk(clones);
             }
@@ -1701,9 +1643,9 @@ function SpacesView() {
           <MessageSquare className="size-3.5" />
           <span>Add Comment / Assign Task</span>
         </ContextMenuItem>
-        
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
-        
+
         <ContextMenuItem
           onClick={async () => {
             if (isReadOnly) {
@@ -1742,7 +1684,7 @@ function SpacesView() {
           <GroupIcon className="size-3.5 text-muted-foreground" />
           <span>Assign Zone</span>
         </ContextMenuItem>
-        
+
         <ContextMenuItem
           onClick={() => {
             if (isReadOnly) {
@@ -1759,7 +1701,7 @@ function SpacesView() {
           <Plus className="size-3.5 text-muted-foreground" />
           <span>Assign Equipment</span>
         </ContextMenuItem>
-        
+
         <ContextMenuItem
           disabled={isEffectiveReadOnly}
           onClick={() => {
@@ -1776,7 +1718,7 @@ function SpacesView() {
           <Sparkles className="size-3.5 text-muted-foreground" />
           <span>Auto-Zone</span>
         </ContextMenuItem>
-        
+
         <ContextMenuItem
           disabled={!isMulti}
           onClick={() => {
@@ -1794,19 +1736,19 @@ function SpacesView() {
           <Copy className="size-3.5 text-muted-foreground" />
           <span>Merge Spaces</span>
         </ContextMenuItem>
-        
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
-        
+
         <ContextMenuItem
           onClick={async () => {
             if (isReadOnly) {
               toast.info("Workspace is in Read-Only mode. Deleting spaces is locked.", { id: "readonly-notice" });
               return;
             }
-            const msg = targetsCount === 1 
+            const msg = targetsCount === 1
               ? `Are you sure you want to delete space "${row.name}"?`
               : `Are you sure you want to delete the ${targetsCount} selected spaces?`;
-            
+
             if (await confirm(msg)) {
               deleteSpaces(selectedIds);
               setSelected(new Set());
@@ -1847,9 +1789,9 @@ function SpacesView() {
           <Edit3 className="size-3.5 text-muted-foreground" />
           <span>Rename Floor</span>
         </ContextMenuItem>
-        
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
-        
+
         <ContextMenuItem
           onClick={async () => {
             const floorSpaces = spaces.filter((s) => s.floor === floor);
@@ -2052,8 +1994,8 @@ function SpacesView() {
 
         const allMatched = terms.every(term => {
           if (term === "locker" || term === "room") {
-            return categoryLower.includes("locker") || categoryLower.includes("room") || 
-                   codeLower.includes(term) || nameLower.includes(term) || zoneLower.includes(term);
+            return categoryLower.includes("locker") || categoryLower.includes("room") ||
+              codeLower.includes(term) || nameLower.includes(term) || zoneLower.includes(term);
           }
           return textToSearch.includes(term);
         });
@@ -2105,30 +2047,30 @@ function SpacesView() {
 
   const spaceRowClasses = useMemo(() => {
     const classes: Record<string, string> = {};
-    
+
     let currentFloor = "";
     let currentZoneName = "";
     let globalZoneIndex = -1; // Start at -1 so first row triggers increment to 0
-    
+
     orderedRows.forEach(s => {
       const f = s.floor || "Unknown";
       const z = (s.zone || "").trim();
       const isDef = !z || z.toLowerCase() === "default" || z.toLowerCase() === "unzoned";
       const zoneName = isDef ? "Default" : z;
-      
+
       if (f !== currentFloor || zoneName !== currentZoneName) {
         globalZoneIndex++;
         currentFloor = f;
         currentZoneName = zoneName;
       }
-      
+
       if (globalZoneIndex % 2 === 0) {
         classes[s.id] = "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80";
       } else {
         classes[s.id] = "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40";
       }
     });
-    
+
     return classes;
   }, [orderedRows]);
 
@@ -2137,308 +2079,318 @@ function SpacesView() {
   };
 
   const columns: Column<Space>[] = [
-    { key: "name", header: "SPACE NAME", width: 240, editable: true, render: (r) => {
-      const rawStr = String(r.name || "").trim();
-      const isBadName = !rawStr || rawStr === "undefined" || rawStr === "null";
-      const displayName = isBadName
-        ? (r.zone && r.zone !== "Default" && r.zone !== "Unzoned" && !String(r.zone).startsWith("zone-") ? `${r.zone} Space` : `Space ${r.code || (r.id ? String(r.id).slice(-4) : '')}`)
-        : r.name;
-      return (
-        <div className="flex items-center gap-1.5 w-full">
-          {Array.isArray(r.comments) && r.comments.length > 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setCommentTarget({ id: r.id, name: r.name, type: 'space' });
-                setAssignCommentOpen(true);
-              }}
-              title={`${r.comments.length} comment(s)/task(s) assigned to space "${r.name}"`}
-              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-            >
-              <MessageSquare className="size-3.5 fill-blue-500/20" />
-              <span className="text-[10px] font-bold">{r.comments.length}</span>
-            </button>
-          )}
-          <InlineInput disabled={isEffectiveReadOnly}
-            value={displayName}
-            onCommit={(val) => {
-              const cleanVal = val.trim();
-              if (cleanVal && cleanVal !== "undefined" && cleanVal !== "null") {
-                bulkUpdateSpaces(getSpaceEditIds(r.id), { name: cleanVal });
-              }
-            }}
-            className="font-medium text-[13.5px] flex-1 min-w-0"
-          />
-        </div>
-      );
-    } },
-    { key: "zone", header: "ZONE", width: 200, mono: true, editable: true, render: (r) => {
-      const matchingZone = zones.find((z) => z.id === r.zone || z.name === r.zone);
-      const zoneName = matchingZone ? matchingZone.name : (r.zone || "");
-      return (
-        <InlineInput disabled={isEffectiveReadOnly}
-          value={zoneName}
-          onCommit={(val) => {
-            const trimmed = val.trim();
-            const editIds = getSpaceEditIds(r.id);
-            const selectedSpaces = spaces.filter((s) => editIds.includes(s.id));
-
-            if (trimmed === "") {
-              bulkUpdateSpaces(editIds, { zone: "" });
-              return;
-            }
-
-            // 1. Multi-floor check
-            const uniqueFloors = Array.from(new Set(selectedSpaces.map((s) => s.floor || "Unassigned")));
-            if (uniqueFloors.length > 1) {
-              confirm(
-                `Spaces from different floors cannot be grouped into the same zone.\n\nSelected spaces belong to multiple floors: (${uniqueFloors.join(", ")}). Please select spaces from the same floor only.`,
-                {
-                  title: "Multi-Floor Zone Error",
-                  confirmText: "OK",
-                  hideCancel: true,
+    {
+      key: "name", header: "SPACE NAME", width: 240, editable: true, render: (r) => {
+        const rawStr = String(r.name || "").trim();
+        const isBadName = !rawStr || rawStr === "undefined" || rawStr === "null";
+        const displayName = isBadName
+          ? (r.zone && r.zone !== "Default" && r.zone !== "Unzoned" && !String(r.zone).startsWith("zone-") ? `${r.zone} Space` : `Space ${r.code || (r.id ? String(r.id).slice(-4) : '')}`)
+          : r.name;
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            {Array.isArray(r.comments) && r.comments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCommentTarget({ id: r.id, name: r.name, type: 'space' });
+                  setAssignCommentOpen(true);
+                }}
+                title={`${r.comments.length} comment(s)/task(s) assigned to space "${r.name}"`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                <span className="text-[10px] font-bold">{r.comments.length}</span>
+              </button>
+            )}
+            <InlineInput disabled={isEffectiveReadOnly}
+              value={displayName}
+              onCommit={(val) => {
+                const cleanVal = val.trim();
+                if (cleanVal && cleanVal !== "undefined" && cleanVal !== "null") {
+                  bulkUpdateSpaces(getSpaceEditIds(r.id), { name: cleanVal });
                 }
-              );
-              return;
-            }
+              }}
+              className="font-medium text-[13.5px] flex-1 min-w-0"
+            />
+          </div>
+        );
+      }
+    },
+    {
+      key: "zone", header: "ZONE", width: 200, mono: true, editable: true, render: (r) => {
+        const matchingZone = zones.find((z) => z.id === r.zone || z.name === r.zone);
+        const zoneName = matchingZone ? matchingZone.name : (r.zone || "");
+        return (
+          <InlineInput disabled={isEffectiveReadOnly}
+            value={zoneName}
+            onCommit={(val) => {
+              const trimmed = val.trim();
+              const editIds = getSpaceEditIds(r.id);
+              const selectedSpaces = spaces.filter((s) => editIds.includes(s.id));
 
-            // 2. Existing Zone & Floor check
-            const existingZone = zones.find(
-              (z) => z.id.toLowerCase() === trimmed.toLowerCase() || z.name.toLowerCase() === trimmed.toLowerCase()
-            );
+              if (trimmed === "") {
+                bulkUpdateSpaces(editIds, { zone: "" });
+                return;
+              }
 
-            if (existingZone) {
-              const currentFloor = selectedSpaces[0]?.floor || "L01";
-              if (existingZone.floor && existingZone.floor !== currentFloor) {
+              // 1. Multi-floor check
+              const uniqueFloors = Array.from(new Set(selectedSpaces.map((s) => s.floor || "Unassigned")));
+              if (uniqueFloors.length > 1) {
                 confirm(
-                  `Zone "${existingZone.name}" already exists on floor ${existingZone.floor}.\n\nSpaces from ${currentFloor} cannot be assigned to a zone on ${existingZone.floor}.`,
+                  `Spaces from different floors cannot be grouped into the same zone.\n\nSelected spaces belong to multiple floors: (${uniqueFloors.join(", ")}). Please select spaces from the same floor only.`,
                   {
-                    title: "Zone Floor Mismatch",
+                    title: "Multi-Floor Zone Error",
                     confirmText: "OK",
                     hideCancel: true,
                   }
                 );
                 return;
               }
-              bulkUpdateSpaces(editIds, { zone: existingZone.name });
-            } else {
-              const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
-              const newZone = {
-                id: zoneId,
-                name: trimmed,
-                building: selectedSpaces[0]?.building || "Tower A",
-                floor: selectedSpaces[0]?.floor || "L01",
-                spaceCount: 0,
-                area: 0,
-                freshAir: 0,
-                extractAir: 0,
-                pressure: 0,
-                equipment: [],
-                pressureType: "neutral" as const,
-                faAssignment: null,
-                eaAssignment: null,
+
+              // 2. Existing Zone & Floor check
+              const existingZone = zones.find(
+                (z) => z.id.toLowerCase() === trimmed.toLowerCase() || z.name.toLowerCase() === trimmed.toLowerCase()
+              );
+
+              if (existingZone) {
+                const currentFloor = selectedSpaces[0]?.floor || "L01";
+                if (existingZone.floor && existingZone.floor !== currentFloor) {
+                  confirm(
+                    `Zone "${existingZone.name}" already exists on floor ${existingZone.floor}.\n\nSpaces from ${currentFloor} cannot be assigned to a zone on ${existingZone.floor}.`,
+                    {
+                      title: "Zone Floor Mismatch",
+                      confirmText: "OK",
+                      hideCancel: true,
+                    }
+                  );
+                  return;
+                }
+                bulkUpdateSpaces(editIds, { zone: existingZone.name });
+              } else {
+                const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+                const newZone = {
+                  id: zoneId,
+                  name: trimmed,
+                  building: selectedSpaces[0]?.building || "Tower A",
+                  floor: selectedSpaces[0]?.floor || "L01",
+                  spaceCount: 0,
+                  area: 0,
+                  freshAir: 0,
+                  extractAir: 0,
+                  pressure: 0,
+                  equipment: [],
+                  pressureType: "neutral" as const,
+                  faAssignment: null,
+                  eaAssignment: null,
+                };
+                addZone(newZone);
+                bulkUpdateSpaces(editIds, { zone: trimmed });
+              }
+            }}
+            className="font-medium text-[13.5px]"
+          />
+        );
+      }
+    },
+    {
+      key: "category", header: "CATEGORY", width: 280, editable: true, render: (r) => {
+        const isRestRoom = r.category === "Rest Room / Changing Room";
+
+        const handleCategoryChange = (newVal: string) => {
+          const editIds = getSpaceEditIds(r.id);
+          if (newVal === "Other" || newVal === "OTHER") {
+            const latestSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || r;
+            const categoryName = latestSpace.category && latestSpace.category.endsWith(" (Custom)") ? latestSpace.category : "Custom (Custom)";
+            bulkUpdateSpaces(editIds, { category: categoryName, aiDetected: false });
+            setTimeout(() => {
+              const freshSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || latestSpace;
+              setCustomParamModalSpace({
+                ...freshSpace,
+                category: categoryName,
+                customWorkflow: freshSpace.customWorkflow || "calculate",
+                customPeopleOA: freshSpace.customPeopleOA || 0,
+                customAreaOA: freshSpace.customAreaOA || 0,
+                customExhaustPerUnit: freshSpace.customExhaustPerUnit || 0,
+                customExhaustPerArea: freshSpace.customExhaustPerArea || 0,
+                customAch: freshSpace.customAch || 0,
+                customFreshGiven: freshSpace.customFreshGiven || 0,
+                customExtTaken: freshSpace.customExtTaken || 0,
+              });
+            }, 50);
+            return;
+          }
+          if (newVal === "Rest Room / Changing Room") {
+            const latestSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || r;
+            const spaceCopy = { ...latestSpace, category: newVal, aiDetected: false };
+            if (!spaceCopy.restroomSubCategories) {
+              spaceCopy.restroomSubCategories = {
+                toiletPrivateContinuous: 0,
+                toiletPublicContinuous: 0,
+                toiletPrivateDiscontinuous: 0,
+                toiletPublicDiscontinuous: 0,
+                showerContinuous: 0,
+                showerDiscontinuous: 0,
+                janitorCloset: 0,
+                lockerRoom: 0,
               };
-              addZone(newZone);
-              bulkUpdateSpaces(editIds, { zone: trimmed });
             }
-          }}
-          className="font-medium text-[13.5px]"
-        />
-      );
-    } },
-    { key: "category", header: "CATEGORY", width: 280, editable: true, render: (r) => {
-      const isRestRoom = r.category === "Rest Room / Changing Room";
-      
-      const handleCategoryChange = (newVal: string) => {
-        const editIds = getSpaceEditIds(r.id);
-        if (newVal === "Other" || newVal === "OTHER") {
-          const latestSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || r;
-          const categoryName = latestSpace.category && latestSpace.category.endsWith(" (Custom)") ? latestSpace.category : "Custom (Custom)";
-          bulkUpdateSpaces(editIds, { category: categoryName, aiDetected: false });
-          setTimeout(() => {
-            const freshSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || latestSpace;
-            setCustomParamModalSpace({
-              ...freshSpace,
-              category: categoryName,
-              customWorkflow: freshSpace.customWorkflow || "calculate",
-              customPeopleOA: freshSpace.customPeopleOA || 0,
-              customAreaOA: freshSpace.customAreaOA || 0,
-              customExhaustPerUnit: freshSpace.customExhaustPerUnit || 0,
-              customExhaustPerArea: freshSpace.customExhaustPerArea || 0,
-              customAch: freshSpace.customAch || 0,
-              customFreshGiven: freshSpace.customFreshGiven || 0,
-              customExtTaken: freshSpace.customExtTaken || 0,
-            });
-          }, 50);
-          return;
-        }
-        if (newVal === "Rest Room / Changing Room") {
-          const latestSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || r;
-          const spaceCopy = { ...latestSpace, category: newVal, aiDetected: false };
-          if (!spaceCopy.restroomSubCategories) {
-            spaceCopy.restroomSubCategories = {
-              toiletPrivateContinuous: 0,
-              toiletPublicContinuous: 0,
-              toiletPrivateDiscontinuous: 0,
-              toiletPublicDiscontinuous: 0,
-              showerContinuous: 0,
-              showerDiscontinuous: 0,
-              janitorCloset: 0,
-              lockerRoom: 0,
+            const data = getOccupancyData(newVal);
+            const updates: Partial<Space> = {
+              category: newVal,
+              aiDetected: false,
+              restroomSubCategories: spaceCopy.restroomSubCategories
             };
+            if (data && !latestSpace.isOccupancyCustomized) {
+              const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
+                ? 1
+                : Math.ceil((latestSpace.area * data.defaultDensity) / 100);
+              updates.occupancy = defaultOcc;
+              updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
+            }
+            bulkUpdateSpaces(editIds, updates);
+            setTimeout(() => {
+              const freshSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || spaceCopy;
+              setRestroomModalSpace(freshSpace);
+            }, 50);
+            return;
           }
           const data = getOccupancyData(newVal);
           const updates: Partial<Space> = {
             category: newVal,
-            aiDetected: false,
-            restroomSubCategories: spaceCopy.restroomSubCategories
+            aiDetected: false
           };
-          if (data && !latestSpace.isOccupancyCustomized) {
+          if (data && !r.isOccupancyCustomized) {
             const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
               ? 1
-              : Math.ceil((latestSpace.area * data.defaultDensity) / 100);
+              : Math.ceil((r.area * data.defaultDensity) / 100);
             updates.occupancy = defaultOcc;
             updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
           }
           bulkUpdateSpaces(editIds, updates);
-          setTimeout(() => {
-            const freshSpace = workspaceStore.getState().spaces.find(s => s.id === r.id) || spaceCopy;
-            setRestroomModalSpace(freshSpace);
-          }, 50);
-          return;
-        }
-        const data = getOccupancyData(newVal);
-        const updates: Partial<Space> = {
-          category: newVal,
-          aiDetected: false
         };
-        if (data && !r.isOccupancyCustomized) {
-          const defaultOcc = (data.exhaustPerUnit > 0 && data.defaultDensity === 0)
-            ? 1
-            : Math.ceil((r.area * data.defaultDensity) / 100);
-          updates.occupancy = defaultOcc;
-          updates.fixtures = data.exhaustPerUnit > 0 ? defaultOcc.toString() : "";
-        }
-        bulkUpdateSpaces(editIds, updates);
-      };
 
-      return (
-        <span className="inline-flex items-center gap-1.5 w-full h-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          <span
-            title={r.aiDetected ? "Automatically identified" : undefined}
-            className={`size-1.5 rounded-full shrink-0 ${r.aiDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
-          />
-          <div className="w-full min-w-0">
-            {isRestRoom ? (
-              <div className="flex items-center justify-between w-full min-w-0 pr-1">
+        return (
+          <span className="inline-flex items-center gap-1.5 w-full h-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            <span
+              title={r.aiDetected ? "Automatically identified" : undefined}
+              className={`size-1.5 rounded-full shrink-0 ${r.aiDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
+            />
+            <div className="w-full min-w-0">
+              {isRestRoom ? (
+                <div className="flex items-center justify-between w-full min-w-0 pr-1">
+                  <CategorySelect
+                    value={r.category || ""}
+                    onChange={handleCategoryChange}
+                    triggerClassName="pl-1 pr-2 flex-1"
+                    hideChevron={true}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setRestroomModalSpace(r)}
+                    className="flex items-center justify-center p-1 rounded hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors cursor-pointer w-6 h-6 shrink-0 animate-fade-in"
+                    title="Configure Rest Room subcategories"
+                  >
+                    <Wrench className="size-3.5" />
+                  </button>
+                </div>
+              ) : (
                 <CategorySelect
                   value={r.category || ""}
                   onChange={handleCategoryChange}
-                  triggerClassName="pl-1 pr-2 flex-1"
-                  hideChevron={true}
+                  triggerClassName="pl-1 pr-2"
                 />
-                <button
-                  type="button"
-                  onClick={() => setRestroomModalSpace(r)}
-                  className="flex items-center justify-center p-1 rounded hover:bg-surface-2 text-primary hover:text-primary/80 transition-colors cursor-pointer w-6 h-6 shrink-0 animate-fade-in"
-                  title="Configure Rest Room subcategories"
-                >
-                  <Wrench className="size-3.5" />
-                </button>
-              </div>
-            ) : (
-              <CategorySelect
-                value={r.category || ""}
-                onChange={handleCategoryChange}
-                triggerClassName="pl-1 pr-2"
-              />
-            )}
-          </div>
-        </span>
-      );
-    } },
-    { key: "pressure", header: "PRESSURE", width: 80, align: "center", editable: true, render: (r) => {
-      const displayVal = PRESSURE_MAP[r.pressure || "Positive"] || "1";
-      return (
-        <span className="inline-flex items-center gap-1.5 w-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          <span
-            title={r.pressureAutoDetected ? "Automatically identified" : undefined}
-            className={`size-1.5 rounded-full shrink-0 ml-5 ${r.pressureAutoDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
-          />
-          <select
-            disabled={isReadOnly}
-            value={displayVal}
-            onChange={(e) => {
-              if (isReadOnly) {
-                toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-                return;
-              }
-              const newVal = REVERSE_PRESSURE_MAP[e.target.value] || "Positive";
-              bulkUpdateSpaces(getSpaceEditIds(r.id), { 
-                pressure: newVal, 
-                pressureAutoDetected: false 
-              });
-            }}
-            className={`font-bold rounded-full text-[11px] leading-none py-1 w-12 text-center font-mono border border-transparent focus:ring-1 focus:ring-primary focus:outline-none transition-all appearance-none ${
-              isReadOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-            } ${
-              r.pressure === "Positive" ? "bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400" :
-              r.pressure === "Negative" ? "bg-destructive/20 text-destructive dark:bg-destructive/20 dark:text-red-400" :
-              r.pressure === "Critical" ? "bg-warning/20 text-warning dark:bg-warning/20 dark:text-amber-400" :
-              "bg-muted text-muted-foreground hover:bg-muted/80"
-            }`}
-          >
-            <option value="1" className="bg-background text-success font-bold">+1</option>
-            <option value="0" className="bg-background text-muted-foreground font-bold">0</option>
-            <option value="-1" className="bg-background text-destructive font-bold">-1</option>
-            <option value="-2" className="bg-background text-warning font-bold">-2</option>
-          </select>
-        </span>
-      );
-    } },
+              )}
+            </div>
+          </span>
+        );
+      }
+    },
+    {
+      key: "pressure", header: "PRESSURE", width: 80, align: "center", editable: true, render: (r) => {
+        const displayVal = PRESSURE_MAP[r.pressure || "Positive"] || "1";
+        return (
+          <span className="inline-flex items-center gap-1.5 w-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            <span
+              title={r.pressureAutoDetected ? "Automatically identified" : undefined}
+              className={`size-1.5 rounded-full shrink-0 ml-5 ${r.pressureAutoDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
+            />
+            <select
+              disabled={isReadOnly}
+              value={displayVal}
+              onChange={(e) => {
+                if (isReadOnly) {
+                  toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+                  return;
+                }
+                const newVal = REVERSE_PRESSURE_MAP[e.target.value] || "Positive";
+                bulkUpdateSpaces(getSpaceEditIds(r.id), {
+                  pressure: newVal,
+                  pressureAutoDetected: false
+                });
+              }}
+              className={`font-bold rounded-full text-[11px] leading-none py-1 w-12 text-center font-mono border border-transparent focus:ring-1 focus:ring-primary focus:outline-none transition-all appearance-none ${isReadOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+                } ${r.pressure === "Positive" ? "bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400" :
+                  r.pressure === "Negative" ? "bg-destructive/20 text-destructive dark:bg-destructive/20 dark:text-red-400" :
+                    r.pressure === "Critical" ? "bg-warning/20 text-warning dark:bg-warning/20 dark:text-amber-400" :
+                      "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+            >
+              <option value="1" className="bg-background text-success font-bold">+1</option>
+              <option value="0" className="bg-background text-muted-foreground font-bold">0</option>
+              <option value="-1" className="bg-background text-destructive font-bold">-1</option>
+              <option value="-2" className="bg-background text-warning font-bold">-2</option>
+            </select>
+          </span>
+        );
+      }
+    },
 
-    { key: "area", header: "AREA (M²)", width: 90, align: "center", mono: true, editable: true, render: (r) => (
-      <InlineInput disabled={isEffectiveReadOnly}
-        type="number"
-        step="0.1"
-        min={0}
-        value={r.area}
-        onCommit={(val) => {
-          const num = parseFloat(val);
-          if (!isNaN(num) && num >= 0) {
-            bulkUpdateSpaces(getSpaceEditIds(r.id), { area: num });
-          }
-        }}
-        className="font-mono tabular text-[13.5px] text-center"
-      />
-    ) },
-
-    { key: "occupancy", header: "OCC.", width: 80, align: "center", mono: true, editable: true, render: (r) => (
-      <div className="flex items-center justify-center gap-1.5 w-full h-full px-1">
-        {!r.isOccupancyCustomized && (
-          <span title="Default occupancy value" className="size-1.5 rounded-full bg-blue-500 shrink-0" />
-        )}
+    {
+      key: "area", header: "AREA (M²)", width: 90, align: "center", mono: true, editable: true, render: (r) => (
         <InlineInput disabled={isEffectiveReadOnly}
           type="number"
+          step="0.1"
           min={0}
-          value={r.occupancy}
+          value={r.area}
           onCommit={(val) => {
-            const num = parseInt(val);
+            const num = parseFloat(val);
             if (!isNaN(num) && num >= 0) {
-              const data = getOccupancyData(r.category);
-              const isFixtureBased = data && data.exhaustPerUnit > 0;
-              const updates: Partial<Space> = { occupancy: num, isOccupancyCustomized: true };
-              if (isFixtureBased || (r.fixtures !== "" && r.fixtures !== undefined && r.fixtures !== null)) {
-                updates.fixtures = num.toString();
-              }
-              bulkUpdateSpaces(getSpaceEditIds(r.id), updates);
+              bulkUpdateSpaces(getSpaceEditIds(r.id), { area: num });
             }
           }}
-          className="font-mono tabular text-[13.5px] text-center min-w-0 flex-1"
+          className="font-mono tabular text-[13.5px] text-center"
         />
-      </div>
-    ) },
+      )
+    },
+
+    {
+      key: "occupancy", header: "OCC.", width: 80, align: "center", mono: true, editable: true, render: (r) => (
+        <div className="flex items-center justify-center gap-1.5 w-full h-full px-1">
+          {!r.isOccupancyCustomized && (
+            <span title="Default occupancy value" className="size-1.5 rounded-full bg-blue-500 shrink-0" />
+          )}
+          <InlineInput disabled={isEffectiveReadOnly}
+            type="number"
+            min={0}
+            value={r.occupancy}
+            onCommit={(val) => {
+              const num = parseInt(val);
+              if (!isNaN(num) && num >= 0) {
+                const data = getOccupancyData(r.category);
+                const isFixtureBased = data && data.exhaustPerUnit > 0;
+                const updates: Partial<Space> = { occupancy: num, isOccupancyCustomized: true };
+                if (isFixtureBased || (r.fixtures !== "" && r.fixtures !== undefined && r.fixtures !== null)) {
+                  updates.fixtures = num.toString();
+                }
+                bulkUpdateSpaces(getSpaceEditIds(r.id), updates);
+              }
+            }}
+            className="font-mono tabular text-[13.5px] text-center min-w-0 flex-1"
+          />
+        </div>
+      )
+    },
 
     { key: "minFresh", header: "MIN FRESH (L/S)", width: 100, align: "center", mono: true, render: (r) => Math.round(r.minOA || 0).toLocaleString() },
     { key: "minExtract", header: "MIN EXTRACT (L/S)", width: 100, align: "center", mono: true, render: (r) => Math.round(r.minExt || 0).toLocaleString() },
@@ -2470,7 +2422,7 @@ function SpacesView() {
               }
               if (r.category === "Rest Room / Changing Room") {
                 const sub = r.restroomSubCategories || {};
-                const sumSub = 
+                const sumSub =
                   (sub.toiletPrivateContinuous || 0) +
                   (sub.toiletPublicContinuous || 0) +
                   (sub.toiletPrivateDiscontinuous || 0) +
@@ -2487,12 +2439,11 @@ function SpacesView() {
             })()
           }
         >
-          <Flag 
-            className={`size-3.5 transition-all duration-200 ${
-              r.flagged 
-                ? "fill-red-500 text-red-500 scale-110" 
-                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
-            }`} 
+          <Flag
+            className={`size-3.5 transition-all duration-200 ${r.flagged
+              ? "fill-red-500 text-red-500 scale-110"
+              : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+              }`}
           />
         </button>
       )
@@ -2514,7 +2465,7 @@ function SpacesView() {
         const pivotIndex = lastClickedIndex !== null ? lastClickedIndex : 0;
         const start = Math.min(pivotIndex, clickedIndex);
         const end = Math.max(pivotIndex, clickedIndex);
-        
+
         if (!isCtrl) {
           next.clear();
         }
@@ -2551,7 +2502,7 @@ function SpacesView() {
 
   const handleOpenAssignZone = async () => {
     const selectedSpaces = spaces.filter((s) => Array.from(selected).includes(s.id));
-    
+
     // Check if selected spaces span multiple floors
     const uniqueFloors = Array.from(new Set(selectedSpaces.map((s) => s.floor || "Unassigned")));
     if (uniqueFloors.length > 1) {
@@ -2639,7 +2590,7 @@ function SpacesView() {
             confirmText: "Delete",
             cancelText: "Cancel",
             variant: "destructive"
-          }).then((ok) => {
+          }).then((ok: any) => {
             if (ok) {
               setPendingRecords((prev) => prev.filter((r) => !selectedPending.has(r.id)));
               setSelectedPending(new Set());
@@ -2652,7 +2603,7 @@ function SpacesView() {
             confirmText: "Delete",
             cancelText: "Cancel",
             variant: "destructive"
-          }).then((ok) => {
+          }).then((ok: any) => {
             if (ok) {
               const count = selected.size;
               deleteSpaces(Array.from(selected));
@@ -2760,7 +2711,7 @@ function SpacesView() {
             return;
           }
         }
-      } catch(err) {}
+      } catch (err) { }
     }
     const defaultNum = spaces.length + 1;
     const newSpace: Space = {
@@ -2800,1584 +2751,1578 @@ function SpacesView() {
           className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
         />
 
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                  activeFiltersCount > 0
-                    ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                    : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${activeFiltersCount > 0
+                ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                 }`}
-              >
-                <Filter className="size-3.5 shrink-0" />
-                <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
-                  Filter
+            >
+              <Filter className="size-3.5 shrink-0" />
+              <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                Filter
+              </span>
+              {activeFiltersCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                  {activeFiltersCount}
                 </span>
-                {activeFiltersCount > 0 && (
-                  <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                    {activeFiltersCount}
-                  </span>
-                )}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
-              <div className="flex items-center justify-between pb-1.5 border-b border-border">
-                <span className="text-[12px] font-semibold text-foreground">Filters</span>
-                {activeFiltersCount > 0 && (
-                  <button
-                    onClick={handleResetFilters}
-                    className="text-[10px] text-primary hover:underline font-semibold"
-                  >
-                    Clear All
-                  </button>
-                )}
-              </div>
-
-              {/* Building filter */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Building</span>
-                <select
-                  value={selectedBuilding || ""}
-                  onChange={(e) => setSelectedBuilding(e.target.value || null)}
-                  className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+              )}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+            <div className="flex items-center justify-between pb-1.5 border-b border-border">
+              <span className="text-[12px] font-semibold text-foreground">Filters</span>
+              {activeFiltersCount > 0 && (
+                <button
+                  onClick={handleResetFilters}
+                  className="text-[10px] text-primary hover:underline font-semibold"
                 >
-                  <option value="">All Buildings</option>
-                  {uniqueBuildings.map((b) => (
-                    <option key={b} value={b}>{b}</option>
-                  ))}
-                </select>
-              </div>
+                  Clear All
+                </button>
+              )}
+            </div>
 
-              {/* Floor filter */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Floor</span>
-                <select
-                  value={selectedFloor || ""}
-                  onChange={(e) => setSelectedFloor(e.target.value || null)}
-                  className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
-                >
-                  <option value="">All Floors</option>
-                  {uniqueFloors.map((f) => (
-                    <option key={f} value={f}>{f}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Zone filter */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Zone</span>
-                <select
-                  value={selectedZone || ""}
-                  onChange={(e) => setSelectedZone(e.target.value || null)}
-                  className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
-                >
-                  <option value="">All Zones</option>
-                  {uniqueZones.map((z) => (
-                    <option key={z} value={z}>{z}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Category filter */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Category</span>
-                <select
-                  value={selectedCategory || ""}
-                  onChange={(e) => setSelectedCategory(e.target.value || null)}
-                  className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
-                >
-                  <option value="">All Categories</option>
-                  {uniqueCategories.map((c) => (
-                    <option key={c} value={c}>{getCategoryDisplayName(c)}</option>
-                  ))}
-                </select>
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                  floorOrder.length > 0
-                    ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                    : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                }`}
+            {/* Building filter */}
+            <div className="flex flex-col gap-1">
+              <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Building</span>
+              <select
+                value={selectedBuilding || ""}
+                onChange={(e) => setSelectedBuilding(e.target.value || null)}
+                className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
               >
-                <ArrowUpDown className="size-3.5 shrink-0" />
-                <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
-                  Sort
-                </span>
-                {floorOrder.length > 0 && (
-                  <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                    âœ“
-                  </span>
-                )}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans z-50">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11.5px] font-semibold text-foreground">Arrange Floors</span>
-                {floorOrder.length > 0 && (
-                  <button
-                    onClick={handleResetFloorOrder}
-                    className="text-[10px] text-primary hover:underline font-medium hover:text-primary-strong"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-              <p className="text-[10.5px] text-muted-foreground mb-3 leading-snug">
-                Use ▲ / ▼ buttons or drag floors to change their sorting order in grid views.
-              </p>
-              <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto pr-0.5 font-mori">
-                {sortedFloorsForGrid.map((floor, index) => (
-                  <div
-                    key={floor}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, index)}
-                    onDragOver={(e) => handleDragOver(e, index)}
-                    onDragEnd={handleDragEnd}
-                    className={`flex items-center justify-between gap-2 p-1.5 bg-surface rounded border border-border text-[11px] cursor-grab active:cursor-grabbing select-none transition-all duration-150 ${
-                      draggingIndex === index
-                        ? "opacity-40 border-primary bg-primary/5 shadow-md"
-                        : "hover:bg-surface-2 hover:border-border-strong"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <GripVertical className="size-3 text-muted-foreground shrink-0" />
-                      <span className="font-semibold text-foreground uppercase truncate">{floor}</span>
-                    </div>
-
-                    {/* Up / Down Move Action Buttons (Works 100% in Desktop EXE / Electron / WebViews) */}
-                    <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        disabled={index === 0}
-                        onClick={() => handleMoveFloor(index, "up")}
-                        className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer ${
-                          index === 0 ? "opacity-25 cursor-not-allowed" : "text-muted-foreground hover:text-foreground"
-                        }`}
-                        title="Move floor up"
-                      >
-                        <ChevronUp className="size-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={index === sortedFloorsForGrid.length - 1}
-                        onClick={() => handleMoveFloor(index, "down")}
-                        className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer ${
-                          index === sortedFloorsForGrid.length - 1 ? "opacity-25 cursor-not-allowed" : "text-muted-foreground hover:text-foreground"
-                        }`}
-                        title="Move floor down"
-                      >
-                        <ChevronDown className="size-3.5" />
-                      </button>
-                    </div>
-                  </div>
+                <option value="">All Buildings</option>
+                {uniqueBuildings.map((b) => (
+                  <option key={b} value={b}>{b}</option>
                 ))}
-              </div>
-            </PopoverContent>
-          </Popover>
-          
-          <div className="ml-auto flex items-center gap-1">
-            <TBtn 
-              disabled={isEffectiveReadOnly}
-              onClick={() => {
-                if (isEffectiveReadOnly) {
-                  toast.info(isLockedByOther ? `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Auto-Zoning is locked.` : "Workspace is in Read-Only mode. Auto-Zoning is locked.", { id: "readonly-notice" });
-                  return;
-                }
-                triggerAutoZoning();
-              }}
-            >
-              <Sparkles className="size-3.5 text-primary" /> Auto-Zone
-            </TBtn>
-            <TBtn 
-              disabled={isEffectiveReadOnly} 
-              onClick={() => {
-                if (isEffectiveReadOnly) {
-                  toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
-                  return;
-                }
-                setSourceModalOpen(true);
-              }}
-            >
-              <Download className="size-3.5" /> Import
-            </TBtn>
-            <TBtn
-              onClick={async () => {
-                if (spaces.length === 0) {
-                  toast.info("No spaces to export.");
-                  return;
-                }
-                try {
-                  await exportVentilationPDF(spaces);
-                  toast.success("PDF report exported successfully!");
-                } catch (err: any) {
-                  toast.error(err?.message || "Failed to export PDF report.");
-                }
-              }}
-            >
-              <FileText className="size-3.5" /> Export
-            </TBtn>
-            <TBtn 
-              primary 
-              disabled={isEffectiveReadOnly}
-              onClick={handleNewSpace}
-            >
-              <Plus className="size-3.5" /> New Space
-            </TBtn>
-          </div>
-
-          {/* Bulk actions bar overlay */}
-          {!isEffectiveReadOnly && selected.size > 0 && (
-            <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
-              <span className="font-semibold">{selected.size} selected</span>
-              <span className="text-primary/30">Â·</span>
-              <BulkBtn icon={Edit3} onClick={() => {
-                setBulkEditTargetIds(Array.from(selected));
-                setBulkEditValues({
-                  building: "",
-                  floor: "",
-                  category: "",
-                  pressure: "",
-                  area: "",
-                  height: "",
-                  fixtures: "",
-                  multiplier: "",
-                  zone: "",
-                  equipment: "",
-                });
-                setBulkEditFields({
-                  building: false,
-                  floor: false,
-                  category: false,
-                  pressure: false,
-                  area: false,
-                  height: false,
-                  fixtures: false,
-                  multiplier: false,
-                  zone: false,
-                  equipment: false,
-                });
-                setBulkEditOpen(true);
-              }}>Bulk edit</BulkBtn>
-              <BulkBtn icon={GroupIcon} onClick={() => {
-                if (isEffectiveReadOnly) { toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" }); return; }
-                handleOpenAssignZone();
-              }}>Assign zone</BulkBtn>
-              <BulkBtn icon={Plus} onClick={() => {
-                if (isEffectiveReadOnly) { toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" }); return; }
-                setAssignEquipOpen(true);
-              }}>Assign equipment</BulkBtn>
-              <BulkBtn icon={Sparkles} onClick={() => {
-                if (isEffectiveReadOnly) { toast.info(isLockedByOther ? `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Auto-Zoning is locked.` : "Workspace is in Read-Only mode. Auto-Zoning is locked.", { id: "readonly-notice" }); return; }
-                const selectedSpacesArray = Array.from(selected).map(id => spaces.find(s => s.id === id)).filter(Boolean) as Space[];
-                triggerAutoZoning(selectedSpacesArray);
-              }}>Auto-Zone</BulkBtn>
-              <BulkBtn icon={Copy} onClick={() => {
-                if (isEffectiveReadOnly) { toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" }); return; }
-                const selectedIdsArray = Array.from(selected);
-                const names = selectedIdsArray.map(id => spaces.find(s => s.id === id)?.name).filter(Boolean);
-                setMergeName((names[0] || "Merged Space") + " (Merged)");
-                setPrimarySpaceId(selectedIdsArray[0] || "");
-                setMergeOpen(true);
-              }}>Merge spaces</BulkBtn>
-              <BulkBtn icon={Trash2} onClick={async () => {
-                if (isEffectiveReadOnly) { toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" }); return; }
-                if (await confirm(`Are you sure you want to delete the ${selected.size} selected spaces?`)) {
-                  deleteSpaces(Array.from(selected));
-                  setSelected(new Set());
-                }
-              }}>Delete</BulkBtn>
-              <button onClick={() => setSelected(new Set())} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded">
-                <X className="size-3" /> Clear
-              </button>
+              </select>
             </div>
-          )}
-        </div>
 
-        {/* Grid */}
-        <div className="flex-1 min-h-0 flex flex-col">
-          {spaces.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
-              <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center animate-scale-in">
-                <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 animate-bounce">
-                  <Download className="size-6" />
-                </div>
-                <h3 className="text-[15px] font-semibold tracking-tight">No Spaces Loaded</h3>
-                <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
-                  Start by importing a Revit Excel space schedule sheet or manually add spaces. The system will automatically detect occupancy categories, target zone associations, and compute required airflows.
-                </p>
-                <div className="flex items-center gap-3 w-full">
-                  <button
-                    onClick={() => setSourceModalOpen(true)}
-                    className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
-                  >
-                    <Download className="size-3.5" /> Import
-                  </button>
-                  <button
-                    onClick={handleNewSpace}
-                    className="flex-1 border border-border hover:bg-surface-2 font-semibold h-9 rounded transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Plus className="size-3.5" /> Add Space
-                  </button>
-                </div>
-              </div>
+            {/* Floor filter */}
+            <div className="flex flex-col gap-1">
+              <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Floor</span>
+              <select
+                value={selectedFloor || ""}
+                onChange={(e) => setSelectedFloor(e.target.value || null)}
+                className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+              >
+                <option value="">All Floors</option>
+                {uniqueFloors.map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
             </div>
-          ) : (
-            <DataGrid
-              rows={rows}
-              columns={columns}
-              selected={selected}
-              onToggle={toggle}
-              onToggleAll={toggleAll}
-              renderContextMenu={renderSpaceContextMenu}
-              groupBy={(r) => r.floor}
-              groupOrder={sortedFloorsForGrid}
-              renderGroupHeader={renderFloorGroupHeader}
-              renderGroupContextMenu={renderFloorGroupContextMenu}
-              onToggleGroup={handleToggleGroup}
-              onRowDoubleClick={(r) => {
-                setEditingSpace(r);
-              }}
-              activeRowId={editingSpace?.id}
-              rowClassName={(r) => spaceRowClasses[r.id] || ""}
-            />
-          )}
+
+            {/* Zone filter */}
+            <div className="flex flex-col gap-1">
+              <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Zone</span>
+              <select
+                value={selectedZone || ""}
+                onChange={(e) => setSelectedZone(e.target.value || null)}
+                className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+              >
+                <option value="">All Zones</option>
+                {uniqueZones.map((z) => (
+                  <option key={z} value={z}>{z}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Category filter */}
+            <div className="flex flex-col gap-1">
+              <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Category</span>
+              <select
+                value={selectedCategory || ""}
+                onChange={(e) => setSelectedCategory(e.target.value || null)}
+                className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
+              >
+                <option value="">All Categories</option>
+                {uniqueCategories.map((c) => (
+                  <option key={c} value={c}>{getCategoryDisplayName(c)}</option>
+                ))}
+              </select>
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${floorOrder.length > 0
+                ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                }`}
+            >
+              <ArrowUpDown className="size-3.5 shrink-0" />
+              <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                Sort
+              </span>
+              {floorOrder.length > 0 && (
+                <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                  âœ“
+                </span>
+              )}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans z-50">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11.5px] font-semibold text-foreground">Arrange Floors</span>
+              {floorOrder.length > 0 && (
+                <button
+                  onClick={handleResetFloorOrder}
+                  className="text-[10px] text-primary hover:underline font-medium hover:text-primary-strong"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            <p className="text-[10.5px] text-muted-foreground mb-3 leading-snug">
+              Use ▲ / ▼ buttons or drag floors to change their sorting order in grid views.
+            </p>
+            <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto pr-0.5 font-mori">
+              {sortedFloorsForGrid.map((floor, index) => (
+                <div
+                  key={floor}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragOver={(e) => handleDragOver(e, index)}
+                  onDragEnd={handleDragEnd}
+                  className={`flex items-center justify-between gap-2 p-1.5 bg-surface rounded border border-border text-[11px] cursor-grab active:cursor-grabbing select-none transition-all duration-150 ${draggingIndex === index
+                    ? "opacity-40 border-primary bg-primary/5 shadow-md"
+                    : "hover:bg-surface-2 hover:border-border-strong"
+                    }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <GripVertical className="size-3 text-muted-foreground shrink-0" />
+                    <span className="font-semibold text-foreground uppercase truncate">{floor}</span>
+                  </div>
+
+                  {/* Up / Down Move Action Buttons (Works 100% in Desktop EXE / Electron / WebViews) */}
+                  <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      disabled={index === 0}
+                      onClick={() => handleMoveFloor(index, "up")}
+                      className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer ${index === 0 ? "opacity-25 cursor-not-allowed" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      title="Move floor up"
+                    >
+                      <ChevronUp className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={index === sortedFloorsForGrid.length - 1}
+                      onClick={() => handleMoveFloor(index, "down")}
+                      className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer ${index === sortedFloorsForGrid.length - 1 ? "opacity-25 cursor-not-allowed" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      title="Move floor down"
+                    >
+                      <ChevronDown className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <div className="ml-auto flex items-center gap-1">
+          <TBtn
+            disabled={isEffectiveReadOnly}
+            onClick={() => {
+              if (isEffectiveReadOnly) {
+                toast.info(isLockedByOther ? `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Auto-Zoning is locked.` : "Workspace is in Read-Only mode. Auto-Zoning is locked.", { id: "readonly-notice" });
+                return;
+              }
+              triggerAutoZoning();
+            }}
+          >
+            <Sparkles className="size-3.5 text-primary" /> Auto-Zone
+          </TBtn>
+          <TBtn
+            disabled={isEffectiveReadOnly}
+            onClick={() => {
+              if (isEffectiveReadOnly) {
+                toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
+                return;
+              }
+              setSourceModalOpen(true);
+            }}
+          >
+            <Download className="size-3.5" /> Import
+          </TBtn>
+          <TBtn
+            onClick={async () => {
+              if (spaces.length === 0) {
+                toast.info("No spaces to export.");
+                return;
+              }
+              try {
+                await exportVentilationPDF(spaces);
+                toast.success("PDF report exported successfully!");
+              } catch (err: any) {
+                toast.error(err?.message || "Failed to export PDF report.");
+              }
+            }}
+          >
+            <FileText className="size-3.5" /> Export
+          </TBtn>
+          <TBtn
+            primary
+            disabled={isEffectiveReadOnly}
+            onClick={handleNewSpace}
+          >
+            <Plus className="size-3.5" /> New Space
+          </TBtn>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 no-print modal-blur-bg">
-          <div>Showing <span className="text-foreground font-medium tabular">{rows.length.toLocaleString()}</span> of {spaces.length.toLocaleString()} spaces</div>
-          <div className="flex items-center gap-3 tabular">
-            <span>Î£ Fresh: <span className="font-mono text-foreground">{rows.reduce((a, s) => a + (s.freshAir || 0), 0).toLocaleString()} L/s</span></span>
-            <span>Î£ Extract: <span className="font-mono text-foreground">{rows.reduce((a, s) => a + (s.extractAir || 0), 0).toLocaleString()} L/s</span></span>
-            <span>Î£ Area: <span className="font-mono text-foreground">{rows.reduce((a, s) => a + (s.area || 0) * (s.multiplier || 1), 0).toFixed(0)} mÂ²</span></span>
-          </div>
-        </div>
-
-        {/* Assign Comment Modal overlay */}
-        {commentTarget && (
-          <AssignCommentModal
-            isOpen={assignCommentOpen}
-            onClose={() => {
-              setAssignCommentOpen(false);
-              setCommentTarget(null);
-            }}
-            targetId={commentTarget.id}
-            targetName={commentTarget.name}
-            targetType={commentTarget.type}
-            calculatorTitle="Ventilation & Air Balance"
-            calculatorPath="/ventilation"
-            existingComments={
-              commentTarget.type === 'space'
-                ? spaces.find(s => s.id === commentTarget.id)?.comments || []
-                : commentTarget.type === 'zone'
-                ? zones.find(z => z.id === commentTarget.id)?.comments || []
-                : equipment.find(e => e.id === commentTarget.id)?.comments || []
-            }
-            onSave={(comment) => {
-              workspaceStore.addCommentToTarget(commentTarget.id, commentTarget.type, comment);
-            }}
-          />
-        )}
-
-        {/* Edit Modal overlay */}
-        {editingSpace && (
-          <EditSpaceModal
-            space={editingSpace}
-            onClose={() => setEditingSpace(null)}
-            onSave={(updated) => {
-              // 1. Check if zone is a new zone name
-              let nextZones = [...zones];
-              if (updated.zone && updated.zone !== "") {
-                const zoneExists = zones.some(
-                  (z) => z.id.toLowerCase() === updated.zone.toLowerCase() || z.name.toLowerCase() === updated.zone.toLowerCase()
-                );
-                if (!zoneExists) {
-                  const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
-                  const newZone = {
-                    id: zoneId,
-                    name: updated.zone,
-                    building: updated.building || "Tower A",
-                    floor: updated.floor || "L01",
-                    spaceCount: 0,
-                    area: 0,
-                    freshAir: 0,
-                    extractAir: 0,
-                    pressure: 0,
-                    equipment: [],
-                    pressureType: "neutral" as const,
-                    faAssignment: null,
-                    eaAssignment: null,
-                  };
-                  nextZones.push(newZone);
-                }
-              }
-
-              // 2. Check if equipment is a new equipment tag
-              let nextEquipment = [...equipment];
-              if (updated.equipment && updated.equipment !== "") {
-                const equipExists = equipment.some(
-                  (eq) => eq.id.toLowerCase() === updated.equipment.toLowerCase() || eq.tag.toLowerCase() === updated.equipment.toLowerCase()
-                );
-                if (!equipExists) {
-                  const equipId = `equip-${Date.now()}`;
-                  const newEquip = {
-                    id: equipId,
-                    tag: updated.equipment,
-                    type: "Air Handling Unit",
-                    zones: 0,
-                    spaces: 0,
-                    totalAirflow: 0,
-                    capacity: 2000,
-                    utilization: 0,
-                    status: "design" as const,
-                    mode: "Fresh Air + Extract Air" as const,
-                    zoneIds: [],
-                  };
-                  nextEquipment.push(newEquip);
-                }
-              }
-
-              // 3. Prepare updated spaces list
-              let nextSpaces = spaces.map((s) => s.id === updated.id ? updated : s);
-
-              // 4. Multiplier expansion: if updated.multiplier > 1, create clones!
-              const mult = parseInt(String(updated.multiplier)) || 1;
-              if (mult > 1) {
-                const originalUpdated = { ...updated, multiplier: 1 };
-                nextSpaces = nextSpaces.map((s) => s.id === updated.id ? originalUpdated : s);
-                
-                const clones: Space[] = [];
-                for (let i = 1; i < mult; i++) {
-                  const nextNum = Math.floor(Math.random() * 1000);
-                  clones.push({
-                    ...updated,
-                    id: `sp-${Date.now()}-${i}-${nextNum}`,
-                    code: `${updated.code}-${i}`,
-                    name: `${updated.name}-${i}`,
-                    multiplier: 1,
-                  });
-                }
-                nextSpaces.push(...clones);
-              }
-
-              // 5. Balance ventilation airflows and commit state in a single operation
-              const balanced = calculateVentilation(nextSpaces, nextZones, nextEquipment);
-              setWorkspaceState({
-                spaces: balanced.spaces,
-                zones: balanced.zones,
-                equipment: balanced.equipment,
+        {/* Bulk actions bar overlay */}
+        {!isEffectiveReadOnly && selected.size > 0 && (
+          <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+            <span className="font-semibold">{selected.size} selected</span>
+            <span className="text-primary/30">Â·</span>
+            <BulkBtn icon={Edit3} onClick={() => {
+              setBulkEditTargetIds(Array.from(selected));
+              setBulkEditValues({
+                building: "",
+                floor: "",
+                category: "",
+                pressure: "",
+                area: "",
+                height: "",
+                fixtures: "",
+                multiplier: "",
+                zone: "",
+                equipment: "",
               });
-
-              setEditingSpace(null);
-            }}
-            availableZones={zones.map(z => z.name)}
-            availableEquipment={equipment.map(e => e.tag)}
-            availableFloors={allUniqueFloors}
-          />
-        )}
-
-        {/* Rest Room / Changing Room Configuration Modal */}
-        {restroomModalSpace && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-            <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-              <header className="px-6 py-4 border-b border-slate-100 dark:border-zinc-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-zinc-900/30">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200">
-                    Rest Room / Changing Room Configuration
-                  </h3>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Enter the quantity of each sub-category to compute total exhaust.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setRestroomModalSpace(null)}
-                  className="text-muted-foreground hover:text-foreground rounded p-0.5 hover:bg-slate-100 dark:hover:bg-zinc-800"
-                >
-                  <X className="size-4" />
-                </button>
-              </header>
-              <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
-                {[
-                  { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet" },
-                  { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet" },
-                  { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet" },
-                  { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet" },
-                  { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower" },
-                  { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower" },
-                  { key: "janitorCloset", label: "Janitor Closets, Trash Rooms, Recycling", rate: `5.0 L/s per m² (${(5.0 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
-                  { key: "lockerRoom", label: "Locker Rooms", rate: `1.25 L/s per m² (${(1.25 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
-                ].map((subcat) => {
-                  const sub = restroomModalSpace.restroomSubCategories || {};
-                  const qty = sub[subcat.key] || 0;
-                  return (
-                    <div key={subcat.key} className="flex items-center justify-between gap-4 py-1.5 border-b border-slate-100/60 dark:border-zinc-900/60">
-                      <div className="flex flex-col">
-                        <span className="text-[12.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                          {subcat.label}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground mt-0.5">
-                          {subcat.rate}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="0"
-                          value={qty}
-                          onChange={(e) => {
-                            const val = Math.max(0, parseInt(e.target.value) || 0);
-                            setRestroomModalSpace((prev) => {
-                              if (!prev) return null;
-                              const sub = prev.restroomSubCategories || {};
-                              return {
-                                ...prev,
-                                restroomSubCategories: {
-                                  ...sub,
-                                  [subcat.key]: val
-                                }
-                              };
-                            });
-                          }}
-                          className="w-20 h-9 px-2 text-center bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl text-[13px] font-bold outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-neutral-800 dark:text-neutral-200"
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="px-6 py-4 bg-slate-50/50 dark:bg-zinc-900/30 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                    Total Exhaust
-                  </span>
-                  <span className="text-[15px] font-black text-primary">
-                    {(() => {
-                      const sub = restroomModalSpace.restroomSubCategories || {};
-                      const areaVal = restroomModalSpace.area || 0;
-                      let total = 0;
-                      total += (sub.toiletPrivateContinuous || 0) * 12.5;
-                      total += (sub.toiletPublicContinuous || 0) * 25.0;
-                      total += (sub.toiletPrivateDiscontinuous || 0) * 25.0;
-                      total += (sub.toiletPublicDiscontinuous || 0) * 35.0;
-                      total += (sub.showerContinuous || 0) * 10.0;
-                      total += (sub.showerDiscontinuous || 0) * 25.0;
-                      total += (sub.janitorCloset || 0) * areaVal * 5.0;
-                      total += (sub.lockerRoom || 0) * areaVal * 1.25;
-                      return total;
-                    })()}{" "}
-                    L/s
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const editIds = selected.has(restroomModalSpace.id) ? Array.from(selected) : [restroomModalSpace.id];
-                    const updatedSpaces = spaces.map(s => {
-                      if (editIds.includes(s.id)) {
-                        return {
-                          ...s,
-                          category: "Rest Room / Changing Room",
-                          restroomSubCategories: restroomModalSpace.restroomSubCategories
-                        };
-                      }
-                      return s;
-                    });
-                    updateSpaces(updatedSpaces);
-                    setRestroomModalSpace(null);
-                    if (selected.has(restroomModalSpace.id)) {
-                      setSelected(new Set());
-                    }
-                  }}
-                  className="px-5 py-2 bg-primary text-primary-foreground font-bold text-xs rounded-xl shadow-md hover:bg-primary/95 transition cursor-pointer"
-                >
-                  Apply &amp; Close
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Custom Category Modal for "OTHER" */}
-        {customParamModalSpace && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-background border border-border rounded-lg shadow-lg w-full max-w-md animate-scale-in">
-              <header className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="size-4 text-primary" />
-                  <h3 className="font-semibold text-[14px]">Configure Custom Parameters</h3>
-                </div>
-                <button 
-                  onClick={() => setCustomParamModalSpace(null)} 
-                  className="text-muted-foreground hover:text-foreground hover:bg-surface-3 rounded p-0.5"
-                >
-                  <X className="size-4" />
-                </button>
-              </header>
-              <div className="p-4 flex flex-col gap-4 text-xs">
-                <div>
-                  <div className="text-muted-foreground mb-2 leading-relaxed">
-                    Define custom calculation parameters for the category of space <span className="font-semibold text-foreground">"{customParamModalSpace.name}"</span>.
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-muted-foreground font-medium mb-1">Custom Category Name</label>
-                  <input
-                    type="text"
-                    value={customParamModalSpace.category}
-                    onChange={(e) => setCustomParamModalSpace({ ...customParamModalSpace, category: e.target.value })}
-                    placeholder="e.g. Custom (Custom)"
-                    className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-muted-foreground font-medium mb-1">Workflow Method</label>
-                  <select
-                    value={customParamModalSpace.customWorkflow || "calculate"}
-                    onChange={(e) => setCustomParamModalSpace({ 
-                      ...customParamModalSpace, 
-                      customWorkflow: e.target.value as "calculate" | "direct" 
-                    })}
-                    className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer text-foreground"
-                  >
-                    <option value="calculate">Calculate Airflow Rates</option>
-                    <option value="direct">Direct Airflow Values</option>
-                  </select>
-                </div>
-
-                {customParamModalSpace.customWorkflow === "direct" ? (
-                  <div className="grid grid-cols-2 gap-4 border-t border-border/40 pt-3">
-                    <div>
-                      <label className="block text-muted-foreground font-medium mb-1">Outdoor Air (Fresh) Given (L/s)</label>
-                      <input
-                        type="number"
-                        step="any"
-                        value={customParamModalSpace.customFreshGiven ?? ""}
-                        onChange={(e) => setCustomParamModalSpace({ 
-                          ...customParamModalSpace, 
-                          customFreshGiven: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
-                        })}
-                        className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-muted-foreground font-medium mb-1">Extract Air Taken (L/s)</label>
-                      <input
-                        type="number"
-                        step="any"
-                        value={customParamModalSpace.customExtTaken ?? ""}
-                        onChange={(e) => setCustomParamModalSpace({ 
-                          ...customParamModalSpace, 
-                          customExtTaken: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
-                        })}
-                        className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-3 border-t border-border/40 pt-3">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-muted-foreground font-medium mb-1">People OA (L/s/person)</label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={customParamModalSpace.customPeopleOA ?? ""}
-                          onChange={(e) => setCustomParamModalSpace({ 
-                            ...customParamModalSpace, 
-                            customPeopleOA: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
-                          })}
-                          className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-muted-foreground font-medium mb-1">Area OA (L/s/mÂ²)</label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={customParamModalSpace.customAreaOA ?? ""}
-                          onChange={(e) => setCustomParamModalSpace({ 
-                            ...customParamModalSpace, 
-                            customAreaOA: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
-                          })}
-                          className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-muted-foreground font-medium mb-1">ACH</label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={customParamModalSpace.customAch ?? ""}
-                          onChange={(e) => setCustomParamModalSpace({ 
-                            ...customParamModalSpace, 
-                            customAch: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
-                          })}
-                          className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-muted-foreground font-medium mb-1">Exh / Area (L/s/mÂ²)</label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={customParamModalSpace.customExhaustPerArea ?? ""}
-                          onChange={(e) => setCustomParamModalSpace({ 
-                            ...customParamModalSpace, 
-                            customExhaustPerArea: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
-                          })}
-                          className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-muted-foreground font-medium mb-1">Exh / Unit (L/s/unit)</label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={customParamModalSpace.customExhaustPerUnit ?? ""}
-                          onChange={(e) => setCustomParamModalSpace({ 
-                            ...customParamModalSpace, 
-                            customExhaustPerUnit: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
-                          })}
-                          className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
-                <button 
-                  onClick={() => setCustomParamModalSpace(null)} 
-                  className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={() => {
-                    let catName = customParamModalSpace.category.trim();
-                    if (!catName) {
-                      catName = "Custom (Custom)";
-                    } else if (!catName.endsWith(" (Custom)")) {
-                      catName = `${catName} (Custom)`;
-                    }
-
-                    const finalSpaceUpdate: Space = {
-                      ...customParamModalSpace,
-                      category: catName,
-                    };
-
-                    updateSpaces([finalSpaceUpdate]);
-                    setCustomParamModalSpace(null);
-                  }} 
-                  className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 shadow-sm"
-                >
-                  Save Parameters
-                </button>
-              </footer>
-            </div>
-          </div>
-        )}
-
-        {/* Revit Excel Import Modal */}
-        {importOpen && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div 
-              className={`bg-background border border-border rounded-2xl shadow-lg w-full max-w-5xl max-h-[85vh] flex flex-col animate-scale-in ${pendingRecords.length === 0 ? "cursor-pointer" : ""}`}
-              onDragOver={(e) => {
-                if (pendingRecords.length === 0) {
-                  e.preventDefault();
-                }
-              }}
-              onDrop={(e) => {
-                if (pendingRecords.length === 0) {
-                  handleFileDrop(e);
-                }
-              }}
-              onClick={(e) => {
-                if (pendingRecords.length === 0) {
-                  const target = e.target as HTMLElement;
-                  if (!target.closest("button") && !target.closest("input")) {
-                    fileInputRef.current?.click();
-                  }
-                }
-              }}
-            >
-              <header className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <h3 className="font-semibold text-[14px]">Import Revit Space Schedule</h3>
-                <button onClick={() => setImportOpen(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="size-4" />
-                </button>
-              </header>
-              
-              <div className={`p-4 flex-1 flex flex-col gap-4 ${pendingRecords.length === 0 ? "min-h-[45vh]" : "overflow-y-auto"}`}>
-                {pendingRecords.length === 0 ? (
-                  <div className="border-2 border-dashed border-border rounded-lg p-10 flex flex-col items-center justify-center gap-3 text-center bg-surface-1 hover:bg-surface-2 transition-colors flex-1 justify-center">
-                    <Upload className="size-8 text-muted-foreground animate-pulse" />
-                    <div className="text-sm font-medium">Drag & drop Revit Excel export sheet here, or click to browse</div>
-                    <input 
-                      ref={fileInputRef}
-                      type="file" 
-                      accept=".xlsx, .xls" 
-                      onChange={handleFileUpload} 
-                      className="hidden" 
-                    />
-                    <p className="text-[11px] text-muted-foreground max-w-md mt-2">
-                      Dynamic columns parser matches headers: <strong>Level</strong>, <strong>Zone</strong>, <strong>Name</strong>, <strong>Area</strong>, <strong>Room: Unbounded Height</strong>, and <strong>Number of People</strong>.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {/* Bulk controls for pending items */}
-                    <div className="bg-surface-2 border border-border rounded p-3 flex flex-wrap items-center gap-3 text-xs">
-                      <div className="font-semibold text-muted-foreground">Bulk Edit ({selectedPending.size} selected):</div>
-                      <input
-                        type="text"
-                        placeholder="Level (e.g. 1F)"
-                        value={importBulkValues.level}
-                        onChange={(e) => setImportBulkValues({ ...importBulkValues, level: e.target.value })}
-                        className="bg-background border border-border rounded px-2 py-1 w-20 outline-none"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Zone (e.g. GF-01)"
-                        value={importBulkValues.zone}
-                        onChange={(e) => setImportBulkValues({ ...importBulkValues, zone: e.target.value })}
-                        className="bg-background border border-border rounded px-2 py-1 w-20 outline-none"
-                      />
-                      <select
-                        value={importBulkValues.category}
-                        onChange={(e) => setImportBulkValues({ ...importBulkValues, category: e.target.value })}
-                        className="bg-background border border-border rounded px-2 py-1 max-w-[150px] outline-none"
-                      >
-                        <option value="">-- Category --</option>
-                        {zones.map(z => z.name).concat(["Office space", "Conference / meeting", "Corridors", "EX. Toilet - private (continuous)"]).filter((v, i, a) => a.indexOf(v) === i).map(c => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={importBulkValues.pressure}
-                        onChange={(e) => setImportBulkValues({ ...importBulkValues, pressure: e.target.value })}
-                        className="bg-background border border-border rounded px-2 py-1 outline-none"
-                      >
-                        <option value="">-- Pressure --</option>
-                        <option value="Neutral">Neutral</option>
-                        <option value="Positive">Positive</option>
-                        <option value="Negative">Negative</option>
-                        <option value="Critical">Critical</option>
-                      </select>
-                      <input
-                        type="number"
-                        placeholder="Height"
-                        value={importBulkValues.height}
-                        onChange={(e) => setImportBulkValues({ ...importBulkValues, height: e.target.value })}
-                        className="bg-background border border-border rounded px-2 py-1 w-14 outline-none"
-                      />
-                      <input
-                        type="number"
-                        placeholder="Fixtures"
-                        value={importBulkValues.fixtures}
-                        onChange={(e) => setImportBulkValues({ ...importBulkValues, fixtures: e.target.value })}
-                        className="bg-background border border-border rounded px-2 py-1 w-16 outline-none"
-                      />
-                      <input
-                        type="number"
-                        placeholder="Mult."
-                        value={importBulkValues.multiplier}
-                        onChange={(e) => setImportBulkValues({ ...importBulkValues, multiplier: e.target.value })}
-                        className="bg-background border border-border rounded px-2 py-1 w-14 outline-none"
-                      />
-                      <button onClick={handlePendingBulkApply} className="bg-primary text-primary-foreground font-semibold px-3 py-1 rounded hover:bg-primary/90 transition-colors">
-                        Apply Bulk
-                      </button>
-                    </div>
-
-                    {/* Pending list table */}
-                    <div className="border border-border rounded overflow-hidden max-h-[40vh] overflow-y-auto">
-                      <table className="w-full text-xs text-left border-collapse">
-                        <thead className="bg-header-bg border-b border-border sticky top-0 font-semibold text-muted-foreground">
-                          <tr>
-                            <th className="p-2 w-8 text-center">
-                              <input
-                                type="checkbox"
-                                checked={pendingRecords.length > 0 && selectedPending.size === pendingRecords.length}
-                                onChange={(e) => setSelectedPending(e.target.checked ? new Set(pendingRecords.map(p => p.id)) : new Set())}
-                                className="cursor-pointer"
-                              />
-                            </th>
-                            <th className="p-2">Level</th>
-                            <th className="p-2">Name</th>
-                            <th className="p-2">Zone</th>
-                            <th className="p-2">ASHRAE Category</th>
-                            <th className="p-2">Pressure</th>
-                            <th className="p-2">Area (mÂ²)</th>
-                            <th className="p-2">Height (m)</th>
-                            <th className="p-2">Fixtures</th>
-                            <th className="p-2">Mult.</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          {pendingRecords.map((rec) => {
-                            const isSel = selectedPending.has(rec.id);
-                            return (
-                              <tr
-                                key={rec.id}
-                                onClick={(e) => togglePending(rec.id, e.shiftKey, e.ctrlKey || e.metaKey)}
-                                className={`hover:bg-row-hover ${isSel ? 'bg-accent/10' : ''} cursor-default select-none`}
-                              >
-                                <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isSel}
-                                    onClick={(e) => togglePending(rec.id, e.shiftKey, true)}
-                                    onChange={() => {}}
-                                    className="cursor-pointer"
-                                  />
-                                </td>
-                                <td className="p-2 font-mono">{rec.level}</td>
-                                <td className="p-2 font-medium">{rec.name}</td>
-                                <td className="p-2 font-mono">{rec.zone}</td>
-                                <td className="p-2" onClick={(e) => e.stopPropagation()}>
-                                  <span className="inline-flex items-center gap-1.5 w-full">
-                                    <span
-                                      title={rec.aiDetected ? "Automatically identified" : undefined}
-                                      className={`size-1.5 rounded-full shrink-0 ${rec.aiDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
-                                    />
-                                    <select
-                                      value={rec.category && rec.category.endsWith(" (Custom)") ? "Other" : rec.category || ""}
-                                      onChange={(e) => {
-                                        const newVal = e.target.value;
-                                        setPendingRecords(prev => prev.map(p => p.id === rec.id ? { ...p, category: newVal, aiDetected: false } : p));
-                                      }}
-                                      className="w-full bg-transparent border-0 hover:bg-surface-2 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[11px] cursor-pointer truncate"
-                                    >
-                                      <option value="" className="text-muted-foreground italic">Select Category...</option>
-                                      <option value="Other" className="bg-background text-foreground">Other</option>
-                                      {getOccupancyCategories().map((c) => (
-                                        <option key={c} value={c} className="bg-background text-foreground">
-                                          {c}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </span>
-                                </td>
-                                <td className="p-2 font-mono" onClick={(e) => e.stopPropagation()}>
-                                  <span className="inline-flex items-center gap-1.5">
-                                    <span
-                                      title={rec.pressureAutoDetected ? "Automatically identified" : undefined}
-                                      className={`size-1.5 rounded-full shrink-0 ml-1 ${rec.pressureAutoDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
-                                    />
-                                    <select
-                                      value={PRESSURE_MAP[rec.pressure || "Positive"] || "1"}
-                                      onChange={(e) => {
-                                        const newVal = REVERSE_PRESSURE_MAP[e.target.value] || "Positive";
-                                        setPendingRecords(prev => prev.map(p => p.id === rec.id ? { ...p, pressure: newVal, pressureAutoDetected: false } : p));
-                                      }}
-                                      className={`font-bold rounded-full text-[11px] leading-none py-1 w-12 text-center font-mono border border-transparent cursor-pointer focus:ring-1 focus:ring-primary focus:outline-none transition-all appearance-none ${
-                                        rec.pressure === "Positive" ? "bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400" :
-                                        rec.pressure === "Negative" ? "bg-destructive/20 text-destructive dark:bg-destructive/20 dark:text-red-400" :
-                                        rec.pressure === "Critical" ? "bg-warning/20 text-warning dark:bg-warning/20 dark:text-amber-400" :
-                                        "bg-muted text-muted-foreground hover:bg-muted/80"
-                                      }`}
-                                    >
-                                      <option value="1" className="bg-background text-success font-bold">+1</option>
-                                      <option value="0" className="bg-background text-muted-foreground font-bold">0</option>
-                                      <option value="-1" className="bg-background text-destructive font-bold">-1</option>
-                                      <option value="-2" className="bg-background text-warning font-bold">-2</option>
-                                    </select>
-                                  </span>
-                                </td>
-                                <td className="p-2 font-mono">{rec.area.toFixed(1)}</td>
-                                <td className="p-2 font-mono">{rec.height.toFixed(2)}</td>
-                                <td className="p-2 font-mono">{rec.fixtures || "-"}</td>
-                                <td className="p-2 font-mono">{rec.multiplier}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <footer className="px-4 py-3 border-t border-border flex items-center justify-between bg-header-bg">
-                <button
-                  onClick={() => { setPendingRecords([]); setSelectedPending(new Set()); }}
-                  disabled={pendingRecords.length === 0}
-                  className="border border-border text-muted-foreground text-xs px-3 py-1.5 rounded hover:bg-surface-2 disabled:opacity-50"
-                >
-                  Clear parsed
-                </button>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setImportOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleCommitImports}
-                    disabled={selectedPending.size === 0}
-                    className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 transition-colors disabled:opacity-50"
-                  >
-                    Commit {selectedPending.size} Spaces
-                  </button>
-                </div>
-              </footer>
-            </div>
-          </div>
-        )}
-
-        <ImportSourceModal
-          isOpen={sourceModalOpen}
-          onClose={() => setSourceModalOpen(false)}
-          onSelectExcel={() => setImportOpen(true)}
-          onSelect3DViewer={handleSelect3DViewer}
-        />
-        <input
-          type="file"
-          ref={ifcFileInputRef}
-          onChange={handleIFCFileUpload}
-          accept=".ifc"
-          className="hidden"
-        />
-
-        {/* Auto zoning floor selection */}
-        {autoZoneFloorSelectOpen && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-background border border-border rounded-lg shadow-lg w-full max-w-sm animate-scale-in">
-              <header className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="size-4 text-primary" />
-                  <h3 className="font-semibold text-[14px]">Select Floor</h3>
-                </div>
-                <button onClick={() => setAutoZoneFloorSelectOpen(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="size-4" />
-                </button>
-              </header>
-              <div className="p-4 flex flex-col gap-3 text-xs">
-                <p className="text-muted-foreground leading-normal">
-                  Select which floor you would like to run auto-zoning for.
-                </p>
-                <div className="flex gap-2 justify-end">
-                  <button
-                    onClick={() => setAutoZoneSelectedFloors(new Set(autoZoneAvailableFloors))}
-                    className="text-[10px] text-primary hover:underline font-semibold"
-                  >
-                    Select All
-                  </button>
-                  <span className="text-muted-foreground/30">|</span>
-                  <button
-                    onClick={() => setAutoZoneSelectedFloors(new Set())}
-                    className="text-[10px] text-primary hover:underline font-semibold"
-                  >
-                    Deselect All
-                  </button>
-                </div>
-                <div className="border border-border rounded-md divide-y divide-border overflow-y-auto max-h-[30vh] bg-surface-2/40">
-                  {autoZoneAvailableFloors.map((floor) => {
-                    const isChecked = autoZoneSelectedFloors.has(floor);
-                    return (
-                      <label key={floor} className="flex items-center gap-3 p-2.5 cursor-pointer hover:bg-row-hover transition-colors select-none font-sans">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {
-                            const next = new Set(autoZoneSelectedFloors);
-                            if (next.has(floor)) {
-                              next.delete(floor);
-                            } else {
-                              next.add(floor);
-                            }
-                            setAutoZoneSelectedFloors(next);
-                          }}
-                          className="cursor-pointer"
-                        />
-                        <span className="font-medium text-foreground">{floor}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-              <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
-                <button onClick={() => setAutoZoneFloorSelectOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
-                  Cancel
-                </button>
-                <button
-                  onClick={handleFloorSelectProceed}
-                  disabled={autoZoneSelectedFloors.size === 0}
-                  className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 disabled:opacity-50"
-                >
-                  Done
-                </button>
-              </footer>
-            </div>
-          </div>
-        )}
-
-        {/* Spaces Bulk Edit Dialog */}
-        {bulkEditOpen && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-lg animate-scale-in">
-              <header className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Edit3 className="size-4 text-primary" />
-                  <h3 className="font-semibold text-[14px]">Bulk Edit {bulkEditTargetIds.length || selected.size} Spaces</h3>
-                </div>
-                <button onClick={() => setBulkEditOpen(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="size-4" />
-                </button>
-              </header>
-              <div className="p-4 flex flex-col gap-4 text-xs">
-                <div className="bg-primary/5 border border-primary/10 rounded-md p-2.5 text-muted-foreground flex items-start gap-2 leading-normal">
-                  <Info className="size-4 text-primary shrink-0 mt-0.5" />
-                  <div>
-                    Check the box next to any parameter to enable and update it across all selected spaces. Unchecked parameters will remain unchanged.
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1 select-none">
-                      <input
-                        type="checkbox"
-                        id="bulk-update-building"
-                        checked={bulkEditFields.building}
-                        onChange={(e) => setBulkEditFields({ ...bulkEditFields, building: e.target.checked })}
-                        className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
-                      />
-                      <label htmlFor="bulk-update-building" className="text-muted-foreground font-medium cursor-pointer">Building</label>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="e.g. Tower B (or blank to clear)"
-                      value={bulkEditValues.building}
-                      disabled={!bulkEditFields.building}
-                      onChange={(e) => setBulkEditValues({ ...bulkEditValues, building: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1 select-none">
-                      <input
-                        type="checkbox"
-                        id="bulk-update-floor"
-                        checked={bulkEditFields.floor}
-                        onChange={(e) => setBulkEditFields({ ...bulkEditFields, floor: e.target.checked })}
-                        className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
-                      />
-                      <label htmlFor="bulk-update-floor" className="text-muted-foreground font-medium cursor-pointer">Floor</label>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="e.g. L02 (or blank to clear)"
-                      value={bulkEditValues.floor}
-                      disabled={!bulkEditFields.floor}
-                      onChange={(e) => setBulkEditValues({ ...bulkEditValues, floor: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-1.5 mb-1 select-none">
-                    <input
-                      type="checkbox"
-                      id="bulk-update-category"
-                      checked={bulkEditFields.category}
-                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, category: e.target.checked })}
-                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
-                    />
-                    <label htmlFor="bulk-update-category" className="text-muted-foreground font-medium cursor-pointer">Category Classification</label>
-                  </div>
-                  {bulkEditFields.category ? (
-                    <CategorySelect
-                      value={bulkEditValues.category}
-                      onChange={(newVal) => setBulkEditValues({ ...bulkEditValues, category: newVal })}
-                      triggerClassName="w-full bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer transition-all text-foreground h-9"
-                    />
-                  ) : (
-                    <div className="bg-surface-2 opacity-50 border border-border rounded px-2.5 py-1.5 w-full text-muted-foreground text-[13px] h-9 flex items-center select-none cursor-not-allowed">
-                      -- Select Category (or blank to clear) --
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-1.5 mb-1 select-none">
-                    <input
-                      type="checkbox"
-                      id="bulk-update-pressure"
-                      checked={bulkEditFields.pressure}
-                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, pressure: e.target.checked })}
-                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
-                    />
-                    <label htmlFor="bulk-update-pressure" className="text-muted-foreground font-medium cursor-pointer">Pressure Mode</label>
-                  </div>
-                  <select
-                    value={bulkEditValues.pressure}
-                    disabled={!bulkEditFields.pressure}
-                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, pressure: e.target.value })}
-                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer transition-all text-foreground"
-                  >
-                    <option value="">-- Select Pressure Mode --</option>
-                    <option value="Neutral">Neutral</option>
-                    <option value="Positive">Positive</option>
-                    <option value="Negative">Negative</option>
-                    <option value="Critical">Critical</option>
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-4 gap-4">
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1 select-none">
-                      <input
-                        type="checkbox"
-                        id="bulk-update-area"
-                        checked={bulkEditFields.area}
-                        onChange={(e) => setBulkEditFields({ ...bulkEditFields, area: e.target.checked })}
-                        className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
-                      />
-                      <label htmlFor="bulk-update-area" className="text-muted-foreground font-medium cursor-pointer">Area (m²)</label>
-                    </div>
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder="e.g. 15.0"
-                      value={bulkEditValues.area}
-                      disabled={!bulkEditFields.area}
-                      onChange={(e) => setBulkEditValues({ ...bulkEditValues, area: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1 select-none">
-                      <input
-                        type="checkbox"
-                        id="bulk-update-height"
-                        checked={bulkEditFields.height}
-                        onChange={(e) => setBulkEditFields({ ...bulkEditFields, height: e.target.checked })}
-                        className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
-                      />
-                      <label htmlFor="bulk-update-height" className="text-muted-foreground font-medium cursor-pointer">Height (m)</label>
-                    </div>
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder="e.g. 3.0"
-                      value={bulkEditValues.height}
-                      disabled={!bulkEditFields.height}
-                      onChange={(e) => setBulkEditValues({ ...bulkEditValues, height: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1 select-none">
-                      <input
-                        type="checkbox"
-                        id="bulk-update-fixtures"
-                        checked={bulkEditFields.fixtures}
-                        onChange={(e) => setBulkEditFields({ ...bulkEditFields, fixtures: e.target.checked })}
-                        className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
-                      />
-                      <label htmlFor="bulk-update-fixtures" className="text-muted-foreground font-medium cursor-pointer">Fixtures (Occ)</label>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="e.g. 5 (or blank)"
-                      value={bulkEditValues.fixtures}
-                      disabled={!bulkEditFields.fixtures}
-                      onChange={(e) => setBulkEditValues({ ...bulkEditValues, fixtures: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1 select-none">
-                      <input
-                        type="checkbox"
-                        id="bulk-update-multiplier"
-                        checked={bulkEditFields.multiplier}
-                        onChange={(e) => setBulkEditFields({ ...bulkEditFields, multiplier: e.target.checked })}
-                        className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
-                      />
-                      <label htmlFor="bulk-update-multiplier" className="text-muted-foreground font-medium cursor-pointer">Multiplier</label>
-                    </div>
-                    <input
-                      type="number"
-                      placeholder="e.g. 1"
-                      value={bulkEditValues.multiplier}
-                      disabled={!bulkEditFields.multiplier}
-                      onChange={(e) => setBulkEditValues({ ...bulkEditValues, multiplier: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1 select-none">
-                      <input
-                        type="checkbox"
-                        id="bulk-update-zone"
-                        checked={bulkEditFields.zone}
-                        onChange={(e) => setBulkEditFields({ ...bulkEditFields, zone: e.target.checked })}
-                        className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
-                      />
-                      <label htmlFor="bulk-update-zone" className="text-muted-foreground font-medium cursor-pointer">Assign Zone ID</label>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="e.g. Z-002 (or blank to clear)"
-                      value={bulkEditValues.zone}
-                      disabled={!bulkEditFields.zone}
-                      onChange={(e) => setBulkEditValues({ ...bulkEditValues, zone: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
-                      list="bulk-zones-list"
-                    />
-                    <datalist id="bulk-zones-list">
-                      {zones.map((z) => <option key={z.id} value={z.name} />)}
-                    </datalist>
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5 mb-1 select-none">
-                      <input
-                        type="checkbox"
-                        id="bulk-update-equipment"
-                        checked={bulkEditFields.equipment}
-                        onChange={(e) => setBulkEditFields({ ...bulkEditFields, equipment: e.target.checked })}
-                        className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
-                      />
-                      <label htmlFor="bulk-update-equipment" className="text-muted-foreground font-medium cursor-pointer">Assign Equip Tag</label>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="e.g. AHU-01 (or blank to clear)"
-                      value={bulkEditValues.equipment}
-                      disabled={!bulkEditFields.equipment}
-                      onChange={(e) => setBulkEditValues({ ...bulkEditValues, equipment: e.target.value })}
-                      className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
-                      list="bulk-equip-list"
-                    />
-                    <datalist id="bulk-equip-list">
-                      {equipment.map((eq) => <option key={eq.id} value={eq.tag} />)}
-                    </datalist>
-                  </div>
-                </div>
-              </div>
-              <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
-                <button onClick={() => setBulkEditOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2 animate-fade-in">
-                  Cancel
-                </button>
-                <button onClick={handleBulkEditApply} className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 shadow-sm transition-colors">
-                  Apply Updates
-                </button>
-              </footer>
-            </div>
-          </div>
-        )}
-
-        {/* Assign Zone Modal */}
-        {assignZoneOpen && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-sm animate-scale-in">
-              <header className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <h3 className="font-semibold text-[14px]">Assign Zone</h3>
-                <button onClick={() => setAssignZoneOpen(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="size-4" />
-                </button>
-              </header>
-              <div className="p-4 flex flex-col gap-3 text-xs">
-                <label className="block text-muted-foreground font-medium">Select or Type Zone name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Z-003 or WC Zone"
-                  value={targetZone}
-                  onChange={(e) => setTargetZone(e.target.value)}
-                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
-                  list="zones-list"
-                />
-                <datalist id="zones-list">
-                  {zones.map((z) => <option key={z.id} value={z.name} />)}
-                </datalist>
-              </div>
-              <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
-                <button onClick={() => setAssignZoneOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
-                  Cancel
-                </button>
-                <button onClick={handleAssignZoneApply} className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95">
-                  Confirm Zone
-                </button>
-              </footer>
-            </div>
-          </div>
-        )}
-
-        {/* Assign Equipment Modal */}
-        {assignEquipOpen && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-sm animate-scale-in">
-              <header className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <h3 className="font-semibold text-[14px]">Assign Equipment</h3>
-                <button onClick={() => setAssignEquipOpen(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="size-4" />
-                </button>
-              </header>
-              <div className="p-4 flex flex-col gap-3 text-xs">
-                <label className="block text-muted-foreground font-medium">Select or Type Equipment Tag</label>
-                <input
-                  type="text"
-                  placeholder="e.g. AHU-02"
-                  value={targetEquip}
-                  onChange={(e) => setTargetEquip(e.target.value)}
-                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
-                  list="equip-list"
-                />
-                <datalist id="equip-list">
-                  {equipment.map((eq) => <option key={eq.id} value={eq.tag} />)}
-                </datalist>
-              </div>
-              <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
-                <button onClick={() => setAssignEquipOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
-                  Cancel
-                </button>
-                <button onClick={handleAssignEquipApply} className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95">
-                  Confirm Equipment
-                </button>
-              </footer>
-            </div>
-          </div>
-        )}
-
-        {/* Merge Spaces Modal */}
-        {mergeOpen && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-md animate-scale-in">
-              <header className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <h3 className="font-semibold text-[14px]">Merge Spaces</h3>
-                <button onClick={() => setMergeOpen(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="size-4" />
-                </button>
-              </header>
-              <div className="p-4 flex flex-col gap-3 text-xs">
-                <p className="text-muted-foreground">
-                  Merging {selected.size} spaces will combine their areas and occupancies. Select the primary space to inherit other properties from:
-                </p>
-                <div>
-                  <label className="block text-muted-foreground font-medium mb-1 font-semibold">Merged Space Name</label>
-                  <input
-                    type="text"
-                    value={mergeName}
-                    onChange={(e) => setMergeName(e.target.value)}
-                    className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-muted-foreground font-medium mb-1 font-semibold">Primary Space</label>
-                  <select
-                    value={primarySpaceId}
-                    onChange={(e) => setPrimarySpaceId(e.target.value)}
-                    className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
-                  >
-                    {Array.from(selected).map((id) => {
-                      const sp = spaces.find((s) => s.id === id);
-                      return (
-                        <option key={id} value={id}>
-                          {sp?.name || "Unnamed space"} ({sp?.code})
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              </div>
-              <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
-                <button onClick={() => setMergeOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
-                  Cancel
-                </button>
-                <button onClick={handleMergeSpacesApply} className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95">
-                  Merge Spaces
-                </button>
-              </footer>
-            </div>
-          </div>
-        )}
-
-        {/* New Project Modal */}
-        {newProjectOpen && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-            <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-sm animate-scale-in">
-              <header className="px-4 py-3 border-b border-border flex items-center justify-between">
-                <h3 className="font-semibold text-[14px]">Create New Project</h3>
-                <button onClick={() => setNewProjectOpen(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="size-4" />
-                </button>
-              </header>
-              <div className="p-4 flex flex-col gap-3 text-xs">
-                <div>
-                  <label className="block text-muted-foreground font-medium mb-1">Project Name</label>
-                  <input
-                    type="text"
-                    value={newProjectValues.name}
-                    onChange={(e) => setNewProjectValues({ ...newProjectValues, name: e.target.value })}
-                    className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
-                    placeholder="e.g. Marina Bay Tower"
-                  />
-                </div>
-                <div>
-                  <label className="block text-muted-foreground font-medium mb-1">Project Code</label>
-                  <input
-                    type="text"
-                    value={newProjectValues.code}
-                    onChange={(e) => setNewProjectValues({ ...newProjectValues, code: e.target.value })}
-                    className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
-                    placeholder="e.g. MBT-2026-117"
-                  />
-                </div>
-                <div>
-                  <label className="block text-muted-foreground font-medium mb-1">Client Name</label>
-                  <input
-                    type="text"
-                    value={newProjectValues.client}
-                    onChange={(e) => setNewProjectValues({ ...newProjectValues, client: e.target.value })}
-                    className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
-                    placeholder="e.g. Marina Holdings"
-                  />
-                </div>
-                <div className="flex gap-2 items-start mt-1 p-2 bg-primary/5 border border-primary/20 text-primary rounded">
-                  <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-                  <span className="text-[10px]">
-                    Warning: Creating a new project will clear all spaces, zones, and equipment in the current schedule.
-                  </span>
-                </div>
-              </div>
-              <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
-                <button onClick={() => setNewProjectOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    createNewProject({
-                      name: newProjectValues.name,
-                      code: newProjectValues.code,
-                      client: newProjectValues.client,
-                    });
-                    setNewProjectOpen(false);
-                  }}
-                  className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95"
-                >
-                  Create Project
-                </button>
-              </footer>
-            </div>
+              setBulkEditFields({
+                building: false,
+                floor: false,
+                category: false,
+                pressure: false,
+                area: false,
+                height: false,
+                fixtures: false,
+                multiplier: false,
+                zone: false,
+                equipment: false,
+              });
+              setBulkEditOpen(true);
+            }}>Bulk edit</BulkBtn>
+            <BulkBtn icon={GroupIcon} onClick={() => {
+              if (isEffectiveReadOnly) { toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" }); return; }
+              handleOpenAssignZone();
+            }}>Assign zone</BulkBtn>
+            <BulkBtn icon={Plus} onClick={() => {
+              if (isEffectiveReadOnly) { toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" }); return; }
+              setAssignEquipOpen(true);
+            }}>Assign equipment</BulkBtn>
+            <BulkBtn icon={Sparkles} onClick={() => {
+              if (isEffectiveReadOnly) { toast.info(isLockedByOther ? `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Auto-Zoning is locked.` : "Workspace is in Read-Only mode. Auto-Zoning is locked.", { id: "readonly-notice" }); return; }
+              const selectedSpacesArray = Array.from(selected).map(id => spaces.find(s => s.id === id)).filter(Boolean) as Space[];
+              triggerAutoZoning(selectedSpacesArray);
+            }}>Auto-Zone</BulkBtn>
+            <BulkBtn icon={Copy} onClick={() => {
+              if (isEffectiveReadOnly) { toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" }); return; }
+              const selectedIdsArray = Array.from(selected);
+              const names = selectedIdsArray.map(id => spaces.find(s => s.id === id)?.name).filter(Boolean);
+              setMergeName((names[0] || "Merged Space") + " (Merged)");
+              setPrimarySpaceId(selectedIdsArray[0] || "");
+              setMergeOpen(true);
+            }}>Merge spaces</BulkBtn>
+            <BulkBtn icon={Trash2} onClick={async () => {
+              if (isEffectiveReadOnly) { toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" }); return; }
+              if (await confirm(`Are you sure you want to delete the ${selected.size} selected spaces?`)) {
+                deleteSpaces(Array.from(selected));
+                setSelected(new Set());
+              }
+            }}>Delete</BulkBtn>
+            <button onClick={() => setSelected(new Set())} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded">
+              <X className="size-3" /> Clear
+            </button>
           </div>
         )}
       </div>
+
+      {/* Grid */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        {spaces.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
+            <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center animate-scale-in">
+              <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 animate-bounce">
+                <Download className="size-6" />
+              </div>
+              <h3 className="text-[15px] font-semibold tracking-tight">No Spaces Loaded</h3>
+              <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
+                Start by importing a Revit Excel space schedule sheet or manually add spaces. The system will automatically detect occupancy categories, target zone associations, and compute required airflows.
+              </p>
+              <div className="flex items-center gap-3 w-full">
+                <button
+                  onClick={() => setSourceModalOpen(true)}
+                  className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
+                >
+                  <Download className="size-3.5" /> Import
+                </button>
+                <button
+                  onClick={handleNewSpace}
+                  className="flex-1 border border-border hover:bg-surface-2 font-semibold h-9 rounded transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Plus className="size-3.5" /> Add Space
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <DataGrid
+            rows={rows}
+            columns={columns}
+            selected={selected}
+            onToggle={toggle}
+            onToggleAll={toggleAll}
+            renderContextMenu={renderSpaceContextMenu}
+            groupBy={(r) => r.floor}
+            groupOrder={sortedFloorsForGrid}
+            renderGroupHeader={renderFloorGroupHeader}
+            renderGroupContextMenu={renderFloorGroupContextMenu}
+            onToggleGroup={handleToggleGroup}
+            onRowDoubleClick={(r) => {
+              setEditingSpace(r);
+            }}
+            activeRowId={editingSpace?.id}
+            rowClassName={(r) => spaceRowClasses[r.id] || ""}
+          />
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 no-print modal-blur-bg">
+        <div>Showing <span className="text-foreground font-medium tabular">{rows.length.toLocaleString()}</span> of {spaces.length.toLocaleString()} spaces</div>
+        <div className="flex items-center gap-3 tabular">
+          <span>Î£ Fresh: <span className="font-mono text-foreground">{rows.reduce((a, s) => a + (s.freshAir || 0), 0).toLocaleString()} L/s</span></span>
+          <span>Î£ Extract: <span className="font-mono text-foreground">{rows.reduce((a, s) => a + (s.extractAir || 0), 0).toLocaleString()} L/s</span></span>
+          <span>Î£ Area: <span className="font-mono text-foreground">{rows.reduce((a, s) => a + (s.area || 0) * (s.multiplier || 1), 0).toFixed(0)} mÂ²</span></span>
+        </div>
+      </div>
+
+      {/* Assign Comment Modal overlay */}
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={assignCommentOpen}
+          onClose={() => {
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
+          }}
+          targetId={commentTarget.id}
+          targetName={commentTarget.name}
+          targetType={commentTarget.type}
+          calculatorTitle="Ventilation & Air Balance"
+          calculatorPath="/ventilation"
+          existingComments={
+            commentTarget.type === 'space'
+              ? spaces.find(s => s.id === commentTarget.id)?.comments || []
+              : commentTarget.type === 'zone'
+                ? zones.find(z => z.id === commentTarget.id)?.comments || []
+                : equipment.find(e => e.id === commentTarget.id)?.comments || []
+          }
+          onSave={(comment) => {
+            workspaceStore.addCommentToTarget(commentTarget.id, commentTarget.type, comment);
+          }}
+        />
+      )}
+
+      {/* Edit Modal overlay */}
+      {editingSpace && (
+        <EditSpaceModal
+          space={editingSpace}
+          onClose={() => setEditingSpace(null)}
+          onSave={(updated) => {
+            // 1. Check if zone is a new zone name
+            let nextZones = [...zones];
+            if (updated.zone && updated.zone !== "") {
+              const zoneExists = zones.some(
+                (z) => z.id.toLowerCase() === updated.zone.toLowerCase() || z.name.toLowerCase() === updated.zone.toLowerCase()
+              );
+              if (!zoneExists) {
+                const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+                const newZone = {
+                  id: zoneId,
+                  name: updated.zone,
+                  building: updated.building || "Tower A",
+                  floor: updated.floor || "L01",
+                  spaceCount: 0,
+                  area: 0,
+                  freshAir: 0,
+                  extractAir: 0,
+                  pressure: 0,
+                  equipment: [],
+                  pressureType: "neutral" as const,
+                  faAssignment: null,
+                  eaAssignment: null,
+                };
+                nextZones.push(newZone);
+              }
+            }
+
+            // 2. Check if equipment is a new equipment tag
+            let nextEquipment = [...equipment];
+            if (updated.equipment && updated.equipment !== "") {
+              const equipExists = equipment.some(
+                (eq) => eq.id.toLowerCase() === updated.equipment.toLowerCase() || eq.tag.toLowerCase() === updated.equipment.toLowerCase()
+              );
+              if (!equipExists) {
+                const equipId = `equip-${Date.now()}`;
+                const newEquip = {
+                  id: equipId,
+                  tag: updated.equipment,
+                  type: "Air Handling Unit",
+                  zones: 0,
+                  spaces: 0,
+                  totalAirflow: 0,
+                  capacity: 2000,
+                  utilization: 0,
+                  status: "design" as const,
+                  mode: "Fresh Air + Extract Air" as const,
+                  zoneIds: [],
+                };
+                nextEquipment.push(newEquip);
+              }
+            }
+
+            // 3. Prepare updated spaces list
+            let nextSpaces = spaces.map((s) => s.id === updated.id ? updated : s);
+
+            // 4. Multiplier expansion: if updated.multiplier > 1, create clones!
+            const mult = parseInt(String(updated.multiplier)) || 1;
+            if (mult > 1) {
+              const originalUpdated = { ...updated, multiplier: 1 };
+              nextSpaces = nextSpaces.map((s) => s.id === updated.id ? originalUpdated : s);
+
+              const clones: Space[] = [];
+              for (let i = 1; i < mult; i++) {
+                const nextNum = Math.floor(Math.random() * 1000);
+                clones.push({
+                  ...updated,
+                  id: `sp-${Date.now()}-${i}-${nextNum}`,
+                  code: `${updated.code}-${i}`,
+                  name: `${updated.name}-${i}`,
+                  multiplier: 1,
+                });
+              }
+              nextSpaces.push(...clones);
+            }
+
+            // 5. Balance ventilation airflows and commit state in a single operation
+            const balanced = calculateVentilation(nextSpaces, nextZones, nextEquipment);
+            setWorkspaceState({
+              spaces: balanced.spaces,
+              zones: balanced.zones,
+              equipment: balanced.equipment,
+            });
+
+            setEditingSpace(null);
+          }}
+          availableZones={zones.map(z => z.name)}
+          availableEquipment={equipment.map(e => e.tag)}
+          availableFloors={allUniqueFloors}
+        />
+      )}
+
+      {/* Rest Room / Changing Room Configuration Modal */}
+      {restroomModalSpace && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <header className="px-6 py-4 border-b border-slate-100 dark:border-zinc-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-zinc-900/30">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200">
+                  Rest Room / Changing Room Configuration
+                </h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Enter the quantity of each sub-category to compute total exhaust.
+                </p>
+              </div>
+              <button
+                onClick={() => setRestroomModalSpace(null)}
+                className="text-muted-foreground hover:text-foreground rounded p-0.5 hover:bg-slate-100 dark:hover:bg-zinc-800"
+              >
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
+              {[
+                { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet" },
+                { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet" },
+                { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet" },
+                { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet" },
+                { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower" },
+                { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower" },
+                { key: "janitorCloset", label: "Janitor Closets, Trash Rooms, Recycling", rate: `5.0 L/s per m² (${(5.0 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
+                { key: "lockerRoom", label: "Locker Rooms", rate: `1.25 L/s per m² (${(1.25 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
+              ].map((subcat) => {
+                const sub = restroomModalSpace.restroomSubCategories || {};
+                const qty = sub[subcat.key] || 0;
+                return (
+                  <div key={subcat.key} className="flex items-center justify-between gap-4 py-1.5 border-b border-slate-100/60 dark:border-zinc-900/60">
+                    <div className="flex flex-col">
+                      <span className="text-[12.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                        {subcat.label}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground mt-0.5">
+                        {subcat.rate}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        value={qty}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseInt(e.target.value) || 0);
+                          setRestroomModalSpace((prev) => {
+                            if (!prev) return null;
+                            const sub = prev.restroomSubCategories || {};
+                            return {
+                              ...prev,
+                              restroomSubCategories: {
+                                ...sub,
+                                [subcat.key]: val
+                              }
+                            };
+                          });
+                        }}
+                        className="w-20 h-9 px-2 text-center bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl text-[13px] font-bold outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 text-neutral-800 dark:text-neutral-200"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-6 py-4 bg-slate-50/50 dark:bg-zinc-900/30 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Total Exhaust
+                </span>
+                <span className="text-[15px] font-black text-primary">
+                  {(() => {
+                    const sub = restroomModalSpace.restroomSubCategories || {};
+                    const areaVal = restroomModalSpace.area || 0;
+                    let total = 0;
+                    total += (sub.toiletPrivateContinuous || 0) * 12.5;
+                    total += (sub.toiletPublicContinuous || 0) * 25.0;
+                    total += (sub.toiletPrivateDiscontinuous || 0) * 25.0;
+                    total += (sub.toiletPublicDiscontinuous || 0) * 35.0;
+                    total += (sub.showerContinuous || 0) * 10.0;
+                    total += (sub.showerDiscontinuous || 0) * 25.0;
+                    total += (sub.janitorCloset || 0) * areaVal * 5.0;
+                    total += (sub.lockerRoom || 0) * areaVal * 1.25;
+                    return total;
+                  })()}{" "}
+                  L/s
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const editIds = selected.has(restroomModalSpace.id) ? Array.from(selected) : [restroomModalSpace.id];
+                  const updatedSpaces = spaces.map(s => {
+                    if (editIds.includes(s.id)) {
+                      return {
+                        ...s,
+                        category: "Rest Room / Changing Room",
+                        restroomSubCategories: restroomModalSpace.restroomSubCategories
+                      };
+                    }
+                    return s;
+                  });
+                  updateSpaces(updatedSpaces);
+                  setRestroomModalSpace(null);
+                  if (selected.has(restroomModalSpace.id)) {
+                    setSelected(new Set());
+                  }
+                }}
+                className="px-5 py-2 bg-primary text-primary-foreground font-bold text-xs rounded-xl shadow-md hover:bg-primary/95 transition cursor-pointer"
+              >
+                Apply &amp; Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Category Modal for "OTHER" */}
+      {customParamModalSpace && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-lg shadow-lg w-full max-w-md animate-scale-in">
+            <header className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" />
+                <h3 className="font-semibold text-[14px]">Configure Custom Parameters</h3>
+              </div>
+              <button
+                onClick={() => setCustomParamModalSpace(null)}
+                className="text-muted-foreground hover:text-foreground hover:bg-surface-3 rounded p-0.5"
+              >
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-4 flex flex-col gap-4 text-xs">
+              <div>
+                <div className="text-muted-foreground mb-2 leading-relaxed">
+                  Define custom calculation parameters for the category of space <span className="font-semibold text-foreground">"{customParamModalSpace.name}"</span>.
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-muted-foreground font-medium mb-1">Custom Category Name</label>
+                <input
+                  type="text"
+                  value={customParamModalSpace.category}
+                  onChange={(e) => setCustomParamModalSpace({ ...customParamModalSpace, category: e.target.value })}
+                  placeholder="e.g. Custom (Custom)"
+                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-muted-foreground font-medium mb-1">Workflow Method</label>
+                <select
+                  value={customParamModalSpace.customWorkflow || "calculate"}
+                  onChange={(e) => setCustomParamModalSpace({
+                    ...customParamModalSpace,
+                    customWorkflow: e.target.value as "calculate" | "direct"
+                  })}
+                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer text-foreground"
+                >
+                  <option value="calculate">Calculate Airflow Rates</option>
+                  <option value="direct">Direct Airflow Values</option>
+                </select>
+              </div>
+
+              {customParamModalSpace.customWorkflow === "direct" ? (
+                <div className="grid grid-cols-2 gap-4 border-t border-border/40 pt-3">
+                  <div>
+                    <label className="block text-muted-foreground font-medium mb-1">Outdoor Air (Fresh) Given (L/s)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={customParamModalSpace.customFreshGiven ?? ""}
+                      onChange={(e) => setCustomParamModalSpace({
+                        ...customParamModalSpace,
+                        customFreshGiven: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
+                      })}
+                      className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-muted-foreground font-medium mb-1">Extract Air Taken (L/s)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={customParamModalSpace.customExtTaken ?? ""}
+                      onChange={(e) => setCustomParamModalSpace({
+                        ...customParamModalSpace,
+                        customExtTaken: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
+                      })}
+                      className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3 border-t border-border/40 pt-3">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-muted-foreground font-medium mb-1">People OA (L/s/person)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={customParamModalSpace.customPeopleOA ?? ""}
+                        onChange={(e) => setCustomParamModalSpace({
+                          ...customParamModalSpace,
+                          customPeopleOA: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
+                        })}
+                        className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-muted-foreground font-medium mb-1">Area OA (L/s/mÂ²)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={customParamModalSpace.customAreaOA ?? ""}
+                        onChange={(e) => setCustomParamModalSpace({
+                          ...customParamModalSpace,
+                          customAreaOA: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
+                        })}
+                        className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-muted-foreground font-medium mb-1">ACH</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={customParamModalSpace.customAch ?? ""}
+                        onChange={(e) => setCustomParamModalSpace({
+                          ...customParamModalSpace,
+                          customAch: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
+                        })}
+                        className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-muted-foreground font-medium mb-1">Exh / Area (L/s/mÂ²)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={customParamModalSpace.customExhaustPerArea ?? ""}
+                        onChange={(e) => setCustomParamModalSpace({
+                          ...customParamModalSpace,
+                          customExhaustPerArea: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
+                        })}
+                        className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-muted-foreground font-medium mb-1">Exh / Unit (L/s/unit)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={customParamModalSpace.customExhaustPerUnit ?? ""}
+                        onChange={(e) => setCustomParamModalSpace({
+                          ...customParamModalSpace,
+                          customExhaustPerUnit: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
+                        })}
+                        className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+              <button
+                onClick={() => setCustomParamModalSpace(null)}
+                className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  let catName = customParamModalSpace.category.trim();
+                  if (!catName) {
+                    catName = "Custom (Custom)";
+                  } else if (!catName.endsWith(" (Custom)")) {
+                    catName = `${catName} (Custom)`;
+                  }
+
+                  const finalSpaceUpdate: Space = {
+                    ...customParamModalSpace,
+                    category: catName,
+                  };
+
+                  updateSpaces([finalSpaceUpdate]);
+                  setCustomParamModalSpace(null);
+                }}
+                className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 shadow-sm"
+              >
+                Save Parameters
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Revit Excel Import Modal */}
+      {importOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div
+            className={`bg-background border border-border rounded-2xl shadow-lg w-full max-w-5xl max-h-[85vh] flex flex-col animate-scale-in ${pendingRecords.length === 0 ? "cursor-pointer" : ""}`}
+            onDragOver={(e) => {
+              if (pendingRecords.length === 0) {
+                e.preventDefault();
+              }
+            }}
+            onDrop={(e) => {
+              if (pendingRecords.length === 0) {
+                handleFileDrop(e);
+              }
+            }}
+            onClick={(e) => {
+              if (pendingRecords.length === 0) {
+                const target = e.target as HTMLElement;
+                if (!target.closest("button") && !target.closest("input")) {
+                  fileInputRef.current?.click();
+                }
+              }
+            }}
+          >
+            <header className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <h3 className="font-semibold text-[14px]">Import Revit Space Schedule</h3>
+              <button onClick={() => setImportOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </header>
+
+            <div className={`p-4 flex-1 flex flex-col gap-4 ${pendingRecords.length === 0 ? "min-h-[45vh]" : "overflow-y-auto"}`}>
+              {pendingRecords.length === 0 ? (
+                <div className="border-2 border-dashed border-border rounded-lg p-10 flex flex-col items-center justify-center gap-3 text-center bg-surface-1 hover:bg-surface-2 transition-colors flex-1 justify-center">
+                  <Upload className="size-8 text-muted-foreground animate-pulse" />
+                  <div className="text-sm font-medium">Drag & drop Revit Excel export sheet here, or click to browse</div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx, .xls"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <p className="text-[11px] text-muted-foreground max-w-md mt-2">
+                    Dynamic columns parser matches headers: <strong>Level</strong>, <strong>Zone</strong>, <strong>Name</strong>, <strong>Area</strong>, <strong>Room: Unbounded Height</strong>, and <strong>Number of People</strong>.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Bulk controls for pending items */}
+                  <div className="bg-surface-2 border border-border rounded p-3 flex flex-wrap items-center gap-3 text-xs">
+                    <div className="font-semibold text-muted-foreground">Bulk Edit ({selectedPending.size} selected):</div>
+                    <input
+                      type="text"
+                      placeholder="Level (e.g. 1F)"
+                      value={importBulkValues.level}
+                      onChange={(e) => setImportBulkValues({ ...importBulkValues, level: e.target.value })}
+                      className="bg-background border border-border rounded px-2 py-1 w-20 outline-none"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Zone (e.g. GF-01)"
+                      value={importBulkValues.zone}
+                      onChange={(e) => setImportBulkValues({ ...importBulkValues, zone: e.target.value })}
+                      className="bg-background border border-border rounded px-2 py-1 w-20 outline-none"
+                    />
+                    <select
+                      value={importBulkValues.category}
+                      onChange={(e) => setImportBulkValues({ ...importBulkValues, category: e.target.value })}
+                      className="bg-background border border-border rounded px-2 py-1 max-w-[150px] outline-none"
+                    >
+                      <option value="">-- Category --</option>
+                      {zones.map(z => z.name).concat(["Office space", "Conference / meeting", "Corridors", "EX. Toilet - private (continuous)"]).filter((v, i, a) => a.indexOf(v) === i).map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={importBulkValues.pressure}
+                      onChange={(e) => setImportBulkValues({ ...importBulkValues, pressure: e.target.value })}
+                      className="bg-background border border-border rounded px-2 py-1 outline-none"
+                    >
+                      <option value="">-- Pressure --</option>
+                      <option value="Neutral">Neutral</option>
+                      <option value="Positive">Positive</option>
+                      <option value="Negative">Negative</option>
+                      <option value="Critical">Critical</option>
+                    </select>
+                    <input
+                      type="number"
+                      placeholder="Height"
+                      value={importBulkValues.height}
+                      onChange={(e) => setImportBulkValues({ ...importBulkValues, height: e.target.value })}
+                      className="bg-background border border-border rounded px-2 py-1 w-14 outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Fixtures"
+                      value={importBulkValues.fixtures}
+                      onChange={(e) => setImportBulkValues({ ...importBulkValues, fixtures: e.target.value })}
+                      className="bg-background border border-border rounded px-2 py-1 w-16 outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Mult."
+                      value={importBulkValues.multiplier}
+                      onChange={(e) => setImportBulkValues({ ...importBulkValues, multiplier: e.target.value })}
+                      className="bg-background border border-border rounded px-2 py-1 w-14 outline-none"
+                    />
+                    <button onClick={handlePendingBulkApply} className="bg-primary text-primary-foreground font-semibold px-3 py-1 rounded hover:bg-primary/90 transition-colors">
+                      Apply Bulk
+                    </button>
+                  </div>
+
+                  {/* Pending list table */}
+                  <div className="border border-border rounded overflow-hidden max-h-[40vh] overflow-y-auto">
+                    <table className="w-full text-xs text-left border-collapse">
+                      <thead className="bg-header-bg border-b border-border sticky top-0 font-semibold text-muted-foreground">
+                        <tr>
+                          <th className="p-2 w-8 text-center">
+                            <input
+                              type="checkbox"
+                              checked={pendingRecords.length > 0 && selectedPending.size === pendingRecords.length}
+                              onChange={(e) => setSelectedPending(e.target.checked ? new Set(pendingRecords.map(p => p.id)) : new Set())}
+                              className="cursor-pointer"
+                            />
+                          </th>
+                          <th className="p-2">Level</th>
+                          <th className="p-2">Name</th>
+                          <th className="p-2">Zone</th>
+                          <th className="p-2">ASHRAE Category</th>
+                          <th className="p-2">Pressure</th>
+                          <th className="p-2">Area (mÂ²)</th>
+                          <th className="p-2">Height (m)</th>
+                          <th className="p-2">Fixtures</th>
+                          <th className="p-2">Mult.</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {pendingRecords.map((rec) => {
+                          const isSel = selectedPending.has(rec.id);
+                          return (
+                            <tr
+                              key={rec.id}
+                              onClick={(e) => togglePending(rec.id, e.shiftKey, e.ctrlKey || e.metaKey)}
+                              className={`hover:bg-row-hover ${isSel ? 'bg-accent/10' : ''} cursor-default select-none`}
+                            >
+                              <td className="p-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSel}
+                                  onClick={(e) => togglePending(rec.id, e.shiftKey, true)}
+                                  onChange={() => { }}
+                                  className="cursor-pointer"
+                                />
+                              </td>
+                              <td className="p-2 font-mono">{rec.level}</td>
+                              <td className="p-2 font-medium">{rec.name}</td>
+                              <td className="p-2 font-mono">{rec.zone}</td>
+                              <td className="p-2" onClick={(e) => e.stopPropagation()}>
+                                <span className="inline-flex items-center gap-1.5 w-full">
+                                  <span
+                                    title={rec.aiDetected ? "Automatically identified" : undefined}
+                                    className={`size-1.5 rounded-full shrink-0 ${rec.aiDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
+                                  />
+                                  <select
+                                    value={rec.category && rec.category.endsWith(" (Custom)") ? "Other" : rec.category || ""}
+                                    onChange={(e) => {
+                                      const newVal = e.target.value;
+                                      setPendingRecords(prev => prev.map(p => p.id === rec.id ? { ...p, category: newVal, aiDetected: false } : p));
+                                    }}
+                                    className="w-full bg-transparent border-0 hover:bg-surface-2 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[11px] cursor-pointer truncate"
+                                  >
+                                    <option value="" className="text-muted-foreground italic">Select Category...</option>
+                                    <option value="Other" className="bg-background text-foreground">Other</option>
+                                    {getOccupancyCategories().map((c) => (
+                                      <option key={c} value={c} className="bg-background text-foreground">
+                                        {c}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </span>
+                              </td>
+                              <td className="p-2 font-mono" onClick={(e) => e.stopPropagation()}>
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span
+                                    title={rec.pressureAutoDetected ? "Automatically identified" : undefined}
+                                    className={`size-1.5 rounded-full shrink-0 ml-1 ${rec.pressureAutoDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
+                                  />
+                                  <select
+                                    value={PRESSURE_MAP[rec.pressure || "Positive"] || "1"}
+                                    onChange={(e) => {
+                                      const newVal = REVERSE_PRESSURE_MAP[e.target.value] || "Positive";
+                                      setPendingRecords(prev => prev.map(p => p.id === rec.id ? { ...p, pressure: newVal, pressureAutoDetected: false } : p));
+                                    }}
+                                    className={`font-bold rounded-full text-[11px] leading-none py-1 w-12 text-center font-mono border border-transparent cursor-pointer focus:ring-1 focus:ring-primary focus:outline-none transition-all appearance-none ${rec.pressure === "Positive" ? "bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400" :
+                                      rec.pressure === "Negative" ? "bg-destructive/20 text-destructive dark:bg-destructive/20 dark:text-red-400" :
+                                        rec.pressure === "Critical" ? "bg-warning/20 text-warning dark:bg-warning/20 dark:text-amber-400" :
+                                          "bg-muted text-muted-foreground hover:bg-muted/80"
+                                      }`}
+                                  >
+                                    <option value="1" className="bg-background text-success font-bold">+1</option>
+                                    <option value="0" className="bg-background text-muted-foreground font-bold">0</option>
+                                    <option value="-1" className="bg-background text-destructive font-bold">-1</option>
+                                    <option value="-2" className="bg-background text-warning font-bold">-2</option>
+                                  </select>
+                                </span>
+                              </td>
+                              <td className="p-2 font-mono">{rec.area.toFixed(1)}</td>
+                              <td className="p-2 font-mono">{rec.height.toFixed(2)}</td>
+                              <td className="p-2 font-mono">{rec.fixtures || "-"}</td>
+                              <td className="p-2 font-mono">{rec.multiplier}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <footer className="px-4 py-3 border-t border-border flex items-center justify-between bg-header-bg">
+              <button
+                onClick={() => { setPendingRecords([]); setSelectedPending(new Set()); }}
+                disabled={pendingRecords.length === 0}
+                className="border border-border text-muted-foreground text-xs px-3 py-1.5 rounded hover:bg-surface-2 disabled:opacity-50"
+              >
+                Clear parsed
+              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setImportOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCommitImports}
+                  disabled={selectedPending.size === 0}
+                  className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 transition-colors disabled:opacity-50"
+                >
+                  Commit {selectedPending.size} Spaces
+                </button>
+              </div>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      <ImportSourceModal
+        isOpen={sourceModalOpen}
+        onClose={() => setSourceModalOpen(false)}
+        onSelectExcel={() => setImportOpen(true)}
+        onSelect3DViewer={handleSelect3DViewer}
+      />
+      <input
+        type="file"
+        ref={ifcFileInputRef}
+        onChange={handleIFCFileUpload}
+        accept=".ifc"
+        className="hidden"
+      />
+
+      {/* Auto zoning floor selection */}
+      {autoZoneFloorSelectOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-lg shadow-lg w-full max-w-sm animate-scale-in">
+            <header className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" />
+                <h3 className="font-semibold text-[14px]">Select Floor</h3>
+              </div>
+              <button onClick={() => setAutoZoneFloorSelectOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-4 flex flex-col gap-3 text-xs">
+              <p className="text-muted-foreground leading-normal">
+                Select which floor you would like to run auto-zoning for.
+              </p>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setAutoZoneSelectedFloors(new Set(autoZoneAvailableFloors))}
+                  className="text-[10px] text-primary hover:underline font-semibold"
+                >
+                  Select All
+                </button>
+                <span className="text-muted-foreground/30">|</span>
+                <button
+                  onClick={() => setAutoZoneSelectedFloors(new Set())}
+                  className="text-[10px] text-primary hover:underline font-semibold"
+                >
+                  Deselect All
+                </button>
+              </div>
+              <div className="border border-border rounded-md divide-y divide-border overflow-y-auto max-h-[30vh] bg-surface-2/40">
+                {autoZoneAvailableFloors.map((floor) => {
+                  const isChecked = autoZoneSelectedFloors.has(floor);
+                  return (
+                    <label key={floor} className="flex items-center gap-3 p-2.5 cursor-pointer hover:bg-row-hover transition-colors select-none font-sans">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          const next = new Set(autoZoneSelectedFloors);
+                          if (next.has(floor)) {
+                            next.delete(floor);
+                          } else {
+                            next.add(floor);
+                          }
+                          setAutoZoneSelectedFloors(next);
+                        }}
+                        className="cursor-pointer"
+                      />
+                      <span className="font-medium text-foreground">{floor}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+              <button onClick={() => setAutoZoneFloorSelectOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
+                Cancel
+              </button>
+              <button
+                onClick={handleFloorSelectProceed}
+                disabled={autoZoneSelectedFloors.size === 0}
+                className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 disabled:opacity-50"
+              >
+                Done
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Spaces Bulk Edit Dialog */}
+      {bulkEditOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-lg animate-scale-in">
+            <header className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit3 className="size-4 text-primary" />
+                <h3 className="font-semibold text-[14px]">Bulk Edit {bulkEditTargetIds.length || selected.size} Spaces</h3>
+              </div>
+              <button onClick={() => setBulkEditOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-4 flex flex-col gap-4 text-xs">
+              <div className="bg-primary/5 border border-primary/10 rounded-md p-2.5 text-muted-foreground flex items-start gap-2 leading-normal">
+                <Info className="size-4 text-primary shrink-0 mt-0.5" />
+                <div>
+                  Check the box next to any parameter to enable and update it across all selected spaces. Unchecked parameters will remain unchanged.
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bulk-update-building"
+                      checked={bulkEditFields.building}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, building: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                    />
+                    <label htmlFor="bulk-update-building" className="text-muted-foreground font-medium cursor-pointer">Building</label>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="e.g. Tower B (or blank to clear)"
+                    value={bulkEditValues.building}
+                    disabled={!bulkEditFields.building}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, building: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bulk-update-floor"
+                      checked={bulkEditFields.floor}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, floor: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                    />
+                    <label htmlFor="bulk-update-floor" className="text-muted-foreground font-medium cursor-pointer">Floor</label>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="e.g. L02 (or blank to clear)"
+                    value={bulkEditValues.floor}
+                    disabled={!bulkEditFields.floor}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, floor: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1.5 mb-1 select-none">
+                  <input
+                    type="checkbox"
+                    id="bulk-update-category"
+                    checked={bulkEditFields.category}
+                    onChange={(e) => setBulkEditFields({ ...bulkEditFields, category: e.target.checked })}
+                    className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                  />
+                  <label htmlFor="bulk-update-category" className="text-muted-foreground font-medium cursor-pointer">Category Classification</label>
+                </div>
+                {bulkEditFields.category ? (
+                  <CategorySelect
+                    value={bulkEditValues.category}
+                    onChange={(newVal) => setBulkEditValues({ ...bulkEditValues, category: newVal })}
+                    triggerClassName="w-full bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer transition-all text-foreground h-9"
+                  />
+                ) : (
+                  <div className="bg-surface-2 opacity-50 border border-border rounded px-2.5 py-1.5 w-full text-muted-foreground text-[13px] h-9 flex items-center select-none cursor-not-allowed">
+                    -- Select Category (or blank to clear) --
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1.5 mb-1 select-none">
+                  <input
+                    type="checkbox"
+                    id="bulk-update-pressure"
+                    checked={bulkEditFields.pressure}
+                    onChange={(e) => setBulkEditFields({ ...bulkEditFields, pressure: e.target.checked })}
+                    className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                  />
+                  <label htmlFor="bulk-update-pressure" className="text-muted-foreground font-medium cursor-pointer">Pressure Mode</label>
+                </div>
+                <select
+                  value={bulkEditValues.pressure}
+                  disabled={!bulkEditFields.pressure}
+                  onChange={(e) => setBulkEditValues({ ...bulkEditValues, pressure: e.target.value })}
+                  className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer transition-all text-foreground"
+                >
+                  <option value="">-- Select Pressure Mode --</option>
+                  <option value="Neutral">Neutral</option>
+                  <option value="Positive">Positive</option>
+                  <option value="Negative">Negative</option>
+                  <option value="Critical">Critical</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bulk-update-area"
+                      checked={bulkEditFields.area}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, area: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                    />
+                    <label htmlFor="bulk-update-area" className="text-muted-foreground font-medium cursor-pointer">Area (m²)</label>
+                  </div>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 15.0"
+                    value={bulkEditValues.area}
+                    disabled={!bulkEditFields.area}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, area: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bulk-update-height"
+                      checked={bulkEditFields.height}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, height: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                    />
+                    <label htmlFor="bulk-update-height" className="text-muted-foreground font-medium cursor-pointer">Height (m)</label>
+                  </div>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 3.0"
+                    value={bulkEditValues.height}
+                    disabled={!bulkEditFields.height}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, height: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bulk-update-fixtures"
+                      checked={bulkEditFields.fixtures}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, fixtures: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                    />
+                    <label htmlFor="bulk-update-fixtures" className="text-muted-foreground font-medium cursor-pointer">Fixtures (Occ)</label>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="e.g. 5 (or blank)"
+                    value={bulkEditValues.fixtures}
+                    disabled={!bulkEditFields.fixtures}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, fixtures: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bulk-update-multiplier"
+                      checked={bulkEditFields.multiplier}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, multiplier: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                    />
+                    <label htmlFor="bulk-update-multiplier" className="text-muted-foreground font-medium cursor-pointer">Multiplier</label>
+                  </div>
+                  <input
+                    type="number"
+                    placeholder="e.g. 1"
+                    value={bulkEditValues.multiplier}
+                    disabled={!bulkEditFields.multiplier}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, multiplier: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all text-[13px] text-foreground"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bulk-update-zone"
+                      checked={bulkEditFields.zone}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, zone: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                    />
+                    <label htmlFor="bulk-update-zone" className="text-muted-foreground font-medium cursor-pointer">Assign Zone ID</label>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="e.g. Z-002 (or blank to clear)"
+                    value={bulkEditValues.zone}
+                    disabled={!bulkEditFields.zone}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, zone: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
+                    list="bulk-zones-list"
+                  />
+                  <datalist id="bulk-zones-list">
+                    {zones.map((z) => <option key={z.id} value={z.name} />)}
+                  </datalist>
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1 select-none">
+                    <input
+                      type="checkbox"
+                      id="bulk-update-equipment"
+                      checked={bulkEditFields.equipment}
+                      onChange={(e) => setBulkEditFields({ ...bulkEditFields, equipment: e.target.checked })}
+                      className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer animate-scale-in"
+                    />
+                    <label htmlFor="bulk-update-equipment" className="text-muted-foreground font-medium cursor-pointer">Assign Equip Tag</label>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="e.g. AHU-01 (or blank to clear)"
+                    value={bulkEditValues.equipment}
+                    disabled={!bulkEditFields.equipment}
+                    onChange={(e) => setBulkEditValues({ ...bulkEditValues, equipment: e.target.value })}
+                    className="bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded px-2.5 py-1.5 w-full outline-none transition-all"
+                    list="bulk-equip-list"
+                  />
+                  <datalist id="bulk-equip-list">
+                    {equipment.map((eq) => <option key={eq.id} value={eq.tag} />)}
+                  </datalist>
+                </div>
+              </div>
+            </div>
+            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+              <button onClick={() => setBulkEditOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2 animate-fade-in">
+                Cancel
+              </button>
+              <button onClick={handleBulkEditApply} className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 shadow-sm transition-colors">
+                Apply Updates
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Zone Modal */}
+      {assignZoneOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-sm animate-scale-in">
+            <header className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <h3 className="font-semibold text-[14px]">Assign Zone</h3>
+              <button onClick={() => setAssignZoneOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-4 flex flex-col gap-3 text-xs">
+              <label className="block text-muted-foreground font-medium">Select or Type Zone name</label>
+              <input
+                type="text"
+                placeholder="e.g. Z-003 or WC Zone"
+                value={targetZone}
+                onChange={(e) => setTargetZone(e.target.value)}
+                className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
+                list="zones-list"
+              />
+              <datalist id="zones-list">
+                {zones.map((z) => <option key={z.id} value={z.name} />)}
+              </datalist>
+            </div>
+            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+              <button onClick={() => setAssignZoneOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
+                Cancel
+              </button>
+              <button onClick={handleAssignZoneApply} className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95">
+                Confirm Zone
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Equipment Modal */}
+      {assignEquipOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-sm animate-scale-in">
+            <header className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <h3 className="font-semibold text-[14px]">Assign Equipment</h3>
+              <button onClick={() => setAssignEquipOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-4 flex flex-col gap-3 text-xs">
+              <label className="block text-muted-foreground font-medium">Select or Type Equipment Tag</label>
+              <input
+                type="text"
+                placeholder="e.g. AHU-02"
+                value={targetEquip}
+                onChange={(e) => setTargetEquip(e.target.value)}
+                className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
+                list="equip-list"
+              />
+              <datalist id="equip-list">
+                {equipment.map((eq) => <option key={eq.id} value={eq.tag} />)}
+              </datalist>
+            </div>
+            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+              <button onClick={() => setAssignEquipOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
+                Cancel
+              </button>
+              <button onClick={handleAssignEquipApply} className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95">
+                Confirm Equipment
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* Merge Spaces Modal */}
+      {mergeOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-md animate-scale-in">
+            <header className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <h3 className="font-semibold text-[14px]">Merge Spaces</h3>
+              <button onClick={() => setMergeOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-4 flex flex-col gap-3 text-xs">
+              <p className="text-muted-foreground">
+                Merging {selected.size} spaces will combine their areas and occupancies. Select the primary space to inherit other properties from:
+              </p>
+              <div>
+                <label className="block text-muted-foreground font-medium mb-1 font-semibold">Merged Space Name</label>
+                <input
+                  type="text"
+                  value={mergeName}
+                  onChange={(e) => setMergeName(e.target.value)}
+                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-muted-foreground font-medium mb-1 font-semibold">Primary Space</label>
+                <select
+                  value={primarySpaceId}
+                  onChange={(e) => setPrimarySpaceId(e.target.value)}
+                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
+                >
+                  {Array.from(selected).map((id) => {
+                    const sp = spaces.find((s) => s.id === id);
+                    return (
+                      <option key={id} value={id}>
+                        {sp?.name || "Unnamed space"} ({sp?.code})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+              <button onClick={() => setMergeOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
+                Cancel
+              </button>
+              <button onClick={handleMergeSpacesApply} className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95">
+                Merge Spaces
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* New Project Modal */}
+      {newProjectOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-sm animate-scale-in">
+            <header className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <h3 className="font-semibold text-[14px]">Create New Project</h3>
+              <button onClick={() => setNewProjectOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="p-4 flex flex-col gap-3 text-xs">
+              <div>
+                <label className="block text-muted-foreground font-medium mb-1">Project Name</label>
+                <input
+                  type="text"
+                  value={newProjectValues.name}
+                  onChange={(e) => setNewProjectValues({ ...newProjectValues, name: e.target.value })}
+                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
+                  placeholder="e.g. Marina Bay Tower"
+                />
+              </div>
+              <div>
+                <label className="block text-muted-foreground font-medium mb-1">Project Code</label>
+                <input
+                  type="text"
+                  value={newProjectValues.code}
+                  onChange={(e) => setNewProjectValues({ ...newProjectValues, code: e.target.value })}
+                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
+                  placeholder="e.g. MBT-2026-117"
+                />
+              </div>
+              <div>
+                <label className="block text-muted-foreground font-medium mb-1">Client Name</label>
+                <input
+                  type="text"
+                  value={newProjectValues.client}
+                  onChange={(e) => setNewProjectValues({ ...newProjectValues, client: e.target.value })}
+                  className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none"
+                  placeholder="e.g. Marina Holdings"
+                />
+              </div>
+              <div className="flex gap-2 items-start mt-1 p-2 bg-primary/5 border border-primary/20 text-primary rounded">
+                <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                <span className="text-[10px]">
+                  Warning: Creating a new project will clear all spaces, zones, and equipment in the current schedule.
+                </span>
+              </div>
+            </div>
+            <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
+              <button onClick={() => setNewProjectOpen(false)} className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2">
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  createNewProject({
+                    name: newProjectValues.name,
+                    code: newProjectValues.code,
+                    client: newProjectValues.client,
+                  });
+                  setNewProjectOpen(false);
+                }}
+                className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95"
+              >
+                Create Project
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+    </div>
 
   );
 }
@@ -4399,16 +4344,15 @@ interface FilterDropdownProps {
 
 function FilterDropdown({ label, selectedValue, onSelect, options }: FilterDropdownProps) {
   const active = !!selectedValue;
-  
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className={`inline-flex items-center gap-1 h-7 px-3 rounded-full text-[11.5px] border transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer ${
-            active
-              ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-              : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-          }`}
+          className={`inline-flex items-center gap-1 h-7 px-3 rounded-full text-[11.5px] border transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer ${active
+            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+            }`}
         >
           <span>{active ? `${label}: ${selectedValue}` : label}</span>
           {active ? (
@@ -4483,8 +4427,8 @@ function IconBtn({ icon: Icon, label }: { icon: any; label: string }) {
 
 function BulkBtn({ icon: Icon, children, onClick }: { icon: any; children: React.ReactNode; onClick?: (e: React.MouseEvent) => void }) {
   return (
-    <button 
-      onClick={onClick} 
+    <button
+      onClick={onClick}
       className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11.5px] font-semibold transition-colors text-[#06456F] hover:bg-primary/10 dark:text-[#0A7BC7] dark:hover:bg-primary/20 border border-transparent hover:border-primary/20 active:bg-primary/20 dark:active:bg-primary/30 cursor-pointer"
     >
       <Icon className="size-3 shrink-0" /> {children}
@@ -4495,13 +4439,16 @@ function BulkBtn({ icon: Icon, children, onClick }: { icon: any; children: React
 function ZonesView() {
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
-  const { spaces, zones, deleteZone, addZone, equipment, assignZoneToEquipment, removeZoneFromEquipment, updateZoneInstances, addEquipment, updateEquipment, updateSpaces, updateZones, bulkUpdateSpaces, setWorkspaceState, undo, redo, isReadOnly } = useWorkspace();
+  const { spaces, zones, deleteZone, addZone, equipment, assignZoneToEquipment, removeZoneFromEquipment, updateZoneInstances, addEquipment, updateEquipment, updateSpaces, updateZones, bulkUpdateSpaces, setWorkspaceState, undo, redo, isReadOnly, activeProjectId } = useWorkspace();
   const { getLockOwner, mySessionId } = useCollaboration();
   const activeUsers = useCollaboration((s) => s.activeUsers);
   const lockOwnerObj = getLockOwner("/ventilation");
   const isLockedByOther = Boolean(lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
   const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
-  const isEffectiveReadOnly = isReadOnly || isLockedByOther || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
+  const calcReviewState = useCalculationReviewState("/ventilation", activeProjectId);
+  const isApprovedLocked = Boolean(activeProjectId) && calcReviewState?.status === "APPROVED";
+  const calcEffectiveReadOnly = useCalculationEffectiveReadOnly("/ventilation", activeProjectId);
+  const isEffectiveReadOnly = isReadOnly || isLockedByOther || isApprovedLocked || calcEffectiveReadOnly || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
   const confirm = useConfirm();
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
   const [customParamModalSpace, setCustomParamModalSpace] = useState<Space | null>(null);
@@ -4540,7 +4487,7 @@ function ZonesView() {
         const pivotIndex = lastClickedZoneIndex !== null ? lastClickedZoneIndex : 0;
         const start = Math.min(pivotIndex, clickedIndex);
         const end = Math.max(pivotIndex, clickedIndex);
-        
+
         if (!isCtrl) {
           next.clear();
         }
@@ -4680,8 +4627,8 @@ function ZonesView() {
       id: `space-${Date.now()}`,
       code,
       name: `Space ${spaces.length + 1}`,
-      building: selectedBuilding !== "ALL" ? selectedBuilding : "Tower A",
-      floor: selectedFloor !== "ALL" ? selectedFloor : "L01",
+      building: (selectedBuilding && selectedBuilding !== "ALL") ? selectedBuilding : "Tower A",
+      floor: (selectedFloor && selectedFloor !== "ALL") ? selectedFloor : "L01",
       category: "",
       area: 20,
       occupancy: 0,
@@ -4858,7 +4805,7 @@ function ZonesView() {
       if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedZones.size > 0) {
           e.preventDefault();
-          confirm(`Are you sure you want to dissolve the ${selectedZones.size} selected zones?`).then((ok) => {
+          confirm(`Are you sure you want to dissolve the ${selectedZones.size} selected zones?`).then((ok: any) => {
             if (ok) {
               selectedZones.forEach(id => deleteZone(id));
               setSelectedZones(new Set());
@@ -5044,13 +4991,12 @@ function ZonesView() {
         return (
           <span
             title={`${assignedCount} of ${totalSlots} assignment slots filled`}
-            className={`font-mono text-[11px] font-bold px-2 py-0.5 rounded-full select-none cursor-help ${
-              rate === 100
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : rate > 0
+            className={`font-mono text-[11px] font-bold px-2 py-0.5 rounded-full select-none cursor-help ${rate === 100
+              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : rate > 0
                 ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
                 : "bg-muted text-muted-foreground/60"
-            }`}
+              }`}
           >
             {rate}%
           </span>
@@ -5099,7 +5045,7 @@ function ZonesView() {
         const list: string[] = [];
         const faAssigns = z.faAssignments ? Object.keys(z.faAssignments) : z.faAssignment ? [z.faAssignment] : [];
         const eaAssigns = z.eaAssignments ? Object.keys(z.eaAssignments) : z.eaAssignment ? [z.eaAssignment] : [];
-        
+
         faAssigns.forEach(id => {
           const eq = equipment.find(e => e.id === id);
           if (eq && !list.includes(eq.tag)) list.push(eq.tag);
@@ -5137,12 +5083,11 @@ function ZonesView() {
               : "Flag zone"
           }
         >
-          <Flag 
-            className={`size-3.5 transition-all duration-200 ${
-              z.flagged 
-                ? "fill-red-500 text-red-500 scale-110" 
-                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
-            }`} 
+          <Flag
+            className={`size-3.5 transition-all duration-200 ${z.flagged
+              ? "fill-red-500 text-red-500 scale-110"
+              : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+              }`}
           />
         </button>
       ),
@@ -5244,26 +5189,38 @@ function ZonesView() {
           options={uniquePressures}
         />
         <div className="ml-auto flex items-center gap-1">
-          <TBtn primary onClick={() => {
-            const name = `Z-${String(zones.length + 1).padStart(3, "0")}`;
-            const newZone: Zone = {
-              id: `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
-              name,
-              building: "Tower A",
-              floor: "L01",
-              spaceCount: 0,
-              area: 0,
-              freshAir: 0,
-              extractAir: 0,
-              pressure: 0,
-              equipment: [],
-              pressureType: "neutral",
-              multiplier: 1,
-              faAssignedQty: 1,
-              eaAssignedQty: 1,
-            };
-            addZone(newZone);
-          }}><Plus className="size-3.5" /> New Zone</TBtn>
+          <TBtn
+            primary
+            disabled={isEffectiveReadOnly || isApprovedLocked}
+            title={isApprovedLocked ? "Calculation is Approved & Locked. Unlock to add zones." : isEffectiveReadOnly ? "Workspace is Read-Only." : undefined}
+            onClick={() => {
+              if (isEffectiveReadOnly || isApprovedLocked) {
+                toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+                return;
+              }
+              const name = `Z-${String(zones.length + 1).padStart(3, "0")}`;
+              const newZone: Zone = {
+                id: `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
+                name,
+                building: "Tower A",
+                floor: "L01",
+                spaceCount: 0,
+                area: 0,
+                freshAir: 0,
+                extractAir: 0,
+                pressure: 0,
+                equipment: [],
+                pressureType: "neutral",
+                multiplier: 1,
+                faAssignedQty: 1,
+                eaAssignedQty: 1,
+              };
+              addZone(newZone);
+              toast.success(`Zone "${name}" created!`);
+            }}
+          >
+            <Plus className="size-3.5" /> New Zone
+          </TBtn>
         </div>
 
         {/* Bulk actions bar overlay for zones */}
@@ -5303,11 +5260,11 @@ function ZonesView() {
       </div>
 
       {opened && (
-        <div 
+        <div
           onClick={() => setOpenId(null)}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in"
         >
-          <div 
+          <div
             onClick={(e) => e.stopPropagation()}
             className="bg-background border border-border rounded-xl shadow-xl flex flex-col w-full max-w-4xl max-h-[85vh] overflow-hidden"
           >
@@ -5368,9 +5325,9 @@ function ZonesView() {
                   </div>
                 </div>
               </div>
-              
-              <button 
-                onClick={() => setOpenId(null)} 
+
+              <button
+                onClick={() => setOpenId(null)}
                 className="text-muted-foreground hover:text-foreground cursor-pointer transition-colors p-1.5 rounded-lg hover:bg-muted/60 ml-2"
                 title="Close"
               >
@@ -5400,8 +5357,8 @@ function ZonesView() {
                     </tr>
                   ) : (
                     openedSpaces.map((s) => (
-                      <tr 
-                        key={s.id} 
+                      <tr
+                        key={s.id}
                         onDoubleClick={() => setEditingSpace(s)}
                         className="hover:bg-muted/30 select-none text-[12px] transition-colors"
                       >
@@ -5512,11 +5469,10 @@ function ZonesView() {
                                     });
                                   }
                                 }}
-                                className={`flex items-center justify-center p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0 cursor-pointer ${
-                                  (s.category === "Rest Room / Changing Room" || (s.category && s.category.endsWith(" (Custom)")))
-                                    ? "opacity-100"
-                                    : "opacity-0 pointer-events-none"
-                                }`}
+                                className={`flex items-center justify-center p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0 cursor-pointer ${(s.category === "Rest Room / Changing Room" || (s.category && s.category.endsWith(" (Custom)")))
+                                  ? "opacity-100"
+                                  : "opacity-0 pointer-events-none"
+                                  }`}
                                 title={s.category === "Rest Room / Changing Room" ? "Configure Rest Room subcategories" : "Configure Custom Parameters"}
                               >
                                 <Wrench className="size-3.5" />
@@ -5569,7 +5525,7 @@ function ZonesView() {
             {/* Footer */}
             <footer className="px-6 py-3 border-t border-border/80 flex items-center justify-between bg-muted/20 shrink-0 select-none">
               <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <button 
+                <button
                   onClick={() => addBlankSpaceToTargetZone(opened.name)}
                   className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground bg-background hover:bg-muted border border-border/80 px-3 py-1.5 rounded-lg shadow-xs transition-colors cursor-pointer"
                 >
@@ -5584,8 +5540,8 @@ function ZonesView() {
                 </div>
               </div>
 
-              <button 
-                onClick={() => setOpenId(null)} 
+              <button
+                onClick={() => setOpenId(null)}
                 className="bg-primary text-primary-foreground text-xs font-semibold px-6 py-2 rounded-lg hover:opacity-90 transition-all cursor-pointer shadow-xs"
               >
                 Done
@@ -5611,10 +5567,10 @@ function ZonesView() {
       {editZoneOpen && (() => {
         const zoneObj = zones.find(z => z.id === editingZoneId);
         if (!zoneObj) return null;
-        
+
         const currentSpaces = spaces.filter(s => s.zone === zoneObj.id || s.zone === zoneObj.name);
         const otherSpaces = spaces.filter(s => s.zone !== zoneObj.id && s.zone !== zoneObj.name);
-        
+
         return (
           <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
             <div className="bg-background border border-border rounded-2xl shadow-lg w-full max-w-2xl animate-scale-in flex flex-col max-h-[85vh]">
@@ -5624,7 +5580,7 @@ function ZonesView() {
                   <X className="size-4" />
                 </button>
               </header>
-              
+
               <div className="p-4 flex flex-col gap-4 text-xs overflow-y-auto flex-1">
                 {/* Zone Name input */}
                 <div className="flex gap-2 items-end shrink-0">
@@ -5637,14 +5593,14 @@ function ZonesView() {
                       className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none text-foreground font-medium"
                     />
                   </div>
-                  <button 
+                  <button
                     onClick={handleRenameZone}
                     className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-2 rounded hover:bg-primary/95 h-[32px] shrink-0"
                   >
                     Save Name
                   </button>
                 </div>
-                
+
                 {/* Create blank space button */}
                 <div className="flex justify-between items-center border-t border-border pt-3 shrink-0">
                   <span className="font-medium text-muted-foreground">Manage Spaces inside this Zone</span>
@@ -5656,7 +5612,7 @@ function ZonesView() {
                     Create Blank Space
                   </button>
                 </div>
-                
+
                 {/* Two Columns Layout */}
                 <div className="grid grid-cols-2 gap-4 flex-1 min-h-[300px]">
                   {/* Left Column: Spaces in this Zone */}
@@ -5687,7 +5643,7 @@ function ZonesView() {
                       )}
                     </div>
                   </div>
-                  
+
                   {/* Right Column: Other Available Spaces */}
                   <div className="border border-border rounded flex flex-col min-h-0 bg-surface-2">
                     <div className="px-3 py-2 border-b border-border bg-header-bg font-semibold text-foreground shrink-0">
@@ -5720,10 +5676,10 @@ function ZonesView() {
                   </div>
                 </div>
               </div>
-              
+
               <footer className="px-4 py-3 border-t border-border flex items-center justify-end bg-header-bg shrink-0">
-                <button 
-                  onClick={handleCloseEditZone} 
+                <button
+                  onClick={handleCloseEditZone}
                   className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95"
                 >
                   Close
@@ -5800,7 +5756,7 @@ function ZonesView() {
             if (mult > 1) {
               const originalUpdated = { ...updated, multiplier: 1 };
               nextSpaces = nextSpaces.map((s) => s.id === updated.id ? originalUpdated : s);
-              
+
               const clones: Space[] = [];
               for (let i = 1; i < mult; i++) {
                 const nextNum = Math.floor(Math.random() * 1000);
@@ -5948,8 +5904,8 @@ function ZonesView() {
                 <Sparkles className="size-4 text-primary" />
                 <h3 className="font-semibold text-[14px]">Configure Custom Parameters</h3>
               </div>
-              <button 
-                onClick={() => setCustomParamModalSpace(null)} 
+              <button
+                onClick={() => setCustomParamModalSpace(null)}
                 className="text-muted-foreground hover:text-foreground hover:bg-surface-3 rounded p-0.5"
               >
                 <X className="size-4" />
@@ -5977,9 +5933,9 @@ function ZonesView() {
                 <label className="block text-muted-foreground font-medium mb-1">Workflow Method</label>
                 <select
                   value={customParamModalSpace.customWorkflow || "calculate"}
-                  onChange={(e) => setCustomParamModalSpace({ 
-                    ...customParamModalSpace, 
-                    customWorkflow: e.target.value as "calculate" | "direct" 
+                  onChange={(e) => setCustomParamModalSpace({
+                    ...customParamModalSpace,
+                    customWorkflow: e.target.value as "calculate" | "direct"
                   })}
                   className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none cursor-pointer text-foreground"
                 >
@@ -5996,9 +5952,9 @@ function ZonesView() {
                       type="number"
                       step="any"
                       value={customParamModalSpace.customFreshGiven ?? ""}
-                      onChange={(e) => setCustomParamModalSpace({ 
-                        ...customParamModalSpace, 
-                        customFreshGiven: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
+                      onChange={(e) => setCustomParamModalSpace({
+                        ...customParamModalSpace,
+                        customFreshGiven: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
                       })}
                       className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
                     />
@@ -6009,9 +5965,9 @@ function ZonesView() {
                       type="number"
                       step="any"
                       value={customParamModalSpace.customExtTaken ?? ""}
-                      onChange={(e) => setCustomParamModalSpace({ 
-                        ...customParamModalSpace, 
-                        customExtTaken: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
+                      onChange={(e) => setCustomParamModalSpace({
+                        ...customParamModalSpace,
+                        customExtTaken: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
                       })}
                       className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
                     />
@@ -6026,9 +5982,9 @@ function ZonesView() {
                         type="number"
                         step="any"
                         value={customParamModalSpace.customPeopleOA ?? ""}
-                        onChange={(e) => setCustomParamModalSpace({ 
-                          ...customParamModalSpace, 
-                          customPeopleOA: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
+                        onChange={(e) => setCustomParamModalSpace({
+                          ...customParamModalSpace,
+                          customPeopleOA: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
                         })}
                         className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
                       />
@@ -6039,9 +5995,9 @@ function ZonesView() {
                         type="number"
                         step="any"
                         value={customParamModalSpace.customAreaOA ?? ""}
-                        onChange={(e) => setCustomParamModalSpace({ 
-                          ...customParamModalSpace, 
-                          customAreaOA: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
+                        onChange={(e) => setCustomParamModalSpace({
+                          ...customParamModalSpace,
+                          customAreaOA: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
                         })}
                         className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
                       />
@@ -6055,9 +6011,9 @@ function ZonesView() {
                         type="number"
                         step="any"
                         value={customParamModalSpace.customAch ?? ""}
-                        onChange={(e) => setCustomParamModalSpace({ 
-                          ...customParamModalSpace, 
-                          customAch: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
+                        onChange={(e) => setCustomParamModalSpace({
+                          ...customParamModalSpace,
+                          customAch: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
                         })}
                         className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
                       />
@@ -6068,9 +6024,9 @@ function ZonesView() {
                         type="number"
                         step="any"
                         value={customParamModalSpace.customExhaustPerArea ?? ""}
-                        onChange={(e) => setCustomParamModalSpace({ 
-                          ...customParamModalSpace, 
-                          customExhaustPerArea: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
+                        onChange={(e) => setCustomParamModalSpace({
+                          ...customParamModalSpace,
+                          customExhaustPerArea: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
                         })}
                         className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
                       />
@@ -6081,9 +6037,9 @@ function ZonesView() {
                         type="number"
                         step="any"
                         value={customParamModalSpace.customExhaustPerUnit ?? ""}
-                        onChange={(e) => setCustomParamModalSpace({ 
-                          ...customParamModalSpace, 
-                          customExhaustPerUnit: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 
+                        onChange={(e) => setCustomParamModalSpace({
+                          ...customParamModalSpace,
+                          customExhaustPerUnit: e.target.value === "" ? "" : parseFloat(e.target.value) || 0
                         })}
                         className="bg-surface-2 border border-border rounded px-2.5 py-1.5 w-full outline-none font-mono"
                       />
@@ -6093,13 +6049,13 @@ function ZonesView() {
               )}
             </div>
             <footer className="px-4 py-3 border-t border-border flex items-center justify-end gap-2 bg-header-bg">
-              <button 
-                onClick={() => setCustomParamModalSpace(null)} 
+              <button
+                onClick={() => setCustomParamModalSpace(null)}
                 className="border border-border text-xs px-3 py-1.5 rounded hover:bg-surface-2"
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={() => {
                   let catName = customParamModalSpace.category.trim();
                   if (!catName) {
@@ -6115,7 +6071,7 @@ function ZonesView() {
 
                   updateSpaces([finalSpaceUpdate]);
                   setCustomParamModalSpace(null);
-                }} 
+                }}
                 className="bg-primary text-primary-foreground text-xs font-semibold px-4 py-1.5 rounded hover:bg-primary/95 shadow-sm"
               >
                 Save Parameters
@@ -6141,8 +6097,8 @@ function ZonesView() {
             commentTarget.type === 'space'
               ? spaces.find(s => s.id === commentTarget.id)?.comments || []
               : commentTarget.type === 'zone'
-              ? zones.find(z => z.id === commentTarget.id)?.comments || []
-              : equipment.find(e => e.id === commentTarget.id)?.comments || []
+                ? zones.find(z => z.id === commentTarget.id)?.comments || []
+                : equipment.find(e => e.id === commentTarget.id)?.comments || []
           }
           onSave={(comment) => {
             workspaceStore.addCommentToTarget(commentTarget.id, commentTarget.type, comment);
@@ -6156,13 +6112,16 @@ function ZonesView() {
 /* ─────────── Equipment ─────────── */
 function EquipmentView() {
   const [query, setQuery] = useState("");
-  const { spaces, zones, equipment, updateEquipment, deleteEquipment, setWorkspaceState, undo, redo, isReadOnly } = useWorkspace();
+  const { spaces, zones, equipment, updateEquipment, deleteEquipment, setWorkspaceState, undo, redo, isReadOnly, activeProjectId } = useWorkspace();
   const { getLockOwner, mySessionId } = useCollaboration();
   const activeUsers = useCollaboration((s) => s.activeUsers);
   const lockOwnerObj = getLockOwner("/ventilation");
   const isLockedByOther = Boolean(lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
   const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
-  const isEffectiveReadOnly = isReadOnly || isLockedByOther || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
+  const calcReviewState = useCalculationReviewState("/ventilation", activeProjectId);
+  const isApprovedLocked = Boolean(activeProjectId) && calcReviewState?.status === "APPROVED";
+  const calcEffectiveReadOnly = useCalculationEffectiveReadOnly("/ventilation", activeProjectId);
+  const isEffectiveReadOnly = isReadOnly || isLockedByOther || isApprovedLocked || calcEffectiveReadOnly || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
   const confirm = useConfirm();
 
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
@@ -6189,7 +6148,7 @@ function EquipmentView() {
         const pivotIndex = lastClickedEquipIndex !== null ? lastClickedEquipIndex : 0;
         const start = Math.min(pivotIndex, clickedIndex);
         const end = Math.max(pivotIndex, clickedIndex);
-        
+
         if (!isCtrl) {
           next.clear();
         }
@@ -6229,44 +6188,58 @@ function EquipmentView() {
   };
 
   const columns: Column<Equipment>[] = [
-    { key: "tag", header: "Equipment", width: 220, render: (r) => (
-      <div className="flex items-center gap-1.5">
-        {Array.isArray(r.comments) && r.comments.length > 0 && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setCommentTarget({ id: r.id, name: r.tag || r.type, type: 'equipment' });
-              setAssignCommentOpen(true);
-            }}
-            title={`${r.comments.length} comment(s)/task(s) assigned to equipment "${r.tag}"`}
-            className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-          >
-            <MessageSquare className="size-3.5 fill-blue-500/20" />
-            <span className="text-[10px] font-bold">{r.comments.length}</span>
-          </button>
-        )}
-        <span className="font-semibold text-foreground text-[13px]">{r.tag}</span>
-      </div>
-    ) },
-    { key: "type", header: "Type", width: 140, render: (r) => (
-      <span className="text-muted-foreground text-[12.5px]">{r.type}</span>
-    ) },
-    { key: "airType", header: "Air Type", width: 200, render: (r) => (
-      <span className="text-muted-foreground text-[12.5px]">{getAirType(r.type)}</span>
-    ) },
-    { key: "zones", header: "Zones", width: 100, align: "center", render: (r) => (
-      <span className="font-mono text-[12.5px]">{r.zones}</span>
-    ) },
-    { key: "spaces", header: "Spaces", width: 100, align: "center", render: (r) => (
-      <span className="font-mono text-[12.5px]">{r.spaces}</span>
-    ) },
-    { key: "totalFA", header: "Fresh Load (L/s)", width: 150, align: "center", render: (r) => (
-      <span className="font-mono text-[12.5px]">{(r.totalFA || 0).toLocaleString()}</span>
-    ) },
-    { key: "totalEA", header: "Extract Load (L/s)", width: 150, align: "center", render: (r) => (
-      <span className="font-mono text-[12.5px]">{(r.totalEA || 0).toLocaleString()}</span>
-    ) },
+    {
+      key: "tag", header: "Equipment", width: 220, render: (r) => (
+        <div className="flex items-center gap-1.5">
+          {Array.isArray(r.comments) && r.comments.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCommentTarget({ id: r.id, name: r.tag || r.type, type: 'equipment' });
+                setAssignCommentOpen(true);
+              }}
+              title={`${r.comments.length} comment(s)/task(s) assigned to equipment "${r.tag}"`}
+              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+            >
+              <MessageSquare className="size-3.5 fill-blue-500/20" />
+              <span className="text-[10px] font-bold">{r.comments.length}</span>
+            </button>
+          )}
+          <span className="font-semibold text-foreground text-[13px]">{r.tag}</span>
+        </div>
+      )
+    },
+    {
+      key: "type", header: "Type", width: 140, render: (r) => (
+        <span className="text-muted-foreground text-[12.5px]">{r.type}</span>
+      )
+    },
+    {
+      key: "airType", header: "Air Type", width: 200, render: (r) => (
+        <span className="text-muted-foreground text-[12.5px]">{getAirType(r.type)}</span>
+      )
+    },
+    {
+      key: "zones", header: "Zones", width: 100, align: "center", render: (r) => (
+        <span className="font-mono text-[12.5px]">{r.zones}</span>
+      )
+    },
+    {
+      key: "spaces", header: "Spaces", width: 100, align: "center", render: (r) => (
+        <span className="font-mono text-[12.5px]">{r.spaces}</span>
+      )
+    },
+    {
+      key: "totalFA", header: "Fresh Load (L/s)", width: 150, align: "center", render: (r) => (
+        <span className="font-mono text-[12.5px]">{(r.totalFA || 0).toLocaleString()}</span>
+      )
+    },
+    {
+      key: "totalEA", header: "Extract Load (L/s)", width: 150, align: "center", render: (r) => (
+        <span className="font-mono text-[12.5px]">{(r.totalEA || 0).toLocaleString()}</span>
+      )
+    },
   ];
 
   const toggleAllEquipment = () => {
@@ -6314,7 +6287,7 @@ function EquipmentView() {
 
     let nextEquip = [...equipment];
     let nextZones = [...zones];
-    
+
     selectedEquips.forEach(eqId => {
       nextEquip = nextEquip.filter(e => e.id !== eqId);
       nextZones = nextZones.map(g => {
@@ -6484,11 +6457,22 @@ function EquipmentView() {
             </TBtn>
           )}
 
-          <TBtn primary onClick={() => {
-            setSizerEquipId(null);
-            setSizerShowAdd(true);
-            setSizerOpen(true);
-          }}><Plus className="size-3.5" /> New Equipment</TBtn>
+          <TBtn
+            primary
+            disabled={isEffectiveReadOnly || isApprovedLocked}
+            title={isApprovedLocked ? "Calculation is Approved & Locked. Unlock to add equipment." : isEffectiveReadOnly ? "Workspace is Read-Only." : undefined}
+            onClick={() => {
+              if (isEffectiveReadOnly || isApprovedLocked) {
+                toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+                return;
+              }
+              setSizerEquipId(null);
+              setSizerShowAdd(true);
+              setSizerOpen(true);
+            }}
+          >
+            <Plus className="size-3.5" /> New Equipment
+          </TBtn>
         </div>
 
         {/* Bulk actions bar overlay for equipment */}
@@ -6551,8 +6535,8 @@ function EquipmentView() {
             commentTarget.type === 'space'
               ? spaces.find(s => s.id === commentTarget.id)?.comments || []
               : commentTarget.type === 'zone'
-              ? zones.find(z => z.id === commentTarget.id)?.comments || []
-              : equipment.find(e => e.id === commentTarget.id)?.comments || []
+                ? zones.find(z => z.id === commentTarget.id)?.comments || []
+                : equipment.find(e => e.id === commentTarget.id)?.comments || []
           }
           onSave={(comment) => {
             workspaceStore.addCommentToTarget(commentTarget.id, commentTarget.type, comment);
@@ -6702,7 +6686,7 @@ function CollapsibleMissingSection({ label, count, itemsList, isOpen, onToggle, 
         </span>
         <span className="font-mono tabular font-semibold text-foreground/80">{count}</span>
       </button>
-      
+
       {isOpen && count > 0 && (
         <div className="mt-1.5 max-h-36 overflow-y-auto border border-border/60 rounded-md bg-surface-2 divide-y divide-border/40 font-mono text-[10.5px] text-muted-foreground custom-scrollbar">
           {itemsList.map((item) => {
@@ -6885,8 +6869,8 @@ function IntelligenceDrawer({ onClose, setTab }: { onClose: () => void; setTab: 
 function IntelSection({ icon: Icon, title, tone, children }: { icon: any; title: string; tone: "success" | "warning" | "primary" | "muted"; children: React.ReactNode }) {
   const color =
     tone === "success" ? "text-success" :
-    tone === "warning" ? "text-warning" :
-    tone === "primary" ? "text-primary" : "text-muted-foreground";
+      tone === "warning" ? "text-warning" :
+        tone === "primary" ? "text-primary" : "text-muted-foreground";
   return (
     <section className="px-3 py-3 border-b border-border">
       <div className="flex items-center gap-2 mb-2">

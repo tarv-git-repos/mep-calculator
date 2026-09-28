@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
   ContextMenu,
@@ -20,6 +21,7 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 
 export const Route = createFileRoute("/smoke-extract-fan")({
@@ -41,6 +43,10 @@ interface SavedCalculation {
 }
 
 function SmokeExtractFanPage() {
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/smoke-extract-fan", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/smoke-extract-fan", activeProjectId || project?.id);
+  const { profile, userData } = useAuth();
   const [area, setArea] = useState<number | "">("");
   const [height, setHeight] = useState<number | "">("");
   const [acph, setAcph] = useState<number | "">("");
@@ -58,7 +64,8 @@ function SmokeExtractFanPage() {
   // Expandable sections
   const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(true);
 
-  const { project, forceSaveToCloud } = useWorkspace();
+  const isApprovedLocked = useCalculationLock("/smoke-extract-fan", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Comment System State & Persistence matching Preliminary Cooling Load
@@ -86,7 +93,7 @@ function SmokeExtractFanPage() {
     localStorage.setItem(`mep_calc_comments_${pId}_/smoke-extract-fan`, JSON.stringify(newList));
     try {
       if (typeof forceSaveToCloud === "function") {
-        forceSaveToCloud(true);
+        forceSaveToCloud();
       }
     } catch (e) {}
   };
@@ -410,7 +417,7 @@ function SmokeExtractFanPage() {
     min?: number,
     step: string = "any"
   ) => {
-    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const itemComments = getMergedItemComments(id, label, commentsList, "/smoke-extract-fan", project?.id);
     const hasComments = itemComments.length > 0;
     const isHighlighted = highlightedTargetId === id ||
                           highlightedTargetId === `field-${id}` ||
@@ -524,7 +531,7 @@ function SmokeExtractFanPage() {
     highlightClass: string = "text-foreground",
     colSpanTwo: boolean = false
   ) => {
-    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const itemComments = getMergedItemComments(id, label, commentsList, "/smoke-extract-fan", project?.id);
     const hasComments = itemComments.length > 0;
     const isHighlighted = highlightedTargetId === id ||
                           highlightedTargetId === `res-${id}` ||
@@ -610,7 +617,7 @@ function SmokeExtractFanPage() {
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Corridor Smoke Extract Fan</h1>
-                <CalculationReviewBar projectId={project?.id} calculatorPath="/smoke-extract-fan" calculatorTitle="Corridor Smoke Extract Fan" />
+                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/smoke-extract-fan" calculatorTitle="Corridor Smoke Extract Fan" />
                 {commentsList.length > 0 && (
                   <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
                     <MessageSquare className="size-3.5 fill-blue-500/20" />
@@ -708,7 +715,13 @@ function SmokeExtractFanPage() {
               </div>
 
               {/* Detailed Calculations Steps */}
-              <div className="bg-card border border-border rounded-2xl shadow-xs overflow-hidden">
+              <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
                 <button
                   onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
                   className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"
@@ -724,7 +737,7 @@ function SmokeExtractFanPage() {
                     {(() => {
                       const stepId = "step-1-volume";
                       const stepLabel = "Step 1: Corridor Volume";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>
@@ -779,7 +792,7 @@ function SmokeExtractFanPage() {
                     {(() => {
                       const stepId = "step-2-extract-rate";
                       const stepLabel = "Step 2: Smoke Extract Rate";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>
@@ -834,7 +847,7 @@ function SmokeExtractFanPage() {
                     {(() => {
                       const stepId = "step-3-flow-fan";
                       const stepLabel = "Step 3: Sized Flow Rate per Fan";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>
@@ -889,7 +902,7 @@ function SmokeExtractFanPage() {
                     {(() => {
                       const stepId = "step-4-friction-loss";
                       const stepLabel = "Step 4: Ducting Equivalent Length & Friction Loss";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>
@@ -944,7 +957,7 @@ function SmokeExtractFanPage() {
                     {(() => {
                       const stepId = "step-5-static-head";
                       const stepLabel = "Step 5: Fan Total Static Head";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>
@@ -999,7 +1012,7 @@ function SmokeExtractFanPage() {
                     {(() => {
                       const stepId = "step-6-power-fan";
                       const stepLabel = "Step 6: Sized Power per Fan";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>
@@ -1054,7 +1067,7 @@ function SmokeExtractFanPage() {
                     {(() => {
                       const stepId = "step-7-total-motor-power";
                       const stepLabel = "Step 7: Sized Total Motor Power";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>

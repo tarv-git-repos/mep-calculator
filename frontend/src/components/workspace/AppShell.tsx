@@ -5,7 +5,8 @@ import {
   LayoutDashboard, FolderKanban, Wind, Droplets, Flame, LogOut, Save,
   Boxes, FileBarChart, Cog, Plus, X, Zap, Sparkles, Moon, Sun, Wrench, FileText,
   Play, PanelLeftClose, PanelLeftOpen, Box, TriangleAlert,
-  Edit3, Trash2, Copy, ShieldAlert, ShieldCheck, Shield, Lock, RefreshCw, Loader2, Trophy, Network, Clock, CheckCircle2
+  Edit3, Trash2, Copy, ShieldAlert, ShieldCheck, Shield, Lock, RefreshCw, Loader2, Trophy, Network, Clock, CheckCircle2,
+  Gauge, Info
 } from "lucide-react";
 import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -27,7 +28,7 @@ import { loadOrgHierarchyFromStorage } from "@/utils/hierarchy";
 import { WelcomeToTarvModal } from "@/components/modals/WelcomeToTarvModal";
 import { AutoUpdateModal } from "./AutoUpdateModal";
 import { NotificationCenterView } from "./NotificationCenterView";
-import { CalculationReviewBar } from "./CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationReviewState, getCalculationStatusBorderClass } from "./CalculationReviewBar";
 import { navigateToNotificationTarget, executeHighlightAndScroll } from "@/utils/notificationHelpers";
 
 import {
@@ -373,7 +374,7 @@ const MEP_CALC_ROUTES = new Set([
   // Plumbing
   "/plumbing-water-demand", "/plumbing-tank-sizing", "/plumbing-pump-sizing",
   "/plumbing-booster-pump", "/plumbing-pressure-vessel", "/plumbing-fixture-unit",
-  "/plumbing-loading-unit", "/plumbing-supply-pipe-sizer", "/plumbing-drainage",
+  "/plumbing-loading-unit", "/plumbing-discharge-unit", "/plumbing-supply-pipe-sizer", "/plumbing-drainage",
   "/plumbing-drainage-pipe-sizer", "/plumbing-sump-pump", "/plumbing-sewage-pump",
   "/plumbing-storm-water", "/plumbing-gas-tank", "/plumbing-hazen-williams",
 
@@ -381,7 +382,10 @@ const MEP_CALC_ROUTES = new Set([
   "/plumbing-fire-water-demand", "/plumbing-fire-tank-capacity",
   "/plumbing-fire-tank-duration", "/plumbing-fire-pump-duty",
   "/plumbing-sprinkler-density", "/plumbing-sprinkler-kfactor",
-  "/plumbing-fm200"
+  "/plumbing-fm200",
+
+  // Summary
+  "/load-summary"
 ]);
 
 export function AppShell({ children, title, subtitle, actions, onIntelClick, intelOpen, intelLabel, hideSubHeader, breadcrumb, spaceCount }: {
@@ -424,6 +428,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const [defaultIntelOpen, setDefaultIntelOpen] = useState(false);
 
   const isMepCalcRoute = useMemo(() => MEP_CALC_ROUTES.has(pathname), [pathname]);
+  const calcReviewState = useCalculationReviewState(pathname, activeProjectId);
+  const isApprovedLockedByCalc = calcReviewState.status === "APPROVED";
+  const calcStatusBorderClass = isMepCalcRoute ? getCalculationStatusBorderClass(calcReviewState.status) : "";
   const effectiveOnIntelClick = onIntelClick || (isMepCalcRoute ? () => setDefaultIntelOpen(v => !v) : undefined);
   const effectiveIntelOpen = onIntelClick ? (intelOpen ?? false) : defaultIntelOpen;
 
@@ -617,10 +624,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       try {
         const saved1 = localStorage.getItem("mep_deleted_notif_ids");
         const list1 = saved1 ? JSON.parse(saved1) : [];
-        const uId = userData?.id || profile?.id;
-        const saved2 = uId ? localStorage.getItem(`mep_deleted_notif_ids_${uId}`) : null;
-        const list2 = saved2 ? JSON.parse(saved2) : [];
-        return Array.from(new Set([...list1, ...list2]));
+        const allKeys: string[] = [...list1];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith("mep_deleted_notif_ids_")) {
+            try {
+              const extra = JSON.parse(localStorage.getItem(k) || "[]");
+              if (Array.isArray(extra)) allKeys.push(...extra);
+            } catch (e) {}
+          }
+        }
+        return Array.from(new Set(allKeys));
       } catch (e) {}
     }
     return [];
@@ -655,6 +669,22 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const uEmail = (userData?.email || profile?.email || "").toLowerCase().trim();
       const uName = (userData?.name || profile?.name || "").toLowerCase().trim();
 
+      // Read all deleted IDs directly from localStorage
+      const d1 = localStorage.getItem("mep_deleted_notif_ids");
+      const list1 = d1 ? JSON.parse(d1) : [];
+      const d2 = uId ? localStorage.getItem(`mep_deleted_notif_ids_${uId}`) : null;
+      const list2 = d2 ? JSON.parse(d2) : [];
+      const currentDeletedIds = new Set([...list1, ...list2, ...(deletedNotifIds || [])]);
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("mep_deleted_notif_ids_")) {
+          try {
+            const extra = JSON.parse(localStorage.getItem(k) || "[]");
+            if (Array.isArray(extra)) extra.forEach(id => currentDeletedIds.add(String(id)));
+          } catch (e) {}
+        }
+      }
+
       const notifMap = new Map<string, any>();
       const addList = (raw: string | null) => {
         if (!raw) return;
@@ -663,7 +693,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           if (Array.isArray(parsed)) {
             parsed.forEach((n: any) => {
               if (n && (n.id || n.commentId)) {
-                const key = n.id || n.commentId;
+                const key = String(n.id || n.commentId);
+                const metaId = n.metadata?.id || n.metadata?.commentId ? String(n.metadata?.id || n.metadata?.commentId) : "";
+                // Exclude deleted items!
+                if (currentDeletedIds.has(key) || (metaId && currentDeletedIds.has(metaId)) || n.deleted === true) {
+                  return;
+                }
                 if (!notifMap.has(key)) notifMap.set(key, n);
               }
             });
@@ -775,67 +810,122 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       e.stopPropagation();
     }
     const notifObj = typeof idOrNotif === 'object' && idOrNotif !== null ? idOrNotif : null;
-    const id = notifObj ? (notifObj.id || notifObj.metadata?.id) : idOrNotif;
+    const id = notifObj ? (notifObj.id || notifObj.metadata?.id || notifObj.commentId) : idOrNotif;
     if (!id) return;
 
-    // Collect matching notifications strictly by unique ID
-    const matchingNotifs = [
-      ...(myNotifications || []),
-      ...(persistentNotifs || []),
-      ...(notifObj ? [notifObj] : [])
-    ].filter((n: any) => {
-      if (!n) return false;
-      return (
-        n.id === id ||
-        n.metadata?.id === id
-      );
-    });
-
     const keysToDeleteSet = new Set<string>();
-    if (id) keysToDeleteSet.add(String(id));
-
-    const processNotifItem = (notif: any) => {
-      if (!notif) return;
-      if (notif.id) keysToDeleteSet.add(String(notif.id));
-      if (notif.metadata?.id) keysToDeleteSet.add(String(notif.metadata.id));
-    };
-
-    matchingNotifs.forEach(processNotifItem);
+    keysToDeleteSet.add(String(id));
+    if (notifObj) {
+      if (notifObj.id) keysToDeleteSet.add(String(notifObj.id));
+      if (notifObj.commentId) keysToDeleteSet.add(String(notifObj.commentId));
+      if (notifObj.metadata?.id) keysToDeleteSet.add(String(notifObj.metadata.id));
+      if (notifObj.metadata?.commentId) keysToDeleteSet.add(String(notifObj.metadata.commentId));
+      if (notifObj.targetId && notifObj.timestamp) keysToDeleteSet.add(`notif_${notifObj.targetId}_${notifObj.timestamp}`);
+    }
     const keysToDelete = Array.from(keysToDeleteSet);
 
-    // 1. Add deleted item to deletedNotifications store for Deleted tab
+    // 1. Move to deletedNotifications for Deleted tab
     setDeletedNotifications(prev => {
       const map = new Map<string, any>();
       prev.forEach(item => {
         const k = item.id || item.text;
         if (k) map.set(k, item);
       });
-      matchingNotifs.forEach(item => {
-        const k = item.id || item.text || String(Math.random());
-        map.set(k, { ...item, deletedAt: new Date().toISOString(), deleted: true });
-      });
+      const itemToSave = notifObj || { id, text: id, deleted: true, deletedAt: new Date().toISOString() };
+      map.set(id, { ...itemToSave, deletedAt: new Date().toISOString(), deleted: true });
       const updated = Array.from(map.values());
       if (typeof window !== "undefined") {
-        const uId = userId || userData?.id;
-        const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
-        localStorage.setItem(key, JSON.stringify(updated));
+        const uId = userId || userData?.id || profile?.id;
+        if (uId) localStorage.setItem(`mep_deleted_notifications_${uId}`, JSON.stringify(updated));
         localStorage.setItem("mep_deleted_notifications", JSON.stringify(updated));
       }
       return updated;
     });
 
-    // 2. Update deletedNotifIds state & localStorage permanently
+    // 2. Add to deletedNotifIds & persist globally
     setDeletedNotifIds(prev => {
       const updated = Array.from(new Set([...prev, ...keysToDelete]));
       if (typeof window !== "undefined") {
         localStorage.setItem("mep_deleted_notif_ids", JSON.stringify(updated));
-        if (userId) {
-          localStorage.setItem(`mep_deleted_notif_ids_${userId}`, JSON.stringify(updated));
+        const uId = userId || userData?.id || profile?.id;
+        if (uId) {
+          localStorage.setItem(`mep_deleted_notif_ids_${uId}`, JSON.stringify(updated));
         }
       }
       return updated;
     });
 
+    // 3. PURGE from all persistent localStorage arrays immediately so it NEVER resurrects
+    if (typeof window !== "undefined") {
+      const purgeFromStorage = (key: string) => {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const list = JSON.parse(raw);
+            if (Array.isArray(list)) {
+              const cleaned = list.filter((n: any) => {
+                if (!n) return false;
+                const nId = String(n.id || n.commentId || "");
+                const nMetaId = String(n.metadata?.id || n.metadata?.commentId || "");
+                return !keysToDeleteSet.has(nId) && (!nMetaId || !keysToDeleteSet.has(nMetaId));
+              });
+              localStorage.setItem(key, JSON.stringify(cleaned));
+            }
+          }
+        } catch (e) {}
+      };
+
+      purgeFromStorage("mep_persistent_user_notifs");
+      purgeFromStorage("mep_calc_coord_notifs");
+      const uId = userId || userData?.id || profile?.id;
+      if (uId) purgeFromStorage(`mep_persistent_user_notifs_${uId}`);
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("mep_persistent_user_notifs_")) {
+          purgeFromStorage(k);
+        }
+      }
+    }
+
+    // 4. Cascade deletion to underlying project space comments in memory & storage
+    try {
+      if (typeof window !== "undefined") {
+        const storedProjectsRaw = localStorage.getItem("mep_workspace_projects");
+        if (storedProjectsRaw) {
+          const storedProjects = JSON.parse(storedProjectsRaw);
+          if (Array.isArray(storedProjects)) {
+            let modified = false;
+            storedProjects.forEach((proj: any) => {
+              const checkAndClean = (items: any[]) => {
+                if (Array.isArray(items)) {
+                  items.forEach((item: any) => {
+                    if (Array.isArray(item.comments)) {
+                      item.comments = item.comments.filter((c: any) => {
+                        const cId = String(c.id || "");
+                        const isMatch = keysToDeleteSet.has(cId);
+                        if (isMatch) modified = true;
+                        return !isMatch;
+                      });
+                    }
+                  });
+                }
+              };
+              checkAndClean(proj.spaces);
+              checkAndClean(proj.zones);
+              checkAndClean(proj.equipment);
+            });
+            if (modified) {
+              localStorage.setItem("mep_workspace_projects", JSON.stringify(storedProjects));
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
+    // 5. Update state
+    setPersistentNotifs(prev => prev.filter(n => !keysToDeleteSet.has(n.id) && (!n.metadata?.id || !keysToDeleteSet.has(n.metadata.id))));
+
+    // 6. Call API to delete in server & Supabase
     api.deleteNotification(keysToDelete).catch(() => {});
 
     setNotifTick(t => t + 1);
@@ -848,13 +938,15 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       e.stopPropagation();
     }
     const notifObj = typeof idOrNotif === 'object' && idOrNotif !== null ? idOrNotif : null;
-    const id = notifObj ? (notifObj.id || notifObj.metadata?.id) : idOrNotif;
+    const id = notifObj ? (notifObj.id || notifObj.metadata?.id || notifObj.commentId) : idOrNotif;
     if (!id) return;
 
     const keysToRemove = new Set([
       String(id),
       notifObj?.id ? String(notifObj.id) : null,
-      notifObj?.metadata?.id ? String(notifObj.metadata.id) : null
+      notifObj?.commentId ? String(notifObj.commentId) : null,
+      notifObj?.metadata?.id ? String(notifObj.metadata.id) : null,
+      notifObj?.metadata?.commentId ? String(notifObj.metadata.commentId) : null
     ].filter(Boolean) as string[]);
 
     // 1. Remove from deletedNotifIds
@@ -862,8 +954,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       const updated = prev.filter(k => !keysToRemove.has(k));
       if (typeof window !== "undefined") {
         localStorage.setItem("mep_deleted_notif_ids", JSON.stringify(updated));
-        if (userId) {
-          localStorage.setItem(`mep_deleted_notif_ids_${userId}`, JSON.stringify(updated));
+        const uId = userId || userData?.id || profile?.id;
+        if (uId) {
+          localStorage.setItem(`mep_deleted_notif_ids_${uId}`, JSON.stringify(updated));
         }
       }
       return updated;
@@ -871,10 +964,10 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
     // 2. Remove from deletedNotifications store
     setDeletedNotifications(prev => {
-      const restoredItem = prev.find(n => keysToRemove.has(String(n.id)) || (n.metadata?.id && keysToRemove.has(String(n.metadata.id))));
-      const updated = prev.filter(n => !keysToRemove.has(String(n.id)) && (!n.metadata?.id || !keysToRemove.has(String(n.metadata.id))));
+      const restoredItem = prev.find(n => keysToRemove.has(String(n.id)) || (n.metadata?.id && keysToRemove.has(String(n.metadata.id))) || (n.commentId && keysToRemove.has(String(n.commentId))));
+      const updated = prev.filter(n => !keysToRemove.has(String(n.id)) && (!n.metadata?.id || !keysToRemove.has(String(n.metadata.id))) && (!n.commentId || !keysToRemove.has(String(n.commentId))));
       if (typeof window !== "undefined") {
-        const uId = userId || userData?.id;
+        const uId = userId || userData?.id || profile?.id;
         const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
         localStorage.setItem(key, JSON.stringify(updated));
         localStorage.setItem("mep_deleted_notifications", JSON.stringify(updated));
@@ -885,7 +978,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           if (pPrev.some(p => p.id === restoredItem.id)) return pPrev;
           const pUpdated = [{ ...restoredItem, deleted: false }, ...pPrev];
           if (typeof window !== "undefined") {
-            const uId = userId || userData?.id;
+            const uId = userId || userData?.id || profile?.id;
             const key = uId ? `mep_persistent_user_notifs_${uId}` : "mep_persistent_user_notifs";
             localStorage.setItem(key, JSON.stringify(pUpdated));
           }
@@ -906,19 +999,80 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       e.stopPropagation();
     }
     const notifObj = typeof idOrNotif === 'object' && idOrNotif !== null ? idOrNotif : null;
-    const id = notifObj ? (notifObj.id || notifObj.text) : idOrNotif;
+    const id = notifObj ? (notifObj.id || notifObj.metadata?.id || notifObj.commentId || notifObj.text) : idOrNotif;
     if (!id) return;
 
+    const keysToDeleteSet = new Set<string>();
+    keysToDeleteSet.add(String(id));
+    if (notifObj) {
+      if (notifObj.id) keysToDeleteSet.add(String(notifObj.id));
+      if (notifObj.commentId) keysToDeleteSet.add(String(notifObj.commentId));
+      if (notifObj.metadata?.id) keysToDeleteSet.add(String(notifObj.metadata.id));
+      if (notifObj.metadata?.commentId) keysToDeleteSet.add(String(notifObj.metadata.commentId));
+    }
+    const keysToDelete = Array.from(keysToDeleteSet);
+
+    // 1. Remove from deletedNotifications
     setDeletedNotifications(prev => {
-      const updated = prev.filter(n => n.id !== id && n.text !== id);
+      const updated = prev.filter(n => {
+        const nId = String(n.id || "");
+        const nText = String(n.text || "");
+        const nMetaId = String(n.metadata?.id || "");
+        const nCommentId = String(n.commentId || n.metadata?.commentId || "");
+        return !keysToDeleteSet.has(nId) && !keysToDeleteSet.has(nText) && !keysToDeleteSet.has(nMetaId) && !keysToDeleteSet.has(nCommentId);
+      });
       if (typeof window !== "undefined") {
-        const uId = userId || userData?.id;
+        const uId = userId || userData?.id || profile?.id;
         const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
         localStorage.setItem(key, JSON.stringify(updated));
         localStorage.setItem("mep_deleted_notifications", JSON.stringify(updated));
       }
       return updated;
     });
+
+    // 2. Keep in deletedNotifIds so it NEVER resurrects from spaces/persistent stores
+    setDeletedNotifIds(prev => {
+      const updated = Array.from(new Set([...prev, ...keysToDelete]));
+      if (typeof window !== "undefined") {
+        localStorage.setItem("mep_deleted_notif_ids", JSON.stringify(updated));
+        const uId = userId || userData?.id || profile?.id;
+        if (uId) localStorage.setItem(`mep_deleted_notif_ids_${uId}`, JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    // 3. Purge from persistent stores
+    if (typeof window !== "undefined") {
+      const purgeFromStorage = (key: string) => {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const list = JSON.parse(raw);
+            if (Array.isArray(list)) {
+              const cleaned = list.filter((n: any) => {
+                if (!n) return false;
+                const nId = String(n.id || n.commentId || "");
+                const nMetaId = String(n.metadata?.id || n.metadata?.commentId || "");
+                return !keysToDeleteSet.has(nId) && (!nMetaId || !keysToDeleteSet.has(nMetaId));
+              });
+              localStorage.setItem(key, JSON.stringify(cleaned));
+            }
+          }
+        } catch (e) {}
+      };
+
+      purgeFromStorage("mep_persistent_user_notifs");
+      purgeFromStorage("mep_calc_coord_notifs");
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("mep_persistent_user_notifs_")) {
+          purgeFromStorage(k);
+        }
+      }
+    }
+
+    // 4. Call server API
+    api.deleteNotification(keysToDelete).catch(() => {});
 
     setNotifTick(t => t + 1);
     toast.success("Notification permanently deleted.");
@@ -955,13 +1109,32 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       e.preventDefault();
       e.stopPropagation();
     }
+    const allDeletedIds: string[] = [];
+    deletedNotifications.forEach(n => {
+      if (n.id) allDeletedIds.push(String(n.id));
+      if (n.commentId) allDeletedIds.push(String(n.commentId));
+      if (n.metadata?.id) allDeletedIds.push(String(n.metadata.id));
+      if (n.metadata?.commentId) allDeletedIds.push(String(n.metadata.commentId));
+    });
+
     setDeletedNotifications([]);
     if (typeof window !== "undefined") {
-      const uId = userId || userData?.id;
+      const uId = userId || userData?.id || profile?.id;
       const key = uId ? `mep_deleted_notifications_${uId}` : "mep_deleted_notifications";
       localStorage.removeItem(key);
       localStorage.removeItem("mep_deleted_notifications");
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("mep_deleted_notifications_")) {
+          localStorage.removeItem(k);
+        }
+      }
     }
+
+    if (allDeletedIds.length > 0) {
+      api.deleteNotification(allDeletedIds).catch(() => {});
+    }
+
     setNotifTick(t => t + 1);
     toast.success("Trash emptied permanently.");
   };
@@ -1171,8 +1344,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               c.deleted === true ||
               deletedNotifIds.includes(notifId) ||
               (c.id && deletedNotifIds.includes(String(c.id))) ||
-              (c.metadata?.id && deletedNotifIds.includes(String(c.metadata.id)))
+              (c.metadata?.id && deletedNotifIds.includes(String(c.metadata.id))) ||
+              (c.commentId && deletedNotifIds.includes(String(c.commentId))) ||
+              (c.timestamp && deletedNotifIds.includes(`notif_${item.id}_${c.timestamp}`))
             );
+            if (isDel) return;
 
             const assignedUsers = Array.isArray(c.assignedUsers) ? c.assignedUsers : [];
             const authorIdStr = String(c.authorId || "").toLowerCase().trim();
@@ -1301,6 +1477,15 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         wdata.notifications.forEach((wn: any) => {
           if (!wn || !wn.id || !wn.text) return;
           const wnId = wn.id;
+
+          const isWnDel = Boolean(
+            wn.deleted === true ||
+            deletedNotifIds.includes(wnId) ||
+            (wn.metadata?.id && deletedNotifIds.includes(String(wn.metadata.id))) ||
+            (wn.commentId && deletedNotifIds.includes(String(wn.commentId))) ||
+            (wn.metadata?.commentId && deletedNotifIds.includes(String(wn.metadata.commentId)))
+          );
+          if (isWnDel) return;
 
           // Skip duplicates
           if (notifs.some(n => n.id === wnId)) return;
@@ -1496,6 +1681,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     const combinedMap = new Map();
     (persistentNotifs || []).forEach((pn: any) => {
       if (!pn || !pn.id) return;
+      const pnId = String(pn.id);
+      const pnMetaId = pn.metadata?.id ? String(pn.metadata.id) : "";
+      const pnCommentId = pn.commentId || pn.metadata?.commentId ? String(pn.commentId || pn.metadata?.commentId) : "";
+      const isPnDel = Boolean(
+        pn.deleted === true ||
+        deletedNotifIds.includes(pnId) ||
+        (pnMetaId && deletedNotifIds.includes(pnMetaId)) ||
+        (pnCommentId && deletedNotifIds.includes(pnCommentId))
+      );
+      if (isPnDel) return;
+
       const pnAuthorId = String(pn.authorId || pn.metadata?.authorId || "").toLowerCase().trim();
       const pnAuthorName = String(pn.authorName || pn.metadata?.authorName || "").toLowerCase().trim();
       const isPnAuthor = Boolean(
@@ -1656,9 +1852,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     });
   }, [myNotifications, completedNotifIds]);
 
-  // Continuously preserve full notifications list in local storage so on next reload it appears instantly (0ms)
+  // Continuously preserve active notifications list in local storage so on next reload it appears instantly (0ms)
   useEffect(() => {
-    if (typeof window !== "undefined" && Array.isArray(myNotifications) && myNotifications.length > 0) {
+    if (typeof window !== "undefined") {
       const uId = userId || userData?.id || profile?.id;
       if (uId) {
         try {
@@ -1666,16 +1862,25 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           const currentRaw = localStorage.getItem(key);
           const currentList = currentRaw ? JSON.parse(currentRaw) : [];
           
+          const delSet = new Set(deletedNotifIds);
           const map = new Map();
-          currentList.forEach((n: any) => { if (n && n.id) map.set(n.id, n); });
-          myNotifications.forEach((n: any) => { if (n && n.id) map.set(n.id, n); });
+          currentList.forEach((n: any) => {
+            if (n && n.id && !delSet.has(String(n.id)) && !n.deleted) {
+              map.set(n.id, n);
+            }
+          });
+          (myNotifications || []).forEach((n: any) => {
+            if (n && n.id && !delSet.has(String(n.id)) && !n.deleted) {
+              map.set(n.id, n);
+            }
+          });
           
-          const merged = Array.from(map.values());
-          localStorage.setItem(key, JSON.stringify(merged));
+          const activeOnly = Array.from(map.values()).filter((n: any) => !delSet.has(String(n.id)) && !n.deleted);
+          localStorage.setItem(key, JSON.stringify(activeOnly));
         } catch (e) {}
       }
     }
-  }, [myNotifications, userId, userData?.id, profile?.id]);
+  }, [myNotifications, userId, userData?.id, profile?.id, deletedNotifIds]);
 
   useEffect(() => {
     const fetchBackendNotifs = async () => {
@@ -1695,11 +1900,24 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
             } catch (e) {}
           }
 
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith("mep_deleted_notif_ids_")) {
+              try {
+                const extra = JSON.parse(localStorage.getItem(k) || "[]");
+                if (Array.isArray(extra)) currentDeletedIds.push(...extra);
+              } catch (e) {}
+            }
+          }
+          const delSet = new Set([...currentDeletedIds, ...(deletedNotifIds || [])]);
+
           // Filter out any remote notifications that the user has already deleted
           const allowedRemote = remoteNotifs.filter(n => {
             if (!n || !n.id) return false;
-            if (currentDeletedIds.includes(n.id)) return false;
-            if (n.metadata?.id && currentDeletedIds.includes(n.metadata.id)) return false;
+            if (delSet.has(String(n.id))) return false;
+            if (n.commentId && delSet.has(String(n.commentId))) return false;
+            if (n.metadata?.id && delSet.has(String(n.metadata.id))) return false;
+            if (n.metadata?.commentId && delSet.has(String(n.metadata.commentId))) return false;
             return true;
           });
 
@@ -2296,9 +2514,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         e.preventDefault();
         e.stopPropagation();
         
-        const isEffectiveReadOnly = isReadOnly || isLockedByOther;
+        const isEffectiveReadOnly = isReadOnly || isLockedByOther || isApprovedLockedByCalc;
         if (isEffectiveReadOnly) {
-          toast.error("Cannot save. Workspace is in Read-Only mode.");
+          toast.error(isApprovedLockedByCalc ? "Cannot save. Calculation is APPROVED & LOCKED in Read-Only mode." : "Cannot save. Workspace is in Read-Only mode.");
           return;
         }
         
@@ -2317,9 +2535,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [project?.id, pathname, isReadOnly, isLockedByOther]);
+  }, [project?.id, pathname, isReadOnly, isLockedByOther, isApprovedLockedByCalc]);
 
   const getReadOnlyMessage = useCallback(() => {
+    if (isApprovedLockedByCalc) {
+      return "🔒 CALCULATION APPROVED: This calculation has been approved and is locked in Read-Only mode. Contact a Discipline Coordinator to unlock.";
+    }
     if (isLockedByOther) {
       return `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Editing is locked.`;
     }
@@ -2327,12 +2548,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       return "🛡️ READ-ONLY MODE: Viewer role accounts cannot edit calculations.";
     }
     return "🛡️ READ-ONLY MODE: Workspace is locked. Modifications are disabled.";
-  }, [isLockedByOther, lockOwnerName, isViewerRole]);
+  }, [isApprovedLockedByCalc, isLockedByOther, lockOwnerName, isViewerRole]);
 
   // Read-Only Enforcement: Blocks value modifications on inputs/selects/textareas and mutation buttons, while keeping scrolling, text copying, tabs, and navigation 100% interactive
   useEffect(() => {
     const isNotificationsPage = pathname === '/notifications';
-    const isEffectiveReadOnly = !isNotificationsPage && (isReadOnly || isLockedByOther || isViewerRole);
+    const isEffectiveReadOnly = !isNotificationsPage && (isReadOnly || isLockedByOther || isViewerRole || isApprovedLockedByCalc);
     (window as any).__mep_is_readonly = isEffectiveReadOnly;
     
     if (!isEffectiveReadOnly) return;
@@ -2840,6 +3061,15 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 >
                   <ShieldAlert className="size-5 text-red-600 dark:text-red-400 animate-pulse" />
                 </button>
+              ) : isApprovedLockedByCalc ? (
+                <button
+                  type="button"
+                  onClick={() => toast.info("READ-ONLY MODE: Calculation is Approved & Locked by Discipline Coordinator.", { id: "readonly-notice" })}
+                  className="size-10 rounded-full flex items-center justify-center bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-xs select-none cursor-pointer hover:scale-105 active:scale-95 transition-transform"
+                  title="READ-ONLY MODE: Calculation is Approved & Locked. Click for details."
+                >
+                  <Lock className="size-5 text-emerald-600 dark:text-emerald-400" />
+                </button>
               ) : isReadOnly || isViewerRole ? (
                 <button
                   type="button"
@@ -2861,8 +3091,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               <button
                 type="button"
                 onClick={() => {
-                  if (isLockedByOther || isReadOnly || isViewerRole) {
-                    toast.error("Cannot save: Workspace is in Read-Only mode.", { id: "readonly-save-err" });
+                  if (isLockedByOther || isReadOnly || isViewerRole || isApprovedLockedByCalc) {
+                    toast.error(isApprovedLockedByCalc ? "Cannot save: Calculation is Approved & Locked in Read-Only mode." : "Cannot save: Workspace is in Read-Only mode.", { id: "readonly-save-err" });
                     return;
                   }
                   savePageInputs(project.id, pathname);

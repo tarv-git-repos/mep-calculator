@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -16,6 +16,7 @@ import {
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { toast } from "sonner";
@@ -156,10 +157,14 @@ function pushToHistory(
 }
 
 function LightingLuxCalculationPage() {
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/lighting-lux-calculation", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/lighting-lux-calculation", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, forceSaveToCloud } = useWorkspace();
+  const isApprovedLocked = useCalculationLock("/lighting-lux-calculation", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const confirm = useConfirm();
 
   const [rows, setRows] = useState<LuxRow[]>(DEFAULT_ROWS);
@@ -868,6 +873,15 @@ function LightingLuxCalculationPage() {
     );
   }, [presetSearch]);
 
+  const handleOpenCommentModal = (row: LuxRow) => {
+    setCommentTarget({
+      id: row.id,
+      name: row.location || `Space Row ${rows.findIndex(r => r.id === row.id) + 1}`,
+      type: 'space'
+    });
+    setAssignCommentOpen(true);
+  };
+
   const columns: Column<LuxRow>[] = useMemo(() => [
     {
       key: "id",
@@ -885,16 +899,33 @@ function LightingLuxCalculationPage() {
       width: 160,
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
+        const itemComments = getMergedItemComments(row.id, row.location, (row as any).comments, "/lighting-lux-calculation", project?.id);
         return (
-          <input 
-            value={row.location}
-            onChange={(e) => updateRow(row.id, { location: e.target.value })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 focus:bg-primary/5 font-medium"
-            autoComplete="off"
-            placeholder="Space / Room Name"
-            data-row-idx={rowIdx}
-            data-col-idx={1}
-          />
+          <div className="flex items-center gap-1.5 w-full h-full px-1">
+            {itemComments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenCommentModal(row);
+                }}
+                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                <span className="text-[10px] font-bold">{itemComments.length}</span>
+              </button>
+            )}
+            <input 
+              value={row.location}
+              onChange={(e) => updateRow(row.id, { location: e.target.value })}
+              className="w-full h-full bg-transparent border-none outline-none px-1 focus:bg-primary/5 font-medium"
+              autoComplete="off"
+              placeholder="Space / Room Name"
+              data-row-idx={rowIdx}
+              data-col-idx={1}
+            />
+          </div>
         );
       }
     },
@@ -1223,7 +1254,13 @@ function LightingLuxCalculationPage() {
       title="Lighting LUX Calculation" 
       subtitle="Design and calculate lighting levels for different spaces"
     >
-      <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
+      <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
         {/* Subtle Grid Background */}
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         
@@ -1641,6 +1678,15 @@ function LightingLuxCalculationPage() {
           targetId={commentTarget.id}
           targetName={commentTarget.name}
           targetType={commentTarget.type}
+          calculatorTitle="Lighting LUX Calculation"
+          calculatorPath="/lighting-lux-calculation"
+          existingComments={getMergedItemComments(
+            commentTarget.id,
+            commentTarget.name,
+            (rows.find(r => r.id === commentTarget.id) as any)?.comments,
+            "/lighting-lux-calculation",
+            project?.id
+          )}
           onSave={(newComment) => {
             pushToHistory(rows, history, setHistory, setRedoStack);
             setRows(prev => {

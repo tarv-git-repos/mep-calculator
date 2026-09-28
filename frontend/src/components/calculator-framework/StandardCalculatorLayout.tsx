@@ -14,7 +14,7 @@ import {
   FileText,
 } from "lucide-react";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationReviewState, getCalculationStatusBorderClass } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { StandardContextMenu, CustomMenuItem } from "./StandardContextMenu";
 import {
@@ -224,9 +224,11 @@ export function StandardCalculatorLayout<T extends { id: string; name?: string; 
 
   const hasSelection = selectedIds.size > 0;
   const showTopControlsRow = (tabs && tabs.length > 0) || (roundOffOptions && roundOffOptions.length > 0);
+  const reviewState = useCalculationReviewState(calculatorPath);
+  const statusBorderClass = getCalculationStatusBorderClass(reviewState?.status);
 
   return (
-    <div className="flex flex-col h-full bg-background text-foreground overflow-hidden">
+    <div className={`flex flex-col h-full bg-background text-foreground overflow-hidden rounded-2xl transition-all duration-300 ${statusBorderClass}`}>
       {/* Optional Title Header Bar (if title provided) */}
       {!hideHeader && title && (
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b border-border bg-header-bg shrink-0">
@@ -512,7 +514,11 @@ export function StandardCalculatorLayout<T extends { id: string; name?: string; 
       </div>
 
       {/* 4. Bottom Sticky Calculation Review Bar */}
-      {!hideReviewBar && <CalculationReviewBar path={calculatorPath} />}
+      {!hideReviewBar && (
+        <div className="shrink-0 px-4 py-2 border-t border-border bg-surface-1 flex items-center justify-between no-print">
+          <CalculationReviewBar calculatorPath={calculatorPath} calculatorTitle={title || "Calculation"} />
+        </div>
+      )}
 
       {/* Modals */}
       {activeCommentTarget && (

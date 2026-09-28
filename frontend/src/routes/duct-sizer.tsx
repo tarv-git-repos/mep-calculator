@@ -1,5 +1,7 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { calculateDuctSize, calculateSMACNAWarnings, CFM_TO_LPS, LPS_TO_CFM, INWG_TO_PAM, PAM_TO_INWG, FPM_TO_MPS, MPS_TO_FPM, IN_TO_MM, MM_TO_IN } from "@/lib/calc-duct-sizer";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
@@ -44,60 +46,22 @@ export const Route = createFileRoute("/duct-sizer")({
 });
 
 // Conversion Constants
-const CFM_TO_LPS = 0.471947;
-const LPS_TO_CFM = 2.11888;
-const INWG_TO_PAM = 8.16828;
-const PAM_TO_INWG = 1 / 8.16828;
-const FPM_TO_MPS = 0.00508;
-const MPS_TO_FPM = 196.85;
-const IN_TO_MM = 25.4;
-const MM_TO_IN = 1 / 25.4;
 
-// Colebrook friction factor solved iteratively
-function colebrook(Re: number, relR: number): number {
-  if (Re <= 0) return 0.1;
-  if (Re < 2300) return 64 / Re;
-  let f = 0.25 / Math.pow(Math.log(relR / 3.7 + 5.74 / Math.pow(Re, 0.9)) / Math.LN10, 2);
-  for (let i = 0; i < 80; i++) {
-    const r = -2 * Math.log((relR / 3.7) + (2.51 / (Re * Math.sqrt(f)))) / Math.LN10;
-    const fn = 1 / (r * r);
-    if (Math.abs(fn - f) < 1e-10) {
-      f = fn;
-      break;
-    }
-    f = fn;
-  }
-  return f;
-}
 
 function DuctSizerPage() {
+  const { project, activeProjectId, isReadOnly } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/duct-sizer", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/duct-sizer", activeProjectId || project?.id);
   const confirm = useConfirm();
   const { userData, profile, user } = useAuth();
   const currentUserName = userData?.name || profile?.name || user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Design Engineer";
 
-  const { project, isReadOnly } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/duct-sizer", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
-  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
-  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole || calcReviewState?.status === "APPROVED");
   const isLocked = isEffectiveReadOnly;
 
   // Calculation review state listener
-  useEffect(() => {
-    const handleReviewUpdate = (e: any) => {
-      if (e?.detail) {
-        setCalcReviewState(e.detail);
-      }
-    };
-    if (typeof window !== "undefined") {
-      window.addEventListener("mep-review-state-updated", handleReviewUpdate);
-    }
-    return () => {
-      if (typeof window !== "undefined") {
-        window.removeEventListener("mep-review-state-updated", handleReviewUpdate);
-      }
-    };
-  }, []);
+  
 
   // Tabs & drawer state
   const [tab, setTab] = useState<"solver" | "report">("solver");
@@ -1157,7 +1121,6 @@ function DuctSizerPage() {
                 projectId={project?.id || "default"}
                 calculatorPath="/duct-sizer"
                 calculatorTitle="Duct Sizer"
-                onReviewStateChange={setCalcReviewState}
               />
 
               {/* Active Tasks & Comments Badge */}
@@ -1175,9 +1138,13 @@ function DuctSizerPage() {
 
           {/* White Card Container for Tabs & Data Grid (Matching Ventilation and Sewage Pump) */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            isApprovedLocked || calcReviewState?.status === "APPROVED"
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            isApprovedLocked || calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Tabs Selector Subheader Toolbar Row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">

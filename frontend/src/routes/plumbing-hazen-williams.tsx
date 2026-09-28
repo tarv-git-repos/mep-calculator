@@ -26,7 +26,7 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 
@@ -75,10 +75,14 @@ interface HazenSizingParams {
 }
 
 function HazenWilliamsPage() {
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-hazen-williams", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-hazen-williams", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, forceSaveToCloud } = useWorkspace();
+  const isApprovedLocked = useCalculationLock("/plumbing-hazen-williams", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
@@ -816,7 +820,13 @@ function HazenWilliamsPage() {
       intelLabel="Intelligence"
     >
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-3 gap-3 overflow-y-auto h-full pb-4">
+        <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
           
           {/* Page Header matching FM-200 Gas Sizing */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">

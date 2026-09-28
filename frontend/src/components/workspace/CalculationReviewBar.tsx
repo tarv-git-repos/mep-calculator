@@ -99,6 +99,94 @@ export function useCalculationLock(calculatorPath?: string, projectId?: string) 
   return isLocked;
 }
 
+export function useCalculationReviewState(calculatorPath?: string, projectId?: string): CalculationReviewState {
+  const currentProj = workspaceStore.getState().project;
+  const effectiveProjectId = (projectId && projectId !== "none" && projectId !== "active_project") 
+    ? projectId 
+    : (currentProj?.id || "default");
+    
+  const storageKey = `mep_calc_review_${effectiveProjectId}_${calculatorPath || "ventilation"}`;
+
+  const [reviewState, setReviewState] = useState<CalculationReviewState>(() => {
+    const proj = workspaceStore.getState().project;
+    if (proj && (proj.id === effectiveProjectId || effectiveProjectId === "default")) {
+      const reviewStates = proj.workspace_data?.review_states || {};
+      if (reviewStates[storageKey]) {
+        return reviewStates[storageKey];
+      }
+    }
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return { status: "DRAFT" };
+  });
+
+  useEffect(() => {
+    const checkState = () => {
+      const proj = workspaceStore.getState().project;
+      if (proj && (proj.id === effectiveProjectId || effectiveProjectId === "default")) {
+        const reviewStates = proj.workspace_data?.review_states || {};
+        if (reviewStates[storageKey]) {
+          setReviewState(reviewStates[storageKey]);
+          return;
+        }
+      }
+      if (typeof window !== "undefined") {
+        try {
+          const saved = localStorage.getItem(storageKey);
+          if (saved) {
+            setReviewState(JSON.parse(saved));
+            return;
+          }
+        } catch (e) {}
+      }
+      setReviewState({ status: "DRAFT" });
+    };
+
+    checkState();
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("mep-review-state-updated", checkState);
+      window.addEventListener("storage", checkState);
+      return () => {
+        window.removeEventListener("mep-review-state-updated", checkState);
+        window.removeEventListener("storage", checkState);
+      };
+    }
+  }, [storageKey, effectiveProjectId]);
+
+  return reviewState;
+}
+
+export function getCalculationStatusBorderClass(status?: ReviewStatus | string, defaultBorder: string = "") {
+  if (status === "APPROVED") {
+    return "border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]";
+  }
+  if (status === "REJECTED") {
+    return "border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]";
+  }
+  if (status === "REVIEWED") {
+    return "border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]";
+  }
+  return defaultBorder;
+}
+
+export function useCalculationEffectiveReadOnly(calculatorPath?: string, projectId?: string) {
+  const currentProj = workspaceStore.getState().project;
+  const effectiveProjectId = (projectId && projectId !== "none" && projectId !== "active_project") 
+    ? projectId 
+    : (currentProj?.id || "default");
+  const isApprovedLocked = useCalculationLock(calculatorPath, effectiveProjectId);
+  const { profile, userData } = useAuth();
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
+  const isWorkspaceReadOnly = workspaceStore.getState().isReadOnly;
+
+  return Boolean(isWorkspaceReadOnly || isViewerRole || isApprovedLocked);
+}
+
 interface CalculationReviewBarProps {
   projectId?: string;
   calculatorPath: string;

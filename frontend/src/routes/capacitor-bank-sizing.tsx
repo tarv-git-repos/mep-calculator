@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -15,6 +15,7 @@ import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace-store";
 import { api } from "@/services/api";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import type { TaskComment } from "@/lib/ventilation-calc";
@@ -112,8 +113,10 @@ function drawPdfThetaText(doc: jsPDF, text: string, x: number, y: number, isBold
 }
 
 function CapacitorBankSizingPage() {
+  const { activeProjectId, project: projectObj } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/capacitor-bank-sizing", activeProjectId || projectObj?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/capacitor-bank-sizing", activeProjectId || projectObj?.id);
   const { userData, profile } = useAuth();
-  const { project: projectObj } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/capacitor-bank-sizing", projectObj?.id);
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
@@ -958,7 +961,13 @@ function CapacitorBankSizingPage() {
         </div>
 
         <div className="flex-1 flex overflow-hidden z-10 min-h-0 gap-4">
-          <div className="flex-1 overflow-y-auto min-h-0">
+          <div className={`flex-1 overflow-y-auto rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} min-h-0`}>
             <div className="w-full flex flex-col gap-4">
             
             {/* Filter & Action Toolbar */}
@@ -1098,7 +1107,7 @@ function CapacitorBankSizingPage() {
             {filteredPanels.map((p) => {
               const isActive = activePanelId === p.id;
               const calc = calculatePanel(p);
-              const commentCount = p.comments?.length || 0;
+              const commentCount = getMergedItemComments(p.id, p.name || p.tag, p.comments, "/capacitor-bank-sizing", project?.id).length;
               
               return (
                 <div 
@@ -1571,7 +1580,7 @@ function CapacitorBankSizingPage() {
           targetType="Capacitor Bank Panel"
           calculatorTitle="Capacitor Bank Sizing"
           calculatorPath="/capacitor-bank-sizing"
-          existingComments={commentTargetPanel.comments || []}
+          existingComments={getMergedItemComments(commentTargetPanel.id, commentTargetPanel.name || commentTargetPanel.tag, commentTargetPanel.comments, "/capacitor-bank-sizing", project?.id)}
           onSave={handleSaveComment}
         />
       )}

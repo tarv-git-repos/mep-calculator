@@ -1,3 +1,4 @@
+import { calculateCHWPumpHead } from "@/lib/calc-chw-pump-head";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -24,7 +25,8 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditChwPumpModal } from "@/components/workspace/EditChwPumpModal";
@@ -78,11 +80,15 @@ interface SavedCalculation {
 }
 
 function ChwPumpHeadPage() {
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/chw-pump-head", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/chw-pump-head", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const isApprovedLocked = useCalculationLock("/chw-pump-head", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
@@ -683,7 +689,7 @@ function ChwPumpHeadPage() {
     min?: number,
     step: string = "any"
   ) => {
-    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const itemComments = getMergedItemComments(id, label, commentsList, "/chw-pump-head", project?.id);
     const hasComments = itemComments.length > 0;
     const isHighlighted = highlightedTargetId === id ||
                           highlightedTargetId === `field-${id}` ||
@@ -804,7 +810,7 @@ function ChwPumpHeadPage() {
     highlightClass: string = "text-foreground",
     colSpanTwo: boolean = false
   ) => {
-    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const itemComments = getMergedItemComments(id, label, commentsList, "/chw-pump-head", project?.id);
     const hasComments = itemComments.length > 0;
     const isHighlighted = highlightedTargetId === id ||
                           highlightedTargetId === `res-${id}` ||
@@ -904,7 +910,13 @@ function ChwPumpHeadPage() {
       intelLabel="Intelligence"
     >
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
           
           {/* Header Section matching FM-200 Gas Sizing */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
@@ -1602,7 +1614,7 @@ function ChwPumpHeadPage() {
               {(() => {
                 const stepId = "step-1-flow-rate";
                 const stepLabel = "Step 1: Volumetric & Mass Flow Rate Conversion";
-                const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/chw-pump-head", project?.id);
                 const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                 return (
                   <ContextMenu>
@@ -1657,7 +1669,7 @@ function ChwPumpHeadPage() {
               {(() => {
                 const stepId = "step-2-equiv-length";
                 const stepLabel = "Step 2: Total Equivalent Piping Length";
-                const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/chw-pump-head", project?.id);
                 const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                 return (
                   <ContextMenu>
@@ -1714,7 +1726,7 @@ function ChwPumpHeadPage() {
               {(() => {
                 const stepId = "step-3-friction-loss";
                 const stepLabel = "Step 3: Piping Friction Pressure Losses";
-                const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/chw-pump-head", project?.id);
                 const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                 return (
                   <ContextMenu>
@@ -1771,7 +1783,7 @@ function ChwPumpHeadPage() {
               {(() => {
                 const stepId = "step-4-total-head";
                 const stepLabel = "Step 4: Total Dynamic Pump Head (TDH)";
-                const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/chw-pump-head", project?.id);
                 const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                 return (
                   <ContextMenu>
@@ -1828,7 +1840,7 @@ function ChwPumpHeadPage() {
               {(() => {
                 const stepId = "step-5-motor-power";
                 const stepLabel = "Step 5: Hydraulic Shaft & Motor Sizing Power";
-                const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/chw-pump-head", project?.id);
                 const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                 return (
                   <ContextMenu>

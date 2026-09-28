@@ -1,7 +1,7 @@
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { api } from "@/services/api";
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { EditSprinklerCustomModal } from "@/components/workspace/EditSprinklerCustomModal";
 import { SprinklerKFactorSelect } from "@/components/workspace/SprinklerKFactorSelect";
 import { SprinklerHazardSelect } from "@/components/workspace/SprinklerHazardSelect";
@@ -235,47 +235,21 @@ export function checkIfSprinklerMissingData(row: SprinklerRow): { isMissing: boo
 }
 
 function SprinklerKFactorPage() {
+  const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-sprinkler-kfactor", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-sprinkler-kfactor", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, activeProjectId } = useWorkspace();
   const confirm = useConfirm();
   const prompt = usePrompt();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   // Review & Approval State
   const isCalcLock = useCalculationLock("/plumbing-sprinkler-kfactor");
-  const [calcReviewState, setCalcReviewState] = useState<any>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const pId = project?.id || "default";
-        return resolveLatestReviewState(pId, "/plumbing-sprinkler-kfactor");
-      } catch (e) {}
-    }
-    return { status: "DRAFT" };
-  });
   const isApprovedLocked = isCalcLock || calcReviewState?.status === "APPROVED";
 
-  useEffect(() => {
-    if (isApprovedLocked) {
-      setSelected(new Set());
-    }
-  }, [isApprovedLocked]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleReviewUpdate = (e: any) => {
-      if (e.detail) {
-        setCalcReviewState(e.detail);
-      }
-    };
-    window.addEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
-    window.addEventListener("mep-review-state-updated" as any, handleReviewUpdate);
-    return () => {
-      window.removeEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
-      window.removeEventListener("mep-review-state-updated" as any, handleReviewUpdate);
-    };
-  }, []);
+  
 
   // Version History Restore Listener (Full parity with VersionManager)
   useEffect(() => {
@@ -1806,7 +1780,6 @@ function SprinklerKFactorPage() {
                   projectId={project?.id || "default"}
                   calculatorPath="/plumbing-sprinkler-kfactor"
                   calculatorTitle="Sprinkler K-Factor"
-                  onReviewStateChange={setCalcReviewState}
                 />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
@@ -1835,8 +1808,12 @@ function SprinklerKFactorPage() {
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80">

@@ -1,6 +1,8 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { calculateHeatingLoad, SQFT_TO_SQM, SQM_TO_SQFT, FT_TO_M, M_TO_FT, U_IP_TO_SI, U_SI_TO_IP, CFM_TO_LPS, LPS_TO_CFM, BTU_HR_TO_KW, KW_TO_BTU_HR } from "@/lib/calc-heating-load";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -218,14 +220,14 @@ const presetIcons: Record<HeatingPresetKey, React.ComponentType<{ className?: st
 };
 
 function HeatingLoadPage() {
+  const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/heating-load", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/heating-load", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "Design Engineer";
-  const { project } = useWorkspace();
 
   // Calculation Lock & Review State
-  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
   const isApprovedLocked = calcReviewState?.status === "APPROVED";
-  const isEffectiveReadOnly = isApprovedLocked;
 
   // Active Tab & Drawer
   const [tab, setTab] = useState<"solver" | "report">("solver");
@@ -1256,7 +1258,7 @@ function HeatingLoadPage() {
                 <Sparkles className="size-3.5" />
                 Intelligence
               </button>
-              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/heating-load" calculatorTitle="Heating Load" onReviewStateChange={setCalcReviewState} />
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/heating-load" calculatorTitle="Heating Load" />
               {commentsList.length > 0 && (
                 <div 
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
@@ -1271,9 +1273,13 @@ function HeatingLoadPage() {
 
           {/* White Card Container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            isApprovedLocked || calcReviewState?.status === "APPROVED"
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            isApprovedLocked || calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             
             {/* Tabs Selector row */}

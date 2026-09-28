@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -11,6 +11,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { EditBusbarRowModal } from "@/components/workspace/EditBusbarRowModal";
 import { TBtn } from "@/components/workspace/Button";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
@@ -56,70 +57,14 @@ const COPPER_BUSBAR_DATA: Record<string, { r: number; x: number; label: string }
   "6300_r50": { r: 0.0061, x: 0.005, label: "6300 (R@50%RC)" }
 };
 
-interface BusbarRow {
-  id: string;
-  from: string;
-  desc: string;
-  ref: string;
-  length: number | "";
-  loadKw: number | "";
-  div: number | "";
-  flagged?: boolean;
-  comments?: TaskComment[];
-}
-
-export function getBusbarRowValidation(r?: Partial<BusbarRow>, vdPercent: number = 0) {
-  const warnings: string[] = [];
-  if (!r) return { isAutoFlagged: false, isFlagged: false, warnings: [] };
-
-  const descEmpty = !r.desc || String(r.desc).trim() === "";
-  const lenEmpty = r.length === "" || r.length === undefined || r.length === null || Number(r.length) === 0;
-  const loadEmpty = r.loadKw === "" || r.loadKw === undefined || r.loadKw === null || Number(r.loadKw) === 0;
-
-  // Don't auto-flag brand new completely blank rows
-  const isCompletelyEmpty = descEmpty && lenEmpty && loadEmpty;
-
-  if (!isCompletelyEmpty) {
-    if (descEmpty) {
-      warnings.push("description");
-    }
-    if (r.length === "" || r.length === undefined || r.length === null || isNaN(Number(r.length)) || Number(r.length) <= 0) {
-      warnings.push("length (0 or missing)");
-    }
-    if (r.loadKw === "" || r.loadKw === undefined || r.loadKw === null || isNaN(Number(r.loadKw)) || Number(r.loadKw) <= 0) {
-      warnings.push("load (kW)");
-    }
-  }
-
-  if (Number(vdPercent) > 2.5) {
-    warnings.push("exceeds 2.5% V.drop");
-  }
-
-  const isAutoFlagged = warnings.length > 0;
-  const isFlagged = r.flagged !== undefined ? Boolean(r.flagged) : isAutoFlagged;
-  return { isAutoFlagged, isFlagged, warnings };
-}
-
-interface BusbarSection {
-  id: string;
-  name: string;
-  ratingId: string;
-  volts: number | "";
-  pf: number | "";
-  useMdForCurrent?: boolean;
-  rows: BusbarRow[];
-}
-
-interface LVPanel {
-  id: string;
-  name: string;
-  sections: BusbarSection[];
-}
+import { BusbarRow, BusbarSection, LVPanel, calculateBusbarPanels, getBusbarRowValidation } from "@/lib/calc-busbar-calculation";
 
 function BusbarCalculationPage() {
-  const isApproved = useCalculationLock("/busbar-calculation");
-  const { userData, profile } = useAuth();
   const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/busbar-calculation", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/busbar-calculation", activeProjectId || project?.id);
+  const { userData, profile } = useAuth();
+  const isApproved = useCalculationLock("/busbar-calculation");
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -967,77 +912,7 @@ function BusbarCalculationPage() {
 
   // Calculations
   const calculatedPanels = useMemo(() => {
-    return panels.map(panel => {
-      const calcSections = panel.sections.map(section => {
-        let totalLoad = 0;
-        section.rows.forEach(r => totalLoad += (Number(r.loadKw) || 0));
-
-        let currentRemainingTCL = totalLoad;
-        let cumulativeVdPercent = 0;
-
-        const useMd = section.useMdForCurrent !== false;
-
-        const calcRows = section.rows.map((r) => {
-          const tcl = currentRemainingTCL;
-          const md = tcl * (Number(r.div) || 0);
-          const loadForCurrent = useMd ? md : tcl;
-          let current = 0;
-          const volts = Number(section.volts) || 0;
-          const isThreePhase = volts >= 300;
-          const pf = Number(section.pf) || 0;
-          if (volts > 0 && pf > 0) {
-            if (isThreePhase) {
-              current = (loadForCurrent * 1000) / (Math.sqrt(3) * volts * pf);
-            } else {
-              current = (loadForCurrent * 1000) / (volts * pf);
-            }
-          }
-
-          const rData = ALL_BUSBAR_DATA[section.ratingId] || { r: 0, x: 0 };
-          const phi = Math.acos(pf);
-          const sinPhi = Math.sin(phi);
-          
-          const lenNum = Number(r.length) || 0;
-          const lenMeters = unitSystem === "ip" ? lenNum * 0.3048 : lenNum;
-          
-          let vd = 0;
-          if (isThreePhase) {
-            vd = (Math.sqrt(3) * current * lenMeters * ((rData.r * pf) + (rData.x * sinPhi))) / 1000;
-          } else {
-            vd = (2 * current * lenMeters * ((rData.r * pf) + (rData.x * sinPhi))) / 1000;
-          }
-          
-          const vdPercent = volts > 0 ? (vd / volts) * 100 : 0;
-          cumulativeVdPercent += vdPercent;
-          currentRemainingTCL -= (Number(r.loadKw) || 0);
-
-          return {
-            ...r,
-            tcl,
-            md,
-            current,
-            r: rData.r,
-            x: rData.x,
-            vd,
-            vdPercent,
-            cumulativeVdPercent
-          };
-        });
-
-        const totalCumulativeVd = calcRows.length > 0 ? calcRows[calcRows.length - 1].cumulativeVdPercent : 0;
-
-        return {
-          ...section,
-          calcRows,
-          totalCumulativeVd
-        };
-      });
-
-      return {
-        ...panel,
-        calcSections
-      };
-    });
+    return calculateBusbarPanels(panels, ALL_BUSBAR_DATA, unitSystem);
   }, [panels, ALL_BUSBAR_DATA, unitSystem]);
 
   useEffect(() => {
@@ -1731,7 +1606,13 @@ function BusbarCalculationPage() {
   return (
     <AppShell title="Busbar Calculation" subtitle="Calculate voltage drop over multiple busbars and panels">
       
-      <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
+      <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
         {/* Subtle Grid Background */}
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
@@ -2262,20 +2143,23 @@ function BusbarCalculationPage() {
                                          <td style={{ width: busbarColWidths.no, minWidth: busbarColWidths.no, maxWidth: busbarColWidths.no }} className="text-center text-muted-foreground font-medium px-0.5 text-[11.5px]">{idx + 1}</td>
                                          <td style={{ width: busbarColWidths.desc, minWidth: busbarColWidths.desc, maxWidth: busbarColWidths.desc }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
                                           <div className="flex items-center gap-1.5 w-full px-1">
-                                            {Array.isArray(r.comments) && r.comments.length > 0 && (
-                                              <button 
-                                                type="button"
-                                                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                                                title={`${r.comments.length} comment(s)/task(s) assigned to "${r.desc || r.from || `Tap Off ${r.ref || r.id}`}"`}
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleOpenComment(r);
-                                                }}
-                                              >
-                                                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                                <span className="text-[10px] font-bold">{r.comments.length}</span>
-                                              </button>
-                                            )}
+                                            {(() => {
+        const itemComments = getMergedItemComments(r.id, r.desc || r.from || `Tap Off ${r.ref || r.id}`, r.comments, "/busbar-calculation", project?.id);
+        return itemComments.length > 0 ? (
+          <button
+            type="button"
+            className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+            title={`${itemComments.length} comment(s)/task(s) assigned to "${r.desc || r.from || `Tap Off ${r.ref || r.id}`}"`}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenComment(r);
+            }}
+          >
+            <MessageSquare className="size-3.5 fill-blue-500/20" />
+            <span className="text-[10px] font-bold">{itemComments.length}</span>
+          </button>
+        ) : null;
+      })()}
                                             <input 
                                               disabled={isApproved}
                                               data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} 
@@ -2496,7 +2380,7 @@ function BusbarCalculationPage() {
             for (const p of panels) {
               for (const s of p.sections) {
                 const r = s.rows.find(rw => String(rw.id) === String(commentTargetItem.id));
-                if (r) return r.comments || [];
+                if (r) return getMergedItemComments(r.id, r.desc || r.from || `Tap Off ${r.ref || r.id}`, r.comments, "/busbar-calculation", project?.id);
               }
             }
             return [];

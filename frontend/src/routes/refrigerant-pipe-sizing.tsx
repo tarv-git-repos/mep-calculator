@@ -1,5 +1,6 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
@@ -409,13 +410,13 @@ const DEFAULT_PARAMS: RefrigerantParams = {
 };
 
 function RefrigerantPipeSizingPage() {
+  const { project, activeProjectId, isReadOnly } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/refrigerant-pipe-sizing", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/refrigerant-pipe-sizing", activeProjectId || project?.id);
   const { userData, profile, user } = useAuth();
   const currentUserName = userData?.name || profile?.name || user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Design Engineer";
-  const { project, isReadOnly } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/refrigerant-pipe-sizing", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
-  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
-  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole || calcReviewState?.status === "APPROVED");
 
   // State definitions
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
@@ -428,19 +429,7 @@ function RefrigerantPipeSizingPage() {
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Sync review state
-  useEffect(() => {
-    const handleReviewUpdate = (e: any) => {
-      if (e?.detail) setCalcReviewState(e.detail);
-    };
-    if (typeof window !== "undefined") {
-      window.addEventListener("mep-review-state-updated", handleReviewUpdate);
-    }
-    return () => {
-      if (typeof window !== "undefined") {
-        window.removeEventListener("mep-review-state-updated", handleReviewUpdate);
-      }
-    };
-  }, []);
+  
 
   // Notification target scroll / highlight listener
   useEffect(() => {
@@ -789,7 +778,7 @@ function RefrigerantPipeSizingPage() {
     min: number = 0,
     placeholder: string = "0"
   ) => {
-    const itemComments = commentsMap[id] || [];
+    const itemComments = getMergedItemComments(id, label, commentsMap[id], "/refrigerant-pipe-sizing", project?.id);
     const hasComments = itemComments.length > 0;
     const isHighlighted = highlightedTargetId === id ||
                           highlightedTargetId === `field-${id}` ||
@@ -1118,7 +1107,13 @@ function RefrigerantPipeSizingPage() {
   return (
     <AppShell title="Refrigerant Pipe Sizing" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full custom-scrollbar">
+        <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} custom-scrollbar`}>
           
           {/* Header & CalculationReviewBar */}
           <div className="flex justify-between items-start shrink-0 select-none no-print">

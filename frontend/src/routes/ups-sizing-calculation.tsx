@@ -1,9 +1,11 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { addPdfHeader, addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
@@ -64,6 +66,8 @@ interface InlineInputProps {
 }
 
 function InlineInput({ value, onCommit, className = "", type = "text", step, min }: InlineInputProps) {
+  const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/ups-sizing-calculation", project?.id || activeProjectId);
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" || e.key === "Escape") {
       e.currentTarget.blur();
@@ -91,8 +95,31 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 function UpsSizingCalculationPage() {
-  const { userData, profile } = useAuth();
   const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/ups-sizing-calculation", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/ups-sizing-calculation", activeProjectId || project?.id);
+  const isCalcLock = useCalculationLock("/ups-sizing-calculation", activeProjectId || project?.id);
+  const isApprovedLocked = isCalcLock || calcReviewState?.status === "APPROVED";
+
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<any>(null);
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (newComment: any) => {
+    if (!commentTargetItem) return;
+    const nextRows = loadRows.map((r: any) => {
+      if (r.id === commentTargetItem.id) {
+        return { ...r, comments: [...(r.comments || []), newComment] };
+      }
+      return r;
+    });
+    setLoadRows(nextRows);
+  };
+  const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -126,8 +153,8 @@ function UpsSizingCalculationPage() {
 
     if (shouldConvert) {
       const pf = powerFactor <= 0 ? 0.8 : powerFactor;
-      setLoadRows((prev) =>
-        prev.map((r) => ({
+      setLoadRows(
+        loadRows.map((r: LoadRow) => ({
           ...r,
           equipmentLoad:
             target === "ip"
@@ -424,7 +451,7 @@ function UpsSizingCalculationPage() {
       projectNo: project?.code || activeProjectId || "3455",
       projectName: project?.name || "WOK",
       client: project?.client || "Client Name",
-      endUser: project?.endUser || "End User",
+      endUser: (project as any)?.endUser || "End User",
     });
 
     let currentY = startY + 6;
@@ -530,13 +557,32 @@ function UpsSizingCalculationPage() {
       header: "Description of Load",
       width: 320,
       editable: true,
-      render: (r) => (
-        <InlineInput
-          value={r.description}
-          onCommit={(val) => handleUpdateRow(r.id, "description", val)}
-          className="font-medium text-[13px]"
-        />
-      )
+      render: (r) => {
+        const itemComments = getMergedItemComments(r.id, r.description, (r as any).comments, "/ups-sizing-calculation", project?.id);
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            {itemComments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(r.id, r.description);
+                }}
+                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                <span className="text-[10px] font-bold">{itemComments.length}</span>
+              </button>
+            )}
+            <InlineInput
+              value={r.description}
+              onCommit={(val) => handleUpdateRow(r.id, "description", val)}
+              className="font-medium text-[13px] flex-1"
+            />
+          </div>
+        );
+      }
     },
     {
       key: "unit",
@@ -840,7 +886,7 @@ function UpsSizingCalculationPage() {
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">UPS Sizing</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{loadRows.length} items</span>
                 </div>
-                <CalculationReviewBar calculatorPath="/ups-sizing-calculation" calculatorTitle="UPS Sizing" />
+                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/ups-sizing-calculation" calculatorTitle="UPS Sizing" />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Simplified preliminary electrical capacity sizing based on socket load schedule.
@@ -849,7 +895,13 @@ function UpsSizingCalculationPage() {
           </div>
 
           {/* Card Container for Data Grid & Tabs */}
-          <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden mb-6">
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} min-h-[450px] overflow-hidden mb-6`}>
             
             {/* Tabs Row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card border-b border-border/60 shrink-0 select-none no-print">
@@ -986,22 +1038,20 @@ function UpsSizingCalculationPage() {
                   {/* Right Side: Import, Export, + New Space */}
                   <div className="flex items-center gap-2">
                     {/* Import Pill Button */}
-                    <ImportExcelBtn
-                      customTrigger={
-                        <button className="h-7 px-3 rounded-full border border-border text-[12px] font-medium text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer transition">
-                          <Upload className="size-3.5 text-muted-foreground" /> Import
-                        </button>
-                      }
-                      columnMapping={{
+                    <ImportExcelBtn columnMapping={{
                         "Description": "description",
                         "Qty (Single)": "qtySingle",
                         "Qty (Twin/Dual)": "qtyTwin",
                         "Equipment Load (W)": "equipmentLoad",
                         "Spare %": "spare",
                         "Remarks": "remarks"
-                      }}
-                      onImport={handleImportExcelRows}
-                    />
+                      }} onImport={handleImportExcelRows}>
+
+                        <button className="h-7 px-3 rounded-full border border-border text-[12px] font-medium text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer transition">
+                          <Upload className="size-3.5 text-muted-foreground" /> Import
+                        </button>
+                      
+</ImportExcelBtn>
 
                     {/* Export PDF Button (Direct) */}
                     <button
@@ -1163,7 +1213,7 @@ function UpsSizingCalculationPage() {
                       </div>
                       <div className="px-3 py-1.5 flex gap-2">
                         <span className="font-bold text-slate-900 dark:text-slate-100 min-w-[60px]">End User:</span>
-                        <span className="text-slate-800 dark:text-slate-200">{project?.endUser || "End User"}</span>
+                        <span className="text-slate-800 dark:text-slate-200">{(project as any)?.endUser || "End User"}</span>
                       </div>
                     </div>
                   </div>
@@ -1768,6 +1818,17 @@ function UpsSizingCalculationPage() {
           </div>
         </div>,
         document.body
+      )}
+      {commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => setCommentModalOpen(false)}
+          onSave={handleSaveComment}
+          targetName={commentTargetItem.name}
+          targetId={commentTargetItem.id}
+          calculatorPath="/ups-sizing-calculation"
+          existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, (loadRows.find(r => r.id === commentTargetItem.id) as any)?.comments, "/ups-sizing-calculation", project?.id)}
+        />
       )}
     </AppShell>
   );

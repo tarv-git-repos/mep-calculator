@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -25,6 +25,7 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditChwPipeModal } from "@/components/workspace/EditChwPipeModal";
@@ -87,10 +88,14 @@ interface SavedCalculation {
 }
 
 function ChwPipeSizerPage() {
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/chw-pipe-sizer", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/chw-pipe-sizer", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
-  const { project, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const isApprovedLocked = useCalculationLock("/chw-pipe-sizer", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
@@ -578,7 +583,7 @@ function ChwPipeSizerPage() {
     min?: number,
     step: string = "any"
   ) => {
-    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const itemComments = getMergedItemComments(id, label, commentsList, "/chw-pipe-sizer", project?.id);
     const hasComments = itemComments.length > 0;
     const isHighlighted = highlightedTargetId === id ||
                           highlightedTargetId === `field-${id}` ||
@@ -694,7 +699,7 @@ function ChwPipeSizerPage() {
     highlightClass: string = "text-foreground",
     colSpanTwo: boolean = false
   ) => {
-    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
+    const itemComments = getMergedItemComments(id, label, commentsList, "/chw-pipe-sizer", project?.id);
     const hasComments = itemComments.length > 0;
     const isHighlighted = highlightedTargetId === id ||
                           highlightedTargetId === `res-${id}` ||
@@ -782,7 +787,7 @@ function ChwPipeSizerPage() {
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">CHW Pipe Sizer</h1>
-                <CalculationReviewBar projectId={project?.id} calculatorPath="/chw-pipe-sizer" calculatorTitle="CHW Pipe Sizer" />
+                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/chw-pipe-sizer" calculatorTitle="CHW Pipe Sizer" />
                 {commentsList.length > 0 && (
                   <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
                     <MessageSquare className="size-3.5 fill-blue-500/20" />
@@ -971,7 +976,13 @@ function ChwPipeSizerPage() {
               </div>
 
               {/* Card 3: Detailed Calculations Steps Accordion */}
-              <div className="bg-card border border-border rounded-2xl shadow-xs overflow-hidden">
+              <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
                 <button
                   onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
                   className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"
@@ -988,7 +999,7 @@ function ChwPipeSizerPage() {
                     {(() => {
                       const stepId = "step-1-fluid-properties";
                       const stepLabel = "Step 1: Fluid Density & Dynamic Viscosity";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/chw-pipe-sizer", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>
@@ -1043,7 +1054,7 @@ function ChwPipeSizerPage() {
                     {(() => {
                       const stepId = "step-2-velocity";
                       const stepLabel = "Step 2: Internal Cross-Section Area & Velocity";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/chw-pipe-sizer", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>
@@ -1100,7 +1111,7 @@ function ChwPipeSizerPage() {
                     {(() => {
                       const stepId = "step-3-reynolds-friction";
                       const stepLabel = "Step 3: Reynolds Number & Colebrook Friction Factor";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/chw-pipe-sizer", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>
@@ -1156,7 +1167,7 @@ function ChwPipeSizerPage() {
                     {(() => {
                       const stepId = "step-4-dp-gradient";
                       const stepLabel = "Step 4: Darcy-Weisbach Pressure Drop Gradient";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/chw-pipe-sizer", project?.id);
                       const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
                       return (
                         <ContextMenu>

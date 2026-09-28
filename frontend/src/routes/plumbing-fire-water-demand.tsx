@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, type CalculationReviewState, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditBuildingModal } from "@/components/workspace/EditBuildingModal";
@@ -144,10 +144,12 @@ const INITIAL_BUILDINGS: CivilDefenseBuilding[] = [
 type ActiveTab = "schedule" | "staging" | "tanks" | "report";
 
 export function FireWaterDemandPage() {
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud, updateProject } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-fire-water-demand", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-fire-water-demand", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "Senior MEP Fire Engineer";
 
-  const { project, isReadOnly, forceSaveToCloud, updateProject } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/plumbing-fire-water-demand", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   
@@ -156,7 +158,6 @@ export function FireWaterDemandPage() {
   const isLockedByOther = Boolean(lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
   const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
 
-  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole || isLockedByOther);
 
   useEffect(() => {
     setActiveModule("/plumbing-fire-water-demand");
@@ -166,7 +167,6 @@ export function FireWaterDemandPage() {
   }, [setActiveModule]);
 
   const confirm = useConfirm();
-  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
 
   // Tabs & navigation (Ventilation standard)
   const [tab, setTab] = useState<ActiveTab>("schedule");
@@ -1489,7 +1489,6 @@ export function FireWaterDemandPage() {
                 projectId={project?.id || "default"}
                 calculatorPath="/plumbing-fire-water-demand"
                 calculatorTitle="Fire Water Demand"
-                onReviewStateChange={setCalcReviewState}
               />
             </div>
           </div>

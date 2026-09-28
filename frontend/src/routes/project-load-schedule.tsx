@@ -10,6 +10,9 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
 import { NetworkSLD } from "@/components/workspace/NetworkSLD";
 import { Plus, Trash2, Network, Table as TableIcon, Copy, Zap, Download, Eye, EyeOff } from "lucide-react";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
+import { MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirm } from "@/hooks/use-confirm";
 
@@ -111,8 +114,9 @@ function generateDefaultMDBCircuit(id: string, index: number) {
 
 // --- Main Component ---
 function ProjectLoadSchedulePage() {
-  const { activeProjectId } = useWorkspace();
-  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/project-load-schedule", activeProjectId);
+  const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/project-load-schedule", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/project-load-schedule", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
@@ -128,6 +132,32 @@ function ProjectLoadSchedulePage() {
 
   const [activeBoardId, setActiveBoardId] = useState<string>("board-1");
   const [isCompactView, setIsCompactView] = useState(false);
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<any>(null);
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (newComment: any) => {
+    if (!commentTargetItem) return;
+    const nextBoards = boards.map(b => {
+      if (b.id === commentTargetItem.id) {
+        return { ...b, comments: [...(b.comments || []), newComment] };
+      }
+      return {
+        ...b,
+        circuits: (b.circuits || []).map((c: any) => {
+          if (c.id === commentTargetItem.id) {
+            return { ...c, comments: [...(c.comments || []), newComment] };
+          }
+          return c;
+        })
+      };
+    });
+    setBoards(nextBoards);
+  };
 
   const activeBoard = boards.find(b => b.id === activeBoardId);
   const isDB = activeBoard?.type === "DB" || activeBoard?.type === "EDB";
@@ -158,7 +188,16 @@ function ProjectLoadSchedulePage() {
       ? generateDefaultDBCircuit(`c-${Date.now()}`, activeBoard.circuits.length)
       : generateDefaultMDBCircuit(`c-${Date.now()}`, activeBoard.circuits.length);
     updateBoard({ circuits: [...activeBoard.circuits, newCirc] });
-    
+    setTimeout(() => {
+      if (tableContainerRef.current) {
+        tableContainerRef.current.scrollTo({
+          top: tableContainerRef.current.scrollHeight,
+          behavior: "smooth"
+        });
+      }
+    }, 50);
+  };
+
   const duplicateCircuit = (circuitToClone: any) => {
     const isDB = activeBoard.type === "DB";
     const newIdx = activeBoard.circuits.length;
@@ -197,17 +236,6 @@ function ProjectLoadSchedulePage() {
     
     updateBoard({ circuits: [...activeBoard.circuits, clonedCirc] });
     
-    setTimeout(() => {
-      if (tableContainerRef.current) {
-        tableContainerRef.current.scrollTo({
-          top: tableContainerRef.current.scrollHeight,
-          behavior: "smooth"
-        });
-      }
-    }, 50);
-  };
-
-  // Auto-scroll to bottom after rendering
     setTimeout(() => {
       if (tableContainerRef.current) {
         tableContainerRef.current.scrollTo({
@@ -1283,7 +1311,28 @@ function ProjectLoadSchedulePage() {
                               <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.cirNo} onChange={e => updateCircuit(c.id, "cirNo", e.target.value)} /></td>
                               <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.mcb} onChange={e => updateCircuit(c.id, "mcb", e.target.value)} /></td>
                               {!isCompactView && <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.wireEcc} onChange={e => updateCircuit(c.id, "wireEcc", e.target.value)} /></td>}
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-2 bg-transparent outline-none focus:bg-slate-100 text-left" value={c.roomArea} onChange={e => updateCircuit(c.id, "roomArea", e.target.value)} /></td>
+                              <td className="p-0 border-r border-slate-300">
+                                <div className="flex items-center gap-1 px-1">
+                                  {(() => {
+                                    const itemComments = getMergedItemComments(c.id, c.roomArea || `Circuit ${c.cirNo}`, (c as any).comments, "/project-load-schedule", project?.id);
+                                    return itemComments.length > 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenComment(c.id, c.roomArea || `Circuit ${c.cirNo}`);
+                                        }}
+                                        title={`${itemComments.length} comment(s)/task(s) assigned`}
+                                        className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                                      >
+                                        <MessageSquare className="size-3.5 fill-blue-500/20" />
+                                        <span className="text-[10px] font-bold">{itemComments.length}</span>
+                                      </button>
+                                    ) : null;
+                                  })()}
+                                  <input className="w-full h-8 px-1 bg-transparent outline-none focus:bg-slate-100 text-left" value={c.roomArea} onChange={e => updateCircuit(c.id, "roomArea", e.target.value)} />
+                                </div>
+                              </td>
                               
                               {POINT_TYPES.map(p => (
                                 <td key={p.id} className="p-0 border-r border-slate-300">
@@ -1471,6 +1520,17 @@ function ProjectLoadSchedulePage() {
           </div>
         </div>
       </div>
+      {commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => setCommentModalOpen(false)}
+          onSave={handleSaveComment}
+          targetName={commentTargetItem.name}
+          targetId={commentTargetItem.id}
+          calculatorPath="/project-load-schedule"
+          existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, [], "/project-load-schedule", project?.id)}
+        />
+      )}
     </AppShell>
   );
 }

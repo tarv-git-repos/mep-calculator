@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useWorkspace } from "@/lib/workspace-store";
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditPclSpaceModal } from "@/components/workspace/EditPclSpaceModal";
@@ -813,13 +813,15 @@ function PclIntelligenceDrawer({
 
 
 function PreliminaryCoolingLoadPage() {
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/preliminary-cooling-load", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/preliminary-cooling-load", activeProjectId || project?.id);
   const navigate = useNavigate();
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
   const prompt = usePrompt();
-  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
 
   // State loaded from localStorage to keep 100% database compatibility
   const [projectInfo, setProjectInfo] = useState({
@@ -855,15 +857,6 @@ function PreliminaryCoolingLoadPage() {
 
   // Review & Approval State
   const isCalcLock = useCalculationLock("/preliminary-cooling-load");
-  const [calcReviewState, setCalcReviewState] = useState<any>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const pId = activeProjectId || project?.id || "default";
-        return resolveLatestReviewState(pId, "/preliminary-cooling-load");
-      } catch (e) {}
-    }
-    return { status: "DRAFT" };
-  });
   const isApprovedLocked = isCalcLock || calcReviewState?.status === "APPROVED";
 
   useEffect(() => {
@@ -872,21 +865,6 @@ function PreliminaryCoolingLoadPage() {
       setSelectedPending(new Set());
     }
   }, [isApprovedLocked]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleReviewUpdate = (e: any) => {
-      if (e.detail) {
-        setCalcReviewState(e.detail);
-      }
-    };
-    window.addEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
-    window.addEventListener("mep-review-state-updated" as any, handleReviewUpdate);
-    return () => {
-      window.removeEventListener("mep_calc_review_updated" as any, handleReviewUpdate);
-      window.removeEventListener("mep-review-state-updated" as any, handleReviewUpdate);
-    };
-  }, []);
 
   // Custom Category Parameter Modal state
   const [customParamModalRow, setCustomParamModalRow] = useState<PclRow | null>(null);
@@ -2736,7 +2714,6 @@ function PreliminaryCoolingLoadPage() {
                   projectId={activeProjectId || project?.id || "default"}
                   calculatorPath="/preliminary-cooling-load"
                   calculatorTitle="Preliminary Cooling Load"
-                  onReviewStateChange={setCalcReviewState}
                 />
               </div>
             </div>

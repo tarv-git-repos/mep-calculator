@@ -7,6 +7,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { useState, useMemo, useEffect } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { Plus, Download, Trash, Copy, X, Database, Filter, ArrowUpDown, Sparkles, FileText, MessageSquare, Flag } from "lucide-react";
@@ -76,10 +77,12 @@ const pushToHistory = (
 };
 
 function LoadSummaryPage() {
+  const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/load-summary", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/load-summary", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project } = useWorkspace();
   const confirm = useConfirm();
 
   const [rows, setRows] = useState<LoadRow[]>([]);
@@ -944,7 +947,7 @@ function LoadSummaryPage() {
       render: (row) => {
         const rowIdx = filteredRows.findIndex(r => r.id === row.id);
         const index = rowIdx + 1;
-        const rowComments = commentsList.filter(c => c.targetId === row.id || (c as any).itemId === row.id);
+        const rowComments = getMergedItemComments(row.id, row.description, (row as any).comments || commentsList.filter(c => c.targetId === row.id || (c as any).itemId === row.id), "/load-summary", project?.id);
 
         return (
           <div className="w-full h-full flex items-center gap-1 px-2 group">
@@ -1167,7 +1170,13 @@ function LoadSummaryPage() {
       subtitle="Calculate electrical load summary and equipment totals"
       spaceCount={rows.length}
     >
-      <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
+      <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         
         <div className="relative z-10 flex flex-col h-full w-full">

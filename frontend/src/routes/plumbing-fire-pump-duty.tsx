@@ -32,11 +32,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
-import {
-  CalculationReviewBar,
-  CalculationReviewState,
-  useCalculationLock,
-} from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import {
@@ -237,15 +233,15 @@ export const PUMP_PRESETS: PumpPreset[] = [
 ];
 
 function FirePumpDutyPage() {
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-fire-pump-duty", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-fire-pump-duty", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, isReadOnly, forceSaveToCloud } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/plumbing-fire-pump-duty", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
-  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole);
 
-  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
 
   // Tabs & drawer state
   const [tab, setTab] = useState<"solver" | "report">("solver");
@@ -929,7 +925,6 @@ function FirePumpDutyPage() {
                 projectId={project?.id || "default"}
                 calculatorPath="/plumbing-fire-pump-duty"
                 calculatorTitle="Fire Pump Duty"
-                onReviewStateChange={setCalcReviewState}
               />
               {commentsList.length > 0 && (
                 <div
@@ -971,9 +966,13 @@ function FirePumpDutyPage() {
           <div className="flex-1 min-h-0 flex gap-3 overflow-hidden">
             <div
               className={`flex-1 flex flex-col min-w-0 overflow-hidden rounded-2xl transition-all duration-300 ${
-                isApprovedLocked || calcReviewState?.status === "APPROVED"
-                  ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
-                  : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+                isApprovedLocked || calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
               }`}
             >
               {/* Tabs Selector row & Action Toolbar */}

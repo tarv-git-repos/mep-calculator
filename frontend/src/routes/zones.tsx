@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
+import { toast } from "sonner";
 import { Plus, Search, Edit3, Flag } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace, type Zone, type Space } from "@/lib/workspace-store";
+import { useCalculationReviewState, useCalculationLock, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
 import { useConfirm } from "@/hooks/use-confirm";
 import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
 import { calculateVentilation } from "@/lib/ventilation-calc";
@@ -21,7 +23,11 @@ export const Route = createFileRoute("/zones")({
 
 function ZonesPage() {
   const [query, setQuery] = useState("");
-  const { spaces, zones, addZone, deleteZone, equipment, assignZoneToEquipment, removeZoneFromEquipment, setWorkspaceState } = useWorkspace();
+  const { spaces, zones, addZone, deleteZone, equipment, assignZoneToEquipment, removeZoneFromEquipment, setWorkspaceState, activeProjectId, isReadOnly } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/ventilation", activeProjectId);
+  const isApprovedLocked = Boolean(activeProjectId) && calcReviewState?.status === "APPROVED";
+  const calcEffectiveReadOnly = useCalculationEffectiveReadOnly("/ventilation", activeProjectId);
+  const isEffectiveReadOnly = isReadOnly || isApprovedLocked || calcEffectiveReadOnly || (typeof window !== 'undefined' && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)));
   const confirm = useConfirm();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
@@ -58,7 +64,7 @@ function ZonesPage() {
         const zoneToDelete = zones.find((z) => z.id === selectedId);
         if (zoneToDelete) {
           e.preventDefault();
-          confirm(`Are you sure you want to delete zone "${zoneToDelete.name}"?`).then((ok) => {
+          confirm(`Are you sure you want to delete zone "${zoneToDelete.name}"?`).then((ok: any) => {
             if (ok) {
               deleteZone(selectedId);
               setSelectedId(null);
@@ -84,6 +90,10 @@ function ZonesPage() {
   );
 
   const handleNewZone = () => {
+    if (isEffectiveReadOnly || isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+      return;
+    }
     const name = `Z-${String(zones.length + 1).padStart(3, "0")}`;
     const newZone: Zone = {
       id: `zone-${Date.now()}`,
@@ -106,7 +116,7 @@ function ZonesPage() {
     <AppShell
       title="Zones"
       subtitle={`${zones.length} zones`}
-      actions={<TBtn primary onClick={handleNewZone}><Plus className="size-3.5" /> New Zone</TBtn>}
+      actions={<TBtn primary disabled={isEffectiveReadOnly || isApprovedLocked} title={isApprovedLocked ? "Calculation is Approved & Locked. Unlock to add zones." : undefined} onClick={handleNewZone}><Plus className="size-3.5" /> New Zone</TBtn>}
     >
       <div className="grid grid-cols-[360px_1fr] h-full">
         {/* Zone list */}
@@ -135,7 +145,9 @@ function ZonesPage() {
                     <span className="font-mono font-medium text-[12.5px] flex items-center gap-1.5">
                       {z.name}
                       {!spaces.some(s => s.zone === z.name && s.pressure === "Positive") && (
-                        <Flag className="size-3.5 text-warning" title="There is no positive space in this zone (at least 1 positive space is required)." />
+                        <span title="There is no positive space in this zone (at least 1 positive space is required).">
+                          <Flag className="size-3.5 text-warning" />
+                        </span>
                       )}
                     </span>
                     <span className={`font-mono text-[11px] tabular ${tone}`}>{z.pressure > 0 ? "+" : ""}{z.pressure} L/s</span>
@@ -164,7 +176,9 @@ function ZonesPage() {
                     <div className="flex items-center gap-2">
                       <h2 className="text-[18px] font-semibold tracking-tight font-mono">{zone.name}</h2>
                       {!spaces.some(s => s.zone === zone.name && s.pressure === "Positive") && (
-                        <Flag className="size-4 text-warning cursor-help" title="There is no positive space in this zone (at least 1 positive space is required)." />
+                        <span title="There is no positive space in this zone (at least 1 positive space is required).">
+                          <Flag className="size-4 text-warning cursor-help" />
+                        </span>
                       )}
                     </div>
                     <div className="text-[12px] text-muted-foreground mt-0.5">{zone.building} · {zone.floor}</div>

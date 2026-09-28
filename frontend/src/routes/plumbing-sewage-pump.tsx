@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -185,31 +185,17 @@ const GAL_TO_L = 3.78541;
 const HP_TO_KW = 0.7457;
 
 function SewagePumpPage() {
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-sewage-pump", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-sewage-pump", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, isReadOnly, forceSaveToCloud } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/plumbing-sewage-pump", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
-  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
-  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole || calcReviewState?.status === "APPROVED");
 
   // Calculation review state listener
-  useEffect(() => {
-    const handleReviewUpdate = (e: any) => {
-      if (e?.detail) {
-        setCalcReviewState(e.detail);
-      }
-    };
-    if (typeof window !== "undefined") {
-      window.addEventListener("mep-review-state-updated", handleReviewUpdate);
-    }
-    return () => {
-      if (typeof window !== "undefined") {
-        window.removeEventListener("mep-review-state-updated", handleReviewUpdate);
-      }
-    };
-  }, []);
+  
 
   // Tabs & drawer state
   const [tab, setTab] = useState<"solver" | "report">("solver");
@@ -1295,7 +1281,7 @@ function SewagePumpPage() {
                 <Sparkles className="size-3.5" />
                 Intelligence
               </button>
-              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-sewage-pump" calculatorTitle="Sewage Pump Sizing" onReviewStateChange={setCalcReviewState} />
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-sewage-pump" calculatorTitle="Sewage Pump Sizing" />
               {commentsList.length > 0 && (
                 <div 
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
@@ -1310,9 +1296,13 @@ function SewagePumpPage() {
 
           {/* White Card Container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            isApprovedLocked || calcReviewState?.status === "APPROVED"
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            isApprovedLocked || calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             
             {/* Tabs Selector row */}

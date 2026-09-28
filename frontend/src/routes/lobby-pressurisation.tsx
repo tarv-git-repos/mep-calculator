@@ -1,7 +1,8 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useWorkspace } from "@/lib/workspace-store";
+import { useAuth } from "@/contexts/AuthContext";
 import { dirtyStore } from "@/lib/dirty-store";
 import { api } from "@/services/api";
 import React, { useState, useMemo, useEffect, useRef, Fragment } from "react";
@@ -18,6 +19,7 @@ import {
 import * as XLSX from "xlsx";
 import { exportLobbyPressurisationPDF } from "@/lib/exportLobbyPressurisationPDF";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile, getFloorRank, Extracted3DSpace } from "@/lib/bimViewerSpaceExtractor";
 import { toast } from "sonner";
@@ -66,7 +68,9 @@ interface FanSystem {
 }
 
 function LobbyPressurisationPage() {
-  const { project, forceSaveToCloud, isInitializing, updateProject } = useWorkspace();
+  const { project, activeProjectId, forceSaveToCloud, isInitializing, updateProject } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/lobby-pressurisation", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/lobby-pressurisation", activeProjectId || project?.id);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
@@ -102,11 +106,11 @@ function LobbyPressurisationPage() {
     return { status: "DRAFT" };
   }, [project]);
 
-  const [calcReviewState, setCalcReviewState] = useState<any>(getSyncedReviewState);
+  const { profile, userData } = useAuth();
+  const isApprovedLocked = useCalculationLock("/lobby-pressurisation", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
-  useEffect(() => {
-    setCalcReviewState(getSyncedReviewState);
-  }, [getSyncedReviewState]);
+  
   
   // Schedule state
   const [floors, setFloors] = useState<LobbyFloor[]>([]);
@@ -1346,7 +1350,6 @@ function LobbyPressurisationPage() {
                 projectId={project?.id}
                 calculatorPath="/lobby-pressurisation"
                 calculatorTitle="Lobby Pressurisation"
-                onReviewStateChange={setCalcReviewState}
               />
               {commentsList.length > 0 && (
                 <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
@@ -1360,8 +1363,12 @@ function LobbyPressurisationPage() {
           {/* Ventilation-style Outer Card Container */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Top Row 1: Section Navigation Tabs, Group By & Unit System Toggle */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-card shrink-0 select-none no-print border-b border-border/50 flex-wrap gap-3">
@@ -1814,7 +1821,7 @@ function LobbyPressurisationPage() {
                                       <div className="flex items-center gap-2">
                                         <span className="font-extrabold text-foreground">{grp.groupName}</span>
                                         {(() => {
-                                          const grpComments = commentsList.filter(c => c.spaceId === grp.groupName || c.targetId === grp.groupName);
+                                          const grpComments = getMergedItemComments(grp.groupName, grp.groupName, commentsList, "/lobby-pressurisation", project?.id);
                                           if (grpComments.length === 0) return null;
                                           return (
                                             <button

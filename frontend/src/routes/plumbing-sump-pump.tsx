@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -52,26 +52,16 @@ const HP_TO_KW = 0.7457;
 const PSI_TO_BAR = 0.0689476;
 
 function SumpPumpPage() {
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-sump-pump", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-sump-pump", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, isReadOnly, forceSaveToCloud } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/plumbing-sump-pump", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
-  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
-  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole || calcReviewState?.status === "APPROVED");
 
-  useEffect(() => {
-    const handleReviewUpdate = (e: any) => {
-      if (e?.detail) setCalcReviewState(e.detail);
-    };
-    if (typeof window !== "undefined") {
-      window.addEventListener("mep-review-state-updated", handleReviewUpdate);
-    }
-    return () => {
-      if (typeof window !== "undefined") window.removeEventListener("mep-review-state-updated", handleReviewUpdate);
-    };
-  }, []);
+  
 
   const [tab, setTab] = useState<"solver" | "report">("solver");
   const [unitSystem, setUnitSystem] = useState<"ip" | "si">("si");
@@ -507,15 +497,19 @@ function SumpPumpPage() {
           <div className="flex justify-between items-start shrink-0 select-none no-print py-0.5">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sump Pump Sizing</h1>
-              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-sump-pump" calculatorTitle="Sump Pump Sizing" onReviewStateChange={setCalcReviewState} />
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-sump-pump" calculatorTitle="Sump Pump Sizing" />
             </div>
           </div>
 
           {/* Main Content */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            isApprovedLocked || calcReviewState?.status === "APPROVED"
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            isApprovedLocked || calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             
             {/* Tabs Selector row */}

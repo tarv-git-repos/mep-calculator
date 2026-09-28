@@ -1,10 +1,13 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { toast } from "sonner";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
+import { MessageSquare } from "lucide-react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -112,8 +115,31 @@ const STANDARD_REACTANCE_LOOKUP = (size: number): number => {
 };
 
 function ShortCircuitCalculationsPage() {
-  const { userData, profile } = useAuth();
   const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/short-circuit-calculations", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/short-circuit-calculations", activeProjectId || project?.id);
+  const isCalcLock = useCalculationLock("/short-circuit-calculations", activeProjectId || project?.id);
+  const isApprovedLocked = isCalcLock || calcReviewState?.status === "APPROVED";
+
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<any>(null);
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (newComment: any) => {
+    if (!commentTargetItem) return;
+    const nextRows = rows.map((r: any) => {
+      if (r.id === commentTargetItem.id) {
+        return { ...r, comments: [...(r.comments || []), newComment] };
+      }
+      return r;
+    });
+    setRows(nextRows);
+  };
+  const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -779,13 +805,32 @@ function ShortCircuitCalculationsPage() {
       header: "Description",
       width: 200,
       editable: true,
-      render: (r) => (
-        <InlineInput
-          value={r.description}
-          onCommit={(val) => handleUpdateRow(r.id, "description", val)}
-          className="font-medium text-[13px]"
-        />
-      )
+      render: (r) => {
+        const itemComments = getMergedItemComments(r.id, r.description, (r as any).comments, "/short-circuit-calculations", project?.id);
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            {itemComments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(r.id, r.description);
+                }}
+                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                <span className="text-[10px] font-bold">{itemComments.length}</span>
+              </button>
+            )}
+            <InlineInput
+              value={r.description}
+              onCommit={(val) => handleUpdateRow(r.id, "description", val)}
+              className="font-medium text-[13px] flex-1"
+            />
+          </div>
+        );
+      }
     },
     {
       key: "length",
@@ -1050,7 +1095,7 @@ function ShortCircuitCalculationsPage() {
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Short Circuit Calculator</h1>
                   <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} segments</span>
                 </div>
-                <CalculationReviewBar calculatorPath="/short-circuit-calculations" calculatorTitle="Short Circuit Calculator" />
+                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/short-circuit-calculations" calculatorTitle="Short Circuit Calculator" />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 IEC 60909 prospective short-circuit current calculator at the end of a cascading cable run.
@@ -1060,7 +1105,13 @@ function ShortCircuitCalculationsPage() {
 
           {/* Sizing Schedule workspace container */}
           <div className="flex-1 flex flex-col gap-6 min-h-[450px] mb-6">
-            <div className="bg-card border border-border rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] flex-1 flex flex-col min-h-[450px] overflow-hidden">
+            <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} min-h-[450px] overflow-hidden`}>
               
               {/* Tab Selector row */}
               <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg">
@@ -1577,6 +1628,17 @@ function ShortCircuitCalculationsPage() {
 
         </div>
       </div>
+      {commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => setCommentModalOpen(false)}
+          onSave={handleSaveComment}
+          targetName={commentTargetItem.name}
+          targetId={commentTargetItem.id}
+          calculatorPath="/short-circuit-calculations"
+          existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, (rows.find(r => r.id === commentTargetItem.id) as any)?.comments, "/short-circuit-calculations", project?.id)}
+        />
+      )}
     </AppShell>
   );
 }

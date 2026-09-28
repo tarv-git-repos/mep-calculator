@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -11,6 +11,7 @@ import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { EditBusbarRowModal } from "@/components/workspace/EditBusbarRowModal";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
@@ -19,6 +20,7 @@ import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/com
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
+import { BusbarVDRow, BusbarRatingDef, DEFAULT_RATINGS, computeAllRows } from "@/lib/calc-busbar-voltage-drop";
 
 export const Route = createFileRoute("/busbar-voltage-drop")({
   head: () => ({
@@ -30,83 +32,7 @@ export const Route = createFileRoute("/busbar-voltage-drop")({
   component: BusbarVoltageDropPage,
 });
 
-interface BusbarVDRow {
-  id: string;
-  isGroup: boolean;
-  ref: string;
-  from: string;
-  tapOff: string;
-  length: number;
-  smdbLoad: number;
-  tcl: number;
-  voltage: number;
-  pf: number;
-  df: number;
-  maxDemand: number; // calculated
-  lineCurrent: number; // calculated
-  vd: number; // calculated
-  vdPercent: number; // calculated
-  cumulativeVd: number; // For groups this is input (parent VD), for nodes it is calculated
-  comments?: TaskComment[];
-}
 
-interface BusbarRatingDef {
-  rating: string;
-  r: number;
-  x: number;
-}
-
-const DEFAULT_RATINGS: BusbarRatingDef[] = [
-  { rating: "800 (Rt)", r: 0.0750, x: 0.0200 },
-  { rating: "1000 (Rt)", r: 0.0523, x: 0.0190 },
-  { rating: "1250 (Rt)", r: 0.0400, x: 0.0150 },
-  { rating: "1600 (Rt)", r: 0.0300, x: 0.0130 },
-  { rating: "2000 (Rt)", r: 0.0220, x: 0.0110 },
-  { rating: "2500 (Rt)", r: 0.0177, x: 0.0100 },
-  { rating: "3200 (Rt)", r: 0.0130, x: 0.0090 },
-  { rating: "4000 (Rt)", r: 0.0100, x: 0.0080 },
-];
-
-const computeAllRows = (rows: BusbarVDRow[], globalR: number, globalX: number, useMdForCurrent: boolean = true): BusbarVDRow[] => {
-  let currentGroupVd = 0;
-
-  return rows.map((row) => {
-    if (row.isGroup) {
-      currentGroupVd = row.cumulativeVd || 0; // Use the input parent VD for this group
-      return { ...row, maxDemand: 0, lineCurrent: 0, vd: 0, vdPercent: 0 };
-    }
-
-    const V = row.voltage || 1; // prevent div/0
-    const PF = row.pf || 1;
-
-    // Maximum Demand Load (KW) = TCL * Diversity Factor
-    const maxDemand = row.tcl * row.df;
-    
-    // Line Current (A) = (loadForCurrent * 1000) / (1.732 * Voltage * PF)
-    const loadForCurrent = useMdForCurrent ? maxDemand : row.tcl;
-    const lineCurrent = (loadForCurrent * 1000) / (1.732 * V * PF);
-
-    // VOLTAGE DROP (Vd) = (1.732 * Line Current * Length * (R*CosPhi + X*SinPhi)) / 1000
-    // CosPhi = PF, SinPhi = sin(arccos(PF))
-    const sinPhi = Math.sin(Math.acos(Math.min(1, Math.max(-1, PF))));
-    const vd = (1.732 * lineCurrent * row.length * ((globalR * PF) + (globalX * sinPhi))) / 1000;
-
-    // Vdrop % = (VD / Voltage) * 100
-    const vdPercent = (vd / V) * 100;
-
-    // Cumulative VD = Group VD + Node VD%
-    const cumulativeVd = currentGroupVd + vdPercent;
-
-    return {
-      ...row,
-      maxDemand: Number(maxDemand.toFixed(2)),
-      lineCurrent: Number(lineCurrent.toFixed(2)),
-      vd: Number(vd.toFixed(2)),
-      vdPercent: Number(vdPercent.toFixed(2)),
-      cumulativeVd: Number(cumulativeVd.toFixed(2))
-    };
-  });
-};
 
 const pushToHistory = (
   currentRows: BusbarVDRow[],
@@ -119,10 +45,14 @@ const pushToHistory = (
 };
 
 function BusbarVoltageDropPage() {
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/busbar-voltage-drop", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/busbar-voltage-drop", activeProjectId || project?.id);
+  const isCalcLock = useCalculationLock("/busbar-voltage-drop", activeProjectId || project?.id);
+  const isApprovedLocked = isCalcLock || calcReviewState?.status === "APPROVED";
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, forceSaveToCloud } = useWorkspace();
   const confirm = useConfirm();
 
   const [rows, setRows] = useState<BusbarVDRow[]>([]);
@@ -628,23 +558,28 @@ function BusbarVoltageDropPage() {
         const idx = rows.findIndex(r => r.id === row.id);
         return (
           <div className="flex items-center gap-1.5 w-full">
-            {row.comments && row.comments.length > 0 && (
-              <span 
-                className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
-                title={`${row.comments.length} comment(s):\n${row.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCommentTarget({
-                    id: row.id,
-                    name: row.tapOff || row.ref || row.from || `Busbar Row ${row.id}`,
-                    type: 'space'
-                  });
-                  setAssignCommentOpen(true);
-                }}
-              >
-                <MessageSquare className="size-3.5" />
-              </span>
-            )}
+            {(() => {
+              const itemComments = getMergedItemComments(row.id, row.tapOff || row.ref || row.from, row.comments, "/busbar-voltage-drop", project?.id);
+              return itemComments.length > 0 ? (
+                <button
+                  type="button"
+                  className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                  title={`${itemComments.length} comment(s)/task(s) assigned`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCommentTarget({
+                      id: row.id,
+                      name: row.tapOff || row.ref || row.from || `Busbar Row ${row.id}`,
+                      type: 'space'
+                    });
+                    setAssignCommentOpen(true);
+                  }}
+                >
+                  <MessageSquare className="size-3.5 fill-blue-500/20" />
+                  <span className="text-[10px] font-bold">{itemComments.length}</span>
+                </button>
+              ) : null;
+            })()}
             <input
               data-row-idx={idx}
               data-col-idx={0}
@@ -901,7 +836,13 @@ function BusbarVoltageDropPage() {
         </div>
       }
     >
-      <div className="flex-1 flex flex-col h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30">
+      <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         
         <div className="relative z-10 flex flex-col h-full w-full">

@@ -57,6 +57,8 @@ export interface AuthResponse {
   requireForceLogout?: boolean;
   requireVerification?: boolean;
   sessionRevoked?: boolean;
+  accountDeactivated?: boolean;
+  accountDeleted?: boolean;
 }
 
 export const clearAllAuthStorage = () => {

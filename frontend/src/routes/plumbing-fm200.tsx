@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -39,13 +39,12 @@ export const Route = createFileRoute("/plumbing-fm200")({
 type PresetOption = "class_a" | "class_b" | "class_c" | "custom";
 
 function FM200SizerPage() {
+  const { project, activeProjectId, isReadOnly } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-fm200", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-fm200", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
-  const currentUserName = userData?.name || profile?.name || "System Admin";
-
-  const { project, isReadOnly } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/plumbing-fm200", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
-  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole);
 
   // Tabs & intelligence panel state
   const [tab, setTab] = useState<"solver" | "report">("solver");
@@ -908,8 +907,12 @@ function FM200SizerPage() {
 
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            isApprovedLocked
+            calcReviewState?.status === "APPROVED" 
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+              : calcReviewState?.status === "REJECTED"
+              ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+              : calcReviewState?.status === "REVIEWED"
+              ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Tabs Selector row */}

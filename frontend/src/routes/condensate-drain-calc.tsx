@@ -36,9 +36,11 @@ import {
   ChevronRight,
   Scissors,
   Clipboard,
+  Printer,
   TrendingUp,
   Check,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
@@ -140,6 +142,8 @@ export function checkIfCoilMissingData(coil: any): boolean {
 
 function CondensateDrainCalcPage() {
   const { project, forceSaveToCloud } = useWorkspace();
+  const { user, userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || (user as any)?.user_metadata?.full_name || user?.email?.split("@")[0] || "Design Engineer";
   const confirm = useConfirm();
   const isLocked = useCalculationLock("/condensate-drain-calc", project?.id);
   const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
@@ -338,63 +342,9 @@ function CondensateDrainCalcPage() {
     toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
-  const calculatedRows = useMemo(() => {
-    const pAtm = 101325;
-    return rows.map(r => {
-      const dbInC = ip ? fToC(r.dbIn) : r.dbIn;
-      const wbInC = ip ? fToC(r.wbIn) : r.wbIn;
-      const dbOutC = ip ? fToC(r.dbOut) : r.dbOut;
-      const wbOutC = ip ? fToC(r.wbOut) : r.wbOut;
+  const calculatedRows = useMemo(() => calculateCondensateRows(rows, ip), [rows, ip]);
 
-      let wIn = 0, wOut = 0;
-      try { wIn = wFromWB(dbInC, wbInC, pAtm); } catch (e) {}
-      try { wOut = wFromWB(dbOutC, wbOutC, pAtm); } catch (e) {}
-
-      const dw = Math.max(0, wIn - wOut);
-      // Flow conversion
-      const flowLps = ip ? cfmToLps(r.flow) : r.flow;
-      const massAirFlow = (flowLps / 1000) * 1.2; // kg/s
-      const condFlow = massAirFlow * dw; // L/s
-
-      const missingReasons = getCoilMissingReasons({
-        name: r.name,
-        dbIn: r.dbIn,
-        wbIn: r.wbIn,
-        dbOut: r.dbOut,
-        wbOut: r.wbOut,
-        flow: r.flow,
-        wIn,
-        wOut
-      });
-
-      const isAutoFlagged = missingReasons.length > 0;
-      const isEffectivelyFlagged = Boolean(r.flagged) || isAutoFlagged;
-
-      return {
-        ...r,
-        wIn,
-        wOut,
-        dw,
-        condFlow,
-        missingReasons,
-        isAutoFlagged,
-        isEffectivelyFlagged
-      };
-    });
-  }, [rows, ip]);
-
-  const totals = useMemo(() => {
-    const totalFlow = rows.reduce((a, b) => a + b.flow, 0);
-    const totalCond = calculatedRows.reduce((a, b) => a + b.condFlow, 0);
-    const avgDw = calculatedRows.length > 0 
-      ? calculatedRows.reduce((a, b) => a + b.dw, 0) / calculatedRows.length 
-      : 0;
-    return {
-      totalFlow,
-      totalCond,
-      avgDw
-    };
-  }, [calculatedRows, rows]);
+  const totals = useMemo(() => calculateCondensateTotals(calculatedRows, rows), [calculatedRows, rows]);
 
   // Total count of all comments across all coils
   const totalCommentsCount = useMemo(() => {
@@ -607,7 +557,7 @@ function CondensateDrainCalcPage() {
         projectName: project?.name || "MEP Project",
         projectNo: project?.code || (project?.id ? project.id.slice(0, 8) : "P000"),
         client: project?.client || "",
-        endUser: (project as any)?.endUser || project?.location || "",
+        endUser: (project as any)?.endUser || (project as any)?.location || "",
         unitSystem,
       });
       toast.dismiss("condensate-pdf-export");
@@ -655,7 +605,7 @@ function CondensateDrainCalcPage() {
   }, [calculatedRows]);
 
   const sigDetails = useMemo(() => {
-    return getSignatureBlockDetails(project?.id || "default", "/condensate-drain-calc");
+    return getSignatureBlockDetails(project?.id || "default", "/condensate-drain-calc", currentUserName, calcReviewState);
   }, [project?.id, calcReviewState]);
 
   return (
@@ -690,7 +640,6 @@ function CondensateDrainCalcPage() {
                   projectId={project?.id}
                   calculatorPath="/condensate-drain-calc"
                   calculatorTitle="Coil Condensate Calculator"
-                  onReviewStateChange={setCalcReviewState}
                 />
                 {totalCommentsCount > 0 && (
                   <button
@@ -752,11 +701,8 @@ function CondensateDrainCalcPage() {
                 </button>
               </div>
 
-              {/* Right Side Controls: Export & Unit System Toggle */}
+              {/* Units toggle option */}
               <div className="flex items-center gap-2 select-none shrink-0">
-                <TBtn onClick={handleExportPDF}>
-                  <FileText className="size-3.5" /> Export PDF
-                </TBtn>
                 <UnitToggle
                   unitSystem={unitSystem}
                   onChange={handleUnitSystemChange}
@@ -791,6 +737,11 @@ function CondensateDrainCalcPage() {
                         }}
                       >
                         <Download className="size-3.5" /> Import
+                      </TBtn>
+                      <TBtn
+                        onClick={handleExportPDF}
+                      >
+                        <FileText className="size-3.5" /> Export PDF
                       </TBtn>
                       <TBtn
                         primary
@@ -1081,7 +1032,7 @@ function CondensateDrainCalcPage() {
                                       <ContextMenuSeparator className="h-px bg-border my-1" />
 
                                       <ContextMenuItem
-                                        onClick={() => handleDuplicateCoil(isSelected && selected.size > 1 ? rows.filter(x => selected.has(x.id)) : r)}
+                                        onClick={() => handleDuplicateCoil(isSelected && selected.size > 1 ? rows.filter(x => selected.has(x.id)) : (r as any))}
                                         disabled={isLocked}
                                         className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium disabled:opacity-50"
                                       >
@@ -1385,11 +1336,19 @@ function CondensateDrainCalcPage() {
                     <div className="flex justify-between items-start pb-4 border-b border-border">
                       <div>
                         <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-                          Cooling Coil Condensate Calculation
+                          Cooling Coil Condensate Calculation Report
                         </h2>
                         <p className="text-[12px] text-muted-foreground mt-0.5">
                           Design Standards: ASHRAE Psychrometric Principles &amp; IPC Section 307 Condensate Disposal
                         </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <TBtn onClick={() => window.print()}>
+                          <Printer className="size-3.5" /> Print
+                        </TBtn>
+                        <TBtn primary onClick={handleExportPDF}>
+                          <FileText className="size-3.5" /> Export PDF
+                        </TBtn>
                       </div>
                     </div>
 
@@ -1422,7 +1381,7 @@ function CondensateDrainCalcPage() {
                         </div>
                         <div className="p-2.5 px-3 flex justify-between">
                           <span className="font-bold text-foreground">End User:</span>
-                          <span className="text-muted-foreground">{(project as any)?.endUser || project?.location || "-"}</span>
+                          <span className="text-muted-foreground">{(project as any)?.endUser || (project as any)?.location || "-"}</span>
                         </div>
                       </div>
                     </div>
@@ -1433,36 +1392,15 @@ function CondensateDrainCalcPage() {
                         <table className="w-full text-left text-[11px] border-collapse">
                           <thead>
                             <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
-                              <th className="py-2 px-2.5 w-12 text-center">Sr. No.</th>
-                              <th className="py-2 px-3 text-center">Unit</th>
-                              <th className="py-2 px-3 text-center">
-                                <div>Air Flow</div>
-                                <div className="text-[10px] font-semibold">({uFlow})</div>
-                              </th>
-                              <th className="py-2 px-3 text-center">
-                                <div>On-Coil DB/WB</div>
-                                <div className="text-[10px] font-semibold">({uTemp})</div>
-                              </th>
-                              <th className="py-2 px-3 text-center">
-                                <div>Off-Coil DB/WB</div>
-                                <div className="text-[10px] font-semibold">({uTemp})</div>
-                              </th>
-                              <th className="py-2 px-2.5 text-center">
-                                <div>W_in</div>
-                                <div className="text-[10px] font-semibold">(kg/kg)</div>
-                              </th>
-                              <th className="py-2 px-2.5 text-center">
-                                <div>W_out</div>
-                                <div className="text-[10px] font-semibold">(kg/kg)</div>
-                              </th>
-                              <th className="py-2 px-2.5 text-center">
-                                <div>ΔW</div>
-                                <div className="text-[10px] font-semibold">(kg/kg)</div>
-                              </th>
-                              <th className="py-2 px-3 text-center">
-                                <div>Condensate</div>
-                                <div className="text-[10px] font-semibold">({uCond})</div>
-                              </th>
+                              <th className="py-2 px-2.5 w-10">Sr.</th>
+                              <th className="py-2 px-3 text-left">Unit Ref</th>
+                              <th className="py-2 px-3 text-right">Air Flow ({uFlow})</th>
+                              <th className="py-2 px-3">On-Coil DB/WB ({uTemp})</th>
+                              <th className="py-2 px-3">Off-Coil DB/WB ({uTemp})</th>
+                              <th className="py-2 px-2.5 text-right">W_in (kg/kg)</th>
+                              <th className="py-2 px-2.5 text-right">W_out (kg/kg)</th>
+                              <th className="py-2 px-2.5 text-right">ΔW (kg/kg)</th>
+                              <th className="py-2 px-3 text-right">Condensate ({uCond})</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/60 font-mono">
@@ -1471,28 +1409,28 @@ function CondensateDrainCalcPage() {
                               return (
                                 <tr key={r.id} className="hover:bg-muted/30">
                                   <td className="py-2 px-2.5 text-center text-muted-foreground font-sans">{idx + 1}</td>
-                                  <td className="py-2 px-3 font-sans font-bold text-foreground text-left">{r.name}</td>
-                                  <td className="py-2 px-3 text-center">{r.flow.toLocaleString()}</td>
+                                  <td className="py-2 px-3 font-sans font-bold text-foreground">{r.name}</td>
+                                  <td className="py-2 px-3 text-right">{r.flow.toLocaleString()}</td>
                                   <td className="py-2 px-3 text-center">{r.dbIn.toFixed(1)} / {r.wbIn.toFixed(1)}</td>
                                   <td className="py-2 px-3 text-center">{r.dbOut.toFixed(1)} / {r.wbOut.toFixed(1)}</td>
-                                  <td className="py-2 px-2.5 text-center">{r.wIn.toFixed(5)}</td>
-                                  <td className="py-2 px-2.5 text-center">{r.wOut.toFixed(5)}</td>
-                                  <td className="py-2 px-2.5 text-center font-semibold">{r.dw.toFixed(5)}</td>
-                                  <td className="py-2 px-3 text-center font-bold text-primary">{condVal}</td>
+                                  <td className="py-2 px-2.5 text-right">{r.wIn.toFixed(5)}</td>
+                                  <td className="py-2 px-2.5 text-right">{r.wOut.toFixed(5)}</td>
+                                  <td className="py-2 px-2.5 text-right font-semibold">{r.dw.toFixed(5)}</td>
+                                  <td className="py-2 px-3 text-right font-bold text-primary">{condVal}</td>
                                 </tr>
                               );
                             })}
                             {/* Summary Total Row */}
                             <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold border-t-2 border-border text-foreground">
                               <td className="py-2 px-2.5 text-center font-sans">TOTAL</td>
-                              <td className="py-2 px-3 font-sans text-left">{rows.length} Units</td>
-                              <td className="py-2 px-3 text-center">{totals.totalFlow.toLocaleString()}</td>
+                              <td className="py-2 px-3 font-sans">{rows.length} Units</td>
+                              <td className="py-2 px-3 text-right">{totals.totalFlow.toLocaleString()}</td>
                               <td className="py-2 px-3 text-center">-</td>
                               <td className="py-2 px-3 text-center">-</td>
-                              <td className="py-2 px-2.5 text-center">-</td>
-                              <td className="py-2 px-2.5 text-center">-</td>
-                              <td className="py-2 px-2.5 text-center">-</td>
-                              <td className="py-2 px-3 text-center text-primary font-mono text-[12px]">
+                              <td className="py-2 px-2.5 text-right">-</td>
+                              <td className="py-2 px-2.5 text-right">-</td>
+                              <td className="py-2 px-2.5 text-right">-</td>
+                              <td className="py-2 px-3 text-right text-primary font-mono text-[12px]">
                                 {ip ? lpsToGpm(totals.totalCond).toFixed(4) : totals.totalCond.toFixed(4)}
                               </td>
                             </tr>
@@ -1507,7 +1445,7 @@ function CondensateDrainCalcPage() {
                         <table className="w-full text-left text-[11px] border-collapse">
                           <thead>
                             <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
-                              <th className="py-2 px-2.5 w-12 text-center">Sr. No.</th>
+                              <th className="py-2 px-2.5 w-10">Sr.</th>
                               <th className="py-2 px-3 text-left">Drainage Sizing Parameter</th>
                               <th className="py-2 px-3 text-left">Governing Rule / Standard</th>
                               <th className="py-2 px-3 text-right">Calculated Value</th>
@@ -1670,7 +1608,7 @@ function CondensateDrainCalcPage() {
             }
             try {
               if (typeof forceSaveToCloud === "function") {
-                forceSaveToCloud(true);
+                forceSaveToCloud();
               }
             } catch (e) {}
           }}

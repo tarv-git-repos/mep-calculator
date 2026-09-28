@@ -1,50 +1,107 @@
 import { Profile } from "@/contexts/AuthContext";
 
 export const DEFAULT_UNLOCKED_FEATURES = [
+  // HVAC
   'ventilation',
   'preliminary-cooling-load',
+  'preliminary-cooling',
   'fresh-air-cooling-load',
   'fresh-air-cooling',
   'fresh-air',
   'fresh-air-load',
-  'plumbing-loading-unit',
-  'plumbing-water-demand',
-  'water-demand',
-  'busbar-calculation',
-  'plumbing-sprinkler-kfactor',
-  'k-factor',
-  'plumbing-sprinkler-density',
-  'sprinkler-density',
-  'chw-pipe-sizer',
   'chw-pump-head',
-  'condensate-drain',
   'condensate-drain-calc',
-  'condensate',
   'condensate-calc',
-  'generator-sizing',
-  'generator',
-  'cable-tray-sizing',
-  'cable-tray',
-  'cable-sizing',
-  'cablesizing',
+  'heating-load',
+  'heating',
+  'heating-calc',
+  'heating-load-calc',
+  'lobby-pressurisation',
+  'lobby-pressurization',
+  'staircase-pressurization',
+  'liftwell-pressurization',
   'smoke-extract-fan',
   'smoke-extract',
   'basement-smoke-calc',
   'basement-smoke',
-  'lobby-pressurisation',
-  'staircase-pressurization',
-  'liftwell-pressurization',
+  'duct-sizer',
+  'duct-sizing',
+  'ductsizer',
+  'refrigerant-pipe-sizing',
+  'refrigerant-pipe',
+  'ref-pipe',
+  'refrigerant-sizing',
+  'refrigerant',
+  'condensate-drain',
+  'condensate',
+  'chw-pipe-sizer',
+  'diffuser-selector',
+  'diffuser',
+  'diffuser-selection',
   'psychrometric',
   'psychrometric-calculator',
   'psychrometric-calc',
   'sanity-check-tool',
   'sanity-check',
-  'diffuser-selector',
-  'diffuser',
-  'diffuser-selection',
-  'duct-sizer',
-  'duct-sizing',
-  'ductsizer',
+
+  // ELECTRICAL (Fully Unlocked)
+  'central-battery-sizing',
+  'central-battery',
+  'centralbattery',
+  'ups-sizing-calculation',
+  'ups-sizing',
+  'ups',
+  'generator-sizing',
+  'generator',
+  'lighting-lux-calculation',
+  'lighting-lux',
+  'lux-calculation',
+  'lux',
+  'lighting',
+  'lpd-calculation',
+  'lpd',
+  'lpd-calc',
+  'transformer-sizing',
+  'transformer',
+  'circuit-breaker-sizing',
+  'circuit-breaker',
+  'breaker-sizing',
+  'busbar-calculation',
+  'busbar',
+  'cable-tray-sizing',
+  'cable-tray',
+  'cable-sizing',
+  'cablesizing',
+  'capacitor-bank-sizing',
+  'capacitor-bank',
+  'capacitor',
+  'conductor-sizing',
+  'conductor',
+  'cable-voltage-drop',
+  'cable-voltage',
+  'voltage-drop',
+  'busbar-voltage-drop',
+  'busbar-voltage',
+  'short-circuit-calculations',
+  'short-circuit',
+  'shortcircuit',
+  'load-summary',
+  'loadsummary',
+  'project-load-schedule',
+  'load-schedule',
+  'project-load',
+
+  // FIRE FIGHTING
+  'plumbing-sprinkler-kfactor',
+  'k-factor',
+  'sprinkler-kfactor',
+  'plumbing-sprinkler-density',
+  'sprinkler-density',
+  'sprinkler-density-flow',
+  'plumbing-hazen-williams',
+  'hazen-williams',
+  'hazen',
+  'hazenwilliams',
   'plumbing-fm200',
   'fm200',
   'fm-200',
@@ -53,35 +110,11 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'fire-water-demand',
   'firewaterdemand',
   'plumbing-fire-water',
-  'plumbing-sewage-pump',
-  'sewage-pump',
-  'sewage-pump-sizing',
-  'sewagepump',
-  'heating-load',
-  'heating',
-  'heating-calc',
-  'heating-load-calc',
-  'plumbing-drainage',
-  'drainage',
-  'drainage-sizing',
-  'drainage-pipe-sizing',
-  'plumbing-drainage-sizing',
-  'plumbing-pump-sizing',
-  'pump-sizing',
-  'plumbing-sump-pump',
-  'sump-pump',
-  'plumbing-hazen-williams',
-  'hazen-williams',
-  'hazen',
-  'hazenwilliams',
-  'plumbing-tank-sizing',
-  'tank-sizing',
-  'water-tank-sizing',
-  'tank',
-  'refrigerant-pipe-sizing',
-  'refrigerant-pipe',
-  'ref-pipe',
-  'refrigerant-sizing',
+  'plumbing-fire-pump-duty',
+  'fire-pump-duty',
+  'firepumpduty',
+  'fire-pump',
+  'plumbing-fire-pump',
   'plumbing-fire-tank-capacity',
   'fire-tank-capacity',
   'firetankcapacity',
@@ -91,26 +124,49 @@ export const DEFAULT_UNLOCKED_FEATURES = [
   'tank-duration',
   'fire-tank',
   'plumbing-tank-duration',
-  'plumbing-fire-pump-duty',
-  'fire-pump-duty',
-  'firepumpduty',
-  'fire-pump',
-  'plumbing-fire-pump',
-  'plumbing-gas-tank',
-  'gas-tank',
-  'gas-storage',
-  'gas-storage-capacity',
-  'gas-tank-sizing',
+
+  // PLUMBING
+  'plumbing-water-demand',
+  'water-demand',
+  'plumbing-fixture-unit',
+  'fixture-unit',
+  'plumbing-loading-unit',
+  'loading-unit',
+  'plumbing-supply-pipe-sizer',
+  'supply-pipe-sizer',
+  'supply-pipe',
+  'plumbing-pump-sizing',
+  'pump-sizing',
+  'plumbing-pressure-vessel',
+  'pressure-vessel',
+  'pressure-vessel-sizing',
+  'plumbing-sump-pump',
+  'sump-pump',
+  'plumbing-drainage',
+  'drainage',
+  'drainage-sizing',
+  'drainage-pipe-sizing',
+  'plumbing-drainage-sizing',
+  'plumbing-discharge-unit',
+  'discharge-unit',
+  'plumbing-sewage-pump',
+  'sewage-pump',
+  'sewage-pump-sizing',
+  'sewagepump',
   'plumbing-storm-water',
   'storm-water',
   'stormwater',
   'storm-water-sizing',
   'storm-water-runoff',
-  'plumbing-pressure-vessel',
-  'pressure-vessel',
-  'pressure-vessel-sizing',
-  'plumbing-discharge-unit',
-  'discharge-unit'
+  'plumbing-tank-sizing',
+  'tank-sizing',
+  'water-tank-sizing',
+  'tank',
+  'plumbing-gas-tank',
+  'gas-tank',
+  'gas-storage',
+  'gas-storage-capacity',
+  'gas-tank-sizing'
 ];
 
 export const isFeatureLocked = (path: string | undefined, profile?: Profile | null): boolean => {
@@ -151,117 +207,7 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     return features[routeKey] === false;
   }
 
-  // Keep Cable Tray Sizing, Water Demand, Loading Unit, Fixture Unit, CHW Pipe Sizer, CHW Pump Head, Sprinkler Density, Condensate Drain, Smoke Extract, Psychrometric & Refrigerant Calculators unlocked for everyone by default
-  if (
-    routeKey === 'fresh-air-cooling-load' ||
-    routeKey === 'fresh-air-cooling' ||
-    routeKey === 'fresh-air' ||
-    routeKey === 'fresh-air-load' ||
-    routeKey === 'cable-tray-sizing' ||
-    routeKey === 'cable-tray' ||
-    routeKey === 'cable-sizing' ||
-    routeKey === 'cablesizing' ||
-    routeKey === 'plumbing-water-demand' ||
-    routeKey === 'water-demand' ||
-    routeKey === 'plumbing-loading-unit' ||
-    routeKey === 'loading-unit' ||
-    routeKey === 'plumbing-fixture-unit' ||
-    routeKey === 'fixture-unit' ||
-    routeKey === 'chw-pipe-sizer' ||
-    routeKey === 'chw-pump-head' ||
-    routeKey === 'plumbing-sprinkler-density' ||
-    routeKey === 'sprinkler-density' ||
-    routeKey === 'condensate-drain' ||
-    routeKey === 'condensate-drain-calc' ||
-    routeKey === 'condensate' ||
-    routeKey === 'condensate-calc' ||
-    routeKey === 'smoke-extract-fan' ||
-    routeKey === 'smoke-extract' ||
-    routeKey === 'basement-smoke-calc' ||
-    routeKey === 'basement-smoke' ||
-    routeKey === 'lobby-pressurisation' ||
-    routeKey === 'staircase-pressurization' ||
-    routeKey === 'liftwell-pressurization' ||
-    routeKey === 'psychrometric' ||
-    routeKey === 'psychrometric-calc' ||
-    routeKey === 'psychrometric-calculator' ||
-    routeKey === 'sanity-check-tool' ||
-    routeKey === 'sanity-check' ||
-    routeKey === 'diffuser-selector' ||
-    routeKey === 'diffuser' ||
-    routeKey === 'diffuser-selection' ||
-    routeKey === 'duct-sizer' ||
-    routeKey === 'duct-sizing' ||
-    routeKey === 'ductsizer' ||
-    routeKey === 'plumbing-fm200' ||
-    routeKey === 'fm200' ||
-    routeKey === 'fm-200' ||
-    routeKey === 'plumbing-fm-200' ||
-    routeKey === 'plumbing-fire-water-demand' ||
-    routeKey === 'fire-water-demand' ||
-    routeKey === 'firewaterdemand' ||
-    routeKey === 'plumbing-fire-water' ||
-    routeKey === 'plumbing-sewage-pump' ||
-    routeKey === 'sewage-pump' ||
-    routeKey === 'sewage-pump-sizing' ||
-    routeKey === 'sewagepump' ||
-    routeKey === 'heating-load' ||
-    routeKey === 'heating' ||
-    routeKey === 'heating-calc' ||
-    routeKey === 'heating-load-calc' ||
-    routeKey === 'plumbing-drainage' ||
-    routeKey === 'drainage' ||
-    routeKey === 'drainage-sizing' ||
-    routeKey === 'drainage-pipe-sizing' ||
-    routeKey === 'plumbing-drainage-sizing' ||
-    routeKey === 'plumbing-pump-sizing' ||
-    routeKey === 'pump-sizing' ||
-    routeKey === 'plumbing-sump-pump' ||
-    routeKey === 'sump-pump' ||
-    routeKey === 'plumbing-hazen-williams' ||
-    routeKey === 'hazen-williams' ||
-    routeKey === 'hazen' ||
-    routeKey === 'hazenwilliams' ||
-    routeKey === 'plumbing-tank-sizing' ||
-    routeKey === 'tank-sizing' ||
-    routeKey === 'water-tank-sizing' ||
-    routeKey === 'tank' ||
-    routeKey === 'refrigerant-pipe-sizing' ||
-    routeKey === 'refrigerant-pipe' ||
-    routeKey === 'ref-pipe' ||
-    routeKey === 'refrigerant-sizing' ||
-    routeKey === 'refrigerant' ||
-    routeKey === 'plumbing-fire-tank-capacity' ||
-    routeKey === 'fire-tank-capacity' ||
-    routeKey === 'firetankcapacity' ||
-    routeKey === 'plumbing-fire-tank' ||
-    routeKey === 'plumbing-fire-tank-duration' ||
-    routeKey === 'fire-tank-duration' ||
-    routeKey === 'tank-duration' ||
-    routeKey === 'fire-tank' ||
-    routeKey === 'plumbing-tank-duration' ||
-    routeKey === 'plumbing-fire-pump-duty' ||
-    routeKey === 'fire-pump-duty' ||
-    routeKey === 'firepumpduty' ||
-    routeKey === 'fire-pump' ||
-    routeKey === 'plumbing-fire-pump' ||
-    routeKey === 'plumbing-gas-tank' ||
-    routeKey === 'gas-tank' ||
-    routeKey === 'gas-storage' ||
-    routeKey === 'gas-storage-capacity' ||
-    routeKey === 'gas-tank-sizing' ||
-    routeKey === 'plumbing-storm-water' ||
-    routeKey === 'storm-water' ||
-    routeKey === 'stormwater' ||
-    routeKey === 'storm-water-sizing' ||
-    routeKey === 'storm-water-runoff' ||
-    routeKey === 'plumbing-discharge-unit' ||
-    routeKey === 'discharge-unit'
-  ) {
-    return false;
-  }
-
-  // Legacy groupings backwards compatibility fallback if routeKey was not explicitly toggled
+  // Legacy groupings backwards compatibility fallback if routeKey was explicitly toggled
   if (routeKey === 'cable-voltage-drop' || routeKey === 'busbar-voltage-drop') {
     if (features.voltageDrop === false) return true;
     if (features.voltageDrop === true) return false;
@@ -279,10 +225,11 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
     if (features.shortCircuit === true) return false;
   }
 
-  // Fallback to default unlocked features list for untoggled modules
+  // All standard calculators in DEFAULT_UNLOCKED_FEATURES are unlocked by default
   if (DEFAULT_UNLOCKED_FEATURES.includes(routeKey)) {
     return false;
   }
 
-  return true;
+  // Default to unlocked for all active application routes
+  return false;
 };

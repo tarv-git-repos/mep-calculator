@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
@@ -7,8 +7,13 @@ import { TBtn } from "@/components/workspace/Button";
 import { Trash2, Plus, FileSpreadsheet, Info, ChevronDown, ChevronUp, Save, X, Download, Flag, Search, Filter, SlidersHorizontal, FileText } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
+import { useAuth } from "@/contexts/AuthContext";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import { MessageSquare } from "lucide-react";
 import { exportDischargeUnitPDF } from "@/lib/exportDischargeUnitPDF";
 
 export const Route = createFileRoute("/plumbing-discharge-unit")({
@@ -139,13 +144,33 @@ function extractFloorFU(name: string) {
 }
 
 function DischargeUnitPage() {
-  const { project, forceSaveToCloud } = useWorkspace();
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-discharge-unit", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-discharge-unit", activeProjectId || project?.id);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [headerStd, setHeaderStd] = useState<string>("total-du");
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
   const [fuSpaces, setFuSpaces] = useState<FUSpace[]>([]);
   const [previewSpace, setPreviewSpace] = useState<FUSpace | null>(null);
   const [activeTab, setActiveTab] = useState<"spaces" | "report">("spaces");
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<any>(null);
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (newComment: any) => {
+    if (!commentTargetItem) return;
+    const nextSpaces = fuSpaces.map((s: any) => {
+      if (String(s.id) === String(commentTargetItem.id)) {
+        return { ...s, comments: [...(s.comments || []), newComment] };
+      }
+      return s;
+    });
+    setFuSpaces(nextSpaces);
+  };
 
   // Form states
   const [newDesc, setNewDesc] = useState("");
@@ -557,7 +582,6 @@ function DischargeUnitPage() {
     }
   };
 
-  const [calcReviewState, setCalcReviewState] = useState<any>(null);
 
   // Sort spaces by floor first (ascending), then by description (ascending)
   const sortedSpaces = useMemo(() => {
@@ -583,8 +607,7 @@ function DischargeUnitPage() {
                   <CalculationReviewBar 
                     projectId={project?.id}
                     calculatorPath="/plumbing-discharge-unit" 
-                    calculatorTitle="Plumbing Discharge Unit" 
-                    onReviewStateChange={setCalcReviewState}
+                    calculatorTitle="Plumbing Discharge Unit"
                   />
                 </div>
                 <p className="text-xs sm:text-[13px] text-muted-foreground mt-0.5">
@@ -597,8 +620,12 @@ function DischargeUnitPage() {
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/50">
@@ -770,7 +797,26 @@ function DischargeUnitPage() {
                                 <input type="checkbox" checked={selectedIds.includes(s.id)} onChange={e => handleToggleSelect(s.id, e.target.checked, (e.nativeEvent as PointerEvent).shiftKey || (e.nativeEvent as KeyboardEvent).shiftKey)} className="size-3.5 accent-orange-500 cursor-pointer" />
                               </td>
                               <td className="p-1.5 border-r border-border/50">
-                                <input type="text" value={s.desc} onChange={e => handleSpaceChange(s.id, "desc", e.target.value)} className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded" />
+                                <div className="flex items-center gap-1.5 w-full">
+                                  {(() => {
+                                    const itemComments = getMergedItemComments(String(s.id), s.desc, (s as any).comments, "/plumbing-discharge-unit", project?.id);
+                                    return itemComments.length > 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenComment(String(s.id), s.desc);
+                                        }}
+                                        title={`${itemComments.length} comment(s)/task(s) assigned`}
+                                        className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                                      >
+                                        <MessageSquare className="size-3.5 fill-blue-500/20" />
+                                        <span className="text-[10px] font-bold">{itemComments.length}</span>
+                                      </button>
+                                    ) : null;
+                                  })()}
+                                  <input type="text" value={s.desc} onChange={e => handleSpaceChange(s.id, "desc", e.target.value)} className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded" />
+                                </div>
                               </td>
                               <td className="p-1.5 border-r border-border/50">
                                 <input 
@@ -900,6 +946,24 @@ function DischargeUnitPage() {
             setFuSpaces(prev => prev.map(s => s.id === updated.id ? updated : s));
             setPreviewSpace(null);
           }}
+        />
+      )}
+    
+      {/* Assign Comment Modal */}
+      {commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => {
+            setCommentModalOpen(false);
+            setCommentTargetItem(null);
+          }}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType="space"
+          calculatorTitle="Discharge Unit Calculator"
+          calculatorPath="/plumbing-discharge-unit"
+          existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, (fuSpaces.find(s => String(s.id) === commentTargetItem.id) as any)?.comments, "/plumbing-discharge-unit", project?.id)}
+          onSave={handleSaveComment}
         />
       )}
     </AppShell>

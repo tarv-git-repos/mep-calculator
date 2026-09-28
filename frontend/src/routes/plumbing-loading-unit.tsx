@@ -633,21 +633,13 @@ function FloorNameInput({
 }
 
 function LoadingUnitPage() {
-  const { userData, profile } = useAuth();
   const { project, activeProjectId, forceSaveToCloud, isReadOnly } = useWorkspace();
-  const [calcReviewState, setCalcReviewState] = useState<any>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(`mep_calc_review_${project?.id || activeProjectId || "default"}_/plumbing-loading-unit`);
-        if (saved) return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return { status: "DRAFT" };
-  });
+  const calcReviewState = useCalculationReviewState("/plumbing-loading-unit", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-loading-unit", activeProjectId || project?.id);
+  const { userData, profile } = useAuth();
 
   const isApprovedLocked = useCalculationLock("/plumbing-loading-unit", project?.id || activeProjectId);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
-  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole || calcReviewState?.status === "APPROVED");
   const [activeTab, setActiveTab] = useState<"spaces" | "report">("spaces");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [standardPreset, setStandardPreset] = useState<StandardPreset>("dubai");
@@ -2381,7 +2373,13 @@ function LoadingUnitPage() {
   return (
     <AppShell title="Loading Unit Calculator" onIntelClick={() => setIntelOpen((v) => !v)} intelOpen={intelOpen} hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-3 gap-2.5 overflow-hidden h-full animate-in fade-in-50 duration-200">
+        <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} animate-in fade-in-50 duration-200`}>
           
           {/* Top Stationary Header Block (Fixed & Stationary) */}
           <div className="shrink-0 flex flex-col gap-2.5">
@@ -2403,7 +2401,7 @@ function LoadingUnitPage() {
                     <Sparkles className="size-3.5" />
                     Intelligence
                   </button>
-                  <CalculationReviewBar calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" onReviewStateChange={setCalcReviewState} />
+                  <CalculationReviewBar calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" />
                 </div>
                 <p className="text-xs sm:text-[13px] text-muted-foreground mt-0.5">
                   Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.

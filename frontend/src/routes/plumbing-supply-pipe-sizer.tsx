@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -63,9 +63,13 @@ const PIPE_SIZES: PipeSize[] = [
 ];
 
 function SupplyPipeSizerPage() {
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-supply-pipe-sizer", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-supply-pipe-sizer", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
-  const { project, forceSaveToCloud } = useWorkspace();
+  const isApprovedLocked = useCalculationLock("/plumbing-supply-pipe-sizer", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   
@@ -774,7 +778,7 @@ function SupplyPipeSizerPage() {
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Water Supply Pipe Sizer</h1>
-                <CalculationReviewBar projectId={project?.id} calculatorPath="/plumbing-supply-pipe-sizer" calculatorTitle="Water Supply Pipe Sizer" />
+                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-supply-pipe-sizer" calculatorTitle="Water Supply Pipe Sizer" />
                 {commentsList.length > 0 && (
                   <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
                     <MessageSquare className="size-3.5 fill-blue-500/20" />
@@ -1000,7 +1004,13 @@ function SupplyPipeSizerPage() {
               </div>
 
               {/* Card 3: Detailed Calculations Steps Accordion */}
-              <div className="bg-card border border-border rounded-2xl shadow-xs overflow-hidden">
+              <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
                 <button
                   onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
                   className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"

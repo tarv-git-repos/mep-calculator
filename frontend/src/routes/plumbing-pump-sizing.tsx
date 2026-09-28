@@ -6,6 +6,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace-store";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { dirtyStore } from "@/lib/dirty-store";
 import { IP_FIXTURE_UNITS } from "./plumbing-fixture-unit";
 import { useAuth } from "@/contexts/AuthContext";
@@ -102,9 +103,13 @@ export const Route = createFileRoute("/plumbing-pump-sizing")({
 });
 
 function PumpSizingPage() {
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-pump-sizing", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-pump-sizing", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
-  const { project, forceSaveToCloud } = useWorkspace();
+  const isApprovedLocked = useCalculationLock("/plumbing-pump-sizing", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Inputs

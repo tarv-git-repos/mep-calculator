@@ -47,6 +47,15 @@ function AuthGuard({ children }: { children: ReactNode }) {
     setMounted(true);
   }, []);
 
+  const isLoginPage = routerState.location.pathname === '/login' || routerState.location.pathname.startsWith('/login');
+  const isPrivacyPage = routerState.location.pathname === '/privacy' || routerState.location.pathname.startsWith('/privacy');
+  const isAdminPage = routerState.location.pathname.startsWith('/admin');
+
+  // Allow login page to render immediately without session loading screen
+  if (isLoginPage) {
+    return <>{children}</>;
+  }
+
   // Only show loading screen if initial client mounting is pending and user is not yet loaded from localStorage
   if (!mounted && loading && !isLoggedin) return (
     <div className="flex h-screen w-screen items-center justify-center bg-slate-950">
@@ -54,11 +63,7 @@ function AuthGuard({ children }: { children: ReactNode }) {
     </div>
   );
   
-  const isLoginPage = routerState.location.pathname === '/login';
-  const isPrivacyPage = routerState.location.pathname === '/privacy';
-  const isAdminPage = routerState.location.pathname.startsWith('/admin');
-  
-  if (!isLoggedin && !isLoginPage) {
+  if (!isLoggedin) {
     return <Navigate to="/login" replace />;
   }
 

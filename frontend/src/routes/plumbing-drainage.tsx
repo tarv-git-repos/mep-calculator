@@ -1,4 +1,5 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { useConfirm } from "@/hooks/use-confirm";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -30,7 +31,6 @@ import { toast } from "sonner";
 import { TBtn } from "@/components/workspace/Button";
 import { DrainagePresetSelect } from "@/components/workspace/DrainagePresetSelect";
 import { CustomDrainageConfigModal } from "@/components/workspace/CustomDrainageConfigModal";
-import { useConfirm } from "@/hooks/use-confirm";
 
 export const Route = createFileRoute("/plumbing-drainage")({
   head: () => ({
@@ -471,32 +471,15 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 }
 
 function DrainagePage() {
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud, updateProject } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-drainage", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-drainage", activeProjectId || project?.id);
   const confirm = useConfirm();
   const { userData, profile, user } = useAuth();
-  const currentUserName = userData?.name || profile?.name || user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Design Engineer";
-  const { project, activeRoom, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const currentUserName = userData?.name || profile?.name || (user as any)?.user_metadata?.full_name || user?.email?.split("@")[0] || "Design Engineer";
   const isApprovedLocked = useCalculationLock("/plumbing-drainage", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
-  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
-  const isEffectiveReadOnly = Boolean(isReadOnly || isApprovedLocked || isViewerRole || calcReviewState?.status === "APPROVED");
   const isLocked = isEffectiveReadOnly;
-
-  // Calculation review state listener
-  useEffect(() => {
-    const handleReviewUpdate = (e: any) => {
-      if (e?.detail) {
-        setCalcReviewState(e.detail);
-      }
-    };
-    if (typeof window !== "undefined") {
-      window.addEventListener("mep-review-state-updated", handleReviewUpdate);
-    }
-    return () => {
-      if (typeof window !== "undefined") {
-        window.removeEventListener("mep-review-state-updated", handleReviewUpdate);
-      }
-    };
-  }, []);
 
   // Mode: "calculator" vs "report"
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
@@ -536,9 +519,9 @@ function DrainagePage() {
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
   const [commentsList, setCommentsList] = useState<any[]>([]);
   const [highlightedSpaceId, setHighlightedSpaceId] = useState<string | null>(null);
-  const highlightTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const highlightTimerRef = useRef<any>(null);
 
-  // Load calculation state & spaces from localStorage and project.workspace_data on project mount/change
+  // Load calculation state & spaces from localStorage and (project as any)?.workspace_data on project mount/change
   useEffect(() => {
     if (!project?.id) return;
     const pId = project.id;
@@ -555,10 +538,10 @@ function DrainagePage() {
         try { savedData = JSON.parse(stored2); } catch (e) { }
       }
 
-      if (!savedData && project?.workspace_data) {
-        const wdata = typeof project.workspace_data === "string"
-          ? JSON.parse(project.workspace_data)
-          : project.workspace_data;
+      if (!savedData && (project as any)?.workspace_data) {
+        const wdata = typeof (project as any)?.workspace_data === "string"
+          ? JSON.parse((project as any)?.workspace_data)
+          : (project as any)?.workspace_data;
         savedData = wdata?.drainage_calc || wdata?.drainage_pipe_calc;
       }
 
@@ -600,7 +583,7 @@ function DrainagePage() {
           if (cleanSpaces.length > 0) {
             setDrainageSpaces(cleanSpaces);
             if (cleanFloors.length === 0) {
-              cleanFloors = Array.from(new Set(cleanSpaces.map(s => s.floor)));
+              cleanFloors = Array.from(new Set(cleanSpaces.map((s: any) => s.floor)));
             }
           }
         }
@@ -627,7 +610,7 @@ function DrainagePage() {
     setLoadedProjectId(pId);
   }, [project?.id]);
 
-  // Auto-save calculation state to localStorage & project.workspace_data whenever values change
+  // Auto-save calculation state to localStorage & (project as any)?.workspace_data whenever values change
   useEffect(() => {
     if (!project?.id || loadedProjectId !== project.id) return;
     const pId = project.id;
@@ -716,12 +699,9 @@ function DrainagePage() {
       try {
         localStorage.setItem(key, JSON.stringify(dataToSave));
         localStorage.setItem(`mep_drainage_pipe_calc_${pId}`, JSON.stringify(dataToSave));
-        const wdata = project.workspace_data || {};
-        workspaceStore.updateProject({
-          ...project,
-          workspace_data: { ...wdata, drainage_calc: dataToSave, drainage_pipe_calc: dataToSave }
-        });
-        workspaceStore.forceSaveToCloud();
+        const wdata = (project as any)?.workspace_data || {};
+        if (updateProject && project) updateProject({ ...project, workspace_data: { ...wdata, drainage_calc: dataToSave, drainage_pipe_calc: dataToSave } } as any);
+        if (forceSaveToCloud) forceSaveToCloud();
       } catch (e) { }
     };
 
@@ -794,7 +774,7 @@ function DrainagePage() {
       if (stored) {
         try { parsed = JSON.parse(stored); } catch (e) { }
       }
-      const wdata = project?.workspace_data || {};
+      const wdata = (project as any)?.workspace_data || {};
       const wdataComments = Array.isArray(wdata.drainage_calc_comments) ? wdata.drainage_calc_comments : [];
       const allComments = [...parsed, ...wdataComments];
 
@@ -1763,6 +1743,7 @@ function DrainagePage() {
       sizedNps: number;
       sizedDn: number;
       maxAllowedDfu: number;
+      capacityUtilization?: number;
       systemType: "branch" | "stack_short" | "stack_tall" | "building_drain";
     }> = {};
 
@@ -1932,7 +1913,7 @@ function DrainagePage() {
       const projectNo = project?.code || (project as any)?.projectNo || "P000";
       const projectName = project?.name || (project as any)?.projectName || "Sanitary Drainage System";
       const clientName = project?.client || "General Contracting Co.";
-      const locationRoom = activeRoom?.name || "Main Building Sanitary Drainage";
+      const locationRoom = (project as any)?.activeRoom?.name || (project as any)?.location || "Main Building Sanitary Drainage";
 
       // 1. Header Title
       doc.setFontSize(14);
@@ -2076,7 +2057,6 @@ function DrainagePage() {
                     projectId={project?.id || "default"}
                     calculatorPath="/plumbing-drainage"
                     calculatorTitle="Drainage Pipe Sizing"
-                    onReviewStateChange={setCalcReviewState}
                   />
                 </div>
               </div>
@@ -3432,13 +3412,13 @@ function DrainagePage() {
 
             try {
               if (project?.id) {
-                const wdata = project.workspace_data || {};
+                const wdata = (project as any)?.workspace_data || {};
                 const existingComments = Array.isArray(wdata.drainage_calc_comments) ? wdata.drainage_calc_comments : [];
                 const updatedWdata = {
                   ...wdata,
                   drainage_calc_comments: [enrichedComment, ...existingComments]
                 };
-                workspaceStore.updateProject({ ...project, workspace_data: updatedWdata });
+                if (updateProject && project) updateProject({ ...project, workspace_data: updatedWdata } as any);
               }
             } catch (e) {
               console.error("Failed to update workspaceStore project comments", e);

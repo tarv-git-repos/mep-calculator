@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { createFileRoute } from "@tanstack/react-router";
@@ -35,9 +35,11 @@ export const Route = createFileRoute("/plumbing-pressure-vessel")({
 });
 
 function PressureVesselPage() {
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-pressure-vessel", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-pressure-vessel", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
-  const { project, forceSaveToCloud } = useWorkspace();
 
   // Unit System
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
@@ -69,7 +71,8 @@ function PressureVesselPage() {
   const highlightTimeoutRef = useRef<any>(null);
 
   const isReadOnly = false;
-  const isEffectiveReadOnly = isReadOnly;
+  const isApprovedLocked = useCalculationLock("/plumbing-pressure-vessel", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
   // Comments Persistence
   useEffect(() => {
@@ -452,7 +455,13 @@ function PressureVesselPage() {
         </div>
       }
     >
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
+      <div className={`flex-1 overflow-y-auto rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} p-4 md:p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20`}>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* LEFT COLUMN: INPUT PARAMETER CARDS */}

@@ -1,7 +1,9 @@
 import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
+import { supabase } from "@/lib/supabase";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -48,6 +50,7 @@ import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { dirtyStore } from "@/lib/dirty-store";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { toast } from "sonner";
+import { calculatePsychrometricData, fToC, cToF } from "@/lib/calc-psychrometric";
 
 export const Route = createFileRoute("/psychrometric")({
   head: () => ({
@@ -59,77 +62,12 @@ export const Route = createFileRoute("/psychrometric")({
   component: PsychrometricPage,
 });
 
-// Moist air property functions from 01-core.js
-function satP(tK: number): number {
-  if (tK >= 273.15) {
-    const c8 = -5.8002206e3;
-    const c9 = 1.3914993;
-    const c10 = -4.864e-2;
-    const c11 = 4.1764768e-5;
-    const c12 = -1.4452093e-8;
-    const c13 = 6.5459673;
-    return Math.exp(c8 / tK + c9 + c10 * tK + c11 * Math.pow(tK, 2) + c12 * Math.pow(tK, 3) + c13 * Math.log(tK));
-  }
-  const c1 = -5.6745359e3;
-  const c2 = 6.3925247;
-  const c3 = -9.677843e-3;
-  const c4 = 6.2215701e-7;
-  const c5 = 2.0747825e-9;
-  const c6 = -9.484024e-13;
-  const c7 = 4.1635019;
-  return Math.exp(c1 / tK + c2 + c3 * tK + c4 * Math.pow(tK, 2) + c5 * Math.pow(tK, 3) + c6 * Math.pow(tK, 4) + c7 * Math.log(tK));
-}
-
-function wFromRH(tC: number, rh: number, p: number): number {
-  const pws = satP(tC + 273.15);
-  return 0.621945 * (rh / 100) * pws / (p - (rh / 100) * pws);
-}
-
-function wFromWB(td: number, tw: number, p: number): number {
-  const ws = 0.621945 * satP(tw + 273.15) / (p - satP(tw + 273.15));
-  return ((2501 - 2.381 * tw) * ws - 1.006 * (td - tw)) / (2501 + 1.805 * td - 4.186 * tw);
-}
-
-function wFromDP(dp: number, p: number): number {
-  const pws = satP(dp + 273.15);
-  return 0.621945 * pws / (p - pws);
-}
-
-function dewPt(w: number, p: number): number {
-  const pw = w * p / (0.621945 + w);
-  let lo = -60, hi = 80;
-  for (let i = 0; i < 100; i++) {
-    const m = (lo + hi) / 2;
-    if (satP(m + 273.15) < pw) lo = m;
-    else hi = m;
-    if (hi - lo < 0.001) break;
-  }
-  return (lo + hi) / 2;
-}
-
-function wetBulb(td: number, w: number, p: number): number {
-  let lo = -60, hi = td;
-  for (let i = 0; i < 100; i++) {
-    const m = (lo + hi) / 2;
-    if (wFromWB(td, m, p) < w) lo = m;
-    else hi = m;
-    if (hi - lo < 0.001) break;
-  }
-  return (lo + hi) / 2;
-}
-
-function fToC(f: number): number {
-  return (f - 32) * 5 / 9;
-}
-
-function cToF(c: number): number {
-  return c * 9 / 5 + 32;
-}
-
 type SecondParam = "rh" | "wb" | "dp" | "w";
 
 function PsychrometricPage() {
-  const { project, user, forceSaveToCloud } = useWorkspace();
+  const { project, forceSaveToCloud } = useWorkspace();
+  const { user, userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || (user as any)?.user_metadata?.full_name || user?.email?.split("@")[0] || "Design Engineer";
   const isCalcLocked = useCalculationLock("/psychrometric", project?.id);
   const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
   const isApprovedLocked = isCalcLocked || calcReviewState?.status === "APPROVED";
@@ -141,7 +79,7 @@ function PsychrometricPage() {
   const [paramValue, setParamValue] = useState<number | "">("");
   const [atmPressure, setAtmPressure] = useState<number | "">(""); // kPa
   const [hasCalculated, setHasCalculated] = useState<boolean>(false);
-  const [showFormulaModal, setShowFormulaModal] = useState<boolean>(false);
+  const [showFormulaPanel, setShowFormulaPanel] = useState<boolean>(false);
   const [intelOpen, setIntelOpen] = useState<boolean>(false);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [editModalOpen, setEditModalOpen] = useState<boolean>(false);
@@ -231,7 +169,7 @@ function PsychrometricPage() {
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
   const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
-  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const highlightTimeoutRef = useRef<any>(null);
 
   const ip = unitSystem === "ip";
 
@@ -260,7 +198,7 @@ function PsychrometricPage() {
     // Non-blocking background cloud save
     try {
       if (typeof forceSaveToCloud === "function") {
-        setTimeout(() => forceSaveToCloud(false), 50);
+        setTimeout(() => forceSaveToCloud(), 50);
       }
     } catch (e) {}
   };
@@ -427,47 +365,30 @@ function PsychrometricPage() {
     toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
-  const calculatedData = useMemo(() => {
-    const pAtmVal = atmPressure !== "" ? Number(atmPressure) : 101.325;
-    const pAtm = pAtmVal * 1000; // kPa to Pa
-    const dbtVal = dbtInput !== "" ? Number(dbtInput) : (ip ? 95 : 35);
-    const tC = ip ? fToC(dbtVal) : dbtVal;
-    let w = 0;
+  const [calculatedData, setCalculatedData] = useState({
+    dbt: 0,
+    wbt: 0,
+    dp: 0,
+    rh: 0,
+    w: 0,
+    h: 0,
+    v: 0,
+    pw: 0
+  });
 
-    const pv = paramValue !== "" ? Number(paramValue) : (secondParam === "rh" ? 60 : secondParam === "wb" || secondParam === "dp" ? (ip ? 78 : 25.5) : (ip ? 100 : 15));
-
-    if (secondParam === "rh") {
-      w = wFromRH(tC, pv, pAtm);
-    } else if (secondParam === "wb") {
-      const wbC = ip ? fToC(pv) : pv;
-      w = wFromWB(tC, wbC, pAtm);
-    } else if (secondParam === "dp") {
-      const dpC = ip ? fToC(pv) : pv;
-      w = wFromDP(dpC, pAtm);
-    } else {
-      w = ip ? pv / 7000 : pv / 1000;
+  useEffect(() => {
+    // TEMPORARY LOCAL BACKEND CALL
+    // The logic has been completely separated into @/lib/calc-psychrometric
+    // When you have your Supabase credentials, replace this block with:
+    // const { data, error } = await supabase.functions.invoke('calc-psychrometric', { body: ... });
+    
+    try {
+      const data = calculatePsychrometricData(dbtInput, secondParam, paramValue, atmPressure, ip);
+      setCalculatedData(data);
+    } catch (err: any) {
+      console.error("Calculation error:", err);
+      toast.error("Calculation failed.");
     }
-
-    if (w < 0) w = 0;
-
-    const pws = satP(tC + 273.15);
-    const pw = w * pAtm / (0.621945 + w);
-    const rh = Math.min(100, (pw / pws) * 100);
-    const dp = dewPt(w, pAtm);
-    const wb = wetBulb(tC, w, pAtm);
-    const h = 1.006 * tC + w * (2501 + 1.805 * tC); // kJ/kg
-    const v = 0.287042 * (tC + 273.15) * (1 + 1.607858 * w) / (pAtm / 1000); // m³/kg
-
-    return {
-      dbt: tC,
-      wbt: wb,
-      dp: dp,
-      rh: rh,
-      w: w,
-      h: h,
-      v: v,
-      pw: pw
-    };
   }, [dbtInput, secondParam, paramValue, atmPressure, ip]);
 
   const warnings = useMemo(() => {
@@ -489,7 +410,7 @@ function PsychrometricPage() {
   };
 
   const sigDetails = useMemo(() => {
-    return getSignatureBlockDetails(project?.id || "default", "/psychrometric");
+    return getSignatureBlockDetails(project?.id || "default", "/psychrometric", currentUserName, calcReviewState);
   }, [project?.id, calcReviewState]);
 
   const handleExportPDF = async () => {
@@ -500,7 +421,7 @@ function PsychrometricPage() {
         projectNo: project?.code || (project?.id ? project.id.slice(0, 8) : "P000"),
         projectName: project?.name || "MEP Project",
         client: project?.client || "",
-        endUser: (project as any)?.endUser || project?.location || "",
+        endUser: (project as any)?.endUser || (project as any)?.location || "",
         unitSystem,
         secondParam,
         paramValue,
@@ -521,8 +442,8 @@ function PsychrometricPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       // 1. Escape: Close open drawers or modals
       if (e.key === "Escape") {
-        if (showFormulaModal) {
-          setShowFormulaModal(false);
+        if (showFormulaPanel) {
+          setShowFormulaPanel(false);
           e.preventDefault();
           return;
         }
@@ -563,7 +484,7 @@ function PsychrometricPage() {
         e.preventDefault();
         try {
           if (typeof forceSaveToCloud === "function") {
-            forceSaveToCloud(true);
+            forceSaveToCloud();
           }
         } catch (err) {}
         dirtyStore.set(false);
@@ -575,7 +496,7 @@ function PsychrometricPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    showFormulaModal,
+    showFormulaPanel,
     intelOpen,
     commentModalOpen,
     isApprovedLocked,
@@ -1034,7 +955,6 @@ function PsychrometricPage() {
                   projectId={project?.id}
                   calculatorPath="/psychrometric"
                   calculatorTitle="Psychrometric Calculator"
-                  onReviewStateChange={setCalcReviewState}
                 />
                 {commentsList.length > 0 && (
                   <button
@@ -1059,56 +979,38 @@ function PsychrometricPage() {
 
           {/* White Card Container for Tabs & Content */}
           <div className="flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
-            {/* Tabs & Controls Header Row (matching Fire Water Demand format) */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50 gap-2 flex-wrap sm:flex-nowrap">
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                  <button
-                    type="button"
-                    onClick={() => setTab("calculator")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "calculator"
-                        ? "bg-background text-foreground shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Calculator
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTab("report")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "report"
-                        ? "bg-background text-foreground shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Report
-                  </button>
-                </div>
-
+            {/* Tabs Selector row */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
+              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                 <button
                   type="button"
-                  onClick={() => setShowFormulaModal(true)}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer bg-surface-2 hover:bg-surface border border-border/80 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 shadow-2xs"
-                  title="View Psychrometric Governing Formulas"
+                  onClick={() => setTab("calculator")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "calculator"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
                 >
-                  <Info className="size-3.5 text-primary" />
-                  <span>Formula Reference</span>
+                  Calculator
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("report")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "report"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Report
                 </button>
               </div>
 
-              {/* Right Side Controls: Export & Unit System Toggle */}
+              {/* Units toggle option */}
               <div className="flex items-center gap-2 select-none shrink-0">
-                <TBtn onClick={handleExportPDF}>
-                  <FileText className="size-3.5" /> Export PDF
-                </TBtn>
-
-                {/* Sizing Unit system toggle */}
                 <UnitToggle
                   unitSystem={unitSystem}
                   onChange={handleUnitSystemChange}
-                  disabled={isApprovedLocked}
                   inputDescriptions="Dry Bulb Temp & Second Known Parameter"
                   conversionExample={unitSystem === "si" ? "Convert 24°C → 75.2°F, 18°C WB → 64.4°F WB" : "Convert 75°F → 23.9°C, 65°F WB → 18.3°C WB"}
                 />
@@ -1309,6 +1211,26 @@ function PsychrometricPage() {
                       </div>
                     ) : (
                       <div className="flex flex-col gap-5 animate-fade-in">
+                        {/* Action toolbar matching Ventilation standard */}
+                        <div className="flex items-center gap-2 bg-background border border-border rounded-xl p-2 select-none flex-wrap">
+                          <TBtn onClick={() => setShowFormulaPanel(!showFormulaPanel)}>
+                            <HelpCircle className="size-3.5" /> Formula Reference
+                          </TBtn>
+                          <TBtn onClick={handleExportPDF}>
+                            <FileText className="size-3.5" /> Export PDF
+                          </TBtn>
+                        </div>
+
+                        {showFormulaPanel && (
+                          <div className="bg-white dark:bg-slate-900 border border-border rounded-2xl p-5 shadow-xs text-xs flex flex-col gap-2">
+                            <h4 className="font-bold text-foreground mb-1">Psychrometric Saturation Equations Reference</h4>
+                            <p className="text-muted-foreground">Calculations utilize standard Hyland-Wexler equations to determine saturation pressure and humidity ratios.</p>
+                            <code className="bg-slate-100 dark:bg-slate-800 p-2 rounded block font-mono text-[10.5px] text-primary">
+                              W = 0.621945 × Pw / (P_atm - Pw)
+                            </code>
+                          </div>
+                        )}
+
                         {/* Warning logs */}
                         {warnings.length > 0 && (
                           <div className="bg-sky-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 rounded-xl p-3.5 flex flex-col gap-2 text-[11.5px]">
@@ -1391,13 +1313,20 @@ function PsychrometricPage() {
                 <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
                   <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
                     
-                    <div className="pb-4 border-b border-border">
-                      <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-                        Psychrometric State Calculation Report
-                      </h2>
-                      <p className="text-[12px] text-muted-foreground mt-0.5">
-                        Design Standards: ASHRAE Handbook Fundamentals (Hyland-Wexler Formulation) &amp; ASHRAE Standard 55
-                      </p>
+                    <div className="flex justify-between items-start pb-4 border-b border-border">
+                      <div>
+                        <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                          Psychrometric State Calculation Report
+                        </h2>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">
+                          Design Standards: ASHRAE Handbook Fundamentals (Hyland-Wexler Formulation) &amp; ASHRAE Standard 55
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <TBtn primary onClick={handleExportPDF}>
+                          <FileText className="size-3.5" /> Export PDF
+                        </TBtn>
+                      </div>
                     </div>
 
                     {/* Enclosed Project Metadata Grid (3 rows x 2 cols) */}
@@ -1431,7 +1360,7 @@ function PsychrometricPage() {
                         </div>
                         <div className="p-2.5 px-3 flex justify-between">
                           <span className="font-bold text-foreground">End User:</span>
-                          <span className="text-muted-foreground">{(project as any)?.endUser || project?.location || "-"}</span>
+                          <span className="text-muted-foreground">{(project as any)?.endUser || (project as any)?.location || "-"}</span>
                         </div>
                       </div>
                     </div>
@@ -1728,15 +1657,6 @@ function PsychrometricPage() {
             atmPressure,
           }}
           isApprovedLocked={isApprovedLocked}
-        />
-      )}
-
-      {/* Psychrometric Formula Reference Modal */}
-      {showFormulaModal && (
-        <PsychrometricFormulaModal
-          isOpen={showFormulaModal}
-          onClose={() => setShowFormulaModal(false)}
-          unitSystem={unitSystem}
         />
       )}
     </AppShell>
@@ -2267,172 +2187,3 @@ function PsychrometricIntelligenceDrawer({
     </div>
   );
 }
-
-/* ──────────────────── Psychrometric Formula Reference Modal ───────────────────── */
-
-function PsychrometricFormulaModal({
-  isOpen,
-  onClose,
-  unitSystem,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  unitSystem: "ip" | "si";
-}) {
-  if (!isOpen) return null;
-  const isIP = unitSystem === "ip";
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
-      <div className="bg-card border border-border rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl animate-scale-in overflow-hidden">
-        {/* Header */}
-        <div className="flex justify-between items-center px-6 py-4 border-b border-border/80 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-primary/10 rounded-xl text-primary">
-              <FileText className="size-5" />
-            </div>
-            <div>
-              <h3 className="font-bold text-base text-foreground">Psychrometric Formula Reference</h3>
-              <p className="text-[11.5px] text-muted-foreground">
-                ASHRAE Handbook Fundamentals — Hyland-Wexler Formulation &amp; Moist Air Thermodynamics
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="size-7 rounded-lg hover:bg-surface-2 grid place-items-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="overflow-y-auto p-6 space-y-4 custom-scrollbar text-xs leading-relaxed text-foreground">
-          {/* Section 1: Saturation Pressure */}
-          <div className="border border-border/70 rounded-2xl p-4 bg-surface-2/40 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[13px] text-foreground flex items-center gap-1.5">
-                <Thermometer className="size-4 text-sky-500" />
-                <span>1. Saturation Vapor Pressure (P_ws) — Hyland-Wexler Formulation</span>
-              </span>
-              <span className="text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-                ASHRAE Fund.
-              </span>
-            </div>
-            <p className="text-muted-foreground text-[11.5px]">
-              Calculated for absolute temperature T (K) over liquid water (0°C to 200°C) or ice (-100°C to 0°C):
-            </p>
-            <div className="bg-surface-2 p-2.5 rounded-xl font-mono text-[11.5px] border border-border text-primary">
-              ln(P_ws) = C₁/T + C₂ + C₃·T + C₄·T² + C₅·T³ + C₆·ln(T)
-            </div>
-          </div>
-
-          {/* Section 2: Partial Vapor Pressure */}
-          <div className="border border-border/70 rounded-2xl p-4 bg-surface-2/40 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[13px] text-foreground flex items-center gap-1.5">
-                <Droplets className="size-4 text-blue-500" />
-                <span>2. Water Vapor Partial Pressure (P_w)</span>
-              </span>
-              <span className="text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-                Moist Air
-              </span>
-            </div>
-            <div className="space-y-1.5 bg-background p-3 rounded-xl border border-border/60 font-mono text-[11px]">
-              <div className="flex justify-between py-0.5">
-                <span className="text-muted-foreground font-sans">From Relative Humidity:</span>
-                <span className="text-primary font-bold">P_w = (RH / 100) × P_ws(T_db)</span>
-              </div>
-              <div className="flex justify-between py-0.5 border-t border-border/40">
-                <span className="text-muted-foreground font-sans">From Dew Point:</span>
-                <span className="text-primary font-bold">P_w = P_ws(T_dp)</span>
-              </div>
-              <div className="flex justify-between py-0.5 border-t border-border/40">
-                <span className="text-muted-foreground font-sans">From Wet Bulb:</span>
-                <span className="text-primary font-bold">W = [(2501 - 2.326·T_wb)·W_s,wb - 1.006·(T_db - T_wb)] / (2501 + 1.86·T_db - 4.186·T_wb)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 3: Humidity Ratio */}
-          <div className="border border-border/70 rounded-2xl p-4 bg-surface-2/40 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[13px] text-foreground flex items-center gap-1.5">
-                <Layers className="size-4 text-emerald-500" />
-                <span>3. Humidity Ratio (W)</span>
-              </span>
-              <span className="text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                Mass Ratio
-              </span>
-            </div>
-            <p className="text-muted-foreground text-[11.5px]">
-              Ratio of the mass of water vapor to the mass of dry air ({isIP ? "lb_w / lb_da or gr / lb" : "kg_w / kg_da or g / kg"}):
-            </p>
-            <div className="bg-surface-2 p-2.5 rounded-xl font-mono text-[11.5px] border border-border text-primary">
-              W = 0.621945 × P_w / (P_atm - P_w)
-            </div>
-          </div>
-
-          {/* Section 4: Specific Enthalpy */}
-          <div className="border border-border/70 rounded-2xl p-4 bg-surface-2/40 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[13px] text-foreground flex items-center gap-1.5">
-                <Flame className="size-4 text-amber-500" />
-                <span>4. Specific Enthalpy (h)</span>
-              </span>
-              <span className="text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20">
-                Sensible + Latent
-              </span>
-            </div>
-            <div className="space-y-1.5 bg-background p-3 rounded-xl border border-border/60 font-mono text-[11px]">
-              <div className="flex justify-between py-0.5">
-                <span className="text-muted-foreground font-sans">SI Formulation (kJ/kg):</span>
-                <span className="text-primary font-bold">h = 1.006 × T_db + W × (2501 + 1.86 × T_db)</span>
-              </div>
-              <div className="flex justify-between py-0.5 border-t border-border/40">
-                <span className="text-muted-foreground font-sans">IP Formulation (BTU/lb):</span>
-                <span className="text-primary font-bold">h = 0.240 × T_db + W × (1061 + 0.444 × T_db)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 5: Specific Volume & Density */}
-          <div className="border border-border/70 rounded-2xl p-4 bg-surface-2/40 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[13px] text-foreground flex items-center gap-1.5">
-                <Wind className="size-4 text-purple-500" />
-                <span>5. Specific Volume (v) &amp; Moist Air Density (ρ)</span>
-              </span>
-              <span className="text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 border border-purple-500/20">
-                Ideal Gas Law
-              </span>
-            </div>
-            <div className="space-y-1.5 bg-background p-3 rounded-xl border border-border/60 font-mono text-[11px]">
-              <div className="flex justify-between py-0.5">
-                <span className="text-muted-foreground font-sans">Specific Volume ({isIP ? "ft³/lb" : "m³/kg"}):</span>
-                <span className="text-primary font-bold">v = (R_da × T / P_atm) × (1 + 1.6078 × W)</span>
-              </div>
-              <div className="flex justify-between py-0.5 border-t border-border/40">
-                <span className="text-muted-foreground font-sans">Moist Air Density ({isIP ? "lb/ft³" : "kg/m³"}):</span>
-                <span className="text-primary font-bold">ρ = (1 + W) / v</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-end p-4 border-t border-border/80 bg-surface-2/30 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition cursor-pointer"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-

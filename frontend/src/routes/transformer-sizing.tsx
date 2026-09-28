@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
@@ -11,6 +11,7 @@ import { TBtn } from "@/components/workspace/Button";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import {
   Plus, Trash2, Download, Upload, Sparkles, Gauge, FileText, Printer, FileSpreadsheet, RotateCcw, Filter, ArrowUpDown, Flag, Info, Calculator, Zap, Layers, Copy, MessageSquare, Edit
@@ -106,8 +107,10 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 }
 
 function TransformerSizingPage() {
-  const { userData, profile } = useAuth();
   const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/transformer-sizing", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/transformer-sizing", activeProjectId || project?.id);
+  const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
@@ -119,6 +122,11 @@ function TransformerSizingPage() {
   
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: string } | null>(null);
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTarget({ id, name: name || "Unnamed Load", type: 'load' });
+    setAssignCommentOpen(true);
+  };
 
   const renderRowContextMenu = (r: LoadRow) => (
     <ContextMenuContent className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-lg p-1 text-[13px] text-slate-800 dark:text-slate-200 z-50">
@@ -368,7 +376,6 @@ function TransformerSizingPage() {
         deratingFactor2: 1,
         powerFactor: 0.8,
       });
-      setShowSummary(false);
     }
   };
 
@@ -595,16 +602,35 @@ function TransformerSizingPage() {
   };
 
   const columns: Column<any>[] = [
-    { key: "index", header: "SR. NO.", width: 60, align: "center", render: (r, idx) => <span className="font-mono text-slate-400">{loadRows.findIndex(row => row.id === r.id) + 1}</span> },
-    { key: "description", header: "DESCRIPTION", width: 180, editable: true, render: (r) => (
-        <InlineInput 
-          value={r.description} 
-          onCommit={(val) => handleUpdateRow(r.id, "description", val)}
-          onFocus={() => handleRowFocus(r.id)}
-          placeholder="e.g. Area 1"
-          className="font-medium text-slate-900 dark:text-slate-100 min-w-0"
-        />
-    )},
+    { key: "index", header: "SR. NO.", width: 60, align: "center", render: (r) => <span className="font-mono text-slate-400">{loadRows.findIndex(row => row.id === r.id) + 1}</span> },
+    { key: "description", header: "DESCRIPTION", width: 180, editable: true, render: (r) => {
+        const itemComments = getMergedItemComments(r.id, r.description, (r as any).comments, "/transformer-sizing", project?.id);
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            {itemComments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(r.id, r.description);
+                }}
+                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                <span className="text-[10px] font-bold">{itemComments.length}</span>
+              </button>
+            )}
+            <InlineInput 
+              value={r.description} 
+              onCommit={(val) => handleUpdateRow(r.id, "description", val)}
+              onFocus={() => handleRowFocus(r.id)}
+              placeholder="e.g. Area 1"
+              className="font-medium text-slate-900 dark:text-slate-100 min-w-0 flex-1"
+            />
+          </div>
+        );
+    }},
     { key: "lightingHeatingKw", header: `LIGHTING / HEATING LOAD (${unitSystem === "ip" ? "HP" : "kW"})`, width: 220, align: "right", editable: true, render: (r) => (
         <InlineInput 
           type="number" 
@@ -700,7 +726,13 @@ function TransformerSizingPage() {
         </div>
 
         {activeTab === 'calculator' ? (
-          <div className="flex flex-col flex-1 min-h-0 bg-background">
+          <div className={`flex flex-col flex-1 min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} bg-background`}>
             
             <div className="flex flex-col flex-1 overflow-hidden">
               {/* Toolbar */}
@@ -918,6 +950,7 @@ function TransformerSizingPage() {
                   </div>
                 </div>
               </div>
+            <CalculationReviewBar projectId={activeProjectId || project?.id || "default"} calculatorPath="/transformer-sizing" calculatorTitle="Transformer Sizing" />
             </div>
           </div>
         )}

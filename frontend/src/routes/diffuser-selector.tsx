@@ -1,4 +1,5 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { calculateComputedRows, computeRowSizing, computeAirflowFromKw, getCpWater, DIFFUSER_DATA, DIFFUSER_NAMES, type DiffuserType, type DiffuserSize, type DiffuserRowItem } from "@/lib/calc-diffuser";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/popover";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { useAuth } from "@/contexts/AuthContext";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { exportDiffuserSelectorExcel } from "@/lib/exportDiffuserSelectorExcel";
@@ -47,16 +49,9 @@ export const Route = createFileRoute("/diffuser-selector")({
   component: DiffuserSelectorPage,
 });
 
-type DiffuserType = "square" | "round" | "slot16" | "slot20" | "slot25";
 
-interface DiffuserSize {
-  size: string;
-  maxFlow_20?: number;
-  maxFlow_25?: number;
-  maxFlow?: number;
-  throw: number;
-  nc: number;
-}
+
+
 
 export interface DiffuserRowItem {
   id: string;
@@ -243,16 +238,18 @@ const DEFAULT_ROWS: DiffuserRowItem[] = [
 ];
 
 function DiffuserSelectorPage() {
+  const { project, activeProjectId, spaces, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/diffuser-selector", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/diffuser-selector", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
-  const { project, spaces, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [rows, setRows] = useState<DiffuserRowItem[]>(DEFAULT_ROWS);
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
-  const [calcReviewState, setCalcReviewState] = useState<any>(null);
-  const isApprovedLocked = calcReviewState?.status === "APPROVED";
+  const isApprovedLocked = useCalculationLock("/diffuser-selector", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFloor, setSelectedFloor] = useState<string | null>(null);
@@ -631,7 +628,7 @@ function DiffuserSelectorPage() {
   const computedRows = useMemo(() => {
     return rows.map(r => ({
       ...r,
-      sizing: computeRowSizing(r)
+      sizing: computeRowSizing(r, ip)
     }));
   }, [rows, ip]);
 
@@ -1715,9 +1712,25 @@ function DiffuserSelectorPage() {
       header: "NAME OF SPACE",
       width: 220,
       editable: true,
-      render: (r) => (
-        <div className="flex items-center gap-1.5 w-full pr-1">
-          <InlineInput
+      render: (r) => {
+        const itemComments = getMergedItemComments(r.id, r.name, r.comments, "/diffuser-selector", project?.id);
+        return (
+          <div className="flex items-center gap-1.5 w-full pr-1">
+            {itemComments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(r.id, r.name);
+                }}
+                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                <span className="text-[10px] font-bold">{itemComments.length}</span>
+              </button>
+            )}
+            <InlineInput
             disabled={isApprovedLocked}
             readOnly={isApprovedLocked}
             value={r.name}
@@ -1728,7 +1741,8 @@ function DiffuserSelectorPage() {
             className="font-semibold text-[12px] flex-1 truncate"
           />
         </div>
-      ),
+        );
+      },
     },
     {
       key: "coolingKw",
@@ -1979,7 +1993,7 @@ function DiffuserSelectorPage() {
   }, [newName, newFloor, newZone, newCoolingKw, newDeltaT, newAirflow, newCount, newType, newVelocity, ip]);
 
   const previewDraftSizing = useMemo(() => {
-    return computeRowSizing(previewDraftRow);
+    return computeRowSizing(previewDraftRow, ip);
   }, [previewDraftRow, ip]);
 
   return (
@@ -1997,7 +2011,6 @@ function DiffuserSelectorPage() {
                 projectId={project?.id}
                 calculatorPath="/diffuser-selector"
                 calculatorTitle="Diffuser Selection Schedule"
-                onReviewStateChange={setCalcReviewState}
               />
               {commentsList.length > 0 && (
                 <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
@@ -2021,6 +2034,10 @@ function DiffuserSelectorPage() {
         <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
           calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
             : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
         }`}>
           {/* Tabs Selector row */}
@@ -2715,7 +2732,7 @@ function DiffuserSelectorPage() {
         {/* Modal: Interactive Double-Click Row Calculation Breakdown & Tuning */}
         {showDetailModal && selectedDetailRow && (() => {
           const row = selectedDetailRow;
-          const sizing = computeRowSizing(row);
+          const sizing = computeRowSizing(row, ip);
           const flowVal = row.airflow !== "" ? Number(row.airflow) : 0;
           const countVal = row.count !== "" && Number(row.count) > 0 ? Number(row.count) : 1;
           const kwVal = row.coolingKw !== "" ? Number(row.coolingKw) : 0;

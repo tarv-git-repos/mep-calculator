@@ -10,6 +10,7 @@ import {
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { toast } from "sonner";
 import { exportSanityCheckPDF } from "@/lib/exportSanityCheckPDF";
+import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
 import { VersionManager } from "@/components/workspace/VersionManager";
@@ -57,18 +58,20 @@ interface ParamDef {
 
 function SanityCheckToolPage() {
   const { project, activeProjectId, isReadOnly } = useWorkspace();
+  const { userData, profile, user } = useAuth();
+  const currentUserName = userData?.name || profile?.name || (user as any)?.user_metadata?.full_name || user?.email?.split("@")[0] || "Design Engineer";
 
   const [tab, setTab] = useState<"calculator" | "report">("calculator");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
-  const [ductVel, setDuctVel] = useState<number>(7.62);
-  const [ductFr, setDuctFr] = useState<number>(0.65);
-  const [esp, setEsp] = useState<number>(125);
-  const [pipeVel, setPipeVel] = useState<number>(1.2);
-  const [pumpHead, setPumpHead] = useState<number>(150);
-  const [cfmTr, setCfmTr] = useState<number>(47.2);
-  const [supTemp, setSupTemp] = useState<number>(13);
-  const [chwDt, setChwDt] = useState<number>(5.5);
-  const [chillerEff, setChillerEff] = useState<number>(5.4);
+  const [ductVel, setDuctVel] = useState<number>(1500);
+  const [ductFr, setDuctFr] = useState<number>(0.08);
+  const [esp, setEsp] = useState<number>(0.5);
+  const [pipeVel, setPipeVel] = useState<number>(4.0);
+  const [pumpHead, setPumpHead] = useState<number>(50);
+  const [cfmTr, setCfmTr] = useState<number>(400);
+  const [supTemp, setSupTemp] = useState<number>(55);
+  const [chwDt, setChwDt] = useState<number>(10);
+  const [chillerEff, setChillerEff] = useState<number>(0.65);
   const [hasCalculated, setHasCalculated] = useState<boolean>(true);
   const [calcReviewState, setCalcReviewState] = useState<any>(null);
   const isApprovedLocked = calcReviewState?.status === "APPROVED";
@@ -495,7 +498,7 @@ function SanityCheckToolPage() {
 
   const passCount = checks.filter((c) => c.status === "pass").length;
   const warnCount = checks.length - passCount;
-  const sigDetails = getSignatureBlockDetails(activeProjectId || project?.id || "default", "/sanity-check-tool");
+  const sigDetails = getSignatureBlockDetails(activeProjectId || project?.id || "default", "/sanity-check-tool", currentUserName, calcReviewState);
 
   return (
     <AppShell title="Sanity Check Tool" hideSubHeader={true}>
@@ -525,7 +528,6 @@ function SanityCheckToolPage() {
                   projectId={activeProjectId || project?.id || "default"}
                   calculatorPath="/sanity-check-tool"
                   calculatorTitle="Engineering Sanity Check Tool"
-                  onReviewStateChange={setCalcReviewState}
                 />
                 {totalCommentsCount > 0 && (
                   <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
@@ -820,7 +822,7 @@ function SanityCheckToolPage() {
                         </div>
                         <div className="p-2.5 px-3 flex justify-between">
                           <span className="font-bold text-foreground">End User:</span>
-                          <span className="text-muted-foreground">{(project as any)?.endUser || project?.location || "-"}</span>
+                          <span className="text-muted-foreground">{(project as any)?.endUser || (project as any)?.location || "-"}</span>
                         </div>
                       </div>
                     </div>

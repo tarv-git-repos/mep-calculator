@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { exportSprinklerDensityPDF, type SprinklerDensityExportData } from "@/lib/exportSprinklerDensityPDF";
@@ -43,12 +43,13 @@ type HazardOpt = "0.10,1500" | "0.15,1500" | "0.20,1500" | "0.30,2500" | "0.40,2
 const STANDARD_K_FACTORS = [2.8, 4.2, 5.6, 8.0, 11.2, 14.0, 16.8, 19.6, 22.4, 25.2, 28.0];
 
 function SprinklerDensityPage() {
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-sprinkler-density", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-sprinkler-density", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, forceSaveToCloud } = useWorkspace();
   const isApprovedLocked = useCalculationLock("/plumbing-sprinkler-density", project?.id);
-  const [calcReviewState, setCalcReviewState] = useState<any>({ status: "DRAFT" });
 
   // Tabs
   const [tab, setTab] = useState<"solver" | "report">("solver");
@@ -1219,7 +1220,6 @@ function SprinklerDensityPage() {
                   projectId={project?.id || "default"}
                   calculatorPath="/plumbing-sprinkler-density"
                   calculatorTitle="Sprinkler Density & Flow"
-                  onReviewStateChange={setCalcReviewState}
                 />
                 {commentsList.length > 0 && (
                   <button
@@ -1244,8 +1244,12 @@ function SprinklerDensityPage() {
 
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            isApprovedLocked
+            calcReviewState?.status === "APPROVED" 
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+              : calcReviewState?.status === "REJECTED"
+              ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+              : calcReviewState?.status === "REVIEWED"
+              ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Tabs Selector row */}

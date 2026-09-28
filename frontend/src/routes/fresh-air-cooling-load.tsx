@@ -1,3 +1,4 @@
+import { calculateFreshAirCoolingLoad, calculateFreshAirWarnings } from "@/lib/calc-fresh-air";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -22,8 +23,9 @@ import {
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { api } from "@/services/api";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
@@ -39,47 +41,15 @@ export const Route = createFileRoute("/fresh-air-cooling-load")({
   component: FreshAirCoolingLoadPage,
 });
 
-// ASHRAE two-equation saturation pressure model (Pa)
-function satP(tK: number): number {
-  if (tK >= 273.15) {
-    return Math.exp(
-      -5800.2206 / tK + 1.3914993 - 0.04864 * tK +
-      4.1764768e-5 * tK ** 2 - 1.4452093e-8 * tK ** 3 +
-      6.5459673 * Math.log(tK)
-    );
-  }
-  return Math.exp(
-    -5674.5359 / tK + 6.3925247 - 0.009677843 * tK +
-    6.2215701e-7 * tK ** 2 + 2.0747825e-9 * tK ** 3 -
-    9.484024e-19 * tK ** 4 + 4.1635019 * Math.log(tK)
-  );
-}
 
-function wFromWB(db: number, wb: number, p: number): number {
-  const pSatWb = satP(wb + 273.15);
-  const ws = 0.621945 * pSatWb / Math.max(1, (p - pSatWb));
-  const wVal = ((2501 - 2.381 * wb) * ws - 1.006 * (db - wb)) / (2501 + 1.805 * db - 4.186 * wb);
-  return Math.max(0.0001, wVal);
-}
-
-// Relative Humidity from DB, WB, and pressure
-function rhFromDbWb(db: number, wb: number, p: number): number {
-  const w = wFromWB(db, wb, p);
-  const pSatDb = satP(db + 273.15);
-  const pw = (p * w) / (0.621945 + w);
-  return Math.min(100, Math.max(0, (pw / pSatDb) * 100));
-}
-
-// Enthalpy of moist air in kJ/kg dry air
-function enthalpyMoistAir(db: number, w: number): number {
-  return 1.006 * db + w * (2501 + 1.86 * db);
-}
 
 function FreshAirCoolingLoadPage() {
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/fresh-air-cooling-load", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/fresh-air-cooling-load", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const { project, forceSaveToCloud } = useWorkspace();
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [projectInfo, setProjectInfo] = useState({
     projectName: "Commercial Fresh Air Treatment Plant",
@@ -107,9 +77,7 @@ function FreshAirCoolingLoadPage() {
   const [commentsList, setCommentsList] = useState<any[]>([]);
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
-  const [calcReviewState, setCalcReviewState] = useState<any>(null);
   const isApprovedLocked = calcReviewState?.status === "APPROVED";
-  const isEffectiveReadOnly = isApprovedLocked;
 
   const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -144,66 +112,35 @@ function FreshAirCoolingLoadPage() {
     }
   };
 
-  useEffect(() => {
-    const handleScrollEvent = (e: any) => {
-      if (e.detail?.targetId) handleScrollTarget(e.detail.targetId, e.detail.targetName);
-    };
+  
 
-    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
-    if (typeof window !== "undefined") {
-      const searchParams = new URLSearchParams(window.location.search);
-      const urlTargetId = searchParams.get("targetId") || searchParams.get("itemId") || searchParams.get("spaceId");
-      if (urlTargetId) {
-        setTimeout(() => handleScrollTarget(urlTargetId, searchParams.get("targetName") || ""), 800);
-      }
-    }
-    return () => window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
-  }, []);
-
-  const isFieldHighlighted = (fieldId: string, title?: string) => {
-    if (!highlightedTargetId) return "";
-    const cleanHigh = highlightedTargetId.toLowerCase().trim().replace(/^(field-|card-|res-)/, "");
-    const cleanField = fieldId.toLowerCase().trim().replace(/^(field-|card-|res-)/, "");
-    const cleanTitle = title ? title.toLowerCase().trim() : "";
-    
-    if (cleanHigh === cleanField || (cleanTitle && cleanHigh === cleanTitle)) {
-      return "ring-2 ring-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)] bg-blue-50/20 dark:bg-blue-900/10";
-    }
-    return "";
+  
+  const isFieldHighlighted = (id: string, name?: string) => {
+    if (!highlightedTargetId) return false;
+    const cleanHigh = highlightedTargetId.toLowerCase().trim();
+    const cleanId = id.toLowerCase().trim();
+    const cleanName = (name || "").toLowerCase().trim();
+    return cleanHigh === cleanId || cleanHigh === cleanName || cleanId.includes(cleanHigh) || cleanName.includes(cleanHigh);
   };
 
-  const renderCommentBadge = (fieldId: string, title: string) => {
-    const targetComments = commentsList.filter(c => 
-      (c.targetId && c.targetId.toLowerCase().replace(/^(field-|card-|res-)/, "") === fieldId.toLowerCase().replace(/^(field-|card-|res-)/, "")) ||
-      (c.targetName && c.targetName.toLowerCase() === title.toLowerCase())
-    );
-    const unresolved = targetComments.filter(c => c.status !== "resolved").length;
-    if (unresolved === 0) return null;
+  const renderCommentBadge = (id: string, name: string) => {
+    const itemComments = getMergedItemComments(id, name, commentsList.filter(c => c.targetId === id || c.targetName === name || c.spaceId === id || c.itemId === id), "/fresh-air-cooling-load", project?.id);
+    if (itemComments.length === 0) return null;
     return (
-      <button 
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleOpenComment(fieldId, title); }}
-        className="ml-2 inline-flex items-center justify-center size-4 bg-primary text-primary-foreground rounded-full text-[9px] font-bold shadow-sm"
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleOpenComment(id, name);
+        }}
+        title={`${itemComments.length} comment(s)/task(s) on ${name}`}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 ml-2 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 dark:hover:bg-blue-900 transition cursor-pointer shadow-xs select-none border border-blue-300/60 dark:border-blue-700/60 shrink-0"
       >
-        {unresolved}
+        <MessageSquare className="size-3.5 fill-blue-500/25 text-blue-600 dark:text-blue-400" />
+        <span className="text-[10px] font-extrabold">{itemComments.length}</span>
       </button>
     );
   };
-
-  const unlockCalculator = useCallback(() => {
-    try {
-      const pId = project?.id || "default";
-      const key = `mep_calc_review_${pId}_/fresh-air-cooling-load`;
-      const draftState = { status: "DRAFT" };
-      localStorage.setItem(key, JSON.stringify(draftState));
-      setCalcReviewState(draftState);
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("mep-review-state-updated"));
-      }
-      toast.success("Fresh Air Cooling Load calculator unlocked!");
-    } catch (e) {
-      console.error(e);
-    }
-  }, [project?.id]);
 
   const ip = unitSystem === "ip";
 
@@ -323,93 +260,8 @@ function FreshAirCoolingLoadPage() {
   };
 
   // Calculation Engine
-  const calc = useMemo(() => {
-    const dbInVal = dbIn !== "" ? Number(dbIn) : (ip ? 95 : 35.0);
-    const wbInVal = wbIn !== "" ? Number(wbIn) : (ip ? 78 : 25.5);
-    const dbOutVal = dbOut !== "" ? Number(dbOut) : (ip ? 55 : 12.8);
-    const wbOutVal = wbOut !== "" ? Number(wbOut) : (ip ? 54 : 12.2);
-    const flowVal = flowRate !== "" ? Number(flowRate) : (ip ? 1000 : 0.472);
-
-    const dbInC = ip ? fToC(dbInVal) : dbInVal;
-    const wbInC = ip ? fToC(wbInVal) : wbInVal;
-    const dbOutC = ip ? fToC(dbOutVal) : dbOutVal;
-    const wbOutC = ip ? fToC(wbOutVal) : wbOutVal;
-    const flowM3s = ip ? cfmToM3s(flowVal) : flowVal;
-    const flowLps = flowM3s * 1000;
-    const flowCfm = flowM3s * 2118.88;
-
-    const pAtm = 101325; // standard sea-level Pa
-    const wInKg = wFromWB(dbInC, wbInC, pAtm);
-    const wOutKg = wFromWB(dbOutC, wbOutC, pAtm);
-
-    const rhIn = rhFromDbWb(dbInC, wbInC, pAtm);
-    const rhOut = rhFromDbWb(dbOutC, wbOutC, pAtm);
-
-    const hIn = enthalpyMoistAir(dbInC, wInKg);
-    const hOut = enthalpyMoistAir(dbOutC, wOutKg);
-
-    const rho = 1.2; // standard air density kg/m3
-    const mDot = flowM3s * rho; // kg/s dry air
-    const cp = 1.006; // kJ/kg.K
-    const hfg = 2501; // kJ/kg latent heat of vaporization
-
-    const sfMultiplier = 1 + (Number(safetyFactor) || 0) / 100;
-
-    const sensKwBase = mDot * cp * Math.max(0, (dbInC - dbOutC));
-    const latKwBase = mDot * Math.max(0, (wInKg - wOutKg)) * hfg;
-    const totKwBase = sensKwBase + latKwBase;
-
-    const sensKw = sensKwBase * sfMultiplier;
-    const latKw = latKwBase * sfMultiplier;
-    const totKw = totKwBase * sfMultiplier;
-
-    const capTons = totKw / 3.51685;
-    const shr = totKw > 0 ? (sensKw / totKw) : 1.0;
-
-    // Condensate removal rate in kg/h (or L/h)
-    const condensateKgH = mDot * Math.max(0, (wInKg - wOutKg)) * 3600;
-    const condensateGph = condensateKgH * 0.264172;
-
-    const sensLoad = ip ? sensKw * 3412.14 : sensKw;
-    const latLoad = ip ? latKw * 3412.14 : latKw;
-    const totLoad = ip ? totKw * 3412.14 : totKw;
-    const wIn = ip ? wInKg * 7000 : wInKg;
-    const wOut = ip ? wOutKg * 7000 : wOutKg;
-    const hInBtu = hIn * 0.429923;
-    const hOutBtu = hOut * 0.429923;
-
-    return {
-      dbInVal, wbInVal, dbOutVal, wbOutVal, flowVal,
-      dbInC, wbInC, dbOutC, wbOutC,
-      flowM3s, flowLps, flowCfm,
-      wInKg, wOutKg,
-      rhIn, rhOut,
-      hIn, hOut, hInBtu, hOutBtu,
-      sensKw, latKw, totKw,
-      sensLoad, latLoad, totLoad,
-      capacityTons: capTons,
-      wIn, wOut,
-      shr,
-      condensateKgH,
-      condensateGph,
-      mDot,
-    };
-  }, [dbIn, wbIn, dbOut, wbOut, flowRate, safetyFactor, ip]);
-
-  const warnings = useMemo(() => {
-    const w: string[] = [];
-    const dbInVal = dbIn !== "" ? Number(dbIn) : (ip ? 95 : 35);
-    const wbInVal = wbIn !== "" ? Number(wbIn) : (ip ? 78 : 25.5);
-    const dbOutVal = dbOut !== "" ? Number(dbOut) : (ip ? 55 : 12.8);
-    const wbOutVal = wbOut !== "" ? Number(wbOut) : (ip ? 54 : 12.2);
-
-    if (wbInVal > dbInVal) w.push("Entering Wet Bulb cannot exceed Entering Dry Bulb temperature.");
-    if (wbOutVal > dbOutVal) w.push("Leaving Wet Bulb cannot exceed Leaving Dry Bulb temperature.");
-    if (dbOutVal > dbInVal) w.push("Leaving Dry Bulb temperature is higher than Entering Dry Bulb temperature (Heating mode).");
-    if (wbOutVal > wbInVal) w.push("Leaving Wet Bulb temperature is higher than Entering Wet Bulb temperature.");
-    if (calc.shr < 0.3) w.push("Very high latent moisture load detected (SHR < 0.30). Ensure adequate coil depth & condensate drain sizing.");
-    return w;
-  }, [dbIn, wbIn, dbOut, wbOut, calc.shr, ip]);
+  const calc = useMemo(() => calculateFreshAirCoolingLoad(dbIn, wbIn, dbOut, wbOut, flowRate, safetyFactor, ip), [dbIn, wbIn, dbOut, wbOut, flowRate, safetyFactor, ip]);
+  const warnings = useMemo(() => calculateFreshAirWarnings(dbIn, wbIn, dbOut, wbOut, calc.shr, ip), [dbIn, wbIn, dbOut, wbOut, calc.shr, ip]);
 
   const handleExportExcel = async () => {
     const exceljsModule = await import('exceljs');
@@ -606,7 +458,13 @@ function FreshAirCoolingLoadPage() {
       }
     >
       <div className="flex flex-col h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-3.5 overflow-y-auto h-full">
+        <div className={`flex-1 min-w-0 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} pt-2 gap-3.5 overflow-y-auto h-full`}>
 
           {/* Formula Reference Banner */}
           {showFormulaPanel && (

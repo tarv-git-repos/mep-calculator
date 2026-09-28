@@ -1,4 +1,4 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfHeader, addPdfSignatureBlock, formatDateStr, resolveLatestReviewState } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -329,10 +329,14 @@ function detectAshraeOccupancy(desc: string): AutoDetectResult | null {
 type Tab = "demand" | "tanks" | "report";
 
 function WaterDemandPage() {
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/plumbing-water-demand", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-water-demand", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
   const currentUserId = userData?.id || profile?.id || "user_id";
-  const { project, forceSaveToCloud } = useWorkspace();
+  const isApprovedLocked = useCalculationLock("/plumbing-water-demand", project?.id);
+  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
   type DemandSection = "domestic" | "irrigation" | "pool" | "fire";
   const [tab, setTab] = useState<Tab>("demand");
@@ -1597,7 +1601,7 @@ function WaterDemandPage() {
                   <Sparkles className="size-3.5" />
                   Intelligence
                 </button>
-                <CalculationReviewBar calculatorPath="/plumbing-water-demand" calculatorTitle="Water Demand Calculator" />
+                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-water-demand" calculatorTitle="Water Demand Calculator" />
               </div>
               <p className="text-[13px] text-muted-foreground mt-0.5">
                 Calculate daily domestic water load, peak flow rate, irrigation demand, pool makeup, storage tank volumes, and transfer pump capacities.
@@ -1607,7 +1611,13 @@ function WaterDemandPage() {
           </div>
 
           {/* Unified White Card Container (Matching Ventilation Layout Structure) */}
-          <div className="flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
             {/* Row 1: Header / Main Tabs on Left + Standard & Unit System Toggle on Right */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/50 gap-4 flex-wrap">
               <div className="flex bg-slate-100 dark:bg-slate-900/70 p-1 rounded-full gap-1 border border-border/80">

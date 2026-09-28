@@ -1,4 +1,5 @@
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
+import { useWorkspace } from "@/lib/workspace-store";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
@@ -6,6 +7,10 @@ import { TBtn } from "@/components/workspace/Button";
 import { Plus, Trash2, Search, Download, Trash, Upload, FolderKanban, ChevronDown, ChevronRight, Copy } from "lucide-react";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { cn } from "@/lib/utils";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { getMergedItemComments } from "@/utils/commentHelpers";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import { MessageSquare } from "lucide-react";
 import { exportLpdExcel } from "../lib/exportLpdExcel";
 import { dirtyStore } from "@/lib/dirty-store";
 
@@ -283,6 +288,9 @@ const defaultProject = (): LpdProject => ({
 });
 
 function LPDCalculationPage() {
+  const { project, activeProjectId } = useWorkspace();
+  const calcReviewState = useCalculationReviewState("/lpd-calculation", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/lpd-calculation", activeProjectId || project?.id);
   const [projects, setProjects] = useState<LpdProject[]>([defaultProject()]);
   const [currentProjectId, setCurrentProjectId] = useState<string>(projects[0].id);
   const [authorityMapping, setAuthorityMapping] = useState<Record<string, number>>(DEFAULT_AUTHORITY_MAPPING_SQM);
@@ -452,6 +460,27 @@ function LPDCalculationPage() {
     </div>
   );
 
+  
+  const [commentModalOpen, setCommentModalOpen] = useState(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+
+  const handleOpenComment = (id: string, name: string) => {
+    setCommentTargetItem({ id, name });
+    setCommentModalOpen(true);
+  };
+
+  const handleSaveComment = (comment: any) => {
+    updateActiveGroups(groups => groups.map(g => ({
+      ...g,
+      spaces: g.spaces.map(s => s.id === commentTargetItem?.id ? {
+        ...s,
+        comments: [...((s as any).comments || []), comment]
+      } : s)
+    })));
+    setCommentModalOpen(false);
+    toast.success("Comment saved");
+  };
+
   let globalSrNo = 1;
 
 
@@ -468,7 +497,7 @@ function LPDCalculationPage() {
             <div className="flex items-center gap-3 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">LPD Calculation</h1>
-              <CalculationReviewBar calculatorPath="/lpd-calculation" calculatorTitle="LPD Calculation" />
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/lpd-calculation" calculatorTitle="LPD Calculation" />
               </div>
             </div>
             <p className="text-[13px] text-muted-foreground mt-0.5">
@@ -480,7 +509,13 @@ function LPDCalculationPage() {
           </div>
         </div>
 
-        <div className="relative z-10 flex flex-col w-full h-full min-h-0">
+        <div className={`relative z-10 flex flex-col w-full h-full min-h-0 rounded-2xl overflow-hidden transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between px-4 py-3 min-h-[56px] h-auto border-b border-white/40 dark:border-white/10 bg-white/40 dark:bg-black/20 backdrop-blur-md shrink-0 select-none gap-y-3 overflow-x-auto shadow-sm">
             <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto">
               <select className="h-8 text-[12.5px] font-medium bg-white/50 dark:bg-black/40 hover:bg-white/80 dark:hover:bg-white/10 border border-white/50 dark:border-white/10 rounded-xl px-2 outline-none cursor-pointer transition-all backdrop-blur-sm shadow-sm" value={currentProjectId} onChange={e => setCurrentProjectId(e.target.value)}>
@@ -583,12 +618,31 @@ function LPDCalculationPage() {
                                       {srNo}
                                     </td>
                                     <td className="p-0 border-r border-white/20 dark:border-white/10" rowSpan={space.fixtures.length}>
-                                      <input 
-                                        className="w-full h-full min-h-[32px] px-3 bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 transition-colors"
-                                        value={space.name}
-                                        onChange={e => updateSpace(group.id, space.id, "name", e.target.value)}
-                                        placeholder="e.g. Electrical Room"
-                                      />
+                                      <div className="flex items-center gap-1.5 w-full h-full px-2">
+                                        {(() => {
+                                          const itemComments = getMergedItemComments(space.id, space.name, (space as any).comments, "/lpd-calculation", project?.id);
+                                          return itemComments.length > 0 ? (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleOpenComment(space.id, space.name);
+                                              }}
+                                              title={`${itemComments.length} comment(s)/task(s) assigned`}
+                                              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                                            >
+                                              <MessageSquare className="size-3.5 fill-blue-500/20" />
+                                              <span className="text-[10px] font-bold">{itemComments.length}</span>
+                                            </button>
+                                          ) : null;
+                                        })()}
+                                        <input 
+                                          className="w-full h-full min-h-[32px] bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 transition-colors"
+                                          value={space.name}
+                                          onChange={e => updateSpace(group.id, space.id, "name", e.target.value)}
+                                          placeholder="e.g. Electrical Room"
+                                        />
+                                      </div>
                                     </td>
                                     <td className="p-0 border-r border-white/20 dark:border-white/10" rowSpan={space.fixtures.length}>
                                       <select
@@ -758,6 +812,24 @@ function LPDCalculationPage() {
         </div>
         </div>
       </div>
+    
+      {/* Assign Comment Modal */}
+      {commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => {
+            setCommentModalOpen(false);
+            setCommentTargetItem(null);
+          }}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType="space"
+          calculatorTitle="LPD Calculation"
+          calculatorPath="/lpd-calculation"
+          existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, [], "/lpd-calculation", project?.id)}
+          onSave={handleSaveComment}
+        />
+      )}
     </AppShell>
   );
 }
