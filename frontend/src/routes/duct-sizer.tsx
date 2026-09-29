@@ -1,4 +1,4 @@
-import { calculateDuctSize, calculateSMACNAWarnings, CFM_TO_LPS, LPS_TO_CFM, INWG_TO_PAM, PAM_TO_INWG, FPM_TO_MPS, MPS_TO_FPM, IN_TO_MM, MM_TO_IN } from "@/lib/calc-duct-sizer";
+import { calculateDuctSize, calculateSMACNAWarnings, colebrook, CFM_TO_LPS, LPS_TO_CFM, INWG_TO_PAM, PAM_TO_INWG, FPM_TO_MPS, MPS_TO_FPM, IN_TO_MM, MM_TO_IN } from "@/lib/calc-duct-sizer";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { getMergedItemComments } from "@/utils/commentHelpers";

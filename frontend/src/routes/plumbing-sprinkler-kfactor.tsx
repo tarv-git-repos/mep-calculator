@@ -1763,7 +1763,7 @@ function SprinklerKFactorPage() {
               <div className="flex items-center gap-3 mt-0.5">
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sprinkler K-Factor</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} heads</span>
+                  
                 </div>
                 <button 
                   onClick={() => setIntelOpen(v => !v)}
@@ -1782,9 +1782,7 @@ function SprinklerKFactorPage() {
                   calculatorTitle="Sprinkler K-Factor"
                 />
               </div>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                NFPA 13 sprinkler discharge, operating pressure, and water demand calculation schedule.
-              </p>
+              
             </div>
             
             {/* Actions / Export buttons on the right */}

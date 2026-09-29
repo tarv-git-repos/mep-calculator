@@ -55,7 +55,7 @@ export function UnitToggle({
     <>
       {/* Unit System Toggle Pill */}
       <div
-        className={`inline-flex w-fit items-center shrink-0 bg-slate-100 dark:bg-slate-900/60 p-1 rounded-full border border-border/80 text-xs font-semibold select-none ${
+        className={`inline-flex w-fit items-center shrink-0 bg-slate-100 dark:bg-slate-900/60 p-0.5 rounded-full border border-border/80 text-xs font-semibold select-none shadow-2xs ${
           disabled ? "opacity-60 cursor-not-allowed" : ""
         } ${className}`}
       >
@@ -63,11 +63,11 @@ export function UnitToggle({
           type="button"
           disabled={disabled}
           onClick={() => handleClick("ip")}
-          className={`px-3 py-0.5 rounded-full transition font-bold ${
+          className={`px-3 py-1 rounded-full transition-all font-bold text-xs ${
             disabled ? "cursor-not-allowed" : "cursor-pointer"
           } ${
             unitSystem === "ip"
-              ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
+              ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs border border-border/40"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
@@ -77,11 +77,11 @@ export function UnitToggle({
           type="button"
           disabled={disabled}
           onClick={() => handleClick("si")}
-          className={`px-3 py-0.5 rounded-full transition font-bold ${
+          className={`px-3 py-1 rounded-full transition-all font-bold text-xs ${
             disabled ? "cursor-not-allowed" : "cursor-pointer"
           } ${
             unitSystem === "si"
-              ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
+              ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-xs border border-border/40"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >

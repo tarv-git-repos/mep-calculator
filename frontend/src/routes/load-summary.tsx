@@ -17,6 +17,7 @@ import { TBtn, BulkBtn } from "@/components/workspace/Button";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import type { TaskComment } from "@/lib/ventilation-calc";
 import {
   CalculationPreviewModal,
@@ -75,6 +76,81 @@ const pushToHistory = (
   setHistory([...history, [...currentRows]]);
   if (setRedoStack) setRedoStack([]);
 };
+
+interface InlineInputProps {
+  value: string | number;
+  onCommit: (val: string) => void;
+  className?: string;
+  type?: "text" | "number";
+  step?: string;
+  min?: number;
+  placeholder?: string;
+  disabled?: boolean;
+}
+
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled }: InlineInputProps) {
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+  const isEffectiveDisabled = disabled || isReadOnly;
+
+  const getCleanVal = (val: any) => {
+    if (val === undefined || val === null || val === "undefined" || val === "null") {
+      return "";
+    }
+    return String(val);
+  };
+
+  const [localVal, setLocalVal] = useState(getCleanVal(value));
+
+  useEffect(() => {
+    const clean = getCleanVal(value);
+    setLocalVal(prev => (prev === clean ? prev : clean));
+  }, [value]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      if (!isEffectiveDisabled && localVal !== getCleanVal(value)) {
+        onCommit(localVal);
+      }
+      e.currentTarget.blur();
+    } else if (e.key === "Escape") {
+      setLocalVal(getCleanVal(value));
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <input
+      type={type}
+      step={step}
+      min={min}
+      disabled={isEffectiveDisabled}
+      placeholder={placeholder}
+      value={localVal}
+      onChange={(e) => {
+        if (isEffectiveDisabled) return;
+        setLocalVal(e.target.value);
+      }}
+      onKeyDown={handleKeyDown}
+      onBlur={() => {
+        if (isEffectiveDisabled) {
+          setLocalVal(getCleanVal(value));
+          return;
+        }
+        if (localVal !== getCleanVal(value)) {
+          onCommit(localVal);
+        }
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={`bg-transparent w-full border border-transparent py-0.5 px-1.5 rounded text-foreground transition-colors ${
+        isEffectiveDisabled
+          ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent"
+          : "hover:border-muted-foreground/25 focus:border-primary focus:outline-none focus:ring-0 cursor-text"
+      } ${className}`}
+    />
+  );
+}
 
 function LoadSummaryPage() {
   const { project, activeProjectId } = useWorkspace();
@@ -932,9 +1008,10 @@ function LoadSummaryPage() {
   const columns: Column<LoadRow>[] = useMemo(() => [
     {
       key: "id",
-      header: "S.No",
-      width: 60,
+      header: "S.NO",
+      width: 50,
       align: "center",
+      mono: true,
       render: (row) => {
         const index = filteredRows.findIndex(r => r.id === row.id) + 1;
         return <span className="text-muted-foreground font-mono text-[12px]">{index}</span>;
@@ -942,23 +1019,26 @@ function LoadSummaryPage() {
     },
     {
       key: "description",
-      header: "Description",
-      width: 260,
+      header: "SPACE NAME",
+      width: 240,
       render: (row) => {
-        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
-        const index = rowIdx + 1;
-        const rowComments = getMergedItemComments(row.id, row.description, (row as any).comments || commentsList.filter(c => c.targetId === row.id || (c as any).itemId === row.id), "/load-summary", project?.id);
+        const index = filteredRows.findIndex(r => r.id === row.id) + 1;
+        const rowComments = getMergedItemComments(
+          row.id,
+          row.description,
+          (row as any).comments || commentsList.filter(c => c.targetId === row.id || (c as any).itemId === row.id),
+          "/load-summary",
+          project?.id
+        );
 
         return (
-          <div className="w-full h-full flex items-center gap-1 px-2 group">
-            <input 
+          <div className="w-full h-full flex items-center gap-1 px-1 group">
+            <InlineInput
+              disabled={isEffectiveReadOnly}
               value={row.description}
-              onChange={(e) => updateRow(row.id, { description: e.target.value })}
-              className="flex-1 min-w-0 h-full bg-transparent border-none outline-none focus:bg-primary/5"
-              autoComplete="off"
-              data-row-idx={rowIdx}
-              data-col-idx={1}
               placeholder="e.g. Ground Floor Main Office"
+              onCommit={(val) => updateRow(row.id, { description: val })}
+              className="text-[12.5px] font-medium min-w-0 flex-1"
             />
             {rowComments.length > 0 ? (
               <button
@@ -980,7 +1060,7 @@ function LoadSummaryPage() {
                   e.stopPropagation();
                   handleOpenComment(row.id, row.description || `Load ${index}`);
                 }}
-                className="opacity-0 group-hover:opacity-100 hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity p-1 cursor-pointer shrink-0"
+                className="opacity-0 group-hover:opacity-100 hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity p-0.5 cursor-pointer shrink-0"
                 title="Add Comment / Assign Task"
               >
                 <MessageSquare className="size-3.5" />
@@ -992,155 +1072,149 @@ function LoadSummaryPage() {
     },
     {
       key: "qty",
-      header: "Qty",
-      width: 80,
-      align: "right",
-      render: (row) => {
-        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
-        return (
-          <input 
-            type="number"
-            value={row.qty === 0 ? "" : row.qty}
-            onChange={(e) => updateRow(row.id, { qty: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
-            data-row-idx={rowIdx}
-            data-col-idx={2}
-          />
-        );
-      }
+      header: "QTY",
+      width: 65,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (row) => (
+        <InlineInput
+          disabled={isEffectiveReadOnly}
+          type="number"
+          min={0}
+          value={row.qty === 0 ? "" : row.qty}
+          onCommit={(val) => updateRow(row.id, { qty: parseFloat(val) || 0 })}
+          className="font-mono tabular text-[12.5px] text-center"
+        />
+      )
     },
     {
       key: "area",
-      header: unitSystem === "ip" ? "Area (sq.ft)" : "Area (sq.m)",
-      width: 100,
-      align: "right",
-      render: (row) => {
-        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
-        return (
-          <input 
-            type="number"
-            value={row.area === 0 ? "" : row.area}
-            onChange={(e) => updateRow(row.id, { area: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
-            data-row-idx={rowIdx}
-            data-col-idx={3}
-          />
-        );
-      }
+      header: unitSystem === "ip" ? "AREA (SQ.FT)" : "AREA (M²)",
+      width: 90,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (row) => (
+        <InlineInput
+          disabled={isEffectiveReadOnly}
+          type="number"
+          step="0.1"
+          min={0}
+          value={row.area === 0 ? "" : row.area}
+          onCommit={(val) => updateRow(row.id, { area: parseFloat(val) || 0 })}
+          className="font-mono tabular text-[12.5px] text-center"
+        />
+      )
     },
     {
       key: "lighting",
-      header: "Lighting (kW)",
-      width: 110,
+      header: "LIGHTING (KW)",
+      width: 100,
       align: "right",
-      render: (row) => {
-        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
-        return (
-          <input 
-            type="number"
-            step="0.1"
-            value={row.lighting === 0 ? "" : row.lighting}
-            onChange={(e) => updateRow(row.id, { lighting: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
-            data-row-idx={rowIdx}
-            data-col-idx={4}
-          />
-        );
-      }
+      mono: true,
+      editable: true,
+      render: (row) => (
+        <InlineInput
+          disabled={isEffectiveReadOnly}
+          type="number"
+          step="0.1"
+          min={0}
+          value={row.lighting === 0 ? "" : row.lighting}
+          onCommit={(val) => updateRow(row.id, { lighting: parseFloat(val) || 0 })}
+          className="font-mono tabular text-[12.5px] text-right"
+        />
+      )
     },
     {
       key: "power",
-      header: "Power (kW)",
-      width: 100,
+      header: "POWER (KW)",
+      width: 95,
       align: "right",
-      render: (row) => {
-        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
-        return (
-          <input 
-            type="number"
-            step="0.1"
-            value={row.power === 0 ? "" : row.power}
-            onChange={(e) => updateRow(row.id, { power: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
-            data-row-idx={rowIdx}
-            data-col-idx={5}
-          />
-        );
-      }
+      mono: true,
+      editable: true,
+      render: (row) => (
+        <InlineInput
+          disabled={isEffectiveReadOnly}
+          type="number"
+          step="0.1"
+          min={0}
+          value={row.power === 0 ? "" : row.power}
+          onCommit={(val) => updateRow(row.id, { power: parseFloat(val) || 0 })}
+          className="font-mono tabular text-[12.5px] text-right"
+        />
+      )
     },
     {
       key: "hvac",
-      header: "HVAC (kW)",
-      width: 100,
+      header: "HVAC (KW)",
+      width: 95,
       align: "right",
-      render: (row) => {
-        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
-        return (
-          <input 
-            type="number"
-            step="0.1"
-            value={row.hvac === 0 ? "" : row.hvac}
-            onChange={(e) => updateRow(row.id, { hvac: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
-            data-row-idx={rowIdx}
-            data-col-idx={6}
-          />
-        );
-      }
+      mono: true,
+      editable: true,
+      render: (row) => (
+        <InlineInput
+          disabled={isEffectiveReadOnly}
+          type="number"
+          step="0.1"
+          min={0}
+          value={row.hvac === 0 ? "" : row.hvac}
+          onCommit={(val) => updateRow(row.id, { hvac: parseFloat(val) || 0 })}
+          className="font-mono tabular text-[12.5px] text-right"
+        />
+      )
     },
     {
       key: "other",
-      header: "Other (kW)",
-      width: 110,
+      header: "OTHER (KW)",
+      width: 95,
       align: "right",
-      render: (row) => {
-        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
-        return (
-          <input 
-            type="number"
-            step="0.1"
-            value={row.other === 0 ? "" : row.other}
-            onChange={(e) => updateRow(row.id, { other: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
-            data-row-idx={rowIdx}
-            data-col-idx={7}
-          />
-        );
-      }
+      mono: true,
+      editable: true,
+      render: (row) => (
+        <InlineInput
+          disabled={isEffectiveReadOnly}
+          type="number"
+          step="0.1"
+          min={0}
+          value={row.other === 0 ? "" : row.other}
+          onCommit={(val) => updateRow(row.id, { other: parseFloat(val) || 0 })}
+          className="font-mono tabular text-[12.5px] text-right"
+        />
+      )
     },
     {
       key: "totalLoad",
-      header: "Total Load (kW)",
-      width: 130,
+      header: "TOTAL LOAD (KW)",
+      width: 120,
       align: "right",
+      mono: true,
       render: (row) => (
-        <span className="w-full text-right px-2 font-medium text-foreground">
+        <span className="w-full text-right px-1 font-mono tabular font-medium text-foreground text-[12.5px]">
           {row.totalLoad.toFixed(2)}
         </span>
       )
     },
     {
       key: "remarks",
-      header: "Remarks",
-      width: 200,
-      render: (row) => {
-        const rowIdx = filteredRows.findIndex(r => r.id === row.id);
-        return (
-          <input 
-            value={row.remarks}
-            onChange={(e) => updateRow(row.id, { remarks: e.target.value })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 focus:bg-primary/5"
-            autoComplete="off"
-            data-row-idx={rowIdx}
-            data-col-idx={8}
-          />
-        );
-      }
+      header: "REMARKS",
+      width: 170,
+      editable: true,
+      render: (row) => (
+        <InlineInput
+          disabled={isEffectiveReadOnly}
+          type="text"
+          value={row.remarks}
+          placeholder="Remarks..."
+          onCommit={(val) => updateRow(row.id, { remarks: val })}
+          className="text-[12px] text-left"
+        />
+      )
     },
     {
       key: "flagged",
       header: "",
-      width: 38,
+      width: 36,
       align: "center",
       render: (row) => (
         <button
@@ -1162,13 +1236,25 @@ function LoadSummaryPage() {
         </button>
       )
     }
-  ], [filteredRows, commentsList, unitSystem, selected, rows]);
+  ], [filteredRows, commentsList, unitSystem, selected, rows, isEffectiveReadOnly]);
 
   return (
     <AppShell 
       title="Load Summary" 
-      subtitle="Calculate electrical load summary and equipment totals"
       spaceCount={rows.length}
+      actions={
+        <UnitToggle
+          unitSystem={unitSystem}
+          onChange={handleUnitToggle}
+          disabled={isEffectiveReadOnly}
+          inputDescriptions="Area (sq.m / sq.ft)"
+          conversionExample={
+            unitSystem === "si"
+              ? "Convert 100 sq.m → 1076.39 sq.ft"
+              : "Convert 1000 sq.ft → 92.90 sq.m"
+          }
+        />
+      }
     >
       <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
@@ -1348,17 +1434,6 @@ function LoadSummaryPage() {
 
             {/* Right side buttons */}
             <div className="ml-auto flex items-center gap-1.5">
-              <UnitToggle
-                unitSystem={unitSystem}
-                onChange={handleUnitToggle}
-                inputDescriptions="Area (sq.m / sq.ft)"
-                conversionExample={
-                  unitSystem === "si"
-                    ? "Convert 100 sq.m â†’ 1076.39 sq.ft"
-                    : "Convert 1000 sq.ft â†’ 92.90 sq.m"
-                }
-              />
-
               <ImportExcelBtn
                 columnMapping={importColumnMapping}
                 onImport={handleImportExcelRows}
@@ -1433,7 +1508,7 @@ function LoadSummaryPage() {
                         onRowDoubleClick={(row) => setPreviewRow(row)}
                         rowClassName={(row) => (row.flagged ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]" : "")}
                         renderContextMenu={(row) => {
-                          const rowComments = commentsList.filter(c => c.targetId === row.id || (c as any).itemId === row.id);
+                          const rowComments = getMergedItemComments(row.id, row.description, (row as any).comments || commentsList.filter(c => c.targetId === row.id || (c as any).itemId === row.id), "/load-summary", project?.id);
                           return (
                             <ContextMenuContent className="w-56">
                               <ContextMenuItem onClick={() => setPreviewRow(row)}>
@@ -1525,35 +1600,28 @@ function LoadSummaryPage() {
                   </div>
                 )}
 
-                {/* Footer Calculations - Integrated Inside the Same Single Card */}
+                {/* Clean Status Bar Footer matching ventilation screenshot */}
                 {rows.length > 0 && (
-                  <div className="border-t border-border bg-slate-50/70 dark:bg-slate-900/70 px-5 py-3.5 shrink-0 flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="bg-background border border-border/80 px-3 py-1.5 rounded-lg flex items-center gap-2.5 shadow-xs">
-                        <span className="text-[12px] font-medium text-muted-foreground">Total Electrical Power:</span>
-                        <span className="font-bold font-mono text-[14px] text-foreground">{totalPower.toFixed(2)} kW</span>
-                        {isFiltered && (
-                          <span className="text-[11px] font-mono text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full font-medium">
-                            Filtered: {filteredPower.toFixed(2)} kW ({filteredRows.length}/{rows.length})
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="bg-blue-500/10 border border-blue-500/20 px-3 py-1.5 rounded-lg flex items-center gap-2.5 text-blue-800 dark:text-blue-300 shadow-xs">
-                        <span className="text-[12px] font-semibold">Total Power (10% Safety):</span>
-                        <span className="font-bold font-mono text-[14.5px] text-blue-700 dark:text-blue-400">{totalPowerWithSafety.toFixed(2)} kW</span>
-                      </div>
+                  <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 no-print select-none">
+                    <div>
+                      Showing <span className="text-foreground font-medium tabular">{filteredRows.length.toLocaleString()}</span> of {rows.length.toLocaleString()} spaces
+                      {isFiltered && (
+                        <span className="ml-2 font-mono text-primary font-medium">({filteredPower.toFixed(2)} kW filtered)</span>
+                      )}
                     </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <label className="text-[12px] font-medium text-muted-foreground whitespace-nowrap">Transformers:</label>
-                      <input
-                        type="text"
-                        value={transformers}
-                        onChange={(e) => setTransformers(e.target.value)}
-                        placeholder="e.g. 2 x 1500 kVA"
-                        className="bg-background border border-border rounded-lg px-3 py-1.5 text-[12.5px] w-48 md:w-56 focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
-                      />
+                    <div className="flex items-center gap-4 tabular">
+                      <span>Σ Power: <span className="font-mono text-foreground font-semibold">{totalPower.toFixed(2)} kW</span></span>
+                      <span>Σ Power (+10%): <span className="font-mono text-blue-600 dark:text-blue-400 font-semibold">{totalPowerWithSafety.toFixed(2)} kW</span></span>
+                      <div className="flex items-center gap-1.5 pl-2 border-l border-border/80">
+                        <span>Transformers:</span>
+                        <input
+                          type="text"
+                          value={transformers}
+                          onChange={(e) => setTransformers(e.target.value)}
+                          placeholder="e.g. 2 x 1500 kVA"
+                          className="h-5 w-32 px-1.5 bg-background/80 border border-border/80 rounded text-[11px] font-mono outline-none focus:border-primary"
+                        />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1575,7 +1643,7 @@ function LoadSummaryPage() {
           targetType={commentTargetItem.type || "load"}
           calculatorTitle="Electrical Load Summary"
           calculatorPath="/load-summary"
-          existingComments={commentsList.filter(c => c.targetId === commentTargetItem.id || (c as any).itemId === commentTargetItem.id)}
+          existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, commentsList, "/load-summary", project?.id)}
           onSave={handleSaveComment}
         />
       )}

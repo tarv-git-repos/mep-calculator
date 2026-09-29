@@ -833,7 +833,7 @@ function HazenWilliamsPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[24px] sm:text-[26px] font-bold tracking-tight text-foreground">Hazen-Williams</h1>
-                <span className="text-[13.5px] font-semibold text-muted-foreground">Friction loss in water supply & fire piping (NFPA 13)</span>
+                
               </div>
               <button 
                 onClick={() => setIntelOpen((v) => !v)}
@@ -856,6 +856,18 @@ function HazenWilliamsPage() {
                   <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"} / Comment{commentsList.length === 1 ? "" : "s"}</span>
                 </div>
               )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  inputDescriptions="Flow Rate (GPM ↔ L/s), Pipe Diameter (in ↔ mm), Pipe Length (ft ↔ m)"
+                  conversionExample={
+                    unitSystem === "si"
+                      ? "Convert 10 L/s → 158.5 GPM, 65 mm → 2.5 in"
+                      : "Convert 100 GPM → 6.31 L/s, 2.5 in → 62.7 mm"
+                  }
+                />
             </div>
           </div>
 
@@ -900,26 +912,9 @@ function HazenWilliamsPage() {
 
               {/* Sizing Unit system toggle & Top Export Action */}
               <div className="flex items-center gap-2 flex-wrap">
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  inputDescriptions="Flow Rate (GPM ↔ L/s), Pipe Diameter (in ↔ mm), Pipe Length (ft ↔ m)"
-                  conversionExample={
-                    unitSystem === "si"
-                      ? "Convert 10 L/s → 158.5 GPM, 65 mm → 2.5 in"
-                      : "Convert 100 GPM → 6.31 L/s, 2.5 in → 62.7 mm"
-                  }
-                />
+                
 
-                <button
-                  type="button"
-                  onClick={handleExportPDF}
-                  className="h-7.5 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-bold inline-flex items-center gap-1.5 hover:bg-primary/90 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
-                  title="Export calculation report"
-                >
-                  <Printer className="size-3.5" />
-                  <span>Export</span>
-                </button>
+                <TBtn onClick={handleExportPDF}><FileText className="size-3.5" /> Export</TBtn>
               </div>
             </div>
 
@@ -1190,12 +1185,7 @@ function HazenWilliamsPage() {
                           <p className="text-[12px] text-muted-foreground mt-0.5">Hydraulic calculation report conforming to NFPA 13</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={handleExportPDF}
-                            className="inline-flex items-center gap-1.5 h-8 px-4 rounded-xl bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/95 transition-colors cursor-pointer shadow-sm"
-                          >
-                            <Printer className="size-3.5" /> Export
-                          </button>
+                          <TBtn onClick={handleExportPDF}><FileText className="size-3.5" /> Export</TBtn>
                         </div>
                       </div>
 

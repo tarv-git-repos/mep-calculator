@@ -2690,14 +2690,14 @@ function PreliminaryCoolingLoadPage() {
   return (
     <AppShell title="Preliminary Cooling Load" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           {/* Page Header */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex flex-col gap-1 w-full">
               <div className="flex items-center gap-3 mt-0.5">
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Preliminary Cooling Load</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} spaces</span>
+
                 </div>
                 <button
                   onClick={() => setIntelOpen(v => !v)}

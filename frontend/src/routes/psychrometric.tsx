@@ -50,7 +50,7 @@ import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { dirtyStore } from "@/lib/dirty-store";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { toast } from "sonner";
-import { calculatePsychrometricData, fToC, cToF } from "@/lib/calc-psychrometric";
+import { calculatePsychrometricData, fToC, cToF, wFromRH } from "@/lib/calc-psychrometric";
 
 export const Route = createFileRoute("/psychrometric")({
   head: () => ({

@@ -197,17 +197,7 @@ export const HEATING_PRESETS: Record<HeatingPresetKey, HeatingPresetConfig> = {
   },
 };
 
-// Conversion Constants
-const SQFT_TO_SQM = 0.092903;
-const SQM_TO_SQFT = 10.7639;
-const FT_TO_M = 0.3048;
-const M_TO_FT = 3.28084;
-const U_IP_TO_SI = 5.678263; // BTU/hr·ft²·°F -> W/m²K
-const U_SI_TO_IP = 0.17611;  // W/m²K -> BTU/hr·ft²·°F
-const CFM_TO_LPS = 0.471947;
-const LPS_TO_CFM = 2.11888;
-const BTU_HR_TO_KW = 0.000293071;
-const KW_TO_BTU_HR = 3412.142;
+
 
 const presetIcons: Record<HeatingPresetKey, React.ComponentType<{ className?: string }>> = {
   commercial_office: Building2,

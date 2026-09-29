@@ -708,7 +708,11 @@ function TransformerSizingPage() {
   ];
 
   return (
-    <AppShell title="Transformer Sizing" subtitle="Calculate transformer rating based on connected and maximum demand loads">
+    <AppShell
+      title="Transformer Sizing"
+      subtitle="Calculate transformer rating based on connected and maximum demand loads"
+      actions={<UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} />}
+    >
       <div className="h-full flex flex-col bg-background font-sans">
         
         {/* Tabs */}
@@ -743,11 +747,6 @@ function TransformerSizingPage() {
                   placeholder="Filter loads..."
                   className="h-7 w-56 px-3 bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-slate-300 dark:focus:border-slate-700 rounded-full text-[12px] outline-none transition-all"
                 />
-                
-                <UnitToggle 
-                  unitSystem={unitSystem} 
-                  onChange={handleUnitToggle} 
-                />
 
                 <button className="flex items-center justify-center h-7 w-7 rounded-full border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                   <Filter className="size-3.5" />
@@ -765,7 +764,7 @@ function TransformerSizingPage() {
                   </label>
                   
                   <TBtn onClick={handlePrintPDF}>
-                    <Printer className="size-3.5" /> Export PDF
+                    <FileText className="size-3.5" /> Export
                   </TBtn>
                   <TBtn primary onClick={handleAddRow}>
                     <Plus className="size-3.5" /> Add Row

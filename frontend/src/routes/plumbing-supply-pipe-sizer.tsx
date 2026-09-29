@@ -1,57 +1,59 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
-import { downloadFile } from "@/lib/download";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState, useMemo, useEffect, useRef } from "react";
-import { AppShell } from "@/components/workspace/AppShell";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { TBtn } from "@/components/workspace/Button";
-import {
-  AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
-  Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, Clipboard,
-  RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, Sparkles,
-  Download, Upload, Gauge, Layers
-} from "lucide-react";
-import * as XLSX from "xlsx";
-import { useWorkspace } from "@/lib/workspace-store";
-import { dirtyStore } from "@/lib/dirty-store";
+import { useAuth } from "@/contexts/AuthContext";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { downloadFile } from "@/lib/download";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import {
+  Flame, Info, Download, MessageSquare, Check, ShieldCheck,
+  AlertTriangle, Copy, RotateCcw, CheckCircle2, X, Gauge, Cylinder, Sparkles, FileText,
+  TrendingUp, Layers, HelpCircle, Activity, Zap, Building2, Home, ArrowUpRight, CheckCircle
+} from "lucide-react";
 import {
   ContextMenu,
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuShortcut,
 } from "@/components/ui/context-menu";
-import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
-import { useAuth } from "@/contexts/AuthContext";
-import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import { AppShell } from "@/components/workspace/AppShell";
+import { useWorkspace } from "@/lib/workspace-store";
+import { dirtyStore } from "@/lib/dirty-store";
 
 export const Route = createFileRoute("/plumbing-supply-pipe-sizer")({
   head: () => ({
     meta: [
-      { title: "Supply Pipe Sizer — MEP Calc" },
-      { name: "description", content: "Water supply pipe sizer using ASPE/IPC velocity and Hazen-Williams friction loss constraints." },
+      { title: "Water Supply Pipe Sizer — MEP Calc" },
+      { name: "description", content: "Water supply pipe sizing based on ASPE / IPC velocity limits and Hazen-Williams friction loss." }
     ],
   }),
   component: SupplyPipeSizerPage,
 });
 
-interface PipeSize {
+export interface SupplyPipeInputs {
+  flow: number; // L/s (SI) or GPM (IP)
+  pAvail: number; // kPa (SI) or psi (IP)
+  pResid: number; // kPa (SI) or psi (IP)
+  length: number; // m (SI) or ft (IP)
+  fittingAllowance: number; // %
+  elevation: number; // m (SI) or ft (IP)
+  pipeMaterial: string; // C-Factor: "150", "130", "120"
+  unitSystem: "SI" | "IP";
+}
+
+export interface PipeSize {
   nps: string;
   dn: string;
   id: number; // inches
 }
 
-interface SavedCalculation {
-  id: string;
-  type: string;
-  name: string;
-  savedAt: string;
-  values: Record<string, any>;
-  unitSystem: "si" | "ip";
-}
-
-const PIPE_SIZES: PipeSize[] = [
+export const PIPE_SIZES: PipeSize[] = [
   { nps: '¾"', dn: '20 mm', id: 0.811 },
   { nps: '1"', dn: '25 mm', id: 1.055 },
   { nps: '1¼"', dn: '32 mm', id: 1.265 },
@@ -62,326 +64,169 @@ const PIPE_SIZES: PipeSize[] = [
   { nps: '4"', dn: '100 mm', id: 4.009 }
 ];
 
-function SupplyPipeSizerPage() {
-  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+const DEFAULT_INPUTS: SupplyPipeInputs = {
+  flow: 1.58, // L/s (approx 25 GPM)
+  pAvail: 413.7, // kPa (60 psi)
+  pResid: 137.9, // kPa (20 psi)
+  length: 36.6, // m (120 ft)
+  fittingAllowance: 20, // %
+  elevation: 6.1, // m (20 ft)
+  pipeMaterial: "150", // Copper Type L (C = 150)
+  unitSystem: "SI",
+};
+
+export function SupplyPipeSizerPage() {
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/plumbing-supply-pipe-sizer", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-supply-pipe-sizer", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
-  const isApprovedLocked = useCalculationLock("/plumbing-supply-pipe-sizer", project?.id);
-  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
+
+  const [tab, setTab] = useState<"calculator" | "report">("calculator");
+  const [intelOpen, setIntelOpen] = useState(false);
+  const [showFormulaModal, setShowFormulaModal] = useState(false);
+
+  // Core Inputs State
+  const [inputs, setInputs] = useState<SupplyPipeInputs>(DEFAULT_INPUTS);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
-  
-  // Inputs state
-  const [flow, setFlow] = useState<number | "">("");
-  const [pAvail, setPAvail] = useState<number | "">("");
-  const [pResid, setPResid] = useState<number | "">("");
-  const [length, setLength] = useState<number | "">("");
-  const [fittingAllowance, setFittingAllowance] = useState<number>(20);
-  const [elevation, setElevation] = useState<number | "">("");
-  const [pipeMaterial, setPipeMaterial] = useState<string>("150"); // default Copper/CPVC C=150
-  const [showDetailedCalcs, setShowDetailedCalcs] = useState<boolean>(true);
 
-  // Comment System State & Persistence
-  const [commentsList, setCommentsList] = useState<any[]>([]);
-  const [commentModalOpen, setCommentModalOpen] = useState(false);
-  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+  // Comment Assignment State
+  const [commentsMap, setCommentsMap] = useState<Record<string, any[]>>({});
+  const [activeCommentTarget, setActiveCommentTarget] = useState<{ id: string; label: string } | null>(null);
   const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
-  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const ip = unitSystem === "ip";
-
-  useEffect(() => {
-    const pId = project?.id || "default";
-    const savedComments = localStorage.getItem(`mep_calc_comments_${pId}_/plumbing-supply-pipe-sizer`);
-    if (savedComments) {
-      try {
-        setCommentsList(JSON.parse(savedComments));
-      } catch (e) {
-        console.error("Failed to load comments", e);
-      }
-    }
-  }, [project?.id]);
-
-  const saveComments = (newList: any[]) => {
-    setCommentsList(newList);
-    const pId = project?.id || "default";
-    localStorage.setItem(`mep_calc_comments_${pId}_/plumbing-supply-pipe-sizer`, JSON.stringify(newList));
-    try {
-      if (typeof forceSaveToCloud === "function") {
-        forceSaveToCloud(true);
-      }
-    } catch (e) {}
-  };
-
-  const handleOpenComment = (id: string, name: string) => {
-    setCommentTargetItem({ id, name });
-    setCommentModalOpen(true);
-  };
-
-  const handleSaveComment = (commentData: any) => {
-    const newComment = {
-      id: `cmt_${Date.now()}`,
-      text: commentData.text,
-      authorName: currentUserName,
-      authorRole: profile?.role || "Engineer",
-      timestamp: new Date().toISOString(),
-      assignedUsers: commentData.assignedUsers || [],
-      itemId: commentTargetItem?.id,
-      spaceId: commentTargetItem?.id,
-      targetId: commentTargetItem?.id,
-      targetName: commentTargetItem?.name,
-      calculatorTitle: "Water Supply Pipe Sizer",
-      calculatorPath: "/plumbing-supply-pipe-sizer",
-      projectId: project?.id || "default",
-      projectName: project?.name || "Water Supply Pipe Sizing",
-    };
-    const updated = [newComment, ...commentsList];
-    saveComments(updated);
-    toast.success(`Comment / task assigned on "${commentTargetItem?.name || "parameter"}"`);
-    setCommentModalOpen(false);
-
-    notifyCommentAssigned({
-      comment: newComment,
-      targetId: commentTargetItem?.id || "plumbing-supply-pipe-sizer",
-      targetName: commentTargetItem?.name || "Supply Pipe",
-      targetType: "equipment",
-      calculatorTitle: "Water Supply Pipe Sizer",
-      calculatorPath: "/plumbing-supply-pipe-sizer",
-      project,
-      currentUserName,
-      currentUserId: userData?.id || profile?.id
-    }).catch(console.error);
-  };
-
-  // Scroll and highlight notification target item
-  useEffect(() => {
-    const handleScrollTarget = (targetId?: string, targetName?: string) => {
-      if (!targetId && !targetName) return;
-      const cleanId = (targetId || "").toLowerCase().trim();
-
-      const el = document.getElementById(targetId || "") ||
-                 document.getElementById(`field-${targetId}`) ||
-                 document.getElementById(`res-${targetId}`) ||
-                 document.querySelector(`[data-item-id="${targetId}"]`) ||
-                 document.querySelector(`[data-field-id="${targetId}"]`);
-
-      if (el || cleanId) {
-        setHighlightedTargetId(targetId || cleanId);
-
-        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-        highlightTimeoutRef.current = setTimeout(() => {
-          setHighlightedTargetId(null);
-          highlightTimeoutRef.current = null;
-        }, 4000);
-
-        if (el) {
-          setTimeout(() => {
-            el.scrollIntoView({ behavior: "smooth", block: "center" });
-          }, 150);
-        }
-      }
-    };
-
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const targetId = params.get("commentTargetId");
-      const targetName = params.get("commentTargetName");
-      if (targetId || targetName) {
-        setTimeout(() => {
-          handleScrollTarget(targetId || undefined, targetName || undefined);
-        }, 300);
-      }
-    }
-
-    const handleScrollEvent = (e: Event) => {
-      const detail = (e as CustomEvent)?.detail;
-      if (detail) {
-        handleScrollTarget(detail.id, detail.name);
-      }
-    };
-
-    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
-    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
-
-    return () => {
-      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
-      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-    };
-  }, []);
-
-  // Presets load/save
-  const [saves, setSaves] = useState<SavedCalculation[]>([]);
-  const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
-  const [showLoadModal, setShowLoadModal] = useState<boolean>(false);
-  const [saveName, setSaveName] = useState<string>("");
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("mep_supply_pipe_sizer_saves");
-      if (stored) {
-        setSaves(JSON.parse(stored));
-      }
-    } catch (e) {
-      console.error("Failed to load custom saves", e);
-    }
-  }, []);
-
-  const saveToLocalStorage = (newSaves: SavedCalculation[]) => {
-    setSaves(newSaves);
-    localStorage.setItem("mep_supply_pipe_sizer_saves", JSON.stringify(newSaves));
-  };
-
-  const handleSaveCurrent = () => {
-    if (!saveName.trim()) return;
-    const newSave: SavedCalculation = {
-      id: "supply_pipe_save_" + Date.now(),
-      type: "plumbing-supply-pipe-sizer",
-      name: saveName.trim(),
-      savedAt: new Date().toISOString(),
-      values: { flow, pAvail, pResid, length, fittingAllowance, elevation, pipeMaterial },
-      unitSystem
-    };
-    const updated = [newSave, ...saves];
-    saveToLocalStorage(updated);
-    setSaveName("");
-    setShowSaveModal(false);
-    toast.success(`Preset "${newSave.name}" saved`);
-    if (typeof forceSaveToCloud === "function") {
-      forceSaveToCloud();
-    }
-  };
-
-  const handleLoadSave = (id: string) => {
-    const target = saves.find(s => s.id === id);
-    if (!target) return;
-    const v = target.values;
-    if (v.flow !== undefined) setFlow(v.flow);
-    if (v.pAvail !== undefined) setPAvail(v.pAvail);
-    if (v.pResid !== undefined) setPResid(v.pResid);
-    if (v.length !== undefined) setLength(v.length);
-    if (v.fittingAllowance !== undefined) setFittingAllowance(v.fittingAllowance);
-    if (v.elevation !== undefined) setElevation(v.elevation);
-    if (v.pipeMaterial !== undefined) setPipeMaterial(v.pipeMaterial);
-    if (target.unitSystem) setUnitSystem(target.unitSystem);
-    setShowLoadModal(false);
-    toast.success(`Loaded preset "${target.name}"`);
-  };
-
-  const handleDeleteSave = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = saves.filter(s => s.id !== id);
-    saveToLocalStorage(updated);
-    toast.info("Deleted preset");
-  };
-
-  // Load state from localStorage on project change
+  // Load calculation state from project storage
   useEffect(() => {
     if (!project?.id) return;
     try {
       const stored = localStorage.getItem(`mep_supply_pipe_sizer_${project.id}`);
       if (stored) {
-        const data = JSON.parse(stored);
-        if (data.unitSystem) setUnitSystem(data.unitSystem);
-        if (data.flow !== undefined) setFlow(data.flow);
-        if (data.pAvail !== undefined) setPAvail(data.pAvail);
-        if (data.pResid !== undefined) setPResid(data.pResid);
-        if (data.length !== undefined) setLength(data.length);
-        if (data.fittingAllowance !== undefined) setFittingAllowance(data.fittingAllowance);
-        if (data.elevation !== undefined) setElevation(data.elevation);
-        if (data.pipeMaterial !== undefined) setPipeMaterial(data.pipeMaterial);
+        const parsed = JSON.parse(stored);
+        setInputs({
+          flow: parsed.flow !== undefined ? Number(parsed.flow) : DEFAULT_INPUTS.flow,
+          pAvail: parsed.pAvail !== undefined ? Number(parsed.pAvail) : DEFAULT_INPUTS.pAvail,
+          pResid: parsed.pResid !== undefined ? Number(parsed.pResid) : DEFAULT_INPUTS.pResid,
+          length: parsed.length !== undefined ? Number(parsed.length) : DEFAULT_INPUTS.length,
+          fittingAllowance: parsed.fittingAllowance !== undefined ? Number(parsed.fittingAllowance) : DEFAULT_INPUTS.fittingAllowance,
+          elevation: parsed.elevation !== undefined ? Number(parsed.elevation) : DEFAULT_INPUTS.elevation,
+          pipeMaterial: parsed.pipeMaterial || DEFAULT_INPUTS.pipeMaterial,
+          unitSystem: (parsed.unitSystem || "SI").toUpperCase() as "SI" | "IP",
+        });
       }
-      setTimeout(() => dirtyStore.set(false), 50);
+      const storedComments = localStorage.getItem(`mep_calc_comments_${project.id}_/plumbing-supply-pipe-sizer`);
+      if (storedComments) {
+        setCommentsMap(JSON.parse(storedComments));
+      }
     } catch (e) {
-      console.error("Failed to load supply pipe sizer calculation", e);
+      console.error("Failed to load supply pipe sizer state", e);
     }
     setLoadedProjectId(project.id);
   }, [project?.id]);
 
-  useEffect(() => {
-    if (project?.id && loadedProjectId === project.id) {
-      const dataToSave = { unitSystem, flow, pAvail, pResid, length, fittingAllowance, elevation, pipeMaterial };
-      localStorage.setItem(`mep_supply_pipe_sizer_${project.id}`, JSON.stringify(dataToSave));
+  const saveState = (newInputs: SupplyPipeInputs) => {
+    if (!project?.id) return;
+    try {
+      localStorage.setItem(`mep_supply_pipe_sizer_${project.id}`, JSON.stringify(newInputs));
       dirtyStore.set(true);
+      if (forceSaveToCloud) forceSaveToCloud();
+    } catch (e) {
+      console.error("Failed to save supply pipe sizer state", e);
     }
-  }, [project?.id, loadedProjectId, unitSystem, flow, pAvail, pResid, length, fittingAllowance, elevation, pipeMaterial]);
-
-  const handleUnitSystemChange = (targetUnit: "si" | "ip") => {
-    if (targetUnit === unitSystem) return;
-    const toIP = targetUnit === "ip";
-    const keepValues = (window as any).__mep_keep_values;
-
-    if (!keepValues) {
-      setFlow(prev => {
-        if (prev === "") return "";
-        const val = toIP ? Number(prev) * 15.8503 : Number(prev) / 15.8503;
-        return Number(val.toFixed(2));
-      });
-
-      setPAvail(prev => {
-        if (prev === "") return "";
-        const val = toIP ? Number(prev) / 6.89476 : Number(prev) * 6.89476;
-        return Number(val.toFixed(1));
-      });
-
-      setPResid(prev => {
-        if (prev === "") return "";
-        const val = toIP ? Number(prev) / 6.89476 : Number(prev) * 6.89476;
-        return Number(val.toFixed(1));
-      });
-
-      setLength(prev => {
-        if (prev === "") return "";
-        const val = toIP ? Number(prev) * 3.28084 : Number(prev) / 3.28084;
-        return Number(val.toFixed(1));
-      });
-
-      setElevation(prev => {
-        if (prev === "") return "";
-        const val = toIP ? Number(prev) * 3.28084 : Number(prev) / 3.28084;
-        return Number(val.toFixed(1));
-      });
-    }
-
-    setUnitSystem(targetUnit);
-    toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
   };
 
-  // Sizing Calculations
+  const handleInputChange = (field: keyof SupplyPipeInputs, value: any) => {
+    if (isEffectiveReadOnly) return;
+    const nextInputs = { ...inputs, [field]: value };
+    setInputs(nextInputs);
+    saveState(nextInputs);
+  };
+
+  const handleUnitSystem = (newUnit: "SI" | "IP") => {
+    if (newUnit === inputs.unitSystem || isEffectiveReadOnly) return;
+    const toIP = newUnit === "IP";
+
+    // Unit conversion:
+    // Flow: L/s <-> GPM (1 L/s = 15.8503 GPM)
+    // Pressure: kPa <-> psi (1 psi = 6.89476 kPa)
+    // Length / Elevation: m <-> ft (1 m = 3.28084 ft)
+    const nextInputs: SupplyPipeInputs = {
+      ...inputs,
+      unitSystem: newUnit,
+      flow: toIP ? Number((inputs.flow * 15.8503).toFixed(2)) : Number((inputs.flow / 15.8503).toFixed(2)),
+      pAvail: toIP ? Number((inputs.pAvail / 6.89476).toFixed(1)) : Number((inputs.pAvail * 6.89476).toFixed(1)),
+      pResid: toIP ? Number((inputs.pResid / 6.89476).toFixed(1)) : Number((inputs.pResid * 6.89476).toFixed(1)),
+      length: toIP ? Number((inputs.length * 3.28084).toFixed(1)) : Number((inputs.length / 3.28084).toFixed(1)),
+      elevation: toIP ? Number((inputs.elevation * 3.28084).toFixed(1)) : Number((inputs.elevation / 3.28084).toFixed(1)),
+    };
+
+    setInputs(nextInputs);
+    saveState(nextInputs);
+    toast.info(`Switched to ${newUnit === "IP" ? "Imperial (IP)" : "Metric (SI)"} units`);
+  };
+
+  const handleSaveComment = (commentData: any) => {
+    if (!activeCommentTarget || !project?.id) return;
+    const targetId = activeCommentTarget.id;
+    const newComment = {
+      id: `comment_${Date.now()}`,
+      authorName: currentUserName,
+      text: commentData.text,
+      timestamp: new Date().toISOString(),
+      status: "OPEN",
+    };
+    const currentList = commentsMap[targetId] || [];
+    const updatedMap = { ...commentsMap, [targetId]: [newComment, ...currentList] };
+    setCommentsMap(updatedMap);
+    localStorage.setItem(`mep_calc_comments_${project.id}_/plumbing-supply-pipe-sizer`, JSON.stringify(updatedMap));
+    toast.success(`Comment added to "${activeCommentTarget.label}"`);
+    setActiveCommentTarget(null);
+  };
+
+  const isIP = inputs.unitSystem === "IP";
+  const flowUnit = isIP ? "GPM" : "L/s";
+  const pressUnit = isIP ? "psi" : "kPa";
+  const lenUnit = isIP ? "ft" : "m";
+  const velUnit = isIP ? "fps" : "m/s";
+
+  // Hydraulic Calculations Engine (Hazen-Williams & Continuity Equation)
   const calculations = useMemo(() => {
-    const flowVal = flow !== "" ? Number(flow) : (ip ? 25 : 1.58);
-    const pAvailVal = pAvail !== "" ? Number(pAvail) : (ip ? 60 : 413.7);
-    const pResidVal = pResid !== "" ? Number(pResid) : (ip ? 20 : 137.9);
-    const lengthVal = length !== "" ? Number(length) : (ip ? 120 : 36.6);
-    const elevVal = elevation !== "" ? Number(elevation) : (ip ? 20 : 6.1);
-    const fitPct = (fittingAllowance !== undefined ? Number(fittingAllowance) : 20) / 100;
+    const flowVal = Number(inputs.flow) || 0;
+    const pAvailVal = Number(inputs.pAvail) || 0;
+    const pResidVal = Number(inputs.pResid) || 0;
+    const lengthVal = Number(inputs.length) || 0;
+    const elevVal = Number(inputs.elevation) || 0;
+    const fitPct = (Number(inputs.fittingAllowance) || 0) / 100;
+    const C = Number(inputs.pipeMaterial) || 150;
 
-    const Q_gpm = ip ? flowVal : flowVal * 15.8503;
-    const pAvail_psi = ip ? pAvailVal : pAvailVal / 6.89476;
-    const pResid_psi = ip ? pResidVal : pResidVal / 6.89476;
-    const L_ft = ip ? lengthVal : lengthVal * 3.28084;
-    const elev_ft = ip ? elevVal : elevVal * 3.28084;
+    const Q_gpm = isIP ? flowVal : flowVal * 15.8503;
+    const pAvail_psi = isIP ? pAvailVal : pAvailVal / 6.89476;
+    const pResid_psi = isIP ? pResidVal : pResidVal / 6.89476;
+    const L_ft = isIP ? lengthVal : lengthVal * 3.28084;
+    const elev_ft = isIP ? elevVal : elevVal * 3.28084;
 
-    const C = Number(pipeMaterial) || 150;
     const Leff = L_ft * (1 + fitPct);
     const elevLoss_psi = elev_ft / 2.31;
     const elevLoss_kpa = elevLoss_psi * 6.89476;
 
-    const rows = PIPE_SIZES.map(s => {
-      const hf_psi = 4.52 * Leff * Math.pow(Q_gpm, 1.85) / (Math.pow(C, 1.85) * Math.pow(s.id, 4.87));
+    const rows = PIPE_SIZES.map((s) => {
+      // Hazen-Williams head loss equation:
+      // hf (psi) = 4.52 * Leff * (Q^1.85) / (C^1.85 * d^4.87)
+      const hf_psi = Q_gpm > 0 && s.id > 0
+        ? (4.52 * Leff * Math.pow(Q_gpm, 1.85)) / (Math.pow(C, 1.85) * Math.pow(s.id, 4.87))
+        : 0;
       const hf_kpa = hf_psi * 6.89476;
 
-      const A = Math.PI * Math.pow(s.id / 12, 2) / 4;
-      const v_fps = (Q_gpm / 448.8) / A;
+      // Velocity: v = Q / A
+      const A_sqft = Math.PI * Math.pow(s.id / 12, 2) / 4;
+      const v_fps = A_sqft > 0 ? (Q_gpm / 448.8) / A_sqft : 0;
       const v_ms = v_fps * 0.3048;
 
+      // Residual Pressure at remote fixture:
       const resid_psi = pAvail_psi - hf_psi - elevLoss_psi;
       const resid_kpa = resid_psi * 6.89476;
 
       const isPressureOk = resid_psi >= pResid_psi;
-      const isVelocityOk = v_fps >= 1 && v_fps <= 8;
+      const isVelocityOk = v_fps >= 1.0 && v_fps <= 8.0; // 0.3 m/s to 2.4 m/s (IPC/ASPE)
       const ok = isPressureOk && isVelocityOk;
 
       return {
@@ -394,11 +239,12 @@ function SupplyPipeSizerPage() {
         resid_kpa,
         ok,
         isPressureOk,
-        isVelocityOk
+        isVelocityOk,
       };
     });
 
-    const rec = rows.find(r => r.ok) || rows[rows.length - 1];
+    // Find recommended size: smallest size that passes pressure and velocity, else smallest size that passes pressure
+    const rec = rows.find((r) => r.ok) || rows.find((r) => r.isPressureOk) || rows[rows.length - 1];
 
     return {
       flowVal,
@@ -416,353 +262,361 @@ function SupplyPipeSizerPage() {
       elevLoss_psi,
       elevLoss_kpa,
       rows,
-      rec
+      rec,
     };
-  }, [flow, pAvail, pResid, length, fittingAllowance, elevation, pipeMaterial, ip]);
+  }, [inputs, isIP]);
 
-  const handleCopyValue = (label: string, value: string | number) => {
-    if (value === "" || value === undefined) {
-      toast.info(`No value in ${label} to copy`);
-      return;
-    }
-    navigator.clipboard.writeText(String(value));
-    toast.success(`Copied ${label}: ${value} to clipboard`);
-  };
+  const isAdequate = Boolean(calculations.rec && calculations.rec.ok);
 
-  const handlePasteValue = async (label: string, setter: (val: number | "") => void) => {
+  // PDF Export Functionality (Preliminary Engineering Report Standard)
+  const handleExportPdf = async () => {
     try {
-      const text = await navigator.clipboard.readText();
-      const num = parseFloat(text.trim());
-      if (!isNaN(num)) {
-        setter(num);
-        toast.success(`Pasted ${num} into ${label}`);
-      } else {
-        toast.error(`Clipboard content "${text}" is not a valid number`);
-      }
-    } catch (err) {
-      toast.error("Unable to read clipboard");
-    }
-  };
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const primaryFill = [217, 217, 217] as [number, number, number];
+      const blueFill = [218, 233, 248] as [number, number, number];
 
-  const handleResetValue = (label: string, setter: (val: number | "") => void, defaultVal: number | "") => {
-    setter(defaultVal);
-    toast.success(`Reset ${label} to default`);
-  };
+      const callAutoTable = (autoTable as any).default || autoTable;
 
-  const handleClearValue = (label: string, setter: (val: number | "") => void) => {
-    setter("");
-    toast.info(`Cleared ${label}`);
-  };
+      const calcNo = `CALC-WSP-${project?.code || "001"}`;
+      const projectNo = project?.code || "PRJ-001";
+      const projectName = project?.name || "Water Supply Pipe Sizing Project";
+      const clientName = (project as any)?.client || "Client Representative";
+      const endUser = (project as any)?.endUser || "Building Facilities / MEP Department";
+      const today = formatDateStr(new Date().toISOString());
 
-  const handleExportExcel = () => {
-    if (!calculations) return;
-    const wb = XLSX.utils.book_new();
-    const rowsData = [
-      ["Water Supply Pipe Sizing Report"],
-      ["Generated on: " + new Date().toLocaleDateString(), `Unit System: ${unitSystem.toUpperCase()}`],
-      [],
-      ["1. System Design Parameters"],
-      ["Design Flow Rate", `${flow || calculations.flowVal} ${ip ? "GPM" : "L/s"}`],
-      ["Available Supply Pressure", `${pAvail || calculations.pAvailVal} ${ip ? "psi" : "kPa"}`],
-      ["Required Residual at Fixture", `${pResid || calculations.pResidVal} ${ip ? "psi" : "kPa"}`],
-      ["Total Pipe Run Length", `${length || calculations.lengthVal} ${ip ? "ft" : "m"}`],
-      ["Fitting Allowance", `${fittingAllowance} %`],
-      ["Elevation Rise", `${elevation || calculations.elevVal} ${ip ? "ft" : "m"}`],
-      [],
-      ["2. Recommended Pipe Selection"],
-      ["Recommended Pipe Size", `${calculations.rec.nps} NPS (${calculations.rec.dn})`],
-      ["Flow Velocity", `${(ip ? calculations.rec.v_fps : calculations.rec.v_ms).toFixed(2)} ${ip ? "fps" : "m/s"}`],
-      ["Friction Pressure Loss", `${(ip ? calculations.rec.hf_psi : calculations.rec.hf_kpa).toFixed(2)} ${ip ? "psi" : "kPa"}`],
-      ["Elevation Static Loss", `${(ip ? calculations.elevLoss_psi : calculations.elevLoss_kpa).toFixed(2)} ${ip ? "psi" : "kPa"}`],
-      ["Residual Pressure at Fixture", `${(ip ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${ip ? "psi" : "kPa"}`],
-      [],
-      ["3. Full Sizing Schedule"],
-      ["Size (NPS)", "Size (DN)", "Velocity", "Friction Loss", "Elev Loss", "Residual Press", "Status"],
-      ...calculations.rows.map(r => [
-        r.nps,
-        r.dn,
-        `${(ip ? r.v_fps : r.v_ms).toFixed(2)} ${ip ? "fps" : "m/s"}`,
-        `${(ip ? r.hf_psi : r.hf_kpa).toFixed(2)} ${ip ? "psi" : "kPa"}`,
-        `${(ip ? calculations.elevLoss_psi : calculations.elevLoss_kpa).toFixed(2)} ${ip ? "psi" : "kPa"}`,
-        `${(ip ? r.resid_psi : r.resid_kpa).toFixed(1)} ${ip ? "psi" : "kPa"}`,
-        r.ok ? "PASS" : "FAIL"
-      ])
-    ];
+      // Document Header
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.text("WATER SUPPLY PIPE SIZING PRELIMINARY REPORT", 14, 15);
 
-    const ws = XLSX.utils.aoa_to_sheet(rowsData);
-    XLSX.utils.book_append_sheet(wb, ws, "Supply Pipe Sizer");
-    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    downloadFile(new Uint8Array(xlsxBuffer), "Water_Supply_Pipe_Sizer_Report.xlsx", "Excel Document", ["xlsx"]);
-    toast.success("Excel report exported successfully");
-  };
-
-  const handlePrintPDF = async () => {
-    try {
-      const jsPDFModule = await import('jspdf');
-      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
-      const autoTableModule = await import('jspdf-autotable');
-      const autoTable = autoTableModule.default || autoTableModule;
-
-      const doc = new jsPDF("p", "pt", "a4");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text("Design Standards: IPC / ASPE Table 604.4 / BS EN 806 / Hazen-Williams Friction Loss", 14, 20);
 
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
-      doc.text("WATER SUPPLY PIPE SIZING REPORT", 40, 50);
+      doc.text(`Date: ${today}`, 196, 20, { align: "right" });
 
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(100);
-      doc.text(`Generated on: ${new Date().toISOString().split("T")[0]} | Unit System: ${unitSystem.toUpperCase()}`, 40, 68);
+      let currentY = 24;
 
-      doc.setDrawColor(200);
-      doc.line(40, 75, 550, 75);
+      // Metadata Enclosed Grid
+      callAutoTable(doc, {
+        startY: currentY,
+        head: [],
+        body: [
+          [
+            { content: "Calculation No.:", styles: { fontStyle: "bold", cellWidth: 32 } },
+            { content: calcNo, styles: { cellWidth: 60 } },
+            { content: "Date:", styles: { fontStyle: "bold", cellWidth: 32 } },
+            { content: today, styles: { cellWidth: 58 } },
+          ],
+          [
+            { content: "Project No.:", styles: { fontStyle: "bold" } },
+            { content: projectNo },
+            { content: "Client:", styles: { fontStyle: "bold" } },
+            { content: clientName },
+          ],
+          [
+            { content: "Project Name:", styles: { fontStyle: "bold" } },
+            { content: projectName },
+            { content: "End User:", styles: { fontStyle: "bold" } },
+            { content: endUser },
+          ],
+        ],
+        theme: "grid",
+        styles: { fontSize: 8, textColor: [40, 40, 40], cellPadding: 2 },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+      });
 
-      const summaryData = [
-        ["Design Flow Rate", `${flow || calculations.flowVal} ${ip ? "GPM" : "L/s"}`, "Available Pressure", `${pAvail || calculations.pAvailVal} ${ip ? "psi" : "kPa"}`],
-        ["Required Residual", `${pResid || calculations.pResidVal} ${ip ? "psi" : "kPa"}`, "Total Pipe Length", `${length || calculations.lengthVal} ${ip ? "ft" : "m"}`],
-        ["Elevation Rise", `${elevation || calculations.elevVal} ${ip ? "ft" : "m"}`, "Fitting Allowance", `${fittingAllowance}%`],
-        ["Recommended Size", `${calculations.rec.nps} (${calculations.rec.dn})`, "Remote Residual", `${(ip ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${ip ? "psi" : "kPa"}`],
+      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 48;
+
+      // Section 1 Header
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(0, 0, 0);
+      doc.text("1. Hydraulic Design Parameters & Pipe Run Constraints", 14, currentY);
+
+      // Table 1: Design Parameters
+      const paramBody = [
+        ["Design Flow Rate (Q)", `${inputs.flow.toFixed(2)} ${flowUnit}`, `${calculations.Q_gpm.toFixed(1)} GPM`, "Continuous fixture demand flow"],
+        ["Pipe Material & Roughness", inputs.pipeMaterial === "150" ? "Copper Type L / CPVC" : inputs.pipeMaterial === "130" ? "PEX Tubing" : "Galvanized Steel", `C = ${calculations.C}`, "Hazen-Williams friction coefficient"],
+        ["Available Supply Pressure", `${inputs.pAvail.toFixed(1)} ${pressUnit}`, `${calculations.pAvail_psi.toFixed(1)} psi`, "Mains / Booster pump discharge pressure"],
+        ["Required Residual Pressure", `${inputs.pResid.toFixed(1)} ${pressUnit}`, `${calculations.pResid_psi.toFixed(1)} psi`, "Minimum allowable pressure at remote fixture"],
+        ["Total Pipe Run Length", `${inputs.length.toFixed(1)} ${lenUnit}`, `${calculations.L_ft.toFixed(1)} ft`, "Physical linear pipe length"],
+        ["Fittings Loss Allowance", `${inputs.fittingAllowance}%`, `+${(calculations.L_ft * (inputs.fittingAllowance / 100)).toFixed(1)} ft`, "Equivalent length allowance for valves & fittings"],
+        ["Total Effective Length (Leff)", `${(calculations.Leff * (isIP ? 1 : 0.3048)).toFixed(1)} ${lenUnit}`, `${calculations.Leff.toFixed(1)} ft`, "Leff = Length × (1 + Fittings% / 100)"],
+        ["Elevation Static Head Loss", `${(isIP ? calculations.elevLoss_psi : calculations.elevLoss_kpa).toFixed(2)} ${pressUnit}`, `${calculations.elevLoss_psi.toFixed(2)} psi`, `Elevation rise: ${inputs.elevation} ${lenUnit} (ΔP = h / 2.31)`],
       ];
 
-      autoTable(doc, {
-        startY: 90,
-        head: [],
-        body: summaryData,
-        theme: "striped",
-        styles: { fontSize: 8.5, cellPadding: 3.5 },
+      callAutoTable(doc, {
+        startY: currentY + 2.5,
+        head: [["Parameter Description", "Design Value", "IP Equivalent", "Engineering Notes / Standard Reference"]],
+        body: paramBody,
+        theme: "grid",
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 8.5,
+          halign: "center",
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: [40, 40, 40],
+        },
+        alternateRowStyles: {
+          fillColor: [248, 249, 250],
+        },
         columnStyles: {
-          0: { fontStyle: "bold", cellWidth: 130 },
-          1: { cellWidth: 120 },
-          2: { fontStyle: "bold", cellWidth: 130 },
-          3: { cellWidth: 120 },
+          0: { cellWidth: 55, fontStyle: "bold" },
+          1: { cellWidth: 38, halign: "center", fontStyle: "bold" },
+          2: { cellWidth: 38, halign: "center" },
+          3: { cellWidth: 51, halign: "left" },
         },
       });
 
-      const scheduleData = calculations.rows.map(r => [
-        r.nps,
-        r.dn,
-        `${(ip ? r.v_fps : r.v_ms).toFixed(2)} ${ip ? "fps" : "m/s"}`,
-        `${(ip ? r.hf_psi : r.hf_kpa).toFixed(2)} ${ip ? "psi" : "kPa"}`,
-        `${(ip ? r.resid_psi : r.resid_kpa).toFixed(1)} ${ip ? "psi" : "kPa"}`,
-        r.ok ? "PASS" : "FAIL"
-      ]);
+      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 95;
+
+      // Section 2 Header
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(0, 0, 0);
+      doc.text("2. Complete Pipe Sizing Schedule & Hydraulic Performance", 14, currentY);
+
+      // Table 2: Pipe Sizing Schedule
+      const scheduleBody = calculations.rows.map((r, idx) => {
+        const isRec = r.nps === calculations.rec.nps;
+        const velDisp = (isIP ? r.v_fps : r.v_ms).toFixed(2);
+        const fricDisp = (isIP ? r.hf_psi : r.hf_kpa).toFixed(2);
+        const residDisp = (isIP ? r.resid_psi : r.resid_kpa).toFixed(1);
+        const statusText = isRec ? "RECOMMENDED (PASS)" : r.ok ? "PASS" : r.resid_psi < calculations.pResid_psi ? "LOW PRESSURE" : "VELOCITY EXCEEDED";
+
+        return [
+          { content: String(idx + 1), styles: { halign: "center" } },
+          { content: r.nps, styles: { fontStyle: "bold", halign: "center", fillColor: isRec ? blueFill : undefined } },
+          { content: r.dn, styles: { halign: "center", fillColor: isRec ? blueFill : undefined } },
+          { content: `${velDisp} ${velUnit}`, styles: { halign: "right", fontStyle: "bold", fillColor: isRec ? blueFill : undefined } },
+          { content: `${fricDisp} ${pressUnit}`, styles: { halign: "right", fillColor: isRec ? blueFill : undefined } },
+          { content: `${residDisp} ${pressUnit}`, styles: { halign: "right", fontStyle: "bold", fillColor: isRec ? blueFill : undefined } },
+          { content: statusText, styles: { halign: "center", fontStyle: "bold", textColor: r.ok ? [16, 185, 129] : [239, 68, 68], fillColor: isRec ? blueFill : undefined } },
+        ];
+      });
+
+      callAutoTable(doc, {
+        startY: currentY + 2.5,
+        head: [["Sr.", "Nominal (NPS)", "Metric (DN)", `Velocity (${velUnit})`, `Friction Loss (${pressUnit})`, `Residual Press (${pressUnit})`, "Compliance Status"]],
+        body: scheduleBody,
+        theme: "grid",
+        headStyles: {
+          fillColor: blueFill,
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 8.5,
+          halign: "center",
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: [40, 40, 40],
+        },
+        alternateRowStyles: {
+          fillColor: [248, 249, 250],
+        },
+        columnStyles: {
+          0: { cellWidth: 12 },
+          1: { cellWidth: 26 },
+          2: { cellWidth: 26 },
+          3: { cellWidth: 30 },
+          4: { cellWidth: 32 },
+          5: { cellWidth: 32 },
+          6: { cellWidth: 24 },
+        },
+      });
+
+      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 170;
+
+      // Status Verification Banner
+      doc.setFontSize(9);
+      doc.setLineWidth(0.3);
+      if (isAdequate) {
+        doc.setFillColor(236, 253, 245);
+        doc.setDrawColor(16, 185, 129);
+      } else {
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(239, 68, 68);
+      }
+      doc.rect(14, currentY, 182, 13, "FD");
 
       doc.setFont("helvetica", "bold");
-      doc.text("Piping Sizing Schedule", 40, (doc as any).lastAutoTable.finalY + 20);
+      doc.setTextColor(isAdequate ? 5 : 185, isAdequate ? 150 : 28, isAdequate ? 105 : 28);
+      doc.text(isAdequate ? "HYDRAULIC SIZING VERIFICATION: PASSED (COMPLIANT)" : "HYDRAULIC SIZING VERIFICATION: WARNING (INADEQUATE)", 18, currentY + 5);
 
-      autoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 30,
-        head: [["NPS", "DN", "Velocity", "Friction Drop", "Residual Press", "Status"]],
-        body: scheduleData,
-        theme: "striped",
-        styles: { fontSize: 8.5, cellPadding: 3.5 },
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(60, 60, 60);
+      doc.setFontSize(8);
+      const recSizeStr = `${calculations.rec.nps} NPS (${calculations.rec.dn})`;
+      const recResidStr = `${(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${pressUnit}`;
+      const recVelStr = `${(isIP ? calculations.rec.v_fps : calculations.rec.v_ms).toFixed(2)} ${velUnit}`;
+      const adequacyMsg = isAdequate
+        ? `The selected pipe size of ${recSizeStr} achieves a velocity of ${recVelStr} (within allowable limits) and delivers ${recResidStr} residual pressure at the remote fixture, exceeding the minimum requirement (${inputs.pResid} ${pressUnit}).`
+        : `The system cannot achieve the required ${inputs.pResid} ${pressUnit} residual pressure under current supply constraints. Available residual: ${recResidStr}. Consider increasing supply pressure or reducing pipe length.`;
+      doc.text(adequacyMsg, 18, currentY + 9.5);
+
+      // Signature Block (Table 3)
+      currentY = currentY + 17;
+      const reviewDetails = getSignatureBlockDetails(calcReviewState, currentUserName);
+      const originatedDate = reviewDetails?.originatedDate || formatDateStr(new Date().toISOString());
+      const reviewerDate = reviewDetails?.reviewerDate || "-";
+      const approverDate = reviewDetails?.approverDate || "-";
+
+      callAutoTable(doc, {
+        startY: currentY,
+        head: [["Approvals", "Originated By", "Reviewed By", "Approved By"]],
+        body: [
+          [
+            { content: "Name / Role:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: reviewDetails.originator?.name || reviewDetails.originatedName || currentUserName || "-", styles: { halign: "center" } },
+            { content: reviewDetails.reviewer?.name || reviewDetails.reviewerName || "-", styles: { halign: "center" } },
+            { content: reviewDetails.approver?.name || reviewDetails.approverName || "-", styles: { halign: "center" } },
+          ],
+          [
+            { content: "Status:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: reviewDetails.originator?.status || "Signed", styles: { halign: "center" } },
+            { content: reviewDetails.reviewer?.status || (reviewDetails.reviewerName ? "Reviewed" : "Pending"), styles: { halign: "center" } },
+            { content: reviewDetails.approver?.status || (reviewDetails.approverName ? "Approved" : "Pending"), styles: { halign: "center" } },
+          ],
+          [
+            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+            { content: originatedDate, styles: { halign: "center" } },
+            { content: reviewerDate, styles: { halign: "center" } },
+            { content: approverDate, styles: { halign: "center" } },
+          ],
+        ],
+        theme: "grid",
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 8.5,
+          halign: "center",
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: [40, 40, 40],
+        },
+        columnStyles: {
+          0: { cellWidth: 32 },
+          1: { cellWidth: 50 },
+          2: { cellWidth: 50 },
+          3: { cellWidth: 50 },
+        },
       });
 
       const pdfBuffer = doc.output("arraybuffer");
-      downloadFile(new Uint8Array(pdfBuffer), "Water_Supply_Pipe_Sizer_Report.pdf", "PDF Document", ["pdf"]);
-      toast.success("PDF report generated successfully");
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to generate PDF report");
+      await downloadFile(
+        new Uint8Array(pdfBuffer),
+        `Water_Supply_Pipe_Sizing_${project?.code || "P001"}.pdf`,
+        "PDF Document",
+        ["pdf"]
+      );
+      toast.success("Water Supply Pipe Sizing PDF report exported successfully!");
+    } catch (err: any) {
+      console.error("PDF generation failed", err);
+      toast.error(`Failed generating PDF report: ${err?.message || String(err)}`);
     }
   };
 
+  const copyToClipboard = (val: string | number) => {
+    navigator.clipboard.writeText(String(val));
+    toast.success("Copied to clipboard");
+  };
+
+  // Helper renderer for input boxes with context menu matching ventilation
   const renderInputBox = (
-    id: string,
+    fieldId: keyof SupplyPipeInputs,
     label: string,
-    value: number | "",
-    setter: (val: number | "") => void,
-    defaultVal: number | "",
-    placeholder: string,
-    min?: number,
-    step: string = "any"
+    value: number,
+    unit: string,
+    step: string = "1",
+    min: number = 0,
+    defaultVal: number
   ) => {
-    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
-    const hasComments = itemComments.length > 0;
-    const isHighlighted = highlightedTargetId === id ||
-                          highlightedTargetId === `field-${id}` ||
-                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
-                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
+    const isHighlighted = highlightedTargetId === fieldId;
+    const comments = commentsMap[fieldId] || [];
 
     return (
-      <ContextMenu key={id}>
+      <ContextMenu key={fieldId}>
         <ContextMenuTrigger asChild>
           <div
-            id={`field-${id}`}
-            data-item-id={id}
-            data-field-id={id}
-            className={`flex flex-col gap-1.5 group cursor-context-menu p-2 rounded-xl transition-all ${
+            id={`field-${fieldId}`}
+            className={`p-3 rounded-xl border transition-all relative ${
               isHighlighted
-                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
-                : ""
+                ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
+                : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
             }`}
           >
-            <label className="font-semibold text-foreground flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5">
-                <span>{label}</span>
-                {hasComments && (
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-foreground tracking-tight">
+                {label}
+              </label>
+              <div className="flex items-center gap-1">
+                {comments.length > 0 && (
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
+                    onClick={() => setActiveCommentTarget({ id: fieldId, label })}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
+                    title={`${comments.length} comment(s)`}
                   >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
+                    <MessageSquare className="size-3 fill-primary/20" />
+                    <span>{comments.length}</span>
                   </button>
                 )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                step={step}
+                min={min}
+                disabled={isEffectiveReadOnly}
+                value={value}
+                onChange={(e) => handleInputChange(fieldId, parseFloat(e.target.value) || 0)}
+                className="w-full bg-background border border-border/90 rounded-lg px-3 py-1.5 text-xs font-bold text-foreground focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition disabled:opacity-60"
+              />
+              <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap min-w-[45px]">
+                {unit}
               </span>
-              <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
-            </label>
-            <input
-              id={id}
-              type="number"
-              min={min}
-              step={step}
-              value={value}
-              onChange={(e) => setter(e.target.value === "" ? "" : Number(e.target.value))}
-              placeholder={placeholder}
-              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal transition hover:border-[#0A7BC7]/50"
-            />
+            </div>
           </div>
         </ContextMenuTrigger>
 
-        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
           <ContextMenuItem
-            onClick={() => handleCopyValue(label, value)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            onClick={() => setActiveCommentTarget({ id: fieldId, label })}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>Add / View Comment</span>
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => copyToClipboard(value)}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
           >
             <Copy className="size-3.5 text-muted-foreground" />
             <span>Copy Value</span>
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
           </ContextMenuItem>
-
-          <ContextMenuItem
-            onClick={() => handlePasteValue(label, setter)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-          >
-            <Clipboard className="size-3.5 text-muted-foreground" />
-            <span>Paste Value</span>
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
-          </ContextMenuItem>
-
-          <ContextMenuSeparator className="h-px bg-border my-1" />
-
-          <ContextMenuItem
-            onClick={() => handleResetValue(label, setter, defaultVal)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-          >
-            <RotateCcw className="size-3.5 text-muted-foreground" />
-            <span>Reset to Default ({defaultVal !== "" ? defaultVal : "Blank"})</span>
-          </ContextMenuItem>
-
-          <ContextMenuItem
-            onClick={() => handleClearValue(label, setter)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium text-amber-600 dark:text-amber-400"
-          >
-            <Trash2 className="size-3.5" />
-            <span>Clear Field</span>
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-          </ContextMenuItem>
-
-          <ContextMenuSeparator className="h-px bg-border my-1" />
-
-          <ContextMenuItem
-            onClick={() => handleOpenComment(id, label)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-          >
-            <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    );
-  };
-
-  const renderResultRow = (
-    id: string,
-    label: string,
-    valueFormatted: string,
-    isHighlight: boolean = false,
-    highlightClass: string = "text-foreground",
-    colSpanTwo: boolean = false
-  ) => {
-    const itemComments = commentsList.filter(c => c.spaceId === id || c.targetId === id || c.itemId === id);
-    const hasComments = itemComments.length > 0;
-    const isHighlighted = highlightedTargetId === id ||
-                          highlightedTargetId === `res-${id}` ||
-                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
-                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
-
-    return (
-      <ContextMenu key={id}>
-        <ContextMenuTrigger asChild>
-          <div
-            id={`res-${id}`}
-            data-item-id={id}
-            data-field-id={id}
-            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/40 dark:hover:bg-slate-800/30 px-2 rounded-lg transition cursor-context-menu group ${
-              colSpanTwo ? "col-span-2" : ""
-            } ${
-              isHighlighted
-                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
-                : ""
-            }`}
-          >
-            <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-              <span>{label}</span>
-              {hasComments && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenComment(id, label);
-                  }}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                  title={`${itemComments.length} comment(s)/task(s) assigned`}
-                >
-                  <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                  <span>{itemComments.length}</span>
-                </button>
-              )}
-            </span>
-            <strong className={`font-bold font-mono ${highlightClass}`}>{valueFormatted}</strong>
-          </div>
-        </ContextMenuTrigger>
-
-        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
-          <ContextMenuItem
-            onClick={() => handleCopyValue(label, valueFormatted)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-          >
-            <Copy className="size-3.5 text-muted-foreground" />
-            <span>Copy Value ({valueFormatted})</span>
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
-          </ContextMenuItem>
-
-          <ContextMenuItem
-            onClick={() => {
-              navigator.clipboard.writeText(`${label}: ${valueFormatted}`);
-              toast.success(`Copied full line: "${label}: ${valueFormatted}"`);
-            }}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-          >
-            <FileText className="size-3.5 text-muted-foreground" />
-            <span>Copy Full Line</span>
-          </ContextMenuItem>
-
-          <ContextMenuSeparator className="h-px bg-border my-1" />
-
-          <ContextMenuItem
-            onClick={() => handleOpenComment(id, label)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-          >
-            <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
-          </ContextMenuItem>
+          {!isEffectiveReadOnly && (
+            <>
+              <ContextMenuSeparator className="h-px bg-border my-1" />
+              <ContextMenuItem
+                onClick={() => handleInputChange(fieldId, defaultVal)}
+                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-muted-foreground"
+              >
+                <RotateCcw className="size-3.5" />
+                <span>Reset Default ({defaultVal})</span>
+              </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
     );
@@ -773,582 +627,1063 @@ function SupplyPipeSizerPage() {
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
-          {/* Header Section */}
-          <div className="flex flex-col gap-1 select-none">
-            <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Water Supply Pipe Sizer</h1>
-                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-supply-pipe-sizer" calculatorTitle="Water Supply Pipe Sizer" />
-                {commentsList.length > 0 && (
-                  <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
-                    <MessageSquare className="size-3.5 fill-blue-500/20" />
-                    <span>{commentsList.length} Active Task(s) / Comment(s)</span>
-                  </div>
-                )}
-              </div>
+          {/* Page Header & Actions */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground">Water Supply Pipe Sizer</h1>
+              
+              {/* Intelligence Trigger Button */}
+              <button 
+                type="button"
+                onClick={() => setIntelOpen((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+                title="Toggle Pipe Sizing Intelligence"
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
 
-              {/* Action Buttons & Unit Toggle */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-full gap-1 border border-border/80">
-                  <button
-                    onClick={() => handleUnitSystemChange("si")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                      unitSystem === "si"
-                        ? "bg-background text-[#0A7BC7] shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Metric (SI)
-                  </button>
-                  <button
-                    onClick={() => handleUnitSystemChange("ip")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                      unitSystem === "ip"
-                        ? "bg-background text-[#0A7BC7] shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Imperial (IP)
-                  </button>
-                </div>
-
-                <TBtn onClick={handleExportExcel} className="h-8 text-xs font-semibold">
-                  <FileSpreadsheet className="size-3.5 text-emerald-600" /> Export Excel
-                </TBtn>
-                <TBtn onClick={handlePrintPDF} className="h-8 text-xs font-semibold">
-                  <Printer className="size-3.5 text-blue-600" /> PDF Report
-                </TBtn>
-                <TBtn onClick={() => setShowSaveModal(true)} className="h-8 text-xs font-semibold">
-                  <Save className="size-3.5 text-amber-600" /> Save Preset
-                </TBtn>
-                {saves.length > 0 && (
-                  <TBtn onClick={() => setShowLoadModal(true)} className="h-8 text-xs font-semibold">
-                    <FolderOpen className="size-3.5 text-indigo-600" /> Load ({saves.length})
-                  </TBtn>
-                )}
-              </div>
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-supply-pipe-sizer" calculatorTitle="Water Supply Pipe Sizer" />
             </div>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              Size domestic water supply distribution pipes and calculate residual fixture pressure using the Hazen-Williams equation.
-            </p>
+
+            {/* Unit System Toggle in Header inline with Approve / Reject */}
+            <div className="flex items-center gap-2">
+              <UnitToggle unitSystem={inputs.unitSystem.toLowerCase() as any} onChange={(u) => handleUnitSystem(u.toUpperCase() as any)} disabled={isEffectiveReadOnly} />
+            </div>
           </div>
 
-          {/* Sizing Grid Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            
-            {/* Inputs Column (5 cols) */}
-            <div className="lg:col-span-5 flex flex-col gap-6">
-              
-              {/* Card 1: Flow & Demand Parameters */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">1. Flow & Demand Parameters</h3>
-                </div>
-
-                <div className="flex flex-col gap-3.5 text-xs">
-                  {renderInputBox(
-                    "supply-flow-rate",
-                    `Design Flow Rate (${ip ? "GPM" : "L/s"})`,
-                    flow,
-                    setFlow,
-                    ip ? 25 : 1.58,
-                    ip ? "25" : "1.58",
-                    0
-                  )}
-
-                  <div className="flex flex-col gap-1.5 p-2 rounded-xl">
-                    <label className="font-semibold text-foreground">Pipe Material</label>
-                    <select
-                      value={pipeMaterial}
-                      onChange={(e) => setPipeMaterial(e.target.value)}
-                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none"
-                    >
-                      <option value="150">Copper Type L (C = 150)</option>
-                      <option value="150">CPVC Schedule 80 (C = 150)</option>
-                      <option value="130">PEX Tubing (C = 130)</option>
-                      <option value="120">Galvanized Steel Pipe (C = 120)</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 2: Pressure & Pipe Run Constraints */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">2. Pressure & Pipe Run Constraints</h3>
-                </div>
-
-                <div className="flex flex-col gap-3.5 text-xs">
-                  {renderInputBox(
-                    "supply-p-avail",
-                    `Available Supply Pressure (${ip ? "psi" : "kPa"})`,
-                    pAvail,
-                    setPAvail,
-                    ip ? 60 : 413.7,
-                    ip ? "60" : "413.7",
-                    0
-                  )}
-                  {renderInputBox(
-                    "supply-p-resid",
-                    `Required Residual at Fixture (${ip ? "psi" : "kPa"})`,
-                    pResid,
-                    setPResid,
-                    ip ? 20 : 137.9,
-                    ip ? "20" : "137.9",
-                    0
-                  )}
-                  {renderInputBox(
-                    "supply-length",
-                    `Total Pipe Run Length (${ip ? "ft" : "m"})`,
-                    length,
-                    setLength,
-                    ip ? 120 : 36.6,
-                    ip ? "120" : "36.6",
-                    0
-                  )}
-                  {renderInputBox(
-                    "supply-fitting-allowance",
-                    "Fittings Allowance (% of pipe length)",
-                    fittingAllowance,
-                    (val) => setFittingAllowance(val === "" ? 20 : Number(val)),
-                    20,
-                    "20",
-                    0,
-                    "1"
-                  )}
-                  {renderInputBox(
-                    "supply-elevation",
-                    `Elevation Rise (${ip ? "ft" : "m"})`,
-                    elevation,
-                    setElevation,
-                    ip ? 20 : 6.1,
-                    ip ? "20" : "6.1",
-                    0
-                  )}
-                </div>
-              </div>
-
-            </div>
-
-            {/* Results Column (7 cols) */}
-            <div className="lg:col-span-7 flex flex-col gap-5">
-              
-              {/* Card 1: Recommended Sizing Selection */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Recommended Pipe Sizing</h3>
-                </div>
-
-                <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
-                  {renderResultRow("res-rec-pipe-size", "Recommended Size", `${calculations.rec.nps} NPS (${calculations.rec.dn})`, true, "text-[#0A7BC7] text-[14px]")}
-                  {renderResultRow("res-rec-velocity", "Water Velocity", `${(ip ? calculations.rec.v_fps : calculations.rec.v_ms).toFixed(2)} ${ip ? "fps" : "m/s"}`, true, "text-[#0A7BC7]")}
-                  {renderResultRow("res-rec-fric-loss", "Friction Head Loss", `${(ip ? calculations.rec.hf_psi : calculations.rec.hf_kpa).toFixed(2)} ${ip ? "psi" : "kPa"}`)}
-                  {renderResultRow("res-rec-elev-loss", "Elevation Static Loss", `${(ip ? calculations.elevLoss_psi : calculations.elevLoss_kpa).toFixed(2)} ${ip ? "psi" : "kPa"}`)}
-                  {renderResultRow("res-rec-resid-press", "Residual at Fixture", `${(ip ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${ip ? "psi" : "kPa"}`, true, "text-[#0A7BC7] text-[14px]", true)}
-                </div>
-              </div>
-
-              {/* Card 2: Pipe Sizing Schedule */}
-              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs overflow-hidden">
-                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Sizing Schedule (All Pipe Sizes)</h3>
-                </div>
-
-                <div className="overflow-x-auto border border-border/60 rounded-xl">
-                  <table className="w-full text-[11px] font-sans text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-100 dark:bg-slate-900 font-bold text-foreground border-b border-border/60">
-                        <th className="p-2 text-center">NPS</th>
-                        <th className="p-2 text-center">DN</th>
-                        <th className="p-2 text-right">Velocity</th>
-                        <th className="p-2 text-right">Friction Drop</th>
-                        <th className="p-2 text-right">Residual Press</th>
-                        <th className="p-2 text-center">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/40 font-mono">
-                      {calculations.rows.map((r) => {
-                        const isChosen = calculations.rec?.nps === r.nps;
-                        const showVel = ip ? r.v_fps : r.v_ms;
-                        const showFric = ip ? r.hf_psi : r.hf_kpa;
-                        const showResid = ip ? r.resid_psi : r.resid_kpa;
-
-                        return (
-                          <tr key={r.nps} className={`hover:bg-slate-50 dark:hover:bg-slate-900/50 ${isChosen ? "bg-primary/10 font-bold" : ""}`}>
-                            <td className="p-2 text-center font-bold font-sans">{r.nps}</td>
-                            <td className="p-2 text-center">{r.dn}</td>
-                            <td className="p-2 text-right">{showVel.toFixed(2)} {ip ? "fps" : "m/s"}</td>
-                            <td className="p-2 text-right">{showFric.toFixed(2)} {ip ? "psi" : "kPa"}</td>
-                            <td className={`p-2 text-right font-bold ${r.resid_psi >= calculations.pResid_psi ? "text-emerald-500" : "text-red-500"}`}>
-                              {showResid.toFixed(1)} {ip ? "psi" : "kPa"}
-                            </td>
-                            <td className="p-2 text-center">
-                              {r.ok ? (
-                                <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold px-1.5 py-0.5 rounded text-[10px]">
-                                  {isChosen ? "✓ RECOMMENDED" : "✓ PASS"}
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground/60 text-[10px]">NON-COMPLIANT</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Card 3: Detailed Calculations Steps Accordion */}
-              <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+          {/* Main Content Card Container */}
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+            calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
             : calcReviewState?.status === "REJECTED"
             ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
             : calcReviewState?.status === "REVIEWED"
             ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
-                <button
-                  onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
-                  className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+          }`}>
+            
+            {/* Tabs Selector row */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    onClick={() => setTab("calculator")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "calculator"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Pipe Sizer
+                  </button>
+                  <button
+                    onClick={() => setTab("report")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "report"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Report
+                  </button>
+                </div>
+
+                {/* Formula Breakdown button placed right next to tabs */}
+                <TBtn
+                  onClick={() => setShowFormulaModal(true)}
+                  title="Detailed Formulas & Hazen-Williams Derivations"
                 >
-                  <span className="flex items-center gap-2">
-                    <HelpCircle className="size-4 text-primary" /> Σ Detailed Calculations Steps
-                  </span>
-                  {showDetailedCalcs ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-                </button>
-                {showDetailedCalcs && (
-                  <div className="p-5 pt-0 border-t border-border/40 text-xs font-sans flex flex-col gap-4 max-h-[400px] overflow-y-auto">
-                    
-                    {/* Step 1 */}
-                    {(() => {
-                      const stepId = "step-1-effective-length";
-                      const stepLabel = "Step 1: Total Effective Piping Length";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
-                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
-                      return (
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id={stepId}
-                              data-item-id={stepId}
-                              data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
-                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
-                              }`}
-                            >
-                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">1</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-bold text-foreground flex items-center justify-between">
-                                  <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="font-mono text-primary my-1">Leff = Length × (1 + Fitting_Allowance ÷ 100)</div>
-                                <div className="font-mono text-[10.5px] text-muted-foreground">Leff = {calculations.L_ft.toFixed(1)} ft × (1 + {fittingAllowance}%)</div>
-                                <div className="font-bold text-[11px] text-foreground mt-0.5">Leff = {calculations.Leff.toFixed(1)} ft ({(calculations.Leff * 0.3048).toFixed(1)} m)</div>
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 1 Length", `${calculations.Leff.toFixed(1)} ft`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 1 Result</span>
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })()}
-
-                    {/* Step 2 */}
-                    {(() => {
-                      const stepId = "step-2-elevation-loss";
-                      const stepLabel = "Step 2: Elevation Static Head Loss";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
-                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
-                      return (
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id={stepId}
-                              data-item-id={stepId}
-                              data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
-                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
-                              }`}
-                            >
-                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">2</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-bold text-foreground flex items-center justify-between">
-                                  <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="font-mono text-primary my-1">ΔP_elev (psi) = Elevation_Rise_ft ÷ 2.31</div>
-                                <div className="font-mono text-[10.5px] text-muted-foreground">ΔP_elev = {calculations.elev_ft.toFixed(1)} ft ÷ 2.31</div>
-                                <div className="font-bold text-[11px] text-foreground mt-0.5">
-                                  ΔP_elev = {(ip ? calculations.elevLoss_psi : calculations.elevLoss_kpa).toFixed(2)} {ip ? "psi" : "kPa"}
-                                </div>
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 2 Elevation Loss", `${(ip ? calculations.elevLoss_psi : calculations.elevLoss_kpa).toFixed(2)} ${ip ? "psi" : "kPa"}`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 2 Result</span>
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })()}
-
-                    {/* Step 3 */}
-                    {(() => {
-                      const stepId = "step-3-hazen-williams";
-                      const stepLabel = "Step 3: Hazen-Williams Friction Head Loss";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
-                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
-                      return (
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id={stepId}
-                              data-item-id={stepId}
-                              data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
-                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
-                              }`}
-                            >
-                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">3</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-bold text-foreground flex items-center justify-between">
-                                  <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="font-mono text-primary my-1">hf = (4.52 × Leff × Q^1.85) ÷ (C^1.85 × d^4.87)</div>
-                                <div className="font-mono text-[10.5px] text-muted-foreground">Q = {calculations.Q_gpm.toFixed(1)} GPM, C = {calculations.C}, d = {calculations.rec.id}"</div>
-                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">
-                                  hf = {(ip ? calculations.rec.hf_psi : calculations.rec.hf_kpa).toFixed(2)} {ip ? "psi" : "kPa"}
-                                </div>
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 3 Friction", `${(ip ? calculations.rec.hf_psi : calculations.rec.hf_kpa).toFixed(2)} ${ip ? "psi" : "kPa"}`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 3 Result</span>
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })()}
-
-                    {/* Step 4 */}
-                    {(() => {
-                      const stepId = "step-4-residual-pressure";
-                      const stepLabel = "Step 4: Residual Pressure Verification";
-                      const stepComments = commentsList.filter(c => c.spaceId === stepId || c.targetId === stepId || c.itemId === stepId);
-                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
-                      return (
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id={stepId}
-                              data-item-id={stepId}
-                              data-field-id={stepId}
-                              className={`flex gap-3 items-start pb-1 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
-                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
-                              }`}
-                            >
-                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">4</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-bold text-foreground flex items-center justify-between">
-                                  <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
-                                </div>
-                                <div className="font-mono text-primary my-1">P_residual = P_available − hf − ΔP_elev ≥ P_required</div>
-                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">
-                                  P_residual = {(ip ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} {ip ? "psi" : "kPa"} (Required: {(ip ? calculations.pResid_psi : calculations.pResid_psi * 6.89476).toFixed(1)} {ip ? "psi" : "kPa"}) — ✓ PASS
-                                </div>
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 4 Residual", `${(ip ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${ip ? "psi" : "kPa"}`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 4 Result</span>
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })()}
-
-                  </div>
-                )}
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
               </div>
 
+              {/* Right Side Action Button: Export */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={handleExportPdf}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
+              </div>
             </div>
 
+            {/* Active Tab View */}
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+              {tab === "calculator" ? (
+                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-8">
+                    
+                    {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
+                    <div className="lg:col-span-5 space-y-5">
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
+                        
+                        {/* Header */}
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                          <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                            📥 Sizing Parameters
+                          </span>
+                        </div>
+
+                        {/* Section 1: Flow & Demand Parameters */}
+                        <div className="space-y-3">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                            Flow &amp; Demand Parameters
+                          </span>
+
+                          <div className="grid grid-cols-1 gap-2.5">
+                            {renderInputBox(
+                              "flow",
+                              "Design Flow Rate",
+                              inputs.flow,
+                              flowUnit,
+                              "0.1",
+                              0,
+                              isIP ? 25 : 1.58
+                            )}
+
+                            {/* Pipe Material Dropdown */}
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div className="p-3 rounded-xl border bg-slate-50/70 dark:bg-slate-900/50 border-border/80 space-y-1.5">
+                                  <label className="text-xs font-semibold text-foreground tracking-tight block">
+                                    Pipe Material
+                                  </label>
+                                  <select
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.pipeMaterial}
+                                    onChange={(e) => handleInputChange("pipeMaterial", e.target.value)}
+                                    className="w-full bg-background border border-border/90 rounded-lg px-3 py-1.5 text-xs font-bold text-foreground focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition disabled:opacity-60"
+                                  >
+                                    <option value="150">Copper Type L (C = 150)</option>
+                                    <option value="150">CPVC Schedule 80 (C = 150)</option>
+                                    <option value="130">PEX Tubing (C = 130)</option>
+                                    <option value="120">Galvanized Steel Pipe (C = 120)</option>
+                                  </select>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => setActiveCommentTarget({ id: "pipeMaterial", label: "Pipe Material" })}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add / View Comment</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          </div>
+                        </div>
+
+                        {/* Section 2: Pressure & Pipe Run Constraints */}
+                        <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                            Pressure &amp; Pipe Run Constraints
+                          </span>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            {renderInputBox(
+                              "pAvail",
+                              "Supply Pressure",
+                              inputs.pAvail,
+                              pressUnit,
+                              "1",
+                              0,
+                              isIP ? 60 : 413.7
+                            )}
+                            {renderInputBox(
+                              "pResid",
+                              "Req. Residual",
+                              inputs.pResid,
+                              pressUnit,
+                              "1",
+                              0,
+                              isIP ? 20 : 137.9
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            {renderInputBox(
+                              "length",
+                              "Pipe Run Length",
+                              inputs.length,
+                              lenUnit,
+                              "1",
+                              0,
+                              isIP ? 120 : 36.6
+                            )}
+                            {renderInputBox(
+                              "fittingAllowance",
+                              "Fittings Allowance",
+                              inputs.fittingAllowance,
+                              "%",
+                              "1",
+                              0,
+                              20
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2 text-xs">
+                            {renderInputBox(
+                              "elevation",
+                              "Elevation Rise",
+                              inputs.elevation,
+                              lenUnit,
+                              "0.5",
+                              0,
+                              isIP ? 20 : 6.1
+                            )}
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-zinc-800/40 border border-slate-200/60 dark:border-zinc-800 flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground font-medium">Effective Length (Leff):</span>
+                            <span className="font-mono font-bold text-foreground">
+                              {(calculations.Leff * (isIP ? 1 : 0.3048)).toFixed(1)} {lenUnit} ({calculations.Leff.toFixed(1)} ft)
+                            </span>
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+
+                    {/* RIGHT COLUMN: CALCULATION RESULTS SUMMARY (lg:col-span-7) */}
+                    <div className="lg:col-span-7 space-y-5">
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            id="card-calculation-results"
+                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 transition-all hover:border-slate-300 dark:hover:border-zinc-700"
+                          >
+                            
+                            {/* Header */}
+                            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                                  ⚡ Sizing Results Summary
+                                </span>
+                              </div>
+
+                              {/* Status Badge */}
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                isAdequate
+                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                  : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                              }`}>
+                                {isAdequate ? <ShieldCheck className="size-3.5" /> : <AlertTriangle className="size-3.5" />}
+                                <span>{isAdequate ? "Adequate Pressure" : "Inadequate Pressure"}</span>
+                              </span>
+                            </div>
+
+                            {/* 4 Colorful Top Metric Tiles (Matching Pump Sizing) */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 flex flex-col justify-between">
+                                <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Recommended Size</div>
+                                <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                  {calculations.rec.nps} <span className="text-xs font-normal text-muted-foreground">NPS</span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground font-mono mt-0.5">({calculations.rec.dn})</span>
+                              </div>
+
+                              <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 flex flex-col justify-between">
+                                <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Water Velocity</div>
+                                <div className={`text-xl font-bold font-mono mt-1 ${calculations.rec.isVelocityOk ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                                  {(isIP ? calculations.rec.v_fps : calculations.rec.v_ms).toFixed(2)} <span className="text-xs font-normal text-muted-foreground">{velUnit}</span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground mt-0.5">Target: 1.0 - 2.4 m/s</span>
+                              </div>
+
+                              <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 flex flex-col justify-between">
+                                <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Friction Head Loss</div>
+                                <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                  {(isIP ? calculations.rec.hf_psi : calculations.rec.hf_kpa).toFixed(2)} <span className="text-xs font-normal text-muted-foreground">{pressUnit}</span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground mt-0.5">Hazen-Williams (C={calculations.C})</span>
+                              </div>
+
+                              <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 flex flex-col justify-between">
+                                <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Residual at Fixture</div>
+                                <div className={`text-xl font-bold font-mono mt-1 ${calculations.rec.isPressureOk ? "text-purple-600 dark:text-purple-400" : "text-red-500 dark:text-red-400"}`}>
+                                  {(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} <span className="text-xs font-normal text-muted-foreground">{pressUnit}</span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground mt-0.5">Min Req: {inputs.pResid} {pressUnit}</span>
+                              </div>
+                            </div>
+
+                            {/* SIZING SCHEDULE (ALL PIPE SIZES TABLE) */}
+                            <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-3">
+                              <div className="flex justify-between items-center text-xs font-bold text-foreground">
+                                <span className="uppercase tracking-wider text-[11px] text-muted-foreground">Sizing Schedule (All Pipe Sizes)</span>
+                                <span className="text-muted-foreground text-[10.5px]">Available: {inputs.pAvail} {pressUnit}</span>
+                              </div>
+
+                              <div className="overflow-x-auto border border-border/60 rounded-xl bg-background">
+                                <table className="w-full text-[11px] font-sans text-left border-collapse">
+                                  <thead>
+                                    <tr className="bg-slate-100 dark:bg-slate-900 font-bold text-foreground border-b border-border/60">
+                                      <th className="p-2.5 text-center">NPS</th>
+                                      <th className="p-2.5 text-center">DN</th>
+                                      <th className="p-2.5 text-right">Velocity</th>
+                                      <th className="p-2.5 text-right">Friction Drop</th>
+                                      <th className="p-2.5 text-right">Residual Press</th>
+                                      <th className="p-2.5 text-center">Status</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-border/40 font-mono">
+                                    {calculations.rows.map((r) => {
+                                      const isChosen = calculations.rec?.nps === r.nps;
+                                      const showVel = isIP ? r.v_fps : r.v_ms;
+                                      const showFric = isIP ? r.hf_psi : r.hf_kpa;
+                                      const showResid = isIP ? r.resid_psi : r.resid_kpa;
+
+                                      return (
+                                        <tr key={r.nps} className={`hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors ${isChosen ? "bg-primary/10 font-bold" : ""}`}>
+                                          <td className="p-2.5 text-center font-bold font-sans">{r.nps}</td>
+                                          <td className="p-2.5 text-center">{r.dn}</td>
+                                          <td className="p-2.5 text-right">{showVel.toFixed(2)} {velUnit}</td>
+                                          <td className="p-2.5 text-right">{showFric.toFixed(2)} {pressUnit}</td>
+                                          <td className={`p-2.5 text-right font-bold ${r.isPressureOk ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
+                                            {showResid.toFixed(1)} {pressUnit}
+                                          </td>
+                                          <td className="p-2.5 text-center font-sans">
+                                            {r.ok ? (
+                                              <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold px-2 py-0.5 rounded text-[10px] inline-flex items-center gap-1">
+                                                <Check className="size-3" /> {isChosen ? "RECOMMENDED" : "PASS"}
+                                              </span>
+                                            ) : (
+                                              <span className="text-muted-foreground/60 text-[10px]">
+                                                {r.resid_psi < calculations.pResid_psi ? "NON-COMPLIANT" : "HIGH VELOCITY"}
+                                              </span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+
+                            {/* Storage / Hydraulic Verification Banner */}
+                            <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
+                              isAdequate
+                                ? "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/50 text-emerald-900 dark:text-emerald-200"
+                                : "bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800/50 text-amber-900 dark:text-amber-200"
+                            }`}>
+                              {isAdequate ? (
+                                <CheckCircle2 className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                              ) : (
+                                <AlertTriangle className="size-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                              )}
+                              <div>
+                                <strong className="text-[12px] block">
+                                  {isAdequate ? "Hydraulic Pipe Sizing Verified:" : "Hydraulic Inadequacy Warning:"}
+                                </strong>
+                                <p className="mt-0.5 leading-relaxed text-[11.5px]">
+                                  {isAdequate
+                                    ? `Selected pipe size ${calculations.rec.nps} NPS (${calculations.rec.dn}) delivers ${(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${pressUnit} residual pressure at remote fixture (exceeding ${inputs.pResid} ${pressUnit} requirement) with velocity of ${(isIP ? calculations.rec.v_fps : calculations.rec.v_ms).toFixed(2)} ${velUnit}.`
+                                    : `The calculated residual pressure ${(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${pressUnit} is below the required ${inputs.pResid} ${pressUnit}. Please increase supply pressure or reduce run length.`}
+                                </p>
+                              </div>
+                            </div>
+
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => copyToClipboard(`Recommended Size: ${calculations.rec.nps} (${calculations.rec.dn}), Velocity: ${(isIP ? calculations.rec.v_fps : calculations.rec.v_ms).toFixed(2)} ${velUnit}, Residual: ${(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${pressUnit}`)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Copy className="size-3.5 text-muted-foreground" />
+                            <span>Copy Results Summary</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onClick={handleExportPdf}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <FileText className="size-3.5" />
+                            <span>Export PDF Report</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={() => setActiveCommentTarget({ id: "results", label: "Calculation Results" })}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add / View Comment</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Report View Tab (Preliminary Document Format) */
+                <PipeSizerReportView
+                  inputs={inputs}
+                  calculations={calculations}
+                  project={project}
+                  calcReviewState={calcReviewState}
+                  currentUserName={currentUserName}
+                  isIP={isIP}
+                  flowUnit={flowUnit}
+                  pressUnit={pressUnit}
+                  lenUnit={lenUnit}
+                  velUnit={velUnit}
+                  isAdequate={isAdequate}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Intelligence Drawer (Collapsible Right Side Panel) */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <SupplyPipeIntelligenceDrawer
+              onClose={() => setIntelOpen(false)}
+              inputs={inputs}
+              handleInputChange={handleInputChange}
+              setInputs={(newInputs: SupplyPipeInputs) => {
+                setInputs(newInputs);
+                saveState(newInputs);
+              }}
+              calculations={calculations}
+              flowUnit={flowUnit}
+              pressUnit={pressUnit}
+              lenUnit={lenUnit}
+              velUnit={velUnit}
+              isIP={isIP}
+              isEffectiveReadOnly={isEffectiveReadOnly}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Formula & Derivations Modal */}
+      {showFormulaModal && (
+        <SupplyPipeFormulaModal
+          inputs={inputs}
+          calculations={calculations}
+          isIP={isIP}
+          flowUnit={flowUnit}
+          pressUnit={pressUnit}
+          lenUnit={lenUnit}
+          velUnit={velUnit}
+          onClose={() => setShowFormulaModal(false)}
+        />
+      )}
+
+      {/* Assign / View Comment Modal */}
+      {activeCommentTarget && (
+        <AssignCommentModal
+          isOpen={true}
+          onClose={() => setActiveCommentTarget(null)}
+          onSave={handleSaveComment}
+          targetId={activeCommentTarget.id}
+          targetName={activeCommentTarget.label}
+          existingComments={commentsMap[activeCommentTarget.id] || []}
+        />
+      )}
+    </AppShell>
+  );
+}
+
+// Live Intelligence Drawer Component for Water Supply Pipe Sizer
+function SupplyPipeIntelligenceDrawer({
+  onClose,
+  inputs,
+  handleInputChange,
+  setInputs,
+  calculations,
+  flowUnit,
+  pressUnit,
+  lenUnit,
+  velUnit,
+  isIP,
+  isEffectiveReadOnly,
+}: {
+  onClose: () => void;
+  inputs: SupplyPipeInputs;
+  handleInputChange: (field: keyof SupplyPipeInputs, val: any) => void;
+  setInputs: (inputs: SupplyPipeInputs) => void;
+  calculations: any;
+  flowUnit: string;
+  pressUnit: string;
+  lenUnit: string;
+  velUnit: string;
+  isIP: boolean;
+  isEffectiveReadOnly: boolean;
+}) {
+  const applyPreset = (preset: {
+    flow: number;
+    pAvail: number;
+    pResid: number;
+    length: number;
+    fittingAllowance: number;
+    elevation: number;
+    pipeMaterial: string;
+  }) => {
+    if (isEffectiveReadOnly) return;
+    const nextInputs: SupplyPipeInputs = {
+      ...inputs,
+      flow: isIP ? Number((preset.flow * 15.8503).toFixed(2)) : preset.flow,
+      pAvail: isIP ? Number((preset.pAvail / 6.89476).toFixed(1)) : preset.pAvail,
+      pResid: isIP ? Number((preset.pResid / 6.89476).toFixed(1)) : preset.pResid,
+      length: isIP ? Number((preset.length * 3.28084).toFixed(1)) : preset.length,
+      fittingAllowance: preset.fittingAllowance,
+      elevation: isIP ? Number((preset.elevation * 3.28084).toFixed(1)) : preset.elevation,
+      pipeMaterial: preset.pipeMaterial,
+    };
+    setInputs(nextInputs);
+    toast.success("Applied archetype preset configuration");
+  };
+
+  const recVel = isIP ? calculations.rec.v_fps : calculations.rec.v_ms;
+  const isHighVel = recVel > (isIP ? 8.0 : 2.4);
+  const isLowVel = recVel < (isIP ? 2.0 : 0.6);
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
+      <div className="p-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-4.5 text-primary" />
+          <div>
+            <h3 className="font-bold text-[13.5px] uppercase tracking-wider text-foreground">Live Intelligence</h3>
+            <p className="text-[10.5px] text-muted-foreground font-medium">ASPE / IPC Hydraulic Optimization Engine</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="size-7 rounded-lg hover:bg-surface-2 grid place-items-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          title="Close Live Intelligence"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 text-[12.5px] leading-relaxed text-foreground custom-scrollbar">
+        
+        {/* 1. Velocity Audit Card */}
+        <div className="border border-border rounded-2xl p-4 bg-background shadow-2xs flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] font-bold text-foreground flex items-center gap-1.5">
+              <Activity className="size-4 text-primary" />
+              <span>Velocity Compliance Audit</span>
+            </span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${calculations.rec.isVelocityOk ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"}`}>
+              {calculations.rec.isVelocityOk ? "OPTIMAL" : isHighVel ? "EROSION RISK" : "SEDIMENT RISK"}
+            </span>
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/50 border border-border/60 flex flex-col gap-1.5">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-muted-foreground">Standard Range:</span>
+              <span className="font-bold text-foreground font-mono">1.0 - 2.4 m/s (3 - 8 fps)</span>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-muted-foreground">Selected Velocity:</span>
+              <span className={`font-bold font-mono ${calculations.rec.isVelocityOk ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                {recVel.toFixed(2)} {velUnit}
+              </span>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-muted-foreground">Recommended Size:</span>
+              <span className="font-bold text-primary font-mono">{calculations.rec.nps} NPS ({calculations.rec.dn})</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Pipe Material Roughness Insights */}
+        <div className="border border-border rounded-2xl p-4 bg-background shadow-2xs flex flex-col gap-3">
+          <span className="text-[12px] font-bold text-foreground flex items-center gap-1.5">
+            <Zap className="size-4 text-amber-500" />
+            <span>Pipe Friction (C-Factor)</span>
+          </span>
+          <p className="text-[11.5px] text-muted-foreground leading-relaxed">
+            Hazen-Williams <strong>C = {calculations.C}</strong>. Copper &amp; CPVC (C=150) offer the lowest resistance, reducing pressure drop by up to 35% compared to steel (C=120).
+          </p>
+        </div>
+
+        {/* 3. Project Archetype Presets */}
+        <div className="border border-border rounded-2xl p-4 bg-background shadow-2xs flex flex-col gap-3">
+          <span className="text-[12px] font-bold text-foreground flex items-center gap-1.5">
+            <Building2 className="size-4 text-primary" />
+            <span>Quick Project Archetypes</span>
+          </span>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              disabled={isEffectiveReadOnly}
+              onClick={() => applyPreset({
+                flow: 1.58,
+                pAvail: 413.7,
+                pResid: 137.9,
+                length: 36.6,
+                fittingAllowance: 20,
+                elevation: 6.1,
+                pipeMaterial: "150",
+              })}
+              className="p-2.5 rounded-xl border border-border/80 bg-slate-50/70 dark:bg-slate-900/40 hover:border-primary/60 text-left transition flex items-center justify-between group cursor-pointer disabled:opacity-50"
+            >
+              <div className="flex items-center gap-2">
+                <Home className="size-4 text-primary shrink-0" />
+                <div>
+                  <strong className="text-xs text-foreground block">Residential Branch Header</strong>
+                  <span className="text-[10.5px] text-muted-foreground">1.58 L/s · 36.6 m Run · Copper C=150</span>
+                </div>
+              </div>
+              <ArrowUpRight className="size-3.5 text-muted-foreground group-hover:text-primary transition" />
+            </button>
+
+            <button
+              type="button"
+              disabled={isEffectiveReadOnly}
+              onClick={() => applyPreset({
+                flow: 6.3,
+                pAvail: 480.0,
+                pResid: 150.0,
+                length: 85.0,
+                fittingAllowance: 25,
+                elevation: 18.0,
+                pipeMaterial: "150",
+              })}
+              className="p-2.5 rounded-xl border border-border/80 bg-slate-50/70 dark:bg-slate-900/40 hover:border-primary/60 text-left transition flex items-center justify-between group cursor-pointer disabled:opacity-50"
+            >
+              <div className="flex items-center gap-2">
+                <Building2 className="size-4 text-primary shrink-0" />
+                <div>
+                  <strong className="text-xs text-foreground block">Commercial Multi-Storey Riser</strong>
+                  <span className="text-[10.5px] text-muted-foreground">6.30 L/s · 85 m Run · 18 m Elevation</span>
+                </div>
+              </div>
+              <ArrowUpRight className="size-3.5 text-muted-foreground group-hover:text-primary transition" />
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// Preliminary Report View Component
+function PipeSizerReportView({
+  inputs,
+  calculations,
+  project,
+  calcReviewState,
+  currentUserName,
+  isIP,
+  flowUnit,
+  pressUnit,
+  lenUnit,
+  velUnit,
+  isAdequate,
+}: {
+  inputs: SupplyPipeInputs;
+  calculations: any;
+  project: any;
+  calcReviewState: CalculationReviewState | null;
+  currentUserName: string;
+  isIP: boolean;
+  flowUnit: string;
+  pressUnit: string;
+  lenUnit: string;
+  velUnit: string;
+  isAdequate: boolean;
+}) {
+  const calcNo = `CALC-WSP-${project?.code || "001"}`;
+  const projectNo = project?.code || "PRJ-001";
+  const projectName = project?.name || "Water Supply Pipe Sizing Project";
+  const clientName = (project as any)?.client || "Client Representative";
+  const endUser = (project as any)?.endUser || "Building Facilities / MEP Department";
+  const today = formatDateStr(new Date().toISOString());
+
+  const sigDetails = getSignatureBlockDetails(calcReviewState, currentUserName);
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Top Bar */}
+      <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50 no-print">
+        <span className="text-[12px] text-muted-foreground font-semibold">
+          Generated: <span className="text-foreground font-mono">{today}</span>
+        </span>
+      </div>
+
+      {/* Main Report Document Sheet */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+        <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6 font-sans">
+          
+          {/* Header Title & Date */}
+          <div className="flex justify-between items-start pb-4 border-b border-border">
+            <div>
+              <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                Water Supply Pipe Sizing Preliminary Report
+              </h2>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Design Standards: IPC Table 604.4 / ASPE Data Book / Hazen-Williams Friction Loss (C={calculations.C})
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="text-[11px] text-muted-foreground block font-mono">Date: {today}</span>
+            </div>
+          </div>
+
+          {/* Enclosed Project Metadata Grid (3 rows x 2 cols) */}
+          <div className="border border-border rounded-xl overflow-hidden text-[12px]">
+            <div className="grid grid-cols-2 divide-x divide-border border-b border-border bg-muted/20">
+              <div className="p-2.5 px-3 flex justify-between">
+                <span className="font-bold text-foreground">Calculation No.:</span>
+                <span className="text-muted-foreground font-mono">{calcNo}</span>
+              </div>
+              <div className="p-2.5 px-3 flex justify-between">
+                <span className="font-bold text-foreground">Date:</span>
+                <span className="text-muted-foreground">{today}</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
+              <div className="p-2.5 px-3 flex justify-between">
+                <span className="font-bold text-foreground">Project No.:</span>
+                <span className="text-muted-foreground">{projectNo}</span>
+              </div>
+              <div className="p-2.5 px-3 flex justify-between">
+                <span className="font-bold text-foreground">Client:</span>
+                <span className="text-muted-foreground">{clientName}</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 divide-x divide-border">
+              <div className="p-2.5 px-3 flex justify-between">
+                <span className="font-bold text-foreground">Project Name:</span>
+                <span className="text-muted-foreground">{projectName}</span>
+              </div>
+              <div className="p-2.5 px-3 flex justify-between">
+                <span className="font-bold text-foreground">End User:</span>
+                <span className="text-muted-foreground">{endUser}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Table 1: Design Parameters & Pipe Run Constraints */}
+          <div className="space-y-2">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              1. Hydraulic Design Parameters &amp; Constraints
+            </h3>
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[11px] border-collapse">
+                  <thead>
+                    <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
+                      <th className="py-2 px-2.5 w-10">Sr.</th>
+                      <th className="py-2 px-3 text-left">Parameter Description</th>
+                      <th className="py-2 px-3 text-center w-32">Design Value</th>
+                      <th className="py-2 px-3 text-center w-36">IP Equivalent</th>
+                      <th className="py-2 px-3 text-left">Engineering Reference</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60 font-sans">
+                    <tr className="hover:bg-muted/30">
+                      <td className="py-2 px-2.5 text-center text-muted-foreground font-mono">1</td>
+                      <td className="py-2 px-3 font-semibold text-foreground">Design Flow Rate (Q)</td>
+                      <td className="py-2 px-3 text-center font-mono font-bold">{inputs.flow.toFixed(2)} {flowUnit}</td>
+                      <td className="py-2 px-3 text-center font-mono">{calculations.Q_gpm.toFixed(1)} GPM</td>
+                      <td className="py-2 px-3 text-muted-foreground">Continuous domestic water fixture flow rate</td>
+                    </tr>
+                    <tr className="hover:bg-muted/30">
+                      <td className="py-2 px-2.5 text-center text-muted-foreground font-mono">2</td>
+                      <td className="py-2 px-3 font-semibold text-foreground">Pipe Material &amp; Friction C</td>
+                      <td className="py-2 px-3 text-center font-mono font-bold">C = {calculations.C}</td>
+                      <td className="py-2 px-3 text-center font-mono">{inputs.pipeMaterial === "150" ? "Copper / CPVC" : "PEX / Steel"}</td>
+                      <td className="py-2 px-3 text-muted-foreground">Hazen-Williams roughness coefficient</td>
+                    </tr>
+                    <tr className="hover:bg-muted/30">
+                      <td className="py-2 px-2.5 text-center text-muted-foreground font-mono">3</td>
+                      <td className="py-2 px-3 font-semibold text-foreground">Available Supply Pressure</td>
+                      <td className="py-2 px-3 text-center font-mono font-bold">{inputs.pAvail.toFixed(1)} {pressUnit}</td>
+                      <td className="py-2 px-3 text-center font-mono">{calculations.pAvail_psi.toFixed(1)} psi</td>
+                      <td className="py-2 px-3 text-muted-foreground">Source / booster pump discharge pressure</td>
+                    </tr>
+                    <tr className="hover:bg-muted/30">
+                      <td className="py-2 px-2.5 text-center text-muted-foreground font-mono">4</td>
+                      <td className="py-2 px-3 font-semibold text-foreground">Required Residual Pressure</td>
+                      <td className="py-2 px-3 text-center font-mono font-bold">{inputs.pResid.toFixed(1)} {pressUnit}</td>
+                      <td className="py-2 px-3 text-center font-mono">{calculations.pResid_psi.toFixed(1)} psi</td>
+                      <td className="py-2 px-3 text-muted-foreground">Minimum residual at most remote fixture</td>
+                    </tr>
+                    <tr className="hover:bg-muted/30">
+                      <td className="py-2 px-2.5 text-center text-muted-foreground font-mono">5</td>
+                      <td className="py-2 px-3 font-semibold text-foreground">Pipe Linear &amp; Effective Length</td>
+                      <td className="py-2 px-3 text-center font-mono font-bold">{(calculations.Leff * (isIP ? 1 : 0.3048)).toFixed(1)} {lenUnit}</td>
+                      <td className="py-2 px-3 text-center font-mono">{calculations.Leff.toFixed(1)} ft</td>
+                      <td className="py-2 px-3 text-muted-foreground">Includes {inputs.fittingAllowance}% equivalent fittings allowance</td>
+                    </tr>
+                    <tr className="hover:bg-muted/30">
+                      <td className="py-2 px-2.5 text-center text-muted-foreground font-mono">6</td>
+                      <td className="py-2 px-3 font-semibold text-foreground">Elevation Static Loss</td>
+                      <td className="py-2 px-3 text-center font-mono font-bold">{(isIP ? calculations.elevLoss_psi : calculations.elevLoss_kpa).toFixed(2)} {pressUnit}</td>
+                      <td className="py-2 px-3 text-center font-mono">{calculations.elevLoss_psi.toFixed(2)} psi</td>
+                      <td className="py-2 px-3 text-muted-foreground">Static head for {inputs.elevation} {lenUnit} elevation rise</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Table 2: Pipe Sizing Schedule */}
+          <div className="space-y-2">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              2. Complete Pipe Sizing Schedule &amp; Hydraulic Evaluation
+            </h3>
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[11px] border-collapse">
+                  <thead>
+                    <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
+                      <th className="py-2 px-2.5 w-10">Sr.</th>
+                      <th className="py-2 px-3 text-center w-28">Nominal (NPS)</th>
+                      <th className="py-2 px-3 text-center w-28">Metric (DN)</th>
+                      <th className="py-2 px-3 text-right w-32">Velocity</th>
+                      <th className="py-2 px-3 text-right w-36">Friction Loss</th>
+                      <th className="py-2 px-3 text-right w-36">Residual Press</th>
+                      <th className="py-2 px-3 text-center w-36">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60 font-sans">
+                    {calculations.rows.map((r: any, idx: number) => {
+                      const isChosen = calculations.rec?.nps === r.nps;
+                      const showVel = isIP ? r.v_fps : r.v_ms;
+                      const showFric = isIP ? r.hf_psi : r.hf_kpa;
+                      const showResid = isIP ? r.resid_psi : r.resid_kpa;
+
+                      return (
+                        <tr
+                          key={r.nps}
+                          className={isChosen ? "bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold text-foreground" : "hover:bg-muted/30"}
+                        >
+                          <td className="py-2 px-2.5 text-center text-muted-foreground font-mono">{idx + 1}</td>
+                          <td className="py-2 px-3 text-center font-bold font-mono">{r.nps}</td>
+                          <td className="py-2 px-3 text-center font-mono">{r.dn}</td>
+                          <td className="py-2 px-3 text-right font-mono">{showVel.toFixed(2)} {velUnit}</td>
+                          <td className="py-2 px-3 text-right font-mono">{showFric.toFixed(2)} {pressUnit}</td>
+                          <td className={`py-2 px-3 text-right font-mono ${r.isPressureOk ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-red-500 font-bold"}`}>
+                            {showResid.toFixed(1)} {pressUnit}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {r.ok ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                                {isChosen ? "✓ RECOMMENDED" : "✓ PASS"}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/70">
+                                {r.resid_psi < calculations.pResid_psi ? "LOW PRESSURE" : "VELOCITY EXCEEDED"}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Status Verification Banner */}
+          <div className={`p-4 rounded-xl border flex items-start gap-3 text-xs ${
+            isAdequate
+              ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200"
+              : "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 text-red-900 dark:text-red-200"
+          }`}>
+            <CheckCircle className={`size-5 shrink-0 ${isAdequate ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"} mt-0.5`} />
+            <div>
+              <strong className="text-sm block">
+                {isAdequate ? "Hydraulic Pipe Sizing Verification: PASSED (COMPLIANT)" : "Hydraulic Pipe Sizing Verification: WARNING (NON-COMPLIANT)"}
+              </strong>
+              <p className="mt-1 leading-relaxed text-xs">
+                {isAdequate
+                  ? `The selected pipe size of ${calculations.rec.nps} NPS (${calculations.rec.dn}) achieves a velocity of ${(isIP ? calculations.rec.v_fps : calculations.rec.v_ms).toFixed(2)} ${velUnit} and provides ${(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${pressUnit} residual pressure, fully satisfying IPC Table 604.4 and ASPE engineering constraints.`
+                  : `Residual pressure is below the minimum design requirement of ${inputs.pResid} ${pressUnit}. Available pressure is insufficient to overcome hydraulic friction and elevation head loss.`}
+              </p>
+            </div>
+          </div>
+
+          {/* Table 3: 4-Column Dynamic Signatures */}
+          <div className="space-y-2 pt-2">
+            <div className="border border-border rounded-xl overflow-hidden">
+              <table className="w-full text-left text-[11px] border-collapse">
+                <thead>
+                  <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
+                    <th className="py-2 px-3 w-32">Approvals</th>
+                    <th className="py-2 px-3 text-center">Originated By</th>
+                    <th className="py-2 px-3 text-center">Reviewed By</th>
+                    <th className="py-2 px-3 text-center">Approved By</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60 font-sans">
+                  <tr>
+                    <td className="py-2 px-3 font-bold text-foreground text-right">Name / Role:</td>
+                    <td className="py-2 px-3 text-center text-foreground font-medium">{sigDetails.originator?.name || sigDetails.originatedName || currentUserName}</td>
+                    <td className="py-2 px-3 text-center text-foreground">{sigDetails.reviewer?.name || sigDetails.reviewerName || "-"}</td>
+                    <td className="py-2 px-3 text-center text-foreground">{sigDetails.approver?.name || sigDetails.approverName || "-"}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2 px-3 font-bold text-foreground text-right">Status:</td>
+                    <td className="py-2 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400">{sigDetails.originator?.status || "Signed"}</td>
+                    <td className="py-2 px-3 text-center text-foreground">{sigDetails.reviewer?.status || (sigDetails.reviewerName ? "Reviewed" : "Pending")}</td>
+                    <td className="py-2 px-3 text-center text-foreground">{sigDetails.approver?.status || (sigDetails.approverName ? "Approved" : "Pending")}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2 px-3 font-bold text-foreground text-right">Date:</td>
+                    <td className="py-2 px-3 text-center text-muted-foreground font-mono">{sigDetails?.originatedDate || today}</td>
+                    <td className="py-2 px-3 text-center text-muted-foreground font-mono">{sigDetails?.reviewerDate || "-"}</td>
+                    <td className="py-2 px-3 text-center text-muted-foreground font-mono">{sigDetails?.approverDate || "-"}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* Save Preset Modal */}
-      {showSaveModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col gap-4">
-            <h3 className="font-bold text-base text-foreground flex items-center gap-2">
-              <Save className="size-4 text-primary" /> Save Calculation Preset
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Save current water supply pipe sizing inputs to preset library.
+// Step-by-Step Formula Breakdown Modal
+function SupplyPipeFormulaModal({
+  inputs,
+  calculations,
+  isIP,
+  flowUnit,
+  pressUnit,
+  lenUnit,
+  velUnit,
+  onClose,
+}: {
+  inputs: SupplyPipeInputs;
+  calculations: any;
+  isIP: boolean;
+  flowUnit: string;
+  pressUnit: string;
+  lenUnit: string;
+  velUnit: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 font-sans">
+      <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-2xl shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col gap-4 max-h-[85vh] overflow-hidden">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between pb-3 border-b border-border shrink-0">
+          <div className="flex items-center gap-2">
+            <Info className="size-5 text-primary" />
+            <div>
+              <h3 className="font-bold text-base text-foreground">Hazen-Williams Pipe Sizing Derivations</h3>
+              <p className="text-xs text-muted-foreground">ASPE / IPC Hydraulic Calculations</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="size-7 rounded-lg hover:bg-surface-2 grid place-items-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {/* Scrollable Derivations Content */}
+        <div className="flex-1 overflow-y-auto space-y-4 text-xs leading-relaxed custom-scrollbar pr-1">
+          
+          {/* Step 1 */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-border space-y-1.5">
+            <div className="font-bold text-foreground flex items-center gap-2">
+              <span className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px]">1</span>
+              <span>Effective Length with Fittings Allowance</span>
+            </div>
+            <p className="text-muted-foreground text-[11.5px]">
+              Valves and fittings add equivalent length to the straight physical pipe run:
             </p>
-            <input
-              type="text"
-              value={saveName}
-              onChange={(e) => setSaveName(e.target.value)}
-              placeholder="e.g. Main Header Copper Sizing"
-              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-xl px-3.5 py-2.5 text-xs font-semibold focus:border-primary outline-none"
-              autoFocus
-              onKeyDown={(e) => e.key === "Enter" && handleSaveCurrent()}
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowSaveModal(false)}
-                className="px-4 py-2 text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveCurrent}
-                disabled={!saveName.trim()}
-                className="px-4 py-2 text-xs font-bold bg-[#0A7BC7] hover:bg-[#0863A0] text-white rounded-xl transition cursor-pointer disabled:opacity-50"
-              >
-                Save Preset
-              </button>
+            <div className="p-2.5 rounded-lg bg-background border font-mono text-primary text-xs">
+              L_eff = L_run × (1 + Fittings% ÷ 100)
             </div>
+            <p className="text-muted-foreground text-[11px] font-mono">
+              L_eff = {calculations.L_ft.toFixed(1)} ft × (1 + {inputs.fittingAllowance}%) = {calculations.Leff.toFixed(1)} ft ({(calculations.Leff * 0.3048).toFixed(1)} m)
+            </p>
           </div>
-        </div>
-      )}
 
-      {/* Load Preset Modal */}
-      {showLoadModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-lg shadow-2xl animate-in zoom-in-95 duration-150 flex flex-col gap-4">
-            <h3 className="font-bold text-base text-foreground flex items-center gap-2">
-              <FolderOpen className="size-4 text-primary" /> Saved Supply Pipe Presets
-            </h3>
-            <div className="max-h-60 overflow-y-auto flex flex-col gap-2">
-              {saves.map((s) => (
-                <div
-                  key={s.id}
-                  onClick={() => handleLoadSave(s.id)}
-                  className="flex items-center justify-between p-3 rounded-xl border border-border/60 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 cursor-pointer transition"
-                >
-                  <div className="flex flex-col">
-                    <span className="font-bold text-xs text-foreground">{s.name}</span>
-                    <span className="text-[10px] text-muted-foreground">Saved {new Date(s.savedAt).toLocaleDateString()} | Unit: {s.unitSystem?.toUpperCase() || "SI"}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteSave(s.id, e)}
-                    className="p-1.5 text-muted-foreground hover:text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition"
-                    title="Delete preset"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              ))}
+          {/* Step 2 */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-border space-y-1.5">
+            <div className="font-bold text-foreground flex items-center gap-2">
+              <span className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px]">2</span>
+              <span>Static Elevation Head Loss</span>
             </div>
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setShowLoadModal(false)}
-                className="px-4 py-2 text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition cursor-pointer"
-              >
-                Close
-              </button>
+            <p className="text-muted-foreground text-[11.5px]">
+              Gravity pressure loss for lifting water vertically:
+            </p>
+            <div className="p-2.5 rounded-lg bg-background border font-mono text-primary text-xs">
+              ΔP_elev (psi) = Elevation_Rise (ft) ÷ 2.31
             </div>
+            <p className="text-muted-foreground text-[11px] font-mono">
+              ΔP_elev = {calculations.elev_ft.toFixed(1)} ft ÷ 2.31 = {(isIP ? calculations.elevLoss_psi : calculations.elevLoss_kpa).toFixed(2)} {pressUnit}
+            </p>
           </div>
-        </div>
-      )}
 
-      {/* Comment Assignment Modal */}
-      <AssignCommentModal
-        isOpen={commentModalOpen}
-        onClose={() => setCommentModalOpen(false)}
-        targetItem={commentTargetItem}
-        comments={commentsList}
-        onSave={handleSaveComment}
-      />
-    </AppShell>
+          {/* Step 3 */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-border space-y-1.5">
+            <div className="font-bold text-foreground flex items-center gap-2">
+              <span className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px]">3</span>
+              <span>Hazen-Williams Hydraulic Friction Equation</span>
+            </div>
+            <p className="text-muted-foreground text-[11.5px]">
+              Pressure drop per pipe diameter under specified roughness coefficient C:
+            </p>
+            <div className="p-2.5 rounded-lg bg-background border font-mono text-primary text-xs">
+              hf (psi) = [4.52 × L_eff × Q^1.85] ÷ [C^1.85 × d^4.87]
+            </div>
+            <p className="text-muted-foreground text-[11px] font-mono">
+              For {calculations.rec.nps} (d = {calculations.rec.id}"): hf = {(isIP ? calculations.rec.hf_psi : calculations.rec.hf_kpa).toFixed(2)} {pressUnit}
+            </p>
+          </div>
+
+          {/* Step 4 */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-border space-y-1.5">
+            <div className="font-bold text-foreground flex items-center gap-2">
+              <span className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[11px]">4</span>
+              <span>Residual Pressure Verification</span>
+            </div>
+            <p className="text-muted-foreground text-[11.5px]">
+              Available pressure must exceed the required minimum residual pressure at the remote fixture:
+            </p>
+            <div className="p-2.5 rounded-lg bg-background border font-mono text-primary text-xs">
+              P_residual = P_available − hf − ΔP_elev ≥ P_required
+            </div>
+            <p className="text-muted-foreground text-[11px] font-mono">
+              P_resid = {(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} {pressUnit} (Requirement: ≥ {inputs.pResid} {pressUnit})
+            </p>
+          </div>
+
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end pt-2 border-t border-border shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-bold bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+
+      </div>
+    </div>
   );
 }

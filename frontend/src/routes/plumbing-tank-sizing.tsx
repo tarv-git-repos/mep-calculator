@@ -1,6 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { getSignatureBlockDetails, addPdfSignatureBlock } from "@/lib/pdfHelpers";
-import { addExcelSignatureBlock } from "@/lib/excelHelpers";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -10,7 +9,9 @@ import {
   AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
   Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, Clipboard,
   RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, Sparkles,
-  Download, Upload, Gauge, Layers, Zap, Flame, X, ArrowRight, Check, Droplet, Droplets, Box, Building2
+  Download, Upload, Gauge, Layers, Zap, Flame, X, ArrowRight, Check,
+  Droplet, Droplets, Box, Building2, ShieldCheck, Home, Utensils,
+  GraduationCap, Hotel, Activity, ShieldAlert
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -24,23 +25,27 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
-  ContextMenuShortcut,
 } from "@/components/ui/context-menu";
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import {
+  CalculationReviewBar,
+  useCalculationEffectiveReadOnly,
+  useCalculationReviewState,
+  type CalculationReviewState
+} from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/plumbing-tank-sizing")({
   head: () => ({
     meta: [
-      { title: "Domestic Water Tank Sizing — MEP Calc" },
-      { name: "description", content: "Water storage tank capacity sizing based on daily consumption demand, peak surge buffer, and pump refill duration." },
+      { title: "Domestic Water Tank Sizing Calculator — MEP Calc" },
+      { name: "description", content: "Size domestic and potable water storage tanks, break buffers, compartment splits, and pump refill rates per IPC Chapter 6 & BS EN 806." },
     ],
   }),
   component: TankSizingPage,
 });
 
-interface TankSizingParams {
+export interface TankSizingParams {
   dailyDemand: number | "";
   storageDays: number | "";
   peakFlow: number | "";
@@ -50,45 +55,135 @@ interface TankSizingParams {
   numCompartments: number;
 }
 
+export type TankPresetKey =
+  | "residential_apartment"
+  | "commercial_office"
+  | "hospital_facility"
+  | "hotel_resort"
+  | "school_campus"
+  | "custom";
+
+export interface TankPresetConfig {
+  key: TankPresetKey;
+  label: string;
+  category: string;
+  description: string;
+  dailyDemand: number; // L (SI) or gal (IP)
+  storageDays: number;
+  peakFlow: number; // L/s (SI) or GPM (IP)
+  pumpFillRate: number; // L/s (SI) or GPM (IP)
+  safetyFactor: number; // %
+  usableDepth: number; // m (SI) or ft (IP)
+  numCompartments: number;
+}
+
+const SI_PRESETS: Record<TankPresetKey, TankPresetConfig> = {
+  residential_apartment: {
+    key: "residential_apartment",
+    label: "Residential High-Rise Tower",
+    category: "IPC Chapter 6 / Domestic",
+    description: "Multi-family residential complex based on 150-200 L/person/day with 1.0 day storage autonomy.",
+    dailyDemand: 30000,
+    storageDays: 1,
+    peakFlow: 5.0,
+    pumpFillRate: 4.0,
+    safetyFactor: 10,
+    usableDepth: 2.5,
+    numCompartments: 2,
+  },
+  commercial_office: {
+    key: "commercial_office",
+    label: "Commercial Office Building",
+    category: "BS EN 806 / Commercial",
+    description: "Office tower with central washroom cores, executive pantries, and 45 L/person/day occupancy load.",
+    dailyDemand: 20000,
+    storageDays: 1,
+    peakFlow: 3.5,
+    pumpFillRate: 3.0,
+    safetyFactor: 10,
+    usableDepth: 2.5,
+    numCompartments: 2,
+  },
+  hospital_facility: {
+    key: "hospital_facility",
+    label: "Hospital / Healthcare Center",
+    category: "Critical Infrastructure / ASPE",
+    description: "Critical care medical facility requiring mandatory 48-hour continuous storage reserve.",
+    dailyDemand: 60000,
+    storageDays: 2,
+    peakFlow: 8.0,
+    pumpFillRate: 6.0,
+    safetyFactor: 15,
+    usableDepth: 3.0,
+    numCompartments: 2,
+  },
+  hotel_resort: {
+    key: "hotel_resort",
+    label: "5-Star Hotel & Luxury Resort",
+    category: "Hospitality / IPC 606",
+    description: "High-end hotel rooms, laundry facilities, commercial kitchens, and 300 L/guest/day demand.",
+    dailyDemand: 50000,
+    storageDays: 1.5,
+    peakFlow: 7.0,
+    pumpFillRate: 5.0,
+    safetyFactor: 15,
+    usableDepth: 3.0,
+    numCompartments: 2,
+  },
+  school_campus: {
+    key: "school_campus",
+    label: "School & University Campus",
+    category: "Institutional / BS EN 806",
+    description: "Educational facility with laboratories, cafeteria, sports amenities, and student washrooms.",
+    dailyDemand: 15000,
+    storageDays: 1,
+    peakFlow: 3.0,
+    pumpFillRate: 2.5,
+    safetyFactor: 10,
+    usableDepth: 2.0,
+    numCompartments: 2,
+  },
+  custom: {
+    key: "custom",
+    label: "Custom Configuration",
+    category: "Custom Engineering",
+    description: "User-defined water storage and break tank sizing parameters.",
+    dailyDemand: 20000,
+    storageDays: 1,
+    peakFlow: 3.5,
+    pumpFillRate: 3.0,
+    safetyFactor: 10,
+    usableDepth: 2.5,
+    numCompartments: 2,
+  },
+};
+
 function TankSizingPage() {
-  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
+  const { project, activeProjectId } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/plumbing-tank-sizing", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-tank-sizing", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
-  const isApprovedLocked = useCalculationLock("/plumbing-tank-sizing", project?.id);
-  const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
-
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [preset, setPreset] = useState<TankPresetKey>("residential_apartment");
 
   // Core Sizing Parameters
   const [sizingParams, setSizingParams] = useState<TankSizingParams>({
-    dailyDemand: 5000, // gal or Litres
+    dailyDemand: 5000, // Litres or Gal
     storageDays: 1, // days
-    peakFlow: 40, // GPM or L/s
-    pumpFillRate: 30, // GPM or L/s
+    peakFlow: 40, // L/s or GPM
+    pumpFillRate: 30, // L/s or GPM
     safetyFactor: 10, // %
-    usableDepth: 8, // ft or m
+    usableDepth: 8, // m or ft
     numCompartments: 2, // 2-cell redundancy standard
   });
 
-  // Project Info for Documentation & Reports
-  const [projectInfo, setProjectInfo] = useState({
-    projectName: "Domestic Water Storage Facility",
-    projectNumber: "MEP-PLB-TNK01",
-    client: "Project Master Client",
-    consultant: "Consistent Engineering Consultants",
-    date: new Date().toISOString().split("T")[0],
-    revision: "Rev 0",
-    calcNumber: "CALC-PLB-TNK01",
-    notes: "Potable and domestic break tank sizing using storage demand method with 2-cell maintenance split.",
-  });
-
-  // Modal states
+  // Modal and Navigation States
+  const [tab, setTab] = useState<"solver" | "report">("solver");
+  const [intelOpen, setIntelOpen] = useState<boolean>(false);
   const [showFormulaModal, setShowFormulaModal] = useState<boolean>(false);
-  const [showImportModal, setShowImportModal] = useState<boolean>(false);
 
   // Comment Assignment State
   const [activeCommentTarget, setActiveCommentTarget] = useState<{ id: string; label: string } | null>(null);
@@ -188,7 +283,7 @@ function TankSizingPage() {
           });
         }
         if (loadedData.unitSystem) setUnitSystem(loadedData.unitSystem);
-        if (loadedData.projectInfo) setProjectInfo(loadedData.projectInfo);
+        if (loadedData.preset) setPreset(loadedData.preset);
         if (loadedData.commentsMap) setCommentsMap(loadedData.commentsMap);
       }
 
@@ -200,14 +295,14 @@ function TankSizingPage() {
   const saveState = (
     newParams: TankSizingParams,
     newUnits: "si" | "ip",
-    newProjInfo = projectInfo,
+    newPreset: TankPresetKey = preset,
     newComments = commentsMap
   ) => {
     const pId = project?.id || "default";
     const dataToSave = {
       sizingParams: newParams,
       unitSystem: newUnits,
-      projectInfo: newProjInfo,
+      preset: newPreset,
       commentsMap: newComments,
       updatedAt: new Date().toISOString(),
     };
@@ -282,8 +377,42 @@ function TankSizingPage() {
 
     setUnitSystem(target);
     setSizingParams(updatedParams);
-    saveState(updatedParams, target);
+    saveState(updatedParams, target, preset);
     toast.success(`Switched unit system to ${target.toUpperCase()}`);
+  };
+
+  // Apply Building Preset
+  const handleApplyPreset = (presetKey: TankPresetKey) => {
+    const pConfig = SI_PRESETS[presetKey];
+    if (!pConfig) return;
+
+    const isIp = unitSystem === "ip";
+    let newDaily = pConfig.dailyDemand;
+    let newPeak = pConfig.peakFlow;
+    let newPump = pConfig.pumpFillRate;
+    let newDepth = pConfig.usableDepth;
+
+    if (isIp) {
+      newDaily = Math.round(pConfig.dailyDemand / 3.78541);
+      newPeak = Number((pConfig.peakFlow / 0.06309).toFixed(1));
+      newPump = Number((pConfig.pumpFillRate / 0.06309).toFixed(1));
+      newDepth = Number((pConfig.usableDepth / 0.3048).toFixed(1));
+    }
+
+    const updated: TankSizingParams = {
+      dailyDemand: newDaily,
+      storageDays: pConfig.storageDays,
+      peakFlow: newPeak,
+      pumpFillRate: newPump,
+      safetyFactor: pConfig.safetyFactor,
+      usableDepth: newDepth,
+      numCompartments: pConfig.numCompartments,
+    };
+
+    setPreset(presetKey);
+    setSizingParams(updated);
+    saveState(updated, unitSystem, presetKey);
+    toast.success(`Applied ${pConfig.label} preset`);
   };
 
   // Math Calculations Engine
@@ -389,20 +518,16 @@ function TankSizingPage() {
 
     const updated = { ...sizingParams, [field]: parsed };
     setSizingParams(updated);
-    saveState(updated, unitSystem);
+    saveState(updated, unitSystem, preset);
   };
 
-  // Context Menu Helpers
-  const handleCopyLine = (label: string, val: any, unit: string) => {
-    const text = `${label}: ${val} ${unit}`;
-    navigator.clipboard.writeText(text);
-    toast.success(`Copied to clipboard: "${text}"`);
+  // Clipboard copy helper
+  const copyToClipboard = (text: any) => {
+    navigator.clipboard.writeText(String(text));
+    toast.success(`Copied "${text}" to clipboard`);
   };
 
-  const handleOpenComment = (id: string, label: string) => {
-    setActiveCommentTarget({ id, label });
-  };
-
+  // Comment Save Handler
   const handleSaveComment = (commentData: any) => {
     if (!activeCommentTarget) return;
     const targetId = activeCommentTarget.id;
@@ -424,460 +549,457 @@ function TankSizingPage() {
     };
     const updated = { ...commentsMap, [targetId]: [...existing, newComment] };
     setCommentsMap(updated);
-    saveState(sizingParams, unitSystem, projectInfo, updated);
+    saveState(sizingParams, unitSystem, preset, updated);
     setActiveCommentTarget(null);
     toast.success(`Comment / Task assigned successfully!`);
   };
 
-  // Flatten comments list for counter badge
-  const commentsList = useMemo(() => {
-    const list: any[] = [];
-    Object.values(commentsMap).forEach((arr) => {
-      if (Array.isArray(arr)) list.push(...arr);
-    });
-    return list;
-  }, [commentsMap]);
-
-  // Reusable Parameter Input Tile
+  // Reusable Parameter Input Tile with Standard Context Menu
   const renderInputBox = (
-    id: string,
+    fieldId: string,
     field: keyof TankSizingParams,
     label: string,
     value: number | "",
     unit: string,
     step: string = "1",
     min: number = 0,
-    placeholder: string = "0"
+    defaultVal: number,
+    subtitle?: string
   ) => {
-    const itemComments = commentsMap[id] || [];
-    const hasComments = itemComments.length > 0;
-    const isHighlighted = highlightedTargetId === id ||
-                          highlightedTargetId === `field-${id}` ||
-                          (highlightedTargetId && id && id.toLowerCase().includes(highlightedTargetId.toLowerCase())) ||
-                          (highlightedTargetId && label && label.toLowerCase().includes(highlightedTargetId.toLowerCase()));
-
-    const displayLabel = unit ? `${label} (${unit})` : label;
+    const isHighlighted = highlightedTargetId === fieldId || highlightedTargetId === `field-${fieldId}`;
+    const comments = commentsMap[fieldId] || [];
 
     return (
-      <ContextMenu key={id}>
+      <ContextMenu key={fieldId}>
         <ContextMenuTrigger asChild>
           <div
-            id={`field-${id}`}
-            data-item-id={id}
-            data-field-id={id}
-            className={`flex flex-col gap-1.5 group cursor-context-menu p-1.5 rounded-xl transition-all ${
+            id={`field-${fieldId}`}
+            className={`p-3 rounded-xl border transition-all relative ${
               isHighlighted
-                ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
-                : ""
+                ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
+                : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
             }`}
           >
-            <label className="font-semibold text-foreground flex items-center justify-between gap-2 text-xs">
-              <span className="flex items-center gap-1.5">
-                <span>{displayLabel}</span>
-                {hasComments && (
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-foreground tracking-tight">
+                {label}
+              </label>
+              <div className="flex items-center gap-1">
+                {comments.length > 0 && (
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
+                    onClick={() => setActiveCommentTarget({ id: fieldId, label })}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
+                    title={`${comments.length} comment(s)`}
                   >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
+                    <MessageSquare className="size-3 fill-primary/20" />
+                    <span>{comments.length}</span>
                   </button>
                 )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                step={step}
+                min={min}
+                disabled={isEffectiveReadOnly}
+                value={value}
+                onChange={(e) => handleInputChange(field, e.target.value)}
+                className="w-full bg-background border border-border/90 rounded-lg px-3 py-1.5 text-xs font-bold text-foreground focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition disabled:opacity-60"
+              />
+              <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap min-w-[35px]">
+                {unit}
               </span>
-              <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
-            </label>
-            <input
-              id={id}
-              type="number"
-              min={min}
-              step={step}
-              placeholder={placeholder}
-              value={value === "" ? "" : value}
-              onChange={(e) => handleInputChange(field, e.target.value)}
-              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal transition hover:border-[#0A7BC7]/50"
-            />
+            </div>
+            {subtitle && (
+              <span className="text-[10px] text-muted-foreground mt-1 block">
+                {subtitle}
+              </span>
+            )}
           </div>
         </ContextMenuTrigger>
 
-        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50 font-sans">
           <ContextMenuItem
-            onClick={() => handleCopyLine(label, value, unit)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-          >
-            <Copy className="size-3.5 text-muted-foreground" />
-            <span>Copy Parameter</span>
-          </ContextMenuItem>
-          <ContextMenuSeparator className="h-px bg-border my-1" />
-          <ContextMenuItem
-            onClick={() => handleOpenComment(id, label)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+            onClick={() => setActiveCommentTarget({ id: fieldId, label })}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium text-[13px]"
           >
             <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <span>Add / View Comment</span>
           </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => copyToClipboard(value)}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value</span>
+          </ContextMenuItem>
+          {!isEffectiveReadOnly && (
+            <>
+              <ContextMenuSeparator className="h-px bg-border my-1" />
+              <ContextMenuItem
+                onClick={() => handleInputChange(field, defaultVal)}
+                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-muted-foreground text-[13px]"
+              >
+                <RotateCcw className="size-3.5" />
+                <span>Reset Default ({defaultVal})</span>
+              </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
     );
   };
 
-  // PDF Export matching Smoke Ventilation Report format & UI colors
-  const handleExportPDF = () => {
+  // Reusable Select Box with Standard Context Menu
+  const renderSelectBox = (
+    fieldId: string,
+    field: keyof TankSizingParams,
+    label: string,
+    value: string | number,
+    options: { label: string; value: string | number }[],
+    defaultVal: string | number,
+    subtitle?: string
+  ) => {
+    const isHighlighted = highlightedTargetId === fieldId || highlightedTargetId === `field-${fieldId}`;
+    const comments = commentsMap[fieldId] || [];
+
+    return (
+      <ContextMenu key={fieldId}>
+        <ContextMenuTrigger asChild>
+          <div
+            id={`field-${fieldId}`}
+            className={`p-3 rounded-xl border transition-all relative ${
+              isHighlighted
+                ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
+                : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-foreground tracking-tight">
+                {label}
+              </label>
+              <div className="flex items-center gap-1">
+                {comments.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveCommentTarget({ id: fieldId, label })}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
+                    title={`${comments.length} comment(s)`}
+                  >
+                    <MessageSquare className="size-3 fill-primary/20" />
+                    <span>{comments.length}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <select
+              disabled={isEffectiveReadOnly}
+              value={value}
+              onChange={(e) => handleInputChange(field, parseInt(e.target.value) || 2)}
+              className="w-full bg-background border border-border/90 rounded-lg px-2.5 py-1.5 text-xs font-bold text-foreground focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition cursor-pointer disabled:opacity-60"
+            >
+              {options.map((opt) => (
+                <option key={String(opt.value)} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {subtitle && (
+              <span className="text-[10px] text-muted-foreground mt-1 block">
+                {subtitle}
+              </span>
+            )}
+          </div>
+        </ContextMenuTrigger>
+
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50 font-sans">
+          <ContextMenuItem
+            onClick={() => setActiveCommentTarget({ id: fieldId, label })}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium text-[13px]"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>Add / View Comment</span>
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => copyToClipboard(value)}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Value</span>
+          </ContextMenuItem>
+          {!isEffectiveReadOnly && (
+            <>
+              <ContextMenuSeparator className="h-px bg-border my-1" />
+              <ContextMenuItem
+                onClick={() => handleInputChange(field, defaultVal)}
+                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-muted-foreground text-[13px]"
+              >
+                <RotateCcw className="size-3.5" />
+                <span>Reset Default ({defaultVal} Cells)</span>
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
+  // Preliminary Engineering Report Standard PDF Export
+  const exportPdf = async () => {
     try {
-      const doc = new jsPDF("portrait", "mm", "a4");
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const primaryFill = [217, 217, 217] as [number, number, number];
+      const blueFill = [218, 233, 248] as [number, number, number];
 
-      const callAutoTable = (pdfDoc: any, options: any) => {
-        if (typeof autoTable === "function") {
-          autoTable(pdfDoc, options);
-        } else if (typeof (autoTable as any)?.default === "function") {
-          (autoTable as any).default(pdfDoc, options);
-        } else if (typeof pdfDoc.autoTable === "function") {
-          pdfDoc.autoTable(options);
-        }
-      };
+      const callAutoTable = (autoTable as any).default || autoTable;
 
-      const calcNo = (project as any)?.calcNo || "TRV-CAL-TK-001";
-      const today = projectInfo.date || new Date().toLocaleDateString("en-GB");
-      const projectNo = project?.code || (project as any)?.projectNo || "P000";
-      const projectName = project?.name || projectInfo.projectName || "";
-      const clientName = (project as any)?.client || "";
-      const endUser = (project as any)?.endUser || (project as any)?.location || "";
+      const calcNo = `CALC-TNK-${project?.code || "001"}`;
+      const projectNo = project?.code || "PRJ-001";
+      const projectName = project?.name || "Domestic Water Storage Facility Project";
+      const clientName = (project as any)?.client || "Client Representative";
+      const endUser = (project as any)?.endUser || "Building Facilities / MEP Department";
+      const today = formatDateStr(new Date().toISOString());
 
-      // Header Title
+      // Document Header
+      doc.setFont("helvetica", "bold");
       doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("Domestic Water Tank Sizing Calculation Report", 14, 14);
+      doc.text("DOMESTIC WATER TANK SIZING PRELIMINARY REPORT", 14, 15);
 
-      // Metadata Block (182mm width: left 14mm to right 196mm)
-      doc.setFontSize(9);
-      doc.setLineWidth(0.3);
-      doc.rect(14, 18, 182, 18);
-
-      // Vertical line to separate left/right metadata
-      doc.line(105, 18, 105, 36);
-
-      // Horizontal lines
-      doc.line(14, 24, 196, 24);
-      doc.line(14, 30, 196, 30);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Calculation No.:", 16, 22);
       doc.setFont("helvetica", "normal");
-      doc.text(calcNo, 45, 22);
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text("Design Standards: IPC Chapter 6 / BS EN 806 / ASPE Potable Water Storage", 14, 20);
 
       doc.setFont("helvetica", "bold");
-      doc.text("Date:", 107, 22);
-      doc.setFont("helvetica", "normal");
-      doc.text(today, 120, 22);
+      doc.text(`Date: ${today}`, 196, 20, { align: "right" });
 
+      let currentY = 24;
+
+      // Metadata Enclosed Grid
+      callAutoTable(doc, {
+        startY: currentY,
+        head: [],
+        body: [
+          [
+            { content: "Calculation No.:", styles: { fontStyle: "bold", cellWidth: 32 } },
+            { content: calcNo, styles: { cellWidth: 60 } },
+            { content: "Date:", styles: { fontStyle: "bold", cellWidth: 32 } },
+            { content: today, styles: { cellWidth: 58 } },
+          ],
+          [
+            { content: "Project No.:", styles: { fontStyle: "bold" } },
+            { content: projectNo },
+            { content: "Client:", styles: { fontStyle: "bold" } },
+            { content: clientName },
+          ],
+          [
+            { content: "Project Name:", styles: { fontStyle: "bold" } },
+            { content: projectName },
+            { content: "End User:", styles: { fontStyle: "bold" } },
+            { content: endUser },
+          ],
+        ],
+        theme: "grid",
+        styles: { fontSize: 8, textColor: [40, 40, 40], cellPadding: 2 },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+      });
+
+      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 48;
+
+      // Section 1: Design Parameters & Consumption Criteria
       doc.setFont("helvetica", "bold");
-      doc.text("Project No.:", 16, 28);
-      doc.setFont("helvetica", "normal");
-      doc.text(projectNo, 40, 28);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Client:", 107, 28);
-      doc.setFont("helvetica", "normal");
-      doc.text(clientName, 120, 28);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Project Name:", 16, 34);
-      doc.setFont("helvetica", "normal");
-      doc.text(projectName, 42, 34);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("End User:", 107, 34);
-      doc.setFont("helvetica", "normal");
-      doc.text(endUser, 125, 34);
-
-      // Smoke Ventilation UI Color Palette
-      const primaryFill = [217, 217, 217] as [number, number, number]; // Light gray header
-      const blueFill = [218, 233, 248] as [number, number, number];    // Soft blue highlight header
-      const blueBodyFill = [242, 248, 253] as [number, number, number]; // Soft blue highlight row/cell
-
-      // Section 1: Water Demand & Inflow Rates
-      let currentY = 42;
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(0, 0, 0);
       doc.text("1. Input Parameters & Demand Criteria", 14, currentY);
-      currentY += 3;
 
-      const inputTableBody = [
-        ["1", "Daily Water Consumption Demand", `${sizingParams.dailyDemand}`, calc.volUnit, "Daily Occupancy / Fixture Load Demand"],
-        ["2", "Storage Autonomy Duration", `${sizingParams.storageDays} days`, "days", "Continuous uninterrupted supply autonomy"],
-        ["3", "Peak Fixture Demand Flow Rate", `${sizingParams.peakFlow}`, calc.flowUnit, "Peak instantaneous plumbing fixture draw"],
-        ["4", "Pump Inflow / Municipal Refill Rate", `${sizingParams.pumpFillRate}`, calc.flowUnit, "Available water main refill capacity"],
-        ["5", "Safety / Freeboard Margin Allowance", `${sizingParams.safetyFactor} %`, "%", "Freeboard, sludge zone & surge buffer reserve"],
-        ["6", "Usable Water Depth", `${sizingParams.usableDepth}`, calc.dimUnit, "Effective water depth below overflow level"],
-        ["7", "Compartments / Maintenance Division", `${sizingParams.numCompartments} Cell(s)`, "-", "IPC 606.5 / BS EN 806 online cleaning split"]
+      const paramTableBody = [
+        ["1", "Daily Water Consumption Demand", `${sizingParams.dailyDemand} ${calc.volUnit}`, calc.isIp ? `${(Number(sizingParams.dailyDemand) * 3.78541).toFixed(0)} L` : `${(Number(sizingParams.dailyDemand) / 3.78541).toFixed(0)} gal`, "Daily Occupancy / Plumbing Load Demand"],
+        ["2", "Storage Autonomy Duration", `${sizingParams.storageDays} Day(s)`, `${(Number(sizingParams.storageDays) * 24).toFixed(0)} Hours`, "Continuous uninterrupted supply autonomy"],
+        ["3", "Peak Fixture Demand Flow Rate", `${sizingParams.peakFlow} ${calc.flowUnit}`, calc.isIp ? `${(Number(sizingParams.peakFlow) * 0.06309).toFixed(2)} L/s` : `${(Number(sizingParams.peakFlow) / 0.06309).toFixed(1)} GPM`, "Peak instantaneous fixture demand draw"],
+        ["4", "Pump Inflow / Refill Rate", `${sizingParams.pumpFillRate} ${calc.flowUnit}`, calc.isIp ? `${(Number(sizingParams.pumpFillRate) * 0.06309).toFixed(2)} L/s` : `${(Number(sizingParams.pumpFillRate) / 0.06309).toFixed(1)} GPM`, "Available municipal / transfer refill rate"],
+        ["5", "Safety / Freeboard Margin Allowance", `${sizingParams.safetyFactor} %`, `+${calc.safetyMarginVol.toLocaleString()} ${calc.volUnit}`, "Freeboard, air gap & surge reserve"],
+        ["6", "Usable Water Depth", `${sizingParams.usableDepth} ${calc.dimUnit}`, calc.isIp ? `${(Number(sizingParams.usableDepth) * 0.3048).toFixed(2)} m` : `${(Number(sizingParams.usableDepth) / 0.3048).toFixed(1)} ft`, "Effective water depth below overflow"],
+        ["7", "Compartment Maintenance Division", `${sizingParams.numCompartments} Cell(s)`, `${(100 / (sizingParams.numCompartments || 2)).toFixed(0)}% per cell`, "IPC 606.5 / BS EN 806 online cleaning"],
       ];
+
+      callAutoTable(doc, {
+        startY: currentY + 2.5,
+        head: [["Sr.", "Parameter Description", "Design Value", "Equivalent", "Standard / Code Reference"]],
+        body: paramTableBody,
+        theme: "grid",
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 8.5,
+          halign: "center",
+        },
+        bodyStyles: { fontSize: 8, textColor: [40, 40, 40] },
+        alternateRowStyles: { fillColor: [248, 249, 250] },
+        columnStyles: {
+          0: { cellWidth: 10, halign: "center" },
+          1: { cellWidth: 56, fontStyle: "bold" },
+          2: { cellWidth: 36, halign: "center", fontStyle: "bold" },
+          3: { cellWidth: 32, halign: "center" },
+          4: { cellWidth: 48, halign: "left" },
+        },
+      });
+
+      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 100;
+
+      // Section 2: Storage Sizing & Capacity Results
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(0, 0, 0);
+      doc.text("2. Storage Sizing & Capacity Evaluation", 14, currentY);
+
+      const resultsTableBody = [
+        ["1", "RECOMMENDED USABLE CAPACITY", `${calc.recommendedCapacity.toLocaleString()} ${calc.volUnit}`, "Storage Sizing", "Max(Storage Demand, Break Surge) × (1 + Safety)"],
+        ["2", "Volumetric Standard Equivalence", `${calc.capacityM3} m³ (${calc.capacityGal.toLocaleString()} US gal)`, "Equivalent", "Metric & Imperial standard conversions"],
+        ["3", "Consumption Storage Demand", `${calc.storageDemandVol.toLocaleString()} ${calc.volUnit}`, "Demand", "Daily Demand × Autonomy Days"],
+        ["4", "Break Tank 30-min Surge Buffer", `${calc.peakSurgeVol.toLocaleString()} ${calc.volUnit}`, "Buffer", "Peak Flow × 30-min continuous surge"],
+        ["5", "Per Cell Maintenance Volume", `${calc.perCompartmentVol.toLocaleString()} ${calc.volUnit} / cell`, "Compartments", `${calc.comps} equal maintenance cells (${calc.perCompartmentM3} m³)`],
+        ["6", "Pump Refill Duration", `${calc.fillTimeHours} hrs (${calc.fillTimeMinutes} mins)`, "Refill Rate", "Capacity / Pump Inflow Rate"],
+        ["7", "Suggested Plan Dimensions", `${calc.tankLength} × ${calc.tankWidth} × ${calc.effectiveDepth} ${calc.dimUnit}`, "Footprint", `Area: ${calc.floorArea} ${calc.areaUnit} (2:1 aspect ratio)`],
+      ];
+
+      callAutoTable(doc, {
+        startY: currentY + 2.5,
+        head: [["Sr.", "Metric / Sizing Parameter", "Calculated Value", "Allocation", "Formula & Code Reference"]],
+        body: resultsTableBody,
+        theme: "grid",
+        headStyles: {
+          fillColor: blueFill,
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 8.5,
+          halign: "center",
+        },
+        bodyStyles: { fontSize: 8, textColor: [40, 40, 40] },
+        alternateRowStyles: { fillColor: [248, 249, 250] },
+        columnStyles: {
+          0: { cellWidth: 10, halign: "center" },
+          1: { cellWidth: 58, fontStyle: "bold" },
+          2: { cellWidth: 42, halign: "center", fontStyle: "bold" },
+          3: { cellWidth: 26, halign: "center" },
+          4: { cellWidth: 46, halign: "left" },
+        },
+      });
+
+      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 160;
+
+      // Status Verification Banner
+      doc.setDrawColor(16, 185, 129);
+      doc.setFillColor(240, 253, 244);
+      doc.roundedRect(14, currentY, 182, 14, 2, 2, "FD");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(5, 150, 105);
+      doc.text("✔ Potable Water Storage Capacity Satisfies BS EN 806 & IPC Chapter 6", 20, currentY + 6);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(70, 70, 70);
+      doc.text(`Dual ${calc.comps}-cell compartment split ensures 100% online maintenance and continuous building potable water availability.`, 20, currentY + 10.5);
+
+      currentY += 20;
+
+      // Section 3: 3-Tier Approval & Sign-Off Block
+      const sigDetails = getSignatureBlockDetails(project?.id || "default", "/plumbing-tank-sizing", currentUserName, calcReviewState);
 
       callAutoTable(doc, {
         startY: currentY,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          fontSize: 7.5,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 2.2, bottom: 2.2, left: 1.2, right: 1.2 },
-          minCellHeight: 6
-        },
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold",
-          cellPadding: { top: 2.2, bottom: 2.2, left: 1, right: 1 }
-        },
-        columnStyles: {
-          0: { cellWidth: 10 },
-          1: { halign: "left", cellWidth: 70, fontStyle: "bold" },
-          2: { cellWidth: 36, fontStyle: "bold" },
-          3: { cellWidth: 20 },
-          4: { halign: "left", cellWidth: 46 }
-        },
-        head: [
-          [
-            { content: "No.", styles: { fillColor: primaryFill } },
-            { content: "Design Parameter Description", styles: { fillColor: primaryFill } },
-            { content: "Value", styles: { fillColor: primaryFill } },
-            { content: "Unit", styles: { fillColor: primaryFill } },
-            { content: "Standard / Code Reference", styles: { fillColor: primaryFill } }
-          ]
-        ],
-        body: inputTableBody
-      });
-
-      let nextY = (doc as any).lastAutoTable?.finalY ?? 110;
-      nextY += 7;
-
-      // Section 2: Capacity & Storage Sizing Results
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
-      doc.text("2. Storage Sizing & Capacity Results", 14, nextY);
-      nextY += 3;
-
-      const resultsTableBody = [
-        ["A", "RECOMMENDED USABLE TANK CAPACITY", `${calc.recommendedCapacity.toLocaleString()} ${calc.volUnit}`, "Max(Storage Demand, Break Surge) × (1 + Safety Margin)"],
-        ["B", "Capacity in Alternate Standard Units", `${calc.capacityM3} m³ / ${calc.capacityGal.toLocaleString()} US gal`, "Volumetric standard conversion equivalent"],
-        ["C", "Consumption Storage Demand Volume", `${calc.storageDemandVol.toLocaleString()} ${calc.volUnit}`, "Daily Demand × Autonomy Days"],
-        ["D", "Break Tank 30-min Surge Buffer", `${calc.peakSurgeVol.toLocaleString()} ${calc.volUnit}`, "Peak Fixture Flow × 30 minutes continuous surge"],
-        ["E", "Safety Margin Volume Added", `+${calc.safetyMarginVol.toLocaleString()} ${calc.volUnit}`, `${sizingParams.safetyFactor}% allowance added`],
-        ["F", "Per Compartment Storage Volume", `${calc.perCompartmentVol.toLocaleString()} ${calc.volUnit} (${calc.perCompartmentM3} m³) / cell`, `${calc.comps} equal maintenance cells`],
-        ["G", "Pump Refill Duration", `${calc.fillTimeHours} hrs (${calc.fillTimeMinutes} mins)`, "Total Usable Capacity / Pump Inflow Rate"],
-        ["H", "Suggested Plan Footprint Dimensions", `${calc.tankLength} m × ${calc.tankWidth} m (Area: ${calc.floorArea} ${calc.areaUnit})`, "Rectangular configuration (effective depth: " + calc.effectiveDepth + " " + calc.dimUnit + ")"]
-      ];
-
-      callAutoTable(doc, {
-        startY: nextY,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          fontSize: 7.5,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 2.2, bottom: 2.2, left: 1.2, right: 1.2 },
-          minCellHeight: 6
-        },
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold"
-        },
-        columnStyles: {
-          0: { cellWidth: 10 },
-          1: { halign: "left", cellWidth: 70, fontStyle: "bold" },
-          2: { cellWidth: 46, fontStyle: "bold" },
-          3: { halign: "left", cellWidth: 56 }
-        },
-        head: [
-          [
-            { content: "Item", styles: { fillColor: primaryFill } },
-            { content: "Sizing Output Parameter", styles: { fillColor: primaryFill } },
-            { content: "Calculated Value", styles: { fillColor: blueFill } },
-            { content: "Engineering Basis & Formula", styles: { fillColor: primaryFill } }
-          ]
-        ],
-        body: resultsTableBody,
-        didParseCell: function (data: any) {
-          if (data.section === "body") {
-            // Highlight row A (Recommended Usable Capacity) and F (Per Cell) in blueFill
-            if (data.row.index === 0 || data.row.index === 5) {
-              data.cell.styles.fontStyle = "bold";
-              data.cell.styles.fillColor = blueFill;
-              if (data.column.index === 2) {
-                data.cell.styles.fontSize = 8.5;
-              }
-            }
-          }
-        }
-      });
-
-      let sigFinalY = (doc as any).lastAutoTable?.finalY ?? 180;
-      sigFinalY += 7;
-
-      if (sigFinalY > 230) {
-        doc.addPage();
-        sigFinalY = 18;
-      }
-
-      // Section 3: 3-Tier Signature Block
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "bold");
-      doc.text("3. Approval & Sign-Off Block", 14, sigFinalY);
-      sigFinalY += 3;
-
-      const {
-        originatedName,
-        originatedDate,
-        reviewerName,
-        reviewerDate,
-        approverName,
-        approverDate
-      } = getSignatureBlockDetails(project?.id || "default", "/plumbing-tank-sizing", currentUserName);
-
-      callAutoTable(doc, {
-        startY: sigFinalY,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: { fontSize: 8, halign: "center", valign: "middle", lineColor: [100, 100, 100], lineWidth: 0.1, cellPadding: { top: 2, bottom: 2, left: 1, right: 1 } },
-        headStyles: { fillColor: [255, 230, 204], textColor: 0, fontStyle: "bold" },
-        head: [
-          [
-            { content: "" },
-            { content: "Originator" },
-            { content: "Reviewer" },
-            { content: "Approver" }
-          ]
-        ],
+        head: [["Approval Role", "Engineers Name", "Status / Role Title", "Signature / Date"]],
         body: [
-          [
-            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedName, styles: { halign: "center" } },
-            { content: reviewerName, styles: { halign: "center" } },
-            { content: approverName, styles: { halign: "center" } }
-          ],
-          [
-            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedDate, styles: { halign: "center" } },
-            { content: reviewerDate, styles: { halign: "center" } },
-            { content: approverDate, styles: { halign: "center" } }
-          ]
+          ["Originator / Prepared By", sigDetails.originatedName, "MEP Design Engineer", sigDetails.originatedDate],
+          ["Reviewer / Checked By", sigDetails.reviewerName || "Pending Review", "Senior Plumbing Lead", sigDetails.reviewerDate || "—"],
+          ["Approver / Verified By", sigDetails.approverName || "Pending Approval", "Principal / MEP Director", sigDetails.approverDate || "—"],
         ],
+        theme: "grid",
+        headStyles: {
+          fillColor: primaryFill,
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          fontSize: 8.5,
+          halign: "center",
+        },
+        bodyStyles: { fontSize: 8, textColor: [40, 40, 40] },
         columnStyles: {
-          0: { cellWidth: 32 },
-          1: { cellWidth: 50 },
-          2: { cellWidth: 50 },
-          3: { cellWidth: 50 }
-        }
+          0: { cellWidth: 44, fontStyle: "bold" },
+          1: { cellWidth: 50, halign: "center" },
+          2: { cellWidth: 46, halign: "center" },
+          3: { cellWidth: 42, halign: "center" },
+        },
       });
 
       const pdfBuffer = doc.output("arraybuffer");
-      downloadFile(new Uint8Array(pdfBuffer), `Water_Tank_Sizing_${project?.code || "CALC"}.pdf`, "PDF Document", ["pdf"]);
-      toast.success("Domestic Water Tank PDF Report generated successfully!");
+      downloadFile(new Uint8Array(pdfBuffer), `Water_Tank_Sizing_Report_${project?.code || "CALC"}.pdf`, "PDF Document", ["pdf"]);
+      toast.success("Preliminary Engineering PDF Report exported successfully!");
     } catch (err: any) {
-      console.error("handleExportPDF error:", err);
+      console.error("exportPdf error:", err);
       toast.error(`Export PDF failed: ${err?.message || String(err)}`);
     }
   };
 
-  // Excel Export
-  const handleExportExcel = () => {
-    const data = [
-      { Parameter: "Daily Water Demand", Value: sizingParams.dailyDemand, Unit: calc.volUnit, Formula: "User Input" },
-      { Parameter: "Storage Duration", Value: sizingParams.storageDays, Unit: "days", Formula: "User Input" },
-      { Parameter: "Consumption Storage Volume", Value: calc.storageDemandVol, Unit: calc.volUnit, Formula: "Daily Demand × Days" },
-      { Parameter: "Peak Instantaneous Flow Rate", Value: sizingParams.peakFlow, Unit: calc.flowUnit, Formula: "User Input" },
-      { Parameter: "Break Tank Buffer (30-min peak)", Value: calc.peakSurgeVol, Unit: calc.volUnit, Formula: "Peak Flow × 30 min" },
-      { Parameter: "Safety Margin", Value: sizingParams.safetyFactor, Unit: "%", Formula: "User Input" },
-      { Parameter: "Recommended Usable Tank Capacity", Value: calc.recommendedCapacity, Unit: calc.volUnit, Formula: "Max(Storage, Break) × (1 + Safety)" },
-      { Parameter: "Capacity (Metric m³)", Value: calc.capacityM3, Unit: "m³", Formula: "Litres / 1000" },
-      { Parameter: "Capacity (US Gallons)", Value: calc.capacityGal, Unit: "gal", Formula: "Converted" },
-      { Parameter: "Number of Compartments", Value: calc.comps, Unit: "cells", Formula: "Maintenance Split" },
-      { Parameter: "Capacity per Cell", Value: calc.perCompartmentVol, Unit: calc.volUnit, Formula: "Total Capacity / Cells" },
-      { Parameter: "Pump Inflow Refill Rate", Value: sizingParams.pumpFillRate, Unit: calc.flowUnit, Formula: "User Input" },
-      { Parameter: "Tank Refill Duration", Value: calc.fillTimeHours, Unit: "hours", Formula: "Capacity / Pump Refill Rate" },
-      { Parameter: "Refill Duration (Minutes)", Value: calc.fillTimeMinutes, Unit: "min", Formula: "Capacity / Pump Rate" },
-    ];
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Tank Sizing");
-    const xlsxBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
-    downloadFile(new Uint8Array(xlsxBuffer), `Water_Tank_Sizing_${project?.code || "CALC"}.xlsx`, "Excel Document", ["xlsx"]);
-    toast.success("Excel Spreadsheet generated successfully!");
-  };
-
-  const [tab, setTab] = useState<"solver" | "report">("solver");
-  const [intelOpen, setIntelOpen] = useState<boolean>(false);
-
   return (
-    <AppShell 
-      title="Domestic Water Tank Sizing" 
-      hideSubHeader={true}
-      onIntelClick={() => setIntelOpen((v) => !v)}
-      intelOpen={intelOpen}
-      intelLabel="Intelligence"
-    >
+    <AppShell title="Tank Sizing" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+          
+          {/* Page Header & Actions */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground">Tank Sizing</h1>
+              
+              {/* Intelligence Trigger Button */}
+              <button 
+                type="button"
+                onClick={() => setIntelOpen((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+                title="Toggle Domestic Water Tank Sizing Intelligence"
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
+
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-tank-sizing" calculatorTitle="Tank Sizing" />
+            </div>
+
+            {/* Unit System Toggle in Header inline with Approve / Reject */}
+            <div className="flex items-center gap-2">
+              <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
+            </div>
+          </div>
+
+          {/* Main Content Card Container */}
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+            calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
             : calcReviewState?.status === "REJECTED"
             ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
             : calcReviewState?.status === "REVIEWED"
             ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
-          
-          {/* Page Header matching FM-200 Gas Sizing */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-baseline gap-2">
-                <h1 className="text-[24px] sm:text-[26px] font-bold tracking-tight text-foreground">Tank Sizing</h1>
-                <span className="text-[13.5px] font-semibold text-muted-foreground">Domestic & Potable Water Storage (IPC / BS EN 806)</span>
-              </div>
-              <button 
-                onClick={() => setIntelOpen((v) => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12px] font-semibold border cursor-pointer shrink-0 ${
-                  intelOpen
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                }`}
-              >
-                <Sparkles className="size-3.5" />
-                Intelligence
-              </button>
-              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-tank-sizing" calculatorTitle="Tank Sizing" />
-              {commentsList.length > 0 && (
-                <div 
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
-                  title={`${commentsList.length} active comment(s)/task(s) in Tank Sizing`}
-                >
-                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"} / Comment{commentsList.length === 1 ? "" : "s"}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* White card container for Tabs & Data Grid */}
-          <div className="flex-1 flex flex-col min-h-[420px] overflow-hidden rounded-2xl bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+          }`}>
+            
             {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-3.5 py-1.5 bg-card shrink-0 select-none no-print border-b border-border/80">
-              <div className="flex items-center gap-2">
-                <div className="flex bg-surface-2 p-0.5 rounded-full gap-1 border border-border/80">
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                   <button
                     onClick={() => setTab("solver")}
-                    className={`px-3.5 py-1 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
                       tab === "solver"
-                        ? "bg-background text-foreground shadow-xs font-bold"
+                        ? "bg-background text-foreground shadow-sm font-bold"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -885,9 +1007,9 @@ function TankSizingPage() {
                   </button>
                   <button
                     onClick={() => setTab("report")}
-                    className={`px-3.5 py-1 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
                       tab === "report"
-                        ? "bg-background text-foreground shadow-xs font-bold"
+                        ? "bg-background text-foreground shadow-sm font-bold"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -895,89 +1017,70 @@ function TankSizingPage() {
                   </button>
                 </div>
 
-                <button
-                  type="button"
+                {/* Formula Breakdown button placed right next to tabs */}
+                <TBtn
                   onClick={() => setShowFormulaModal(true)}
-                  className="px-2.5 py-1 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer bg-surface-2 hover:bg-surface border border-border/80 text-muted-foreground hover:text-foreground inline-flex items-center gap-1 shadow-2xs"
-                  title="View Water Tank Formula Breakdown"
+                  title="Detailed Formulas & Sizing Derivations"
                 >
-                  <Info className="size-3 text-primary" />
-                  <span>Formula Breakdown</span>
-                </button>
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
+
+                {/* Water Demand Import shortcut if available */}
+                {waterDemandSummary.available && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetDaily = unitSystem === "si" 
+                        ? Math.round(waterDemandSummary.dailyLpd) 
+                        : Math.round(waterDemandSummary.dailyLpd / 3.78541);
+                      const targetPeak = unitSystem === "si"
+                        ? Number(waterDemandSummary.peakLps.toFixed(2))
+                        : Number((waterDemandSummary.peakLps / 0.06309).toFixed(1));
+                      const next = { ...sizingParams, dailyDemand: targetDaily, peakFlow: targetPeak };
+                      setSizingParams(next);
+                      saveState(next, unitSystem, preset);
+                      toast.success(`Imported ${targetDaily.toLocaleString()} ${calc.volUnit} daily demand from Water Demand Module`);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 hover:border-emerald-500/40 border border-emerald-500/25 rounded-full transition shadow-xs cursor-pointer"
+                    title="Import calculated demand directly from Water Demand Sizer"
+                  >
+                    <Sparkles className="size-3.5 text-emerald-500" />
+                    <span>Import Demand ({unitSystem === "si" ? `${Math.round(waterDemandSummary.dailyLpd).toLocaleString()} L/d` : `${Math.round(waterDemandSummary.dailyLpd / 3.78541).toLocaleString()} GPD`})</span>
+                  </button>
+                )}
               </div>
 
-              {/* Sizing Unit system toggle & Top Export Action */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  inputDescriptions="Daily Demand, Peak & Refill Rates, Tank Depths"
-                  conversionExample={
-                    unitSystem === "si"
-                      ? "Convert 20,000 L → 5,283 gal, 2.5 m → 8.2 ft"
-                      : "Convert 5,000 gal → 18,927 L, 8 ft → 2.44 m"
-                  }
-                />
-
-                <button
-                  type="button"
-                  onClick={handleExportPDF}
-                  className="h-7.5 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-bold inline-flex items-center gap-1.5 hover:bg-primary/90 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
-                  title="Export calculation report"
-                >
-                  <Printer className="size-3.5" />
-                  <span>Export</span>
-                </button>
+              {/* Right Side Action Button: Export */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={exportPdf}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
               </div>
             </div>
 
             {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-              {tab === "solver" && (
-                <div className="flex-1 min-h-0 overflow-y-auto p-3.5 md:p-4">
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 w-full items-start">
+              {tab === "solver" ? (
+                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-8">
                     
-                    {/* Inputs Column (7 cols) */}
-                    <div className="lg:col-span-7 flex flex-col gap-3.5 w-full">
-                      
-                      {/* Card 1: Water Demand & Inflow Rates */}
-                      <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
-                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                              1. Water Demand & Inflow Rates
-                            </h3>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {waterDemandSummary.available && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const targetDaily = unitSystem === "si" 
-                                    ? Math.round(waterDemandSummary.dailyLpd) 
-                                    : Math.round(waterDemandSummary.dailyLpd / 3.78541);
-                                  const targetPeak = unitSystem === "si"
-                                    ? Number(waterDemandSummary.peakLps.toFixed(2))
-                                    : Number((waterDemandSummary.peakLps / 0.06309).toFixed(1));
-                                  const next = { ...sizingParams, dailyDemand: targetDaily, peakFlow: targetPeak };
-                                  setSizingParams(next);
-                                  saveState(next, unitSystem);
-                                  toast.success(`Imported ${targetDaily.toLocaleString()} ${calc.volUnit} daily demand from Water Demand Calculator`);
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-600 bg-emerald-500/10 hover:bg-emerald-500/20 hover:border-emerald-500/40 border border-emerald-500/25 rounded-md transition shadow-2xs cursor-pointer"
-                                title="Import total estimated daily demand from Water Demand Module"
-                              >
-                                <Sparkles className="size-2.5 text-emerald-500" />
-                                <span>Import Demand</span>
-                              </button>
-                            )}
-                            <span className="text-[10.5px] font-mono text-muted-foreground">Demand & Inflow</span>
-                          </div>
+                    {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
+                    <div className="lg:col-span-5 space-y-5">
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
+                        
+                        {/* Header */}
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                          <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                            📥 Sizing Parameters
+                          </span>
                         </div>
 
-                        <div className="flex flex-col gap-2.5">
-                          {/* Daily Demand */}
+                        {/* Section 1: Water Demand & Storage Criteria */}
+                        <div className="space-y-3">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                            Water Demand &amp; Inflow Rates
+                          </span>
+
                           {renderInputBox(
                             "tank-daily-demand",
                             "dailyDemand",
@@ -986,11 +1089,11 @@ function TankSizingPage() {
                             calc.volUnit,
                             "100",
                             0,
-                            unitSystem === "ip" ? "5000" : "20000"
+                            unitSystem === "ip" ? 5000 : 20000,
+                            "Total calculated or occupancy-based daily water demand"
                           )}
 
-                          {/* 2-Column Grid */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div className="grid grid-cols-2 gap-2">
                             {renderInputBox(
                               "tank-storage-days",
                               "storageDays",
@@ -999,7 +1102,8 @@ function TankSizingPage() {
                               "days",
                               "0.5",
                               0.5,
-                              "1"
+                              1,
+                              "Reserve storage autonomy"
                             )}
                             {renderInputBox(
                               "tank-peak-flow",
@@ -1007,19 +1111,24 @@ function TankSizingPage() {
                               "Peak Fixture Flow Rate",
                               sizingParams.peakFlow,
                               calc.flowUnit,
-                              "1",
+                              "0.5",
                               0,
-                              unitSystem === "ip" ? "40" : "2.5"
+                              unitSystem === "ip" ? 40 : 2.5,
+                              "Peak draw rate"
                             )}
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
                             {renderInputBox(
                               "tank-pump-refill",
                               "pumpFillRate",
                               "Pump Inflow / Refill Rate",
                               sizingParams.pumpFillRate,
                               calc.flowUnit,
-                              "1",
+                              "0.5",
                               0,
-                              unitSystem === "ip" ? "30" : "2.0"
+                              unitSystem === "ip" ? 30 : 2.0,
+                              "Main refill supply rate"
                             )}
                             {renderInputBox(
                               "tank-safety-factor",
@@ -1029,26 +1138,19 @@ function TankSizingPage() {
                               "%",
                               "1",
                               0,
-                              "10"
+                              10,
+                              "Freeboard & surge buffer"
                             )}
                           </div>
                         </div>
-                      </div>
 
-                      {/* Card 2: Physical Geometry & Compartments */}
-                      <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
-                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                              2. Physical Geometry & Redundancy
-                            </h3>
-                          </div>
-                          <span className="text-[10.5px] font-mono text-muted-foreground">Dimensions</span>
-                        </div>
+                        {/* Section 2: Physical Geometry & Redundancy */}
+                        <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                            Physical Geometry &amp; Redundancy
+                          </span>
 
-                        <div className="flex flex-col gap-2.5">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div className="grid grid-cols-2 gap-2">
                             {renderInputBox(
                               "tank-usable-depth",
                               "usableDepth",
@@ -1057,307 +1159,726 @@ function TankSizingPage() {
                               calc.dimUnit,
                               "0.1",
                               0.5,
-                              unitSystem === "ip" ? "8" : "2.5"
+                              unitSystem === "ip" ? 8 : 2.5,
+                              "Effective liquid depth"
                             )}
 
-                            <div className="flex flex-col gap-1.5 group p-1.5 rounded-xl">
-                              <label className="font-semibold text-foreground text-xs">
-                                Maintenance Compartments
-                              </label>
-                              <select
-                                value={sizingParams.numCompartments}
-                                onChange={(e) => handleInputChange("numCompartments", parseInt(e.target.value) || 2)}
-                                className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none transition hover:border-[#0A7BC7]/50 cursor-pointer"
-                              >
-                                <option value={1}>1 Single Cell (100%)</option>
-                                <option value={2}>2 Cells (50%/50% - Recommended)</option>
-                                <option value={3}>3 Cells (33% each)</option>
-                                <option value={4}>4 Cells (25% each)</option>
-                              </select>
-                            </div>
+                            {renderSelectBox(
+                              "tank-compartments",
+                              "numCompartments",
+                              "Maintenance Compartments",
+                              sizingParams.numCompartments,
+                              [
+                                { label: "1 Single Cell (100%)", value: 1 },
+                                { label: "2 Cells (50%/50% - Recommended)", value: 2 },
+                                { label: "3 Cells (33% each)", value: 3 },
+                                { label: "4 Cells (25% each)", value: 4 },
+                              ],
+                              2,
+                              "IPC / BS EN 806 split"
+                            )}
                           </div>
 
-                          <div className="p-2 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/40 text-[10.5px] text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
-                            <Info className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                          <div className="p-2.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/40 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                            <Info className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                             <span>
-                              <strong>IPC / BS EN 806:</strong> Dual 50% compartments allow full online cleaning & disinfection without disrupting building supply.
+                              <strong>IPC / BS EN 806:</strong> Dual 50% compartments allow online cleaning &amp; disinfection without disrupting building water service.
                             </span>
                           </div>
                         </div>
-                      </div>
 
+                      </div>
                     </div>
 
-                    {/* Results Column (5 cols) */}
-                    <div className="lg:col-span-5 flex flex-col gap-3.5 w-full">
-                      
-                      {/* Calculation Results Card */}
-                      <div className="border border-border rounded-2xl bg-background p-3.5 shadow-xs flex flex-col gap-2.5">
-                        <div className="flex items-center justify-between border-b border-border pb-2">
-                          <div>
-                            <h3 className="text-[12.5px] font-bold uppercase tracking-wider text-foreground">
-                              Calculation Results
-                            </h3>
-                            <span className="text-[10.5px] text-muted-foreground">Storage Capacity & Physical Footprint</span>
-                          </div>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                            BS EN 806 / IPC
-                          </span>
-                        </div>
-
-                        {/* Usable Capacity Result */}
-                        <div className="border border-border rounded-xl bg-background p-3 flex flex-col gap-0.5 shadow-2xs border-l-4 border-l-primary">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                              Recommended Usable Capacity
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setShowFormulaModal(true)}
-                              className="size-4.5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary flex items-center justify-center transition-colors cursor-pointer"
-                              title="View Formula Breakdown"
-                            >
-                              <Info className="size-2.5" />
-                            </button>
-                          </div>
-                          <div className="text-[22px] sm:text-[24px] font-bold tracking-tight font-mono text-primary">
-                            {calc.recommendedCapacity.toLocaleString()} <span className="text-[13.5px] font-normal">{calc.volUnit}</span>
-                          </div>
-                          <div className="flex items-center justify-between mt-0.5 text-[10.5px] text-muted-foreground font-mono">
-                            <span>{calc.capacityM3} m³ • {calc.capacityGal.toLocaleString()} US gal</span>
-                            <button
-                              type="button"
-                              onClick={() => setShowFormulaModal(true)}
-                              className="text-primary hover:underline font-medium inline-flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <span>Breakdown</span>
-                              <Info className="size-2.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Secondary Metrics */}
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="p-2 rounded-xl bg-surface-2 border border-border flex flex-col gap-0.5">
-                            <span className="text-[9.5px] font-bold uppercase text-muted-foreground">Consumption Demand</span>
-                            <span className="font-mono text-[13px] font-bold text-foreground">
-                              {calc.storageDemandVol.toLocaleString()} {calc.volUnit}
-                            </span>
-                            <span className="text-[9.5px] text-muted-foreground">{sizingParams.storageDays} Day(s)</span>
-                          </div>
-
-                          <div className="p-2 rounded-xl bg-surface-2 border border-border flex flex-col gap-0.5">
-                            <span className="text-[9.5px] font-bold uppercase text-muted-foreground">Break Buffer</span>
-                            <span className="font-mono text-[13px] font-bold text-foreground">
-                              {calc.peakSurgeVol.toLocaleString()} {calc.volUnit}
-                            </span>
-                            <span className="text-[9.5px] text-muted-foreground">30-min Surge</span>
-                          </div>
-
-                          <div className="p-2 rounded-xl bg-surface-2 border border-border flex flex-col gap-0.5">
-                            <span className="text-[9.5px] font-bold uppercase text-muted-foreground">Per Cell Size</span>
-                            <span className="font-mono text-[13px] font-bold text-foreground">
-                              {calc.perCompartmentVol.toLocaleString()} {calc.volUnit}
-                            </span>
-                            <span className="text-[9.5px] text-muted-foreground">{calc.comps} Cells ({calc.perCompartmentM3} m³)</span>
-                          </div>
-
-                          <div className="p-2 rounded-xl bg-surface-2 border border-border flex flex-col gap-0.5">
-                            <span className="text-[9.5px] font-bold uppercase text-muted-foreground">Pump Refill</span>
-                            <span className="font-mono text-[13px] font-bold text-emerald-600 dark:text-emerald-400">
-                              {calc.fillTimeHours} hrs
-                            </span>
-                            <span className="text-[9.5px] text-muted-foreground">{calc.fillTimeMinutes} mins total</span>
-                          </div>
-                        </div>
-
-                        {/* Sizing Chart Schematic */}
-                        <div className="border border-border rounded-xl bg-background p-2.5 shadow-2xs flex flex-col gap-1.5">
-                          <span className="text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground block">
-                            Tank Allocation & Footprint
-                          </span>
-                          <div className="bg-surface/50 rounded-lg flex flex-col items-center justify-center p-2 border border-border/50 gap-1.5">
-                            <div className="flex justify-between w-full text-[10.5px] font-semibold text-muted-foreground px-0.5">
-                              <span>Dimensions: {calc.tankLength} × {calc.tankWidth} × {calc.effectiveDepth} {calc.dimUnit}</span>
-                              <span>Area: {calc.floorArea} {calc.areaUnit}</span>
-                            </div>
-                            {/* Compartment cells */}
-                            <div className="grid grid-cols-2 gap-1.5 w-full pt-0.5">
-                              {Array.from({ length: calc.comps }).map((_, i) => (
-                                <div
-                                  key={i}
-                                  className="p-1.5 rounded-lg border border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-950/20 flex flex-col items-center text-center gap-0.5"
-                                >
-                                  <span className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Cell {i + 1} ({(100 / calc.comps).toFixed(0)}%)</span>
-                                  <span className="text-[11.5px] font-mono font-bold text-foreground">{calc.perCompartmentVol.toLocaleString()} {calc.volUnit}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Tab: Report */}
-              {tab === "report" && (
-                <div className="flex-1 min-h-0 overflow-y-auto p-6 bg-surface/30">
-                  <div className="max-w-5xl mx-auto flex flex-col gap-6">
-                    <div className="border border-border rounded-3xl bg-background p-6 flex flex-col gap-5 shadow-sm">
-                      <div className="flex justify-between items-start border-b border-border pb-4">
-                        <div>
-                          <h2 className="text-[16px] font-bold text-foreground">Domestic Water Tank Sizing Sheet</h2>
-                          <p className="text-[12px] text-muted-foreground mt-0.5">Calculated parameters for potable water storage and surge reserve</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={handleExportPDF}
-                            className="inline-flex items-center gap-1.5 h-8 px-4 rounded-xl bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/95 transition-colors cursor-pointer shadow-sm"
+                    {/* RIGHT COLUMN: CALCULATION RESULTS SUMMARY (lg:col-span-7) */}
+                    <div className="lg:col-span-7 space-y-5">
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            id="card-calculation-results"
+                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 transition-all hover:border-slate-300 dark:hover:border-zinc-700"
                           >
-                            <Printer className="size-3.5" /> Export
-                          </button>
-                        </div>
-                      </div>
+                            
+                            {/* Header */}
+                            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                                  ⚡ Sizing Results Summary
+                                </span>
+                              </div>
 
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-[13px] border-b border-border pb-5">
-                        <div className="flex justify-between py-1.5 border-b border-border/50">
-                          <span className="text-muted-foreground">Project Name</span>
-                          <span className="font-semibold text-foreground">{project?.name || "Default Project"}</span>
-                        </div>
-                        <div className="flex justify-between py-1.5 border-b border-border/50">
-                          <span className="text-muted-foreground">Project Code</span>
-                          <span className="font-semibold font-mono text-foreground">{project?.code || "PROJ"}</span>
-                        </div>
-                        <div className="flex justify-between py-1.5 border-b border-border/50">
-                          <span className="text-muted-foreground">Daily Demand</span>
-                          <span className="font-semibold text-foreground">
-                            {sizingParams.dailyDemand.toLocaleString()} {calc.volUnit} / day
-                          </span>
-                        </div>
-                        <div className="flex justify-between py-1.5 border-b border-border/50">
-                          <span className="text-muted-foreground">Storage Autonomy</span>
-                          <span className="font-semibold text-foreground">{sizingParams.storageDays} Day(s)</span>
-                        </div>
-                        <div className="flex justify-between py-1.5 border-b border-border/50">
-                          <span className="text-muted-foreground">Recommended Usable Capacity</span>
-                          <span className="font-semibold text-primary">
-                            {calc.recommendedCapacity.toLocaleString()} {calc.volUnit} ({calc.capacityM3} m³)
-                          </span>
-                        </div>
-                        <div className="flex justify-between py-1.5 border-b border-border/50">
-                          <span className="text-muted-foreground">Per Cell Allocation ({calc.comps} Cells)</span>
-                          <span className="font-semibold text-foreground">
-                            {calc.perCompartmentVol.toLocaleString()} {calc.volUnit} / cell
-                          </span>
-                        </div>
-                        <div className="flex justify-between py-1.5 border-b border-border/50">
-                          <span className="text-muted-foreground">Pump Refill Duration</span>
-                          <span className="font-semibold text-foreground">{calc.fillTimeHours} hrs ({calc.fillTimeMinutes} mins)</span>
-                        </div>
-                        <div className="flex justify-between py-1.5 border-b border-border/50">
-                          <span className="text-muted-foreground">Estimated Footprint</span>
-                          <span className="font-semibold text-foreground">{calc.tankLength} × {calc.tankWidth} × {calc.effectiveDepth} {calc.dimUnit}</span>
-                        </div>
-                      </div>
+                              {/* Status Badge */}
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                <ShieldCheck className="size-3.5" />
+                                <span>BS EN 806 / IPC Compliant</span>
+                              </span>
+                            </div>
+
+                            {/* 4 Colorful Top Metric Tiles (Matching Pump Sizing Standard) */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              
+                              {/* Tile 1: Recommended Usable Capacity (Blue) */}
+                              <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 flex flex-col justify-between">
+                                <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Total Usable Capacity</div>
+                                <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                  {calc.recommendedCapacity.toLocaleString()}
+                                  <span className="text-xs font-normal text-muted-foreground ml-1">
+                                    {calc.volUnit}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                                  {calc.capacityM3} m³ • {calc.capacityGal.toLocaleString()} gal
+                                </span>
+                              </div>
+
+                              {/* Tile 2: Break / Surge Buffer (Amber) */}
+                              <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 flex flex-col justify-between">
+                                <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Break Buffer (30m)</div>
+                                <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                  {calc.peakSurgeVol.toLocaleString()}
+                                  <span className="text-xs font-normal text-muted-foreground ml-1">
+                                    {calc.volUnit}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground mt-0.5">
+                                  30-min peak surge
+                                </span>
+                              </div>
+
+                              {/* Tile 3: Per-Cell Storage (Emerald) */}
+                              <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 flex flex-col justify-between">
+                                <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Per Cell Storage</div>
+                                <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                  {calc.perCompartmentVol.toLocaleString()}
+                                  <span className="text-xs font-normal text-muted-foreground ml-1">
+                                    {calc.volUnit}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground mt-0.5">
+                                  {calc.comps} cells ({calc.perCompartmentM3} m³/cell)
+                                </span>
+                              </div>
+
+                              {/* Tile 4: Pump Refill Duration (Purple) */}
+                              <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 flex flex-col justify-between">
+                                <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Refill Duration</div>
+                                <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                  {calc.fillTimeHours}
+                                  <span className="text-xs font-normal text-muted-foreground ml-1">
+                                    hrs
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground mt-0.5">
+                                  {calc.fillTimeMinutes} mins total refill
+                                </span>
+                              </div>
+
+                            </div>
+
+                            {/* DETAILED HYDRAULICS SUMMARY TABLE */}
+                            <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs">
+                              <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                                <span className="text-slate-600 dark:text-zinc-400">Consumption Storage Demand Volume:</span>
+                                <span className="font-mono font-bold text-foreground">
+                                  {calc.storageDemandVol.toLocaleString()} {calc.volUnit} ({sizingParams.storageDays} Day Autonomy)
+                                </span>
+                              </div>
+                              <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                                <span className="text-slate-600 dark:text-zinc-400">Peak Fixture Surge Buffer Volume:</span>
+                                <span className="font-mono font-bold text-foreground">
+                                  {calc.peakSurgeVol.toLocaleString()} {calc.volUnit} (30 mins @ {sizingParams.peakFlow} {calc.flowUnit})
+                                </span>
+                              </div>
+                              <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                                <span className="text-slate-600 dark:text-zinc-400">Safety &amp; Freeboard Allowance:</span>
+                                <span className="font-mono font-bold text-foreground">
+                                  +{calc.safetyMarginVol.toLocaleString()} {calc.volUnit} (+{sizingParams.safetyFactor}%)
+                                </span>
+                              </div>
+                              <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                                <span className="text-slate-600 dark:text-zinc-400">Usable Water Depth:</span>
+                                <span className="font-mono font-bold text-foreground">
+                                  {calc.effectiveDepth} {calc.dimUnit}
+                                </span>
+                              </div>
+                              <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                                <span className="text-slate-600 dark:text-zinc-400">Estimated Plan Footprint:</span>
+                                <span className="font-mono font-bold text-foreground">
+                                  {calc.tankLength} × {calc.tankWidth} {calc.dimUnit} (Floor Area: {calc.floorArea} {calc.areaUnit})
+                                </span>
+                              </div>
+                              <div className="flex justify-between py-1 font-bold text-foreground">
+                                <span>Total Usable Storage Capacity:</span>
+                                <span className="font-mono text-primary text-sm">
+                                  {calc.recommendedCapacity.toLocaleString()} {calc.volUnit} ({calc.capacityM3} m³ / {calc.capacityGal.toLocaleString()} US gal)
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Compartment Footprint Visual Layout */}
+                            <div className="border border-border/80 rounded-xl bg-slate-50/50 dark:bg-zinc-900/50 p-3.5 space-y-2">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-semibold text-foreground">Tank Allocation &amp; Footprint Layout</span>
+                                <span className="text-muted-foreground font-mono text-[11px]">
+                                  {calc.tankLength} × {calc.tankWidth} × {calc.effectiveDepth} {calc.dimUnit} • {calc.floorArea} {calc.areaUnit}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 pt-1">
+                                {Array.from({ length: calc.comps }).map((_, i) => (
+                                  <div
+                                    key={i}
+                                    className="p-3 rounded-xl border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20 flex flex-col items-center justify-center text-center gap-1"
+                                  >
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                                      Cell {i + 1} ({(100 / calc.comps).toFixed(0)}%)
+                                    </span>
+                                    <span className="text-base font-bold font-mono text-foreground">
+                                      {calc.perCompartmentVol.toLocaleString()} {calc.volUnit}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground font-mono">
+                                      {calc.perCompartmentM3} m³ / cell
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                          </div>
+                        </ContextMenuTrigger>
+                        
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50 font-sans">
+                          <ContextMenuItem
+                            onClick={() => setActiveCommentTarget({ id: "results", label: "Calculation Results" })}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium text-[13px]"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add / View Comment</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onClick={() => copyToClipboard(`Usable Capacity: ${calc.recommendedCapacity.toLocaleString()} ${calc.volUnit} (${calc.capacityM3} m³), Refill: ${calc.fillTimeHours} hrs`)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+                          >
+                            <Copy className="size-3.5 text-muted-foreground" />
+                            <span>Copy Results Summary</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={exportPdf}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary text-[13px]"
+                          >
+                            <FileText className="size-3.5" />
+                            <span>Export PDF Report</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
                     </div>
+
                   </div>
                 </div>
+              ) : (
+                /* Report View Tab (Preliminary Document Format) */
+                <TankSizingReportView
+                  calc={calc}
+                  sizingParams={sizingParams}
+                  project={project}
+                  calcReviewState={calcReviewState}
+                  currentUserName={currentUserName}
+                  onExportPdf={exportPdf}
+                />
               )}
             </div>
           </div>
+        </div>
 
-          {/* Formula & Step-by-Step Breakdown Modal */}
-          {showFormulaModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-              <div className="bg-card border border-border rounded-2xl max-w-2xl w-full p-6 shadow-2xl flex flex-col gap-4 max-h-[85vh] overflow-y-auto">
-                <div className="flex items-center justify-between pb-3 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <Droplets className="size-5 text-[#0A7BC7]" />
-                    <h2 className="text-lg font-bold text-foreground">Tank Sizing Formulas & Derivations</h2>
-                  </div>
-                  <button
-                    onClick={() => setShowFormulaModal(false)}
-                    className="p-1 rounded-lg hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer"
-                  >
-                    <X className="size-4" />
-                  </button>
-                </div>
-
-                <div className="space-y-4 text-xs text-muted-foreground leading-relaxed">
-                  <div className="p-3.5 rounded-xl bg-surface-2 border border-border">
-                    <h4 className="font-bold text-foreground text-sm mb-1">1. Storage Demand Method</h4>
-                    <p className="font-mono text-[#0A7BC7] dark:text-[#38bdf8] font-semibold mb-1">
-                      V_storage = Q_daily × T_duration
-                    </p>
-                    <p>
-                      Calculated: {sizingParams.dailyDemand} × {sizingParams.storageDays} = <strong>{calc.storageDemandVol.toLocaleString()} {calc.volUnit}</strong>
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-surface-2 border border-border">
-                    <h4 className="font-bold text-foreground text-sm mb-1">2. Break Tank (Peak Surge Buffer)</h4>
-                    <p className="font-mono text-[#0A7BC7] dark:text-[#38bdf8] font-semibold mb-1">
-                      V_break = Q_peak × 30 minutes
-                    </p>
-                    <p>
-                      Calculated: <strong>{calc.peakSurgeVol.toLocaleString()} {calc.volUnit}</strong>
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-surface-2 border border-border">
-                    <h4 className="font-bold text-foreground text-sm mb-1">3. Total Recommended Capacity</h4>
-                    <p className="font-mono text-[#0A7BC7] dark:text-[#38bdf8] font-semibold mb-1">
-                      V_rec = Max(V_storage, V_break) × (1 + Safety Margin)
-                    </p>
-                    <p>
-                      Calculated: Max({calc.storageDemandVol}, {calc.peakSurgeVol}) × (1 + {sizingParams.safetyFactor}%) = <strong>{calc.recommendedCapacity.toLocaleString()} {calc.volUnit} ({calc.capacityM3} m³)</strong>
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-surface-2 border border-border">
-                    <h4 className="font-bold text-foreground text-sm mb-1">4. Refill Inflow Duration</h4>
-                    <p className="font-mono text-[#0A7BC7] dark:text-[#38bdf8] font-semibold mb-1">
-                      T_refill = V_rec / Q_pump
-                    </p>
-                    <p>
-                      Calculated: <strong>{calc.fillTimeHours} hours ({calc.fillTimeMinutes} minutes)</strong>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2 border-t border-border">
-                  <button
-                    onClick={() => setShowFormulaModal(false)}
-                    className="px-4 py-1.5 rounded-xl bg-primary text-primary-foreground font-semibold text-xs cursor-pointer hover:bg-primary/90 transition"
-                  >
-                    Done
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Comment Assignment Modal */}
-          {activeCommentTarget && (
-            <AssignCommentModal
-              isOpen={Boolean(activeCommentTarget)}
-              targetId={activeCommentTarget.id}
-              targetName={activeCommentTarget.label}
-              targetLabel={activeCommentTarget.label}
-              calculatorPath="/plumbing-tank-sizing"
-              calculatorTitle="Water Tank Sizing"
-              existingComments={commentsMap[activeCommentTarget.id] || []}
-              onClose={() => setActiveCommentTarget(null)}
-              onSave={handleSaveComment}
-              onCommentAdded={handleSaveComment}
+        {/* Intelligence Drawer (Collapsible Right Side Panel) */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <TankSizingIntelligenceDrawer
+              onClose={() => setIntelOpen(false)}
+              calc={calc}
+              preset={preset}
+              onSelectPreset={handleApplyPreset}
+              isEffectiveReadOnly={isEffectiveReadOnly}
+              unitSystem={unitSystem}
+              setShowFormulaModal={setShowFormulaModal}
             />
           )}
-
         </div>
       </div>
+
+      {/* Formula & Derivations Modal */}
+      {showFormulaModal && (
+        <TankSizingFormulaModal
+          onClose={() => setShowFormulaModal(false)}
+          calc={calc}
+          sizingParams={sizingParams}
+        />
+      )}
+
+      {/* Assign / View Comment Modal */}
+      {activeCommentTarget && (
+        <AssignCommentModal
+          isOpen={true}
+          onClose={() => setActiveCommentTarget(null)}
+          onSave={handleSaveComment}
+          targetId={activeCommentTarget.id}
+          targetName={activeCommentTarget.label}
+          existingComments={commentsMap[activeCommentTarget.id] || []}
+        />
+      )}
     </AppShell>
+  );
+}
+
+// In-Browser Preliminary Engineering Report Component
+function TankSizingReportView({
+  calc,
+  sizingParams,
+  project,
+  calcReviewState,
+  currentUserName,
+  onExportPdf,
+}: {
+  calc: any;
+  sizingParams: TankSizingParams;
+  project: any;
+  calcReviewState: CalculationReviewState | null;
+  currentUserName: string;
+  onExportPdf: () => void;
+}) {
+  const calcNo = `CALC-TNK-${project?.code || "001"}`;
+  const projectNo = project?.code || "PRJ-001";
+  const projectName = project?.name || "Domestic Water Storage Facility Project";
+  const clientName = (project as any)?.client || "Client Representative";
+  const endUser = (project as any)?.endUser || "Building Facilities / MEP Department";
+  const today = formatDateStr(new Date().toISOString());
+
+  const sigDetails = getSignatureBlockDetails(project?.id || "default", "/plumbing-tank-sizing", currentUserName, calcReviewState);
+
+  return (
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-100/50 dark:bg-zinc-950/40 custom-scrollbar">
+      <div className="max-w-4xl mx-auto bg-white dark:bg-zinc-900 border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6">
+        
+        {/* Document Header */}
+        <div className="flex justify-between items-start pb-4 border-b border-border">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-foreground uppercase">
+              Domestic Water Tank Sizing Preliminary Report
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Design Standards: IPC Chapter 6 / BS EN 806 / ASPE Potable Water Storage
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <TBtn onClick={onExportPdf}>
+              <FileText className="size-3.5" /> Export PDF
+            </TBtn>
+          </div>
+        </div>
+
+        {/* Metadata Enclosed Grid */}
+        <div className="border border-border rounded-xl overflow-hidden text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 bg-muted/40 font-bold border-b border-border divide-x divide-border">
+            <div className="p-2.5">Calculation No:</div>
+            <div className="p-2.5 font-mono text-primary font-normal">{calcNo}</div>
+            <div className="p-2.5">Date:</div>
+            <div className="p-2.5 font-normal">{today}</div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-border divide-x divide-border">
+            <div className="p-2.5 font-bold bg-muted/20">Project No:</div>
+            <div className="p-2.5 font-mono">{projectNo}</div>
+            <div className="p-2.5 font-bold bg-muted/20">Client:</div>
+            <div className="p-2.5">{clientName}</div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border">
+            <div className="p-2.5 font-bold bg-muted/20">Project Name:</div>
+            <div className="p-2.5">{projectName}</div>
+            <div className="p-2.5 font-bold bg-muted/20">End User:</div>
+            <div className="p-2.5">{endUser}</div>
+          </div>
+        </div>
+
+        {/* Section 1: Demand & Inflow Parameters */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-bold text-foreground">1. Input Parameters &amp; Demand Criteria</h3>
+          <div className="border border-border rounded-xl overflow-hidden text-xs">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-200/80 dark:bg-zinc-800 font-bold border-b border-border">
+                  <th className="p-2.5 w-12 text-center">Sr.</th>
+                  <th className="p-2.5">Parameter Description</th>
+                  <th className="p-2.5 text-center">Design Value</th>
+                  <th className="p-2.5 text-center">Equivalent</th>
+                  <th className="p-2.5">Standard / Code Reference</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr>
+                  <td className="p-2.5 text-center font-mono">1</td>
+                  <td className="p-2.5 font-bold">Daily Water Consumption Demand</td>
+                  <td className="p-2.5 text-center font-mono font-bold text-primary">{sizingParams.dailyDemand} {calc.volUnit}</td>
+                  <td className="p-2.5 text-center font-mono">{calc.isIp ? `${(Number(sizingParams.dailyDemand) * 3.78541).toFixed(0)} L` : `${(Number(sizingParams.dailyDemand) / 3.78541).toFixed(0)} gal`}</td>
+                  <td className="p-2.5 text-muted-foreground">Daily Occupancy / Plumbing Load Demand</td>
+                </tr>
+                <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                  <td className="p-2.5 text-center font-mono">2</td>
+                  <td className="p-2.5 font-bold">Storage Autonomy Duration</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{sizingParams.storageDays} Day(s)</td>
+                  <td className="p-2.5 text-center font-mono">{(Number(sizingParams.storageDays) * 24).toFixed(0)} Hours</td>
+                  <td className="p-2.5 text-muted-foreground">Continuous uninterrupted supply autonomy</td>
+                </tr>
+                <tr>
+                  <td className="p-2.5 text-center font-mono">3</td>
+                  <td className="p-2.5 font-bold">Peak Fixture Demand Flow Rate</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{sizingParams.peakFlow} {calc.flowUnit}</td>
+                  <td className="p-2.5 text-center font-mono">{calc.isIp ? `${(Number(sizingParams.peakFlow) * 0.06309).toFixed(2)} L/s` : `${(Number(sizingParams.peakFlow) / 0.06309).toFixed(1)} GPM`}</td>
+                  <td className="p-2.5 text-muted-foreground">Peak instantaneous plumbing fixture draw</td>
+                </tr>
+                <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                  <td className="p-2.5 text-center font-mono">4</td>
+                  <td className="p-2.5 font-bold">Pump Inflow / Municipal Refill Rate</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{sizingParams.pumpFillRate} {calc.flowUnit}</td>
+                  <td className="p-2.5 text-center font-mono">{calc.isIp ? `${(Number(sizingParams.pumpFillRate) * 0.06309).toFixed(2)} L/s` : `${(Number(sizingParams.pumpFillRate) / 0.06309).toFixed(1)} GPM`}</td>
+                  <td className="p-2.5 text-muted-foreground">Available water main refill capacity</td>
+                </tr>
+                <tr>
+                  <td className="p-2.5 text-center font-mono">5</td>
+                  <td className="p-2.5 font-bold">Safety / Freeboard Margin Allowance</td>
+                  <td className="p-2.5 text-center font-mono font-bold">+{sizingParams.safetyFactor} %</td>
+                  <td className="p-2.5 text-center font-mono">+{calc.safetyMarginVol.toLocaleString()} {calc.volUnit}</td>
+                  <td className="p-2.5 text-muted-foreground">Freeboard, air gap &amp; surge reserve</td>
+                </tr>
+                <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                  <td className="p-2.5 text-center font-mono">6</td>
+                  <td className="p-2.5 font-bold">Usable Water Depth</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{sizingParams.usableDepth} {calc.dimUnit}</td>
+                  <td className="p-2.5 text-center font-mono">{calc.isIp ? `${(Number(sizingParams.usableDepth) * 0.3048).toFixed(2)} m` : `${(Number(sizingParams.usableDepth) / 0.3048).toFixed(1)} ft`}</td>
+                  <td className="p-2.5 text-muted-foreground">Effective water depth below overflow</td>
+                </tr>
+                <tr>
+                  <td className="p-2.5 text-center font-mono">7</td>
+                  <td className="p-2.5 font-bold">Compartment Maintenance Division</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{sizingParams.numCompartments} Cell(s)</td>
+                  <td className="p-2.5 text-center font-mono">{(100 / (sizingParams.numCompartments || 2)).toFixed(0)}% per cell</td>
+                  <td className="p-2.5 text-muted-foreground">IPC 606.5 / BS EN 806 online cleaning split</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Section 2: Storage Sizing Results */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-bold text-foreground">2. Storage Sizing &amp; Capacity Evaluation</h3>
+          <div className="border border-border rounded-xl overflow-hidden text-xs">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-blue-100 dark:bg-blue-950/60 font-bold border-b border-border">
+                  <th className="p-2.5 w-12 text-center">Sr.</th>
+                  <th className="p-2.5">Metric / Sizing Parameter</th>
+                  <th className="p-2.5 text-center">Calculated Value</th>
+                  <th className="p-2.5 text-center">Allocation</th>
+                  <th className="p-2.5">Formula &amp; Code Reference</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr className="bg-blue-50/50 dark:bg-blue-950/20 font-bold">
+                  <td className="p-2.5 text-center font-mono">1</td>
+                  <td className="p-2.5 text-primary">RECOMMENDED USABLE CAPACITY</td>
+                  <td className="p-2.5 text-center font-mono text-sm text-primary">{calc.recommendedCapacity.toLocaleString()} {calc.volUnit}</td>
+                  <td className="p-2.5 text-center">Total Storage</td>
+                  <td className="p-2.5 text-muted-foreground">Max(Storage Demand, Break Surge) × (1 + Safety)</td>
+                </tr>
+                <tr>
+                  <td className="p-2.5 text-center font-mono">2</td>
+                  <td className="p-2.5 font-semibold">Volumetric Standard Equivalence</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{calc.capacityM3} m³ ({calc.capacityGal.toLocaleString()} gal)</td>
+                  <td className="p-2.5 text-center">Equivalent</td>
+                  <td className="p-2.5 text-muted-foreground">Standard volumetric conversions</td>
+                </tr>
+                <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                  <td className="p-2.5 text-center font-mono">3</td>
+                  <td className="p-2.5 font-semibold">Consumption Storage Demand</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{calc.storageDemandVol.toLocaleString()} {calc.volUnit}</td>
+                  <td className="p-2.5 text-center">Demand</td>
+                  <td className="p-2.5 text-muted-foreground">Daily Demand × Autonomy Days</td>
+                </tr>
+                <tr>
+                  <td className="p-2.5 text-center font-mono">4</td>
+                  <td className="p-2.5 font-semibold">Break Tank 30-min Surge Buffer</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{calc.peakSurgeVol.toLocaleString()} {calc.volUnit}</td>
+                  <td className="p-2.5 text-center">Buffer</td>
+                  <td className="p-2.5 text-muted-foreground">Peak Flow × 30-min continuous surge</td>
+                </tr>
+                <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                  <td className="p-2.5 text-center font-mono">5</td>
+                  <td className="p-2.5 font-semibold">Per Cell Maintenance Volume</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{calc.perCompartmentVol.toLocaleString()} {calc.volUnit} / cell</td>
+                  <td className="p-2.5 text-center">Compartments</td>
+                  <td className="p-2.5 text-muted-foreground">{calc.comps} equal maintenance cells ({calc.perCompartmentM3} m³)</td>
+                </tr>
+                <tr>
+                  <td className="p-2.5 text-center font-mono">6</td>
+                  <td className="p-2.5 font-semibold">Pump Refill Duration</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{calc.fillTimeHours} hrs ({calc.fillTimeMinutes} mins)</td>
+                  <td className="p-2.5 text-center">Refill Rate</td>
+                  <td className="p-2.5 text-muted-foreground">Capacity / Pump Inflow Rate</td>
+                </tr>
+                <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                  <td className="p-2.5 text-center font-mono">7</td>
+                  <td className="p-2.5 font-semibold">Suggested Plan Dimensions</td>
+                  <td className="p-2.5 text-center font-mono font-bold">{calc.tankLength} × {calc.tankWidth} × {calc.effectiveDepth} {calc.dimUnit}</td>
+                  <td className="p-2.5 text-center">Footprint</td>
+                  <td className="p-2.5 text-muted-foreground">Area: {calc.floorArea} {calc.areaUnit} (2:1 aspect ratio)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Verification Banner */}
+        <div className="p-4 rounded-xl border border-emerald-300 dark:border-emerald-800/50 bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200 flex items-start gap-3 text-xs">
+          <CheckCircle2 className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+          <div>
+            <strong className="text-sm block">Potable Water Storage Capacity Satisfies BS EN 806 &amp; IPC Chapter 6:</strong>
+            <p className="mt-0.5 leading-relaxed text-[11.5px]">
+              The calculated usable volume of {calc.recommendedCapacity.toLocaleString()} {calc.volUnit} ({calc.capacityM3} m³) accommodates full daily consumption plus mandatory peak break buffer. Dual {calc.comps}-cell compartment split ensures 100% online maintenance without building supply disruption.
+            </p>
+          </div>
+        </div>
+
+        {/* Section 3: 3-Tier Approval Block */}
+        <div className="space-y-2 pt-2">
+          <h3 className="text-sm font-bold text-foreground">3. Approval &amp; Sign-Off Block</h3>
+          <div className="border border-border rounded-xl overflow-hidden text-xs">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-200/80 dark:bg-zinc-800 font-bold border-b border-border">
+                  <th className="p-2.5">Approval Role</th>
+                  <th className="p-2.5 text-center">Engineers Name</th>
+                  <th className="p-2.5 text-center">Status / Role Title</th>
+                  <th className="p-2.5 text-center">Signature / Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr>
+                  <td className="p-2.5 font-bold">Originator / Prepared By</td>
+                  <td className="p-2.5 text-center font-medium">{sigDetails.originatedName}</td>
+                  <td className="p-2.5 text-center text-muted-foreground">MEP Design Engineer</td>
+                  <td className="p-2.5 text-center font-mono">{sigDetails.originatedDate}</td>
+                </tr>
+                <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                  <td className="p-2.5 font-bold">Reviewer / Checked By</td>
+                  <td className="p-2.5 text-center font-medium">{sigDetails.reviewerName || "Pending Review"}</td>
+                  <td className="p-2.5 text-center text-muted-foreground">Senior Plumbing Lead</td>
+                  <td className="p-2.5 text-center font-mono">{sigDetails.reviewerDate || "—"}</td>
+                </tr>
+                <tr>
+                  <td className="p-2.5 font-bold">Approver / Verified By</td>
+                  <td className="p-2.5 text-center font-medium">{sigDetails.approverName || "Pending Approval"}</td>
+                  <td className="p-2.5 text-center text-muted-foreground">Principal / MEP Director</td>
+                  <td className="p-2.5 text-center font-mono">{sigDetails.approverDate || "—"}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// Intelligence Drawer Component
+function TankSizingIntelligenceDrawer({
+  onClose,
+  calc,
+  preset,
+  onSelectPreset,
+  isEffectiveReadOnly,
+  unitSystem,
+  setShowFormulaModal,
+}: {
+  onClose: () => void;
+  calc: any;
+  preset: TankPresetKey;
+  onSelectPreset: (k: TankPresetKey) => void;
+  isEffectiveReadOnly: boolean;
+  unitSystem: "si" | "ip";
+  setShowFormulaModal: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex flex-col h-full bg-card">
+      <div className="flex items-center justify-between p-4 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-4 text-primary" />
+          <h3 className="font-bold text-sm text-foreground">Tank Sizing Intelligence</h3>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-5 text-xs custom-scrollbar">
+        {/* Quick Presets */}
+        <div className="space-y-2.5">
+          <span className="font-bold text-foreground text-[11px] uppercase tracking-wider block">
+            ⚡ Building Application Presets
+          </span>
+          <div className="grid grid-cols-1 gap-2">
+            {(Object.keys(SI_PRESETS) as TankPresetKey[]).filter(k => k !== "custom").map((k) => {
+              const p = SI_PRESETS[k];
+              const isSelected = preset === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  disabled={isEffectiveReadOnly}
+                  onClick={() => onSelectPreset(k)}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    isSelected
+                      ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary"
+                      : "border-border/80 bg-surface-2 hover:bg-surface text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <div className="flex items-center justify-between font-bold text-xs">
+                    <span>{p.label}</span>
+                    {isSelected && <Check className="size-3.5 text-primary" />}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5">
+                    {p.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Design Standards Matrix */}
+        <div className="p-3.5 rounded-xl bg-surface-2 border border-border space-y-2">
+          <span className="font-bold text-foreground text-[11px] uppercase tracking-wider block">
+            📐 Design Standards &amp; Codes
+          </span>
+          <div className="space-y-1.5 text-[11.5px] text-muted-foreground">
+            <p>• <strong>IPC Chapter 6:</strong> Potable water supply storage and air gap backflow protection.</p>
+            <p>• <strong>BS EN 806:</strong> Minimum 24h domestic storage requirement with dual-cell maintenance split.</p>
+            <p>• <strong>ASPE Plumbing Engineering:</strong> 30-minute peak fixture draw buffer sizing method.</p>
+          </div>
+        </div>
+
+        {/* Sizing Recommendations */}
+        <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 space-y-2">
+          <span className="font-bold text-blue-700 dark:text-blue-300 text-[11px] uppercase tracking-wider block">
+            💡 Engineering Guidelines
+          </span>
+          <div className="space-y-1.5 text-[11px] text-muted-foreground">
+            <p>• <strong>Residential:</strong> 150–200 L/person/day.</p>
+            <p>• <strong>Offices:</strong> 45 L/employee/day.</p>
+            <p>• <strong>Hospitals:</strong> 350–500 L/bed/day with mandatory 48h autonomy.</p>
+            <p>• <strong>Hotels:</strong> 250–300 L/guest/day.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-3.5 border-t border-border bg-card">
+        <button
+          type="button"
+          onClick={() => setShowFormulaModal(true)}
+          className="w-full py-2 px-3 rounded-xl bg-primary text-primary-foreground font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-primary/90 transition shadow-xs cursor-pointer"
+        >
+          <Info className="size-3.5" />
+          <span>View Formula Breakdown</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Formula & Mathematical Derivations Modal
+function TankSizingFormulaModal({
+  onClose,
+  calc,
+  sizingParams,
+}: {
+  onClose: () => void;
+  calc: any;
+  sizingParams: TankSizingParams;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150 font-sans">
+      <div className="bg-card border border-border rounded-2xl max-w-2xl w-full p-6 shadow-2xl flex flex-col gap-4 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between pb-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Droplets className="size-5 text-primary" />
+            <h2 className="text-lg font-bold text-foreground">Tank Sizing Formulas &amp; Derivations</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-lg hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4 text-xs text-muted-foreground leading-relaxed">
+          <div className="p-3.5 rounded-xl bg-surface-2 border border-border">
+            <h4 className="font-bold text-foreground text-sm mb-1">1. Storage Demand Method</h4>
+            <p className="font-mono text-primary font-semibold mb-1">
+              V_storage = Q_daily × T_duration
+            </p>
+            <p>
+              Calculated: {sizingParams.dailyDemand} × {sizingParams.storageDays} = <strong>{calc.storageDemandVol.toLocaleString()} {calc.volUnit}</strong>
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-surface-2 border border-border">
+            <h4 className="font-bold text-foreground text-sm mb-1">2. Break Tank (Peak Surge Buffer)</h4>
+            <p className="font-mono text-primary font-semibold mb-1">
+              V_break = Q_peak × 30 minutes
+            </p>
+            <p>
+              Calculated: <strong>{calc.peakSurgeVol.toLocaleString()} {calc.volUnit}</strong>
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-surface-2 border border-border">
+            <h4 className="font-bold text-foreground text-sm mb-1">3. Total Recommended Capacity</h4>
+            <p className="font-mono text-primary font-semibold mb-1">
+              V_rec = Max(V_storage, V_break) × (1 + Safety Margin)
+            </p>
+            <p>
+              Calculated: Max({calc.storageDemandVol}, {calc.peakSurgeVol}) × (1 + {sizingParams.safetyFactor}%) = <strong>{calc.recommendedCapacity.toLocaleString()} {calc.volUnit} ({calc.capacityM3} m³)</strong>
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-surface-2 border border-border">
+            <h4 className="font-bold text-foreground text-sm mb-1">4. Refill Inflow Duration</h4>
+            <p className="font-mono text-primary font-semibold mb-1">
+              T_refill = V_rec / Q_pump
+            </p>
+            <p>
+              Calculated: <strong>{calc.fillTimeHours} hours ({calc.fillTimeMinutes} minutes)</strong>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-2 border-t border-border">
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-xl bg-primary text-primary-foreground font-semibold text-xs cursor-pointer hover:bg-primary/90 transition"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

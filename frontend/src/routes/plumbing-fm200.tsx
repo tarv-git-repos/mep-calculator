@@ -879,7 +879,7 @@ function FM200SizerPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">FM-200 Gas Sizing</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">Total flooding clean agent sizer (NFPA 2001)</span>
+                
               </div>
               <button 
                 onClick={() => setIntelOpen((v) => !v)}
@@ -902,6 +902,20 @@ function FM200SizerPage() {
                   <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"} / Comment{commentsList.length === 1 ? "" : "s"}</span>
                 </div>
               )}
+            </div>
+          
+            <div className="flex items-center gap-2 shrink-0">
+              <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  disabled={isEffectiveReadOnly}
+                  inputDescriptions="Floor Area, Enclosure Height, Minimum Temperature"
+                  conversionExample={
+                    unitSystem === "si"
+                      ? "Convert 100 m² → 1,076.4 ft², 3 m → 9.84 ft, 20°C → 68°F"
+                      : "Convert 1,000 ft² → 92.9 m², 10 ft → 3.05 m, 68°F → 20°C"
+                  }
+                />
             </div>
           </div>
 
@@ -958,19 +972,7 @@ function FM200SizerPage() {
                   <FileText className="size-3.5" /> Export
                 </TBtn>
 
-                {/* Sizing Unit system toggle */}
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  disabled={isEffectiveReadOnly}
-                  inputDescriptions="Floor Area, Enclosure Height, Minimum Temperature"
-                  conversionExample={
-                    unitSystem === "si"
-                      ? "Convert 100 m² → 1,076.4 ft², 3 m → 9.84 ft, 20°C → 68°F"
-                      : "Convert 1,000 ft² → 92.9 m², 10 ft → 3.05 m, 68°F → 20°C"
-                  }
-                />
-              </div>
+                </div>
             </div>
         {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">

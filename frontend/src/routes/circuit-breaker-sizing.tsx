@@ -9,8 +9,10 @@ import React, { useState, useMemo, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import {
-  Plus, Trash2, Download, Upload, Sparkles, Gauge, FileText, Printer, FileSpreadsheet, RotateCcw, Filter, ArrowUpDown, Copy, X, Check, MessageSquare, Search, SlidersHorizontal, PanelRightClose, PanelRightOpen
+  Plus, Trash2, Download, Upload, Sparkles, Gauge, FileText, Printer, FileSpreadsheet, RotateCcw, Filter, ArrowUpDown, Copy, X, Check, MessageSquare, Search, SlidersHorizontal
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
@@ -77,7 +79,7 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       placeholder={placeholder}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
-      className={`bg-transparent w-full border border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none transition-colors cursor-text ${className}`}
+      className={`bg-transparent w-full border border-transparent hover:border-border/60 focus:border-primary px-1.5 py-0.5 outline-none text-xs transition-colors cursor-text ${className}`}
     />
   );
 }
@@ -123,7 +125,6 @@ function CircuitBreakerSizingPage() {
   };
 
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
-  const [showSummary, setShowSummary] = useState(true);
 
   // Search, Filter & Sort State
   const [searchQuery, setSearchQuery] = useState("");
@@ -134,6 +135,28 @@ function CircuitBreakerSizingPage() {
   const [sortKey, setSortKey] = useState<"default" | "description" | "connectedLoad" | "voltage" | "designCurrent" | "recBreaker">("default");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Unit System State (SI = kW / Metric, IP = HP / Imperial)
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+
+  const handleUnitToggle = (newSystem: "si" | "ip", shouldConvert: boolean = true) => {
+    if (newSystem === unitSystem) return;
+    setUnitSystem(newSystem);
+    if (shouldConvert) {
+      setRows(prev => prev.map(r => {
+        if (r.connectedLoad === "" || r.connectedLoad === undefined) return r;
+        const load = Number(r.connectedLoad);
+        if (isNaN(load)) return r;
+        return {
+          ...r,
+          connectedLoad: newSystem === "ip" ? Number((load / 0.746).toFixed(2)) : Number((load * 0.746).toFixed(2)),
+        };
+      }));
+      toast.success(`Converted units to ${newSystem.toUpperCase()}`);
+    } else {
+      toast.success(`Switched unit system to ${newSystem.toUpperCase()}`);
+    }
+  };
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -167,7 +190,24 @@ function CircuitBreakerSizingPage() {
   ]);
 
   // Calculations
-  const calculatedData = useMemo(() => calculateCircuitBreakers(rows), [rows]);
+  const calculatedData = useMemo(() => {
+    if (unitSystem === "ip") {
+      // In IP system, connectedLoad is entered in HP. Convert to kW (1 HP = 0.746 kW) for current calculation
+      const kwRows: BreakerRow[] = rows.map(r => ({
+        ...r,
+        connectedLoad: r.connectedLoad === "" ? "" : Number((Number(r.connectedLoad) * 0.746).toFixed(3))
+      }));
+      const res = calculateCircuitBreakers(kwRows);
+      return {
+        ...res,
+        rowDetails: res.rowDetails.map((rd, i) => ({
+          ...rd,
+          connectedLoad: rows[i]?.connectedLoad ?? rd.connectedLoad,
+        })),
+      };
+    }
+    return calculateCircuitBreakers(rows);
+  }, [rows, unitSystem]);
 
 
   // Filtered & Sorted Rows for Display
@@ -220,6 +260,181 @@ function CircuitBreakerSizingPage() {
 
     return list;
   }, [calculatedData.rowDetails, searchQuery, filterPhase, filterMinLoad, filterMinCurrent, filterSelectedOnly, sortKey, sortDirection]);
+
+  // DataGrid Column Definitions matching standard application design
+  const columns: Column<any>[] = useMemo(() => [
+    {
+      key: "index",
+      header: "SR.",
+      width: 55,
+      align: "center",
+      render: (r) => <span className="font-mono text-muted-foreground text-xs">{rows.findIndex(row => row.id === r.id) + 1}</span>
+    },
+    {
+      key: "description",
+      header: "DESCRIPTION",
+      width: 240,
+      editable: true,
+      render: (r) => {
+        const itemComments = getMergedItemComments(r.id, r.description, (r as any).comments, "/circuit-breaker-sizing", project?.id);
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            {itemComments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(r.id, r.description);
+                }}
+                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                <span className="text-[10px] font-bold">{itemComments.length}</span>
+              </button>
+            )}
+            <InlineInput 
+              value={r.description} 
+              onCommit={(val) => handleUpdateRow(r.id, "description", val)}
+              onFocus={() => handleRowFocus(r.id)}
+              placeholder="e.g. Feeder Load"
+              className="font-medium text-foreground text-xs min-w-0 flex-1"
+            />
+          </div>
+        );
+      }
+    },
+    {
+      key: "connectedLoad",
+      header: `CONNECTED LOAD (${unitSystem === "ip" ? "HP" : "kW"})`,
+      width: 175,
+      align: "right",
+      editable: true,
+      render: (r) => (
+        <InlineInput 
+          type="number" 
+          step="0.1"
+          value={r.connectedLoad} 
+          onCommit={(val) => handleUpdateRow(r.id, "connectedLoad", val === "" ? "" : Number(val))}
+          onFocus={() => handleRowFocus(r.id)}
+          placeholder="10"
+          className="text-foreground tabular text-right text-xs min-w-0 flex-1"
+        />
+      )
+    },
+    {
+      key: "voltage",
+      header: "VOLTAGE (V)",
+      width: 110,
+      align: "right",
+      editable: true,
+      render: (r) => (
+        <InlineInput 
+          type="number" 
+          value={r.voltage} 
+          onCommit={(val) => handleUpdateRow(r.id, "voltage", val === "" ? "" : Number(val))}
+          onFocus={() => handleRowFocus(r.id)}
+          placeholder="400"
+          className="text-foreground tabular text-right text-xs min-w-0 flex-1"
+        />
+      )
+    },
+    {
+      key: "phase",
+      header: "PHASE",
+      width: 140,
+      align: "center",
+      editable: true,
+      render: (r) => (
+        <select 
+          value={r.phase} 
+          onChange={(e) => handleUpdateRow(r.id, "phase", e.target.value as any)}
+          onFocus={() => handleRowFocus(r.id)}
+          onClick={(e) => e.stopPropagation()}
+          className="h-6 w-full bg-transparent border border-transparent hover:border-border/60 focus:border-primary rounded px-1 text-xs outline-none text-foreground cursor-pointer"
+        >
+          <option value="Select...">Select...</option>
+          <option value="Single Phase">Single Phase (1P)</option>
+          <option value="Three Phase">Three Phase (3P)</option>
+        </select>
+      )
+    },
+    {
+      key: "powerFactor",
+      header: "POWER FACTOR",
+      width: 125,
+      align: "right",
+      editable: true,
+      render: (r) => (
+        <InlineInput 
+          type="number" 
+          step="0.01"
+          value={r.powerFactor} 
+          onCommit={(val) => handleUpdateRow(r.id, "powerFactor", val === "" ? "" : Number(val))}
+          onFocus={() => handleRowFocus(r.id)}
+          placeholder="0.80"
+          className="text-foreground tabular text-right text-xs min-w-0 flex-1"
+        />
+      )
+    },
+    {
+      key: "demandFactor",
+      header: "DEMAND FACTOR",
+      width: 125,
+      align: "right",
+      editable: true,
+      render: (r) => (
+        <InlineInput 
+          type="number" 
+          step="0.01"
+          value={r.demandFactor} 
+          onCommit={(val) => handleUpdateRow(r.id, "demandFactor", val === "" ? "" : Number(val))}
+          onFocus={() => handleRowFocus(r.id)}
+          placeholder="1.00"
+          className="text-foreground tabular text-right text-xs min-w-0 flex-1"
+        />
+      )
+    },
+    {
+      key: "designCurrent",
+      header: "DESIGN CURRENT (A)",
+      width: 155,
+      align: "right",
+      mono: true,
+      render: (r) => (
+        <span className="font-mono font-medium text-foreground text-xs tabular-nums">
+          {r.designCurrent.toFixed(2)} A
+        </span>
+      )
+    },
+    {
+      key: "recBreaker",
+      header: "RECOMMENDED BREAKER (A)",
+      width: 195,
+      align: "right",
+      mono: true,
+      render: (r) => (
+        <span className="font-mono font-bold text-primary text-xs tabular-nums">
+          {r.recBreaker} A
+        </span>
+      )
+    },
+    {
+      key: "remarks",
+      header: "REMARKS",
+      width: 180,
+      editable: true,
+      render: (r) => (
+        <InlineInput 
+          value={r.remarks} 
+          onCommit={(val) => handleUpdateRow(r.id, "remarks", val)}
+          onFocus={() => handleRowFocus(r.id)}
+          placeholder="Notes..."
+          className="text-muted-foreground text-xs min-w-0 flex-1"
+        />
+      )
+    }
+  ], [rows, unitSystem, project?.id]);
 
   // Handlers
   const handleAddRow = () => {
@@ -317,7 +532,6 @@ function CircuitBreakerSizingPage() {
   const handleReset = async () => {
     if (await confirm({ title: "Reset Data", body: "This will clear all circuits. Continue?" })) {
       setRows([]);
-      setShowSummary(false);
       toast.info("All circuits cleared");
     }
   };
@@ -356,7 +570,7 @@ function CircuitBreakerSizingPage() {
 
   const excelColumnMapping = {
     description: ["Description", "Circuit Description", "Load Description", "Desc", "Circuit", "Space"],
-    connectedLoad: ["Connected Load (kW)", "Connected Load", "Load (kW)", "kW", "Load", "Watt"],
+    connectedLoad: ["Connected Load (kW)", "Connected Load (HP)", "Connected Load", "Load (kW)", "Load (HP)", "kW", "HP", "Load", "Watt"],
     voltage: ["Voltage (V)", "Voltage", "Volts", "V"],
     phase: ["Phase", "Phases", "Phase Type"],
     powerFactor: ["Power Factor", "PF", "P.F."],
@@ -396,10 +610,11 @@ function CircuitBreakerSizingPage() {
       const workbook = new ExcelJS.Workbook();
       const sheet = workbook.addWorksheet("Breaker Sizing");
 
+      const loadHeader = unitSystem === "ip" ? "Connected Load (HP)" : "Connected Load (kW)";
       sheet.columns = [
         { header: "Sr.", key: "sr", width: 8 },
         { header: "Description", key: "desc", width: 28 },
-        { header: "Connected Load (kW)", key: "load", width: 22 },
+        { header: loadHeader, key: "load", width: 22 },
         { header: "Voltage (V)", key: "volt", width: 14 },
         { header: "Phase", key: "phase", width: 16 },
         { header: "Power Factor", key: "pf", width: 14 },
@@ -444,8 +659,18 @@ function CircuitBreakerSizingPage() {
       sheet.addRow([]);
       const summaryTitle = sheet.addRow(["Results Summary"]);
       summaryTitle.font = { name: "Calibri", size: 12, bold: true };
-      sheet.addRow(["Total Connected Load (kW)", `${calculatedData.totalConnectedKw.toFixed(1)} kW`]);
-      sheet.addRow(["Total Design Load (kW)", `${calculatedData.totalDesignLoadKw.toFixed(1)} kW`]);
+      sheet.addRow([
+        unitSystem === "ip" ? "Total Connected Load (HP)" : "Total Connected Load (kW)",
+        unitSystem === "ip"
+          ? `${(calculatedData.totalConnectedKw / 0.746).toFixed(1)} HP (${calculatedData.totalConnectedKw.toFixed(1)} kW)`
+          : `${calculatedData.totalConnectedKw.toFixed(1)} kW`
+      ]);
+      sheet.addRow([
+        unitSystem === "ip" ? "Total Design Load (HP)" : "Total Design Load (kW)",
+        unitSystem === "ip"
+          ? `${(calculatedData.totalDesignLoadKw / 0.746).toFixed(1)} HP (${calculatedData.totalDesignLoadKw.toFixed(1)} kW)`
+          : `${calculatedData.totalDesignLoadKw.toFixed(1)} kW`
+      ]);
       sheet.addRow(["Maximum Design Current (A)", `${calculatedData.maxDesignCurrentA.toFixed(2)} A`]);
 
       const sigRow = sheet.rowCount ? sheet.rowCount + 2 : 20;
@@ -479,10 +704,20 @@ function CircuitBreakerSizingPage() {
     doc.setTextColor(0);
     doc.text("1. Circuit Breaker Sizing Schedule", 40, 95);
 
-    const loadHead = [["Description", "Load kW", "Volts", "Phase", "PF", "DF", "Current (A)", "Breaker Rating (A)", "Remarks"]];
+    const loadHead = [[
+      "Description",
+      unitSystem === "ip" ? "Load (HP)" : "Load (kW)",
+      "Volts",
+      "Phase",
+      "PF",
+      "DF",
+      "Current (A)",
+      "Breaker Rating (A)",
+      "Remarks"
+    ]];
     const loadBody = calculatedData.rowDetails.map(r => [
       r.description,
-      r.connectedLoad,
+      r.connectedLoad !== "" ? `${r.connectedLoad} ${unitSystem === "ip" ? "HP" : "kW"}` : "-",
       r.voltage,
       r.phase,
       r.powerFactor,
@@ -506,8 +741,18 @@ function CircuitBreakerSizingPage() {
     doc.text("2. Summary", 40, (doc as any).lastAutoTable.finalY + 25);
 
     const summaryData = [
-      ["Total Connected Load", `${calculatedData.totalConnectedKw.toFixed(1)} kW`],
-      ["Total Design Load", `${calculatedData.totalDesignLoadKw.toFixed(1)} kW`],
+      [
+        "Total Connected Load",
+        unitSystem === "ip"
+          ? `${(calculatedData.totalConnectedKw / 0.746).toFixed(1)} HP (${calculatedData.totalConnectedKw.toFixed(1)} kW)`
+          : `${calculatedData.totalConnectedKw.toFixed(1)} kW`
+      ],
+      [
+        "Total Design Load",
+        unitSystem === "ip"
+          ? `${(calculatedData.totalDesignLoadKw / 0.746).toFixed(1)} HP (${calculatedData.totalDesignLoadKw.toFixed(1)} kW)`
+          : `${calculatedData.totalDesignLoadKw.toFixed(1)} kW`
+      ],
       ["Peak Design Current", `${calculatedData.maxDesignCurrentA.toFixed(2)} A`],
     ];
 
@@ -535,20 +780,10 @@ function CircuitBreakerSizingPage() {
     <AppShell
       title="Circuit Breaker Sizing"
       subtitle="Preliminary circuit breaker capacity rating sizing based on connected loads, voltage, and phase parameters"
+      actions={<UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isEffectiveReadOnly} />}
     >
-      <div className="p-6 h-full flex flex-col bg-slate-50 dark:bg-slate-950 font-sans overflow-y-auto">
-        
-        {/* Header & Title */}
-        <div className="flex flex-col mb-4">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            Circuit Breaker Sizing <span className="text-sm font-normal text-slate-400">({rows.length} circuits)</span>
-          </h1>
-              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/circuit-breaker-sizing" calculatorTitle="Circuit Breaker Sizing" />
-          <p className="text-xs text-muted-foreground mt-1">Preliminary circuit breaker capacity rating sizing based on connected loads, voltage, and phase parameters.</p>
-        </div>
-
-        {/* Main Card Container with 3-State Status Highlight */}
-        <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${
+      {/* Main Card Container with 3-State Status Highlight */}
+      <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${
           calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
             : calcReviewState?.status === "REJECTED"
@@ -655,7 +890,7 @@ function CircuitBreakerSizingPage() {
 
                         {/* Min Connected Load filter */}
                         <div className="flex flex-col gap-1">
-                          <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Min Load (kW)</span>
+                          <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Min Load ({unitSystem === "ip" ? "HP" : "kW"})</span>
                           <input
                             type="number"
                             placeholder="e.g. 5"
@@ -734,7 +969,7 @@ function CircuitBreakerSizingPage() {
                           >
                             <option value="default">Default (Sr. No.)</option>
                             <option value="description">Description</option>
-                            <option value="connectedLoad">Connected Load (kW)</option>
+                            <option value="connectedLoad">Connected Load ({unitSystem === "ip" ? "HP" : "kW"})</option>
                             <option value="voltage">Voltage (V)</option>
                             <option value="designCurrent">Design Current (A)</option>
                             <option value="recBreaker">Breaker Rating (A)</option>
@@ -766,35 +1001,12 @@ function CircuitBreakerSizingPage() {
                     </Popover>
                   </div>
 
-                  {/* Right Side: Import Excel, Hide Results, Export PDF, New Row */}
+                  {/* Right Side: Import Excel, Export PDF, New Row */}
                   <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-start sm:justify-end">
                     <ImportExcelBtn
                       columnMapping={excelColumnMapping}
                       onImport={handleImportExcelRows}
                     />
-
-                    <button
-                      type="button"
-                      onClick={() => setShowSummary((prev) => !prev)}
-                      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border transition-all cursor-pointer shadow-2xs ${
-                        showSummary
-                          ? "border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800"
-                          : "border-primary/50 bg-primary/10 text-primary hover:bg-primary/20"
-                      }`}
-                      title={showSummary ? "Hide Results Panel" : "Show Results Panel"}
-                    >
-                      {showSummary ? (
-                        <>
-                          <PanelRightClose className="size-3.5" />
-                          <span className="hidden sm:inline">Hide Results</span>
-                        </>
-                      ) : (
-                        <>
-                          <PanelRightOpen className="size-3.5" />
-                          <span>Show Results</span>
-                        </>
-                      )}
-                    </button>
 
                     <button
                       onClick={handlePrintPDF}
@@ -835,192 +1047,48 @@ function CircuitBreakerSizingPage() {
                   )}
                 </div>
 
-                {/* Main Content Area: Table and Summary Cards */}
-                <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 gap-4">
-                  {/* Table */}
-                  <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-x-auto">
-              <table className="w-full text-left text-xs whitespace-nowrap min-w-[1000px]">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-[10px] text-slate-500">
-                    <th className="p-3 w-10 text-center"><input type="checkbox" onChange={handleSelectAll} checked={displayedRows.length > 0 && displayedRows.every(r => r.selected)} className="cursor-pointer" /></th>
-                    <th className="p-3 w-16 text-center">Sr. No.</th>
-                    <th className="p-3">Description</th>
-                    <th className="p-3 w-32">Connected Load (kW)</th>
-                    <th className="p-3 w-24">Voltage (V)</th>
-                    <th className="p-3 w-32">Phase</th>
-                    <th className="p-3 w-28">Power Factor</th>
-                    <th className="p-3 w-28">Demand Factor</th>
-                    <th className="p-3 w-32">Design Current (A)</th>
-                    <th className="p-3 w-40">Recommended Breaker Rating (A)</th>
-                    <th className="p-3 w-32">Remarks</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                  {displayedRows.map((row, idx) => (
-                    <tr 
-                      key={row.id} 
-                      onClick={() => handleUpdateRow(row.id, "selected", !row.selected)}
-                      className={`cursor-pointer ${row.selected ? 'bg-blue-50/50 dark:bg-blue-900/10' : 'hover:bg-slate-50/50 dark:hover:bg-slate-800/20'}`}
-                    >
-                      <td className="p-3 text-center border-r border-transparent">
-                        <input type="checkbox" checked={!!row.selected} onChange={(e) => handleUpdateRow(row.id, 'selected', e.target.checked)} onClick={(e) => e.stopPropagation()} className="cursor-pointer" />
-                      </td>
-                      <td className="p-3 font-mono text-slate-400 text-center">{idx + 1}</td>
-                      <td className="p-2">
-                        <div className="flex items-center gap-1.5 w-full">
-                          {(() => {
-                            const itemComments = getMergedItemComments(row.id, row.description, (row as any).comments, "/circuit-breaker-sizing", project?.id);
-                            return itemComments.length > 0 ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleOpenComment(row.id, row.description);
-                                }}
-                                title={`${itemComments.length} comment(s)/task(s) assigned`}
-                                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                              >
-                                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                <span className="text-[10px] font-bold">{itemComments.length}</span>
-                              </button>
-                            ) : null;
-                          })()}
-                          <InlineInput 
-                            value={row.description} 
-                            onCommit={(val) => handleUpdateRow(row.id, "description", val)}
-                            onFocus={() => handleRowFocus(row.id)}
-                            placeholder="e.g. New Feeder Load"
-                            className="font-medium text-slate-900 dark:text-slate-100"
-                          />
-                        </div>
-                      </td>
-                      <td className="p-2">
-                        <div className="flex items-center gap-1">
-                          <span className="text-slate-400 text-xs font-mono">eg:</span>
-                          <InlineInput 
-                            type="number" 
-                            value={row.connectedLoad} 
-                            onCommit={(val) => handleUpdateRow(row.id, "connectedLoad", val === "" ? "" : Number(val))}
-                            onFocus={() => handleRowFocus(row.id)}
-                            className="text-slate-900 dark:text-slate-100"
-                          />
-                        </div>
-                      </td>
-                      <td className="p-2">
-                        <div className="flex items-center gap-1">
-                          <span className="text-slate-400 text-xs font-mono">eg:</span>
-                          <InlineInput 
-                            type="number" 
-                            value={row.voltage} 
-                            onCommit={(val) => handleUpdateRow(row.id, "voltage", val === "" ? "" : Number(val))}
-                            onFocus={() => handleRowFocus(row.id)}
-                            className="text-slate-900 dark:text-slate-100"
-                          />
-                        </div>
-                      </td>
-                      <td className="p-2">
-                        <select 
-                          value={row.phase} 
-                          onChange={(e) => handleUpdateRow(row.id, "phase", e.target.value as any)}
-                          onFocus={() => handleRowFocus(row.id)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-full bg-transparent border border-slate-200 dark:border-slate-700 rounded px-1 py-1 outline-none text-slate-900 dark:text-slate-100 focus:border-blue-500"
+                {/* Data Grid Area */}
+                <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                  {displayedRows.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground text-xs gap-2">
+                      <Filter className="size-6 text-muted-foreground/40 mb-1" />
+                      <span className="font-semibold text-foreground">
+                        {rows.length === 0
+                          ? 'No circuits added. Click "+ New Row" to begin sizing.'
+                          : "No matching circuits found for current filter."}
+                      </span>
+                      {rows.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setSearchQuery("");
+                            handleResetFilters();
+                          }}
+                          className="text-xs text-primary font-semibold hover:underline cursor-pointer"
                         >
-                          <option value="Select...">Select...</option>
-                          <option value="Single Phase">Single Phase</option>
-                          <option value="Three Phase">Three Phase</option>
-                        </select>
-                      </td>
-                      <td className="p-2">
-                        <div className="flex items-center gap-1">
-                          <span className="text-slate-400 text-xs font-mono">eg:</span>
-                          <InlineInput 
-                            type="number" step="0.01"
-                            value={row.powerFactor} 
-                            onCommit={(val) => handleUpdateRow(row.id, "powerFactor", val === "" ? "" : Number(val))}
-                            onFocus={() => handleRowFocus(row.id)}
-                            className="text-slate-900 dark:text-slate-100"
-                          />
-                        </div>
-                      </td>
-                      <td className="p-2">
-                        <div className="flex items-center gap-1">
-                          <span className="text-slate-400 text-xs font-mono">eg:</span>
-                          <InlineInput 
-                            type="number" step="0.01"
-                            value={row.demandFactor} 
-                            onCommit={(val) => handleUpdateRow(row.id, "demandFactor", val === "" ? "" : Number(val))}
-                            onFocus={() => handleRowFocus(row.id)}
-                            className="text-slate-900 dark:text-slate-100"
-                          />
-                        </div>
-                      </td>
-                      <td className="p-3 font-bold text-slate-700 dark:text-slate-300">
-                        {row.designCurrent.toFixed(2)}
-                      </td>
-                      <td className="p-3 font-bold text-slate-900 dark:text-white">
-                        {row.recBreaker} A
-                      </td>
-                      <td className="p-2">
-                        <InlineInput 
-                          value={row.remarks} 
-                          onCommit={(val) => handleUpdateRow(row.id, "remarks", val)}
-                          onFocus={() => handleRowFocus(row.id)}
-                          placeholder="Notes..."
-                          className="text-slate-500"
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {displayedRows.length === 0 && (
-                <div className="p-8 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
-                  <Filter className="size-6 text-slate-300 dark:text-slate-600 mb-1" />
-                  <span className="font-semibold text-slate-600 dark:text-slate-300">
-                    {rows.length === 0
-                      ? 'No circuits added. Click "New Space" to begin sizing.'
-                      : "No matching circuits found for current filter."}
-                  </span>
-                  {rows.length > 0 && (
-                    <button
-                      onClick={() => {
-                        setSearchQuery("");
-                        handleResetFilters();
+                          Clear search & filters
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <DataGrid
+                      rows={displayedRows}
+                      columns={columns}
+                      selected={new Set(rows.filter(r => r.selected).map(r => r.id))}
+                      onToggle={(id) => {
+                        const row = rows.find(r => r.id === id);
+                        if (row) handleUpdateRow(id, "selected", !row.selected);
                       }}
-                      className="text-xs text-primary font-semibold hover:underline cursor-pointer"
-                    >
-                      Clear search & filters
-                    </button>
+                      onToggleAll={() => {
+                        const allSelected = rows.length > 0 && displayedRows.every(r => r.selected);
+                        const visibleIds = new Set(displayedRows.map(r => r.id));
+                        setRows(prev => prev.map(r => visibleIds.has(r.id) ? { ...r, selected: !allSelected } : r));
+                      }}
+                      gridId="circuit-breaker-sizing"
+                      isReadOnly={isEffectiveReadOnly}
+                    />
                   )}
                 </div>
-              )}
-            </div>
-
-            {/* Results Summary */}
-            {showSummary && (
-              <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-4 animate-in slide-in-from-bottom-4 fade-in duration-300">
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <div className="absolute right-3 top-3 text-slate-500/10"><FileText className="size-8" /></div>
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Total Connected Load</span>
-                  <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.totalConnectedKw.toFixed(1)} <span className="text-sm text-slate-500 font-sans">kW</span></strong>
-                </div>
-
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <div className="absolute right-3 top-3 text-slate-500/10"><Gauge className="size-8" /></div>
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Total Design Load</span>
-                  <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.totalDesignLoadKw.toFixed(1)} <span className="text-sm text-slate-500 font-sans">kW</span></strong>
-                </div>
-
-                <div className="bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                  <div className="absolute right-3 top-3 text-blue-500/20"><Sparkles className="size-8" /></div>
-                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1">Peak Design Current</span>
-                  <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.maxDesignCurrentA.toFixed(2)} <span className="text-sm text-slate-500 font-sans">A</span></strong>
-                </div>
               </div>
-            )}
-          </div>
-        </div>
       ) : (
         <div className="flex-1 overflow-auto p-6 space-y-6">
           <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto py-2">
@@ -1044,6 +1112,33 @@ function CircuitBreakerSizingPage() {
                 </div>
               </div>
 
+              {/* Sizing & Report KPI Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-2xs relative overflow-hidden">
+                  <div className="absolute right-3 top-3 text-slate-500/10"><FileText className="size-8" /></div>
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Total Connected Load</span>
+                  <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">
+                    {unitSystem === "ip" ? (calculatedData.totalConnectedKw / 0.746).toFixed(1) : calculatedData.totalConnectedKw.toFixed(1)}{" "}
+                    <span className="text-sm text-slate-500 font-sans">{unitSystem === "ip" ? "HP" : "kW"}</span>
+                  </strong>
+                </div>
+
+                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-2xs relative overflow-hidden">
+                  <div className="absolute right-3 top-3 text-slate-500/10"><Gauge className="size-8" /></div>
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Total Design Load</span>
+                  <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">
+                    {unitSystem === "ip" ? (calculatedData.totalDesignLoadKw / 0.746).toFixed(1) : calculatedData.totalDesignLoadKw.toFixed(1)}{" "}
+                    <span className="text-sm text-slate-500 font-sans">{unitSystem === "ip" ? "HP" : "kW"}</span>
+                  </strong>
+                </div>
+
+                <div className="bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-xl p-4 shadow-2xs relative overflow-hidden">
+                  <div className="absolute right-3 top-3 text-blue-500/20"><Sparkles className="size-8" /></div>
+                  <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1">Peak Design Current</span>
+                  <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.maxDesignCurrentA.toFixed(2)} <span className="text-sm text-slate-500 font-sans">A</span></strong>
+                </div>
+              </div>
+
               <div className="mb-6">
                 <h3 className="font-bold text-[13px] text-slate-900 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-1 mb-3">1. Connected Electrical Load & Current Sizing Schedule</h3>
                 <div className="overflow-x-auto">
@@ -1052,7 +1147,7 @@ function CircuitBreakerSizingPage() {
                       <tr className="bg-slate-100 dark:bg-slate-800 font-bold border-b border-slate-200 dark:border-slate-700 uppercase tracking-wider text-[9px]">
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">Sr.</th>
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700">Description</th>
-                        <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Connected (kW)</th>
+                        <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Connected ({unitSystem === "ip" ? "HP" : "kW"})</th>
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">Volts</th>
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">Phase</th>
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">PF</th>
@@ -1066,7 +1161,7 @@ function CircuitBreakerSizingPage() {
                         <tr key={r.id}>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">{idx + 1}</td>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 font-sans">{r.description}</td>
-                          <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">{r.connectedLoad !== "" ? Number(r.connectedLoad).toFixed(1) : "-"} kW</td>
+                          <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">{r.connectedLoad !== "" ? Number(r.connectedLoad).toFixed(1) : "-"} {unitSystem === "ip" ? "HP" : "kW"}</td>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">{r.voltage !== "" ? r.voltage : "-"} V</td>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">{r.phase === 'Three Phase' ? '3P' : r.phase === 'Single Phase' ? '1P' : '-'}</td>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">{r.powerFactor !== "" ? r.powerFactor : "-"}</td>
@@ -1086,11 +1181,11 @@ function CircuitBreakerSizingPage() {
                   <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 bg-slate-50 dark:bg-slate-800/50 text-xs flex flex-col gap-2">
                     <div className="flex justify-between">
                       <span className="text-slate-500">Total Connected load:</span>
-                      <strong className="font-mono">{calculatedData.totalConnectedKw.toFixed(1)} kW</strong>
+                      <strong className="font-mono">{unitSystem === "ip" ? (calculatedData.totalConnectedKw / 0.746).toFixed(1) : calculatedData.totalConnectedKw.toFixed(1)} {unitSystem === "ip" ? "HP" : "kW"}</strong>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Total Design load:</span>
-                      <strong className="font-mono">{calculatedData.totalDesignLoadKw.toFixed(1)} kW</strong>
+                      <strong className="font-mono">{unitSystem === "ip" ? (calculatedData.totalDesignLoadKw / 0.746).toFixed(1) : calculatedData.totalDesignLoadKw.toFixed(1)} {unitSystem === "ip" ? "HP" : "kW"}</strong>
                     </div>
                     <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-2 mt-1 font-semibold text-primary">
                       <span>Peak Design Current:</span>
@@ -1102,7 +1197,7 @@ function CircuitBreakerSizingPage() {
                   <h3 className="font-bold text-[13px] text-slate-900 dark:text-white mb-3">3. Applicable Sizing Formulae</h3>
                   <div className="grid grid-cols-1 gap-3 text-[11px] font-mono bg-slate-50 dark:bg-slate-800/50 p-4 border border-slate-200 dark:border-slate-700 rounded-lg">
                     <div>
-                      <p className="font-semibold font-sans text-slate-700 dark:text-slate-300">Design load (kW):</p>
+                      <p className="font-semibold font-sans text-slate-700 dark:text-slate-300">Design load ({unitSystem === "ip" ? "HP" : "kW"}):</p>
                       <span className="text-blue-600 dark:text-blue-400">Design Load = Connected Load * Demand Factor</span>
                     </div>
                     <div>
@@ -1128,7 +1223,6 @@ function CircuitBreakerSizingPage() {
 
           </div>
         </div>
-      </div>
     
       {/* Assign Comment Modal */}
       {commentTargetItem && (

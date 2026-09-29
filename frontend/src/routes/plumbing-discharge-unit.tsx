@@ -597,7 +597,7 @@ function DischargeUnitPage() {
   return (
     <AppShell title="Discharge Unit Calculator" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full relative">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full relative">
           {/* Page Header Area */}
           <div className="flex flex-col gap-3 shrink-0 select-none no-print">
             <div className="flex justify-between items-start">

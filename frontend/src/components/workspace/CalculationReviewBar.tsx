@@ -258,14 +258,28 @@ export function CalculationReviewBar({
     // 3. Fallback defaults if no explicit authority was configured in hierarchy:
     const roleVal = String(activeProfile?.role || "").toUpperCase();
     const desVal = String(activeProfile?.designation || "").toLowerCase();
+    const roleNorm = roleVal.replace(/[\s\-_.]/g, "");
+    const desNorm = desVal.replace(/[\s\-_.]/g, "");
 
-    if (roleVal === "SUPER_ADMIN" || roleVal === "ORG_ADMIN" || currentEmail === "admin@tarv.ai") {
+    if (
+      roleVal === "SUPER_ADMIN" || roleVal === "ORG_ADMIN" || currentEmail === "admin@tarv.ai" ||
+      roleNorm.includes("SUPERADMIN") || roleNorm.includes("ORGADMIN")
+    ) {
       return "APPROVE_REJECT";
     }
-    if (roleVal === "PROJECT_MANAGER" || roleVal === "TEAM_LEADER" || roleVal === "DISCIPLINE_COORDINATOR" || desVal.includes("coordinator")) {
+    if (
+      roleVal === "PROJECT_MANAGER" || roleVal === "TEAM_LEADER" || roleVal === "DISCIPLINE_COORDINATOR" ||
+      roleNorm.includes("COORDINATOR") || roleNorm.includes("PROJECTMANAGER") ||
+      desVal.includes("coordinator") || desVal.includes("project manager") ||
+      desNorm.includes("coordinator") || desNorm.includes("projectmanager")
+    ) {
       return "APPROVE_REJECT";
     }
-    if (roleVal === "SR_DESIGN_ENGINEER" || desVal.includes("senior") || desVal.includes("sr.")) {
+    if (
+      roleVal === "SR_DESIGN_ENGINEER" || roleNorm.includes("SRDESIGN") || roleNorm.includes("SENIOR") ||
+      desVal.includes("senior") || desVal.includes("sr.") || desVal.includes("sr ") ||
+      desNorm.includes("srdesign") || desNorm.includes("senior")
+    ) {
       return "REVIEW";
     }
 

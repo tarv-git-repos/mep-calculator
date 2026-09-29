@@ -1472,7 +1472,7 @@ export function FireWaterDemandPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Fire Water Demand</h1>
-                <span className="text-[14px] font-medium text-muted-foreground">{buildings.length} building block{buildings.length !== 1 ? "s" : ""}</span>
+                
               </div>
               <button 
                 onClick={() => setIntelOpen((v) => !v)}
@@ -1490,6 +1490,20 @@ export function FireWaterDemandPage() {
                 calculatorPath="/plumbing-fire-water-demand"
                 calculatorTitle="Fire Water Demand"
               />
+            </div>
+          
+            <div className="flex items-center gap-2 shrink-0">
+              <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  disabled={isEffectiveReadOnly}
+                  inputDescriptions="Fire Water Demand (GPM / LPM), Residual Pressure (psi / bar), Water Tank Capacity (gal / m³)"
+                  conversionExample={
+                    unitSystem === "ip"
+                      ? "Convert 1000 GPM → 3785 LPM, 100 psi → 6.9 bar, 60,000 Gal → 227.1 m³"
+                      : "Convert 3785 LPM → 1000 GPM, 6.9 bar → 100 psi, 227.1 m³ → 60,000 Gal"
+                  }
+                />
             </div>
           </div>
 
@@ -1541,19 +1555,7 @@ export function FireWaterDemandPage() {
                   <FileText className="size-3.5" /> Export
                 </TBtn>
 
-                {/* Sizing Unit system toggle */}
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  disabled={isEffectiveReadOnly}
-                  inputDescriptions="Fire Water Demand (GPM / LPM), Residual Pressure (psi / bar), Water Tank Capacity (gal / m³)"
-                  conversionExample={
-                    unitSystem === "ip"
-                      ? "Convert 1000 GPM → 3785 LPM, 100 psi → 6.9 bar, 60,000 Gal → 227.1 m³"
-                      : "Convert 3785 LPM → 1000 GPM, 6.9 bar → 100 psi, 227.1 m³ → 60,000 Gal"
-                  }
-                />
-              </div>
+                </div>
             </div>
 
             {/* TAB 1: SCHEDULE (FULL-HEIGHT SPACIOUS DATAGRID WITH DOUBLE-CLICK EDITING) */}
@@ -2603,8 +2605,8 @@ export function FireWaterDemandPage() {
                       }`}>
                         {calcReviewState?.status || "DRAFT DESIGN"}
                       </span>
-                      <TBtn primary onClick={handleExportPDF}>
-                        <FileText className="size-3.5" /> Export PDF
+                      <TBtn onClick={handleExportPDF}>
+                        <FileText className="size-3.5" /> Export
                       </TBtn>
                       <TBtn onClick={() => window.print()}>
                         <Printer className="size-3.5" /> Print

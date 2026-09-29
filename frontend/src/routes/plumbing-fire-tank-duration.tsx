@@ -25,6 +25,7 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
+import { TBtn } from "@/components/workspace/Button";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -738,14 +739,7 @@ export function FireTankDurationPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  ipLabel="IP"
-                  siLabel="SI"
-                  inputDescriptions="Demand flows, tank volumes, and refill rates"
-                  conversionExample={unitSystem === "si" ? "Convert 1,000 L → 264 gal" : "Convert 264 gal → 1,000 L"}
-                />
+                
 
                 <button
                   type="button"
@@ -758,30 +752,25 @@ export function FireTankDurationPage() {
                 </button>
 
                 {/* Export PDF Button */}
-                <button
-                  type="button"
-                  onClick={handleExportPdf}
-                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full bg-[#0A7BC7] text-white hover:bg-[#0866A5] transition shadow-xs cursor-pointer"
-                  title="Export PDF Report"
-                >
-                  <FileText className="size-3.5" />
-                  <span>Export PDF</span>
-                </button>
+                <TBtn onClick={handleExportPdf}><FileText className="size-3.5" /> Export</TBtn>
 
                 {/* Export Excel Button */}
-                <button
-                  type="button"
-                  onClick={handleExportExcel}
-                  className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-xs cursor-pointer"
-                  title="Export Excel Report"
-                >
-                  <FileSpreadsheet className="size-3.5" />
-                  <span>Export Excel</span>
-                </button>
+                <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
               </div>
             </div>
           </div>
-        </div>
+        
+            <div className="flex items-center gap-2 shrink-0">
+              <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  ipLabel="IP"
+                  siLabel="SI"
+                  inputDescriptions="Demand flows, tank volumes, and refill rates"
+                  conversionExample={unitSystem === "si" ? "Convert 1,000 L → 264 gal" : "Convert 264 gal → 1,000 L"}
+                />
+            </div>
+          </div>
 
         {/* Main 2-Column Layout (Left: Inputs (50%) | Right: Results (50%)) */}
         <div className={`flex-1 min-h-0 p-4 rounded-2xl transition-all duration-300 overflow-hidden ${calcReviewState?.status === "APPROVED" 

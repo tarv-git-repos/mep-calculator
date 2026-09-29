@@ -63,8 +63,6 @@ export const Route = createFileRoute("/condensate-drain")({
   component: CondensateDrainPage,
 });
 
-|
-
 interface SizingInputData {
   condMode: CondMode;
   trLoad: number;
@@ -920,24 +918,7 @@ export function CondensateDrainPage() {
                   </button>
                 )}
               </label>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity font-mono">
-                  Double-click to edit
-                </span>
-                {!hasComments && !isLocked && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment({ id, name: label, type: "input" });
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-blue-600 transition-opacity cursor-pointer"
-                    title={`Add comment / assign task to ${label}`}
-                  >
-                    <MessageSquare className="size-3.5" />
-                  </button>
-                )}
-              </div>
+              <div className="flex items-center gap-1.5" />
             </div>
 
             <input
@@ -1073,19 +1054,7 @@ export function CondensateDrainPage() {
               )}
             </span>
             <div className="flex items-center gap-2">
-              {!hasComments && !isLocked && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenComment({ id, name: label, type: "result" });
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-blue-600 transition-opacity cursor-pointer"
-                  title={`Add comment / assign task to ${label}`}
-                >
-                  <MessageSquare className="size-3.5" />
-                </button>
-              )}
+              
               <strong className={`font-mono text-xs ${isHighlight ? "text-[#0A7BC7] text-[14px] font-bold" : highlightClass}`}>
                 {valueFormatted}
               </strong>

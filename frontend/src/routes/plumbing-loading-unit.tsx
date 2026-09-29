@@ -7,11 +7,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
-import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown, FileText, Calculator } from "lucide-react";
+import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown, ChevronUp, FileText, Calculator, CheckCircle2, AlertTriangle, FileSpreadsheet, Layers, Globe } from "lucide-react";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, ContextMenuShortcut } from "@/components/ui/context-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
-import { addPdfHeader, addPdfSignatureBlock, getSignatureBlockDetails } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, getSignatureBlockDetails, formatDateStr, resolveLatestReviewState } from "@/lib/pdfHelpers";
 import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
@@ -81,6 +82,15 @@ export function getLUSpaceValidation(s?: Partial<LUSpace>) {
   const isFlagged = s.flagged !== undefined ? Boolean(s.flagged) : isAutoFlagged;
 
   return { isFlagged, isManualFlagged, isAutoFlagged, warnings };
+}
+
+export function calculateSpaceLU(space?: Partial<LUSpace>, weights: Record<string, number> = {}): number {
+  if (!space || !space.fixtures) return 0;
+  return Object.entries(space.fixtures).reduce((sum, [key, val]) => {
+    const count = Number(val) || 0;
+    const weight = weights[key] ?? 0;
+    return sum + count * weight;
+  }, 0);
 }
 
 export interface StandardCategoryOption {
@@ -243,16 +253,16 @@ export const STANDARD_FIXTURE_WEIGHTS: Record<StandardPreset, Record<string, num
 };
 
 export const LU_FIXTURES_META = [
-  { id: 'wc', short: 'W/C' },
-  { id: 'handspray', short: 'Hand Spray (Bibb)' },
-  { id: 'basin', short: 'WASH BASIN' },
-  { id: 'sink', short: 'Sink Kitchen' },
-  { id: 'shower', short: 'Shower' },
-  { id: 'washer', short: 'WASHING MACHINE' },
-  { id: 'servicesink', short: 'Service Sink' },
-  { id: 'hose_bibb', short: 'Hose Bibb' },
-  { id: 'dishwasher', short: 'DISH WASHER' },
-  { id: 'hose_bibb_1', short: 'Bib Tap' }
+  { id: 'wc', key: 'wc', label: 'W/C', short: 'W/C' },
+  { id: 'handspray', key: 'handspray', label: 'Hand Spray', short: 'Hand Spray (Bibb)' },
+  { id: 'basin', key: 'basin', label: 'WASH BASIN', short: 'WASH BASIN' },
+  { id: 'sink', key: 'sink', label: 'Sink Kitchen', short: 'Sink Kitchen' },
+  { id: 'shower', key: 'shower', label: 'Shower', short: 'Shower' },
+  { id: 'washer', key: 'washer', label: 'WASHING MACHINE', short: 'WASHING MACHINE' },
+  { id: 'servicesink', key: 'servicesink', label: 'Service Sink', short: 'Service Sink' },
+  { id: 'hose_bibb', key: 'hose_bibb', label: 'Hose Bibb', short: 'Hose Bibb' },
+  { id: 'dishwasher', key: 'dishwasher', label: 'DISH WASHER', short: 'DISH WASHER' },
+  { id: 'hose_bibb_1', key: 'hose_bibb_1', label: 'Bib Tap', short: 'Bib Tap' }
 ];
 
 // UPC Abu Dhabi / UBC Table 6-9 Lookup Table (WSFU -> L/min)
@@ -761,6 +771,88 @@ function LoadingUnitPage() {
   const [filterFloor, setFilterFloor] = useState<string>("all");
   const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
   const [sortBy, setSortBy] = useState<"none" | "desc" | "lu">("none");
+
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsName = wb.SheetNames[0];
+        const ws = wb.Sheets[wsName];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+        if (!rows || rows.length < 2) {
+          toast.error("Imported sheet is empty or invalid format.");
+          return;
+        }
+
+        const newSpaces = [];
+        let currentFloor = "6th FLOOR";
+        const foundFloors = new Set();
+
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length === 0) continue;
+
+          const firstCell = String(row[0] || "").trim();
+          if (!firstCell) continue;
+
+          if (/floor|level|basement|ground|roof/i.test(firstCell) && row.length <= 3) {
+            currentFloor = firstCell.toUpperCase();
+            foundFloors.add(currentFloor);
+            continue;
+          }
+
+          if (firstCell.toLowerCase() === "description" || firstCell.toLowerCase() === "sr.") continue;
+
+          const fixtures = {};
+          LU_FIXTURES_META.forEach((f, idx) => {
+            const colVal = Number(row[idx + 1]);
+            if (!isNaN(colVal) && colVal > 0) {
+              fixtures[f.id] = colVal;
+            }
+          });
+
+          const qtyColIdx = 1 + LU_FIXTURES_META.length + 1;
+          const spaceQty = Number(row[qtyColIdx]) || 1;
+          const floorQty = Number(row[qtyColIdx + 1]) || 1;
+
+          newSpaces.push({
+            id: Date.now() + i + Math.random(),
+            desc: firstCell,
+            floor: currentFloor,
+            qty: Math.max(1, spaceQty),
+            floorQty: Math.max(1, floorQty),
+            std: selectedCategory || "med",
+            fixtures,
+          });
+          foundFloors.add(currentFloor);
+        }
+
+        if (newSpaces.length > 0) {
+          setIopSpaces(newSpaces);
+          if (foundFloors.size > 0) {
+            setFloorSections(Array.from(foundFloors));
+          }
+          toast.success(`Successfully imported ${newSpaces.length} space(s) from Excel!`);
+        } else {
+          toast.error("Could not find valid space schedule rows in file.");
+        }
+      } catch (err) {
+        console.error("Excel import error:", err);
+        toast.error("Failed to parse Excel file.");
+      } finally {
+        if (e.target) e.target.value = "";
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
 
   const flagStats = useMemo(() => {
     let totalCount = 0;
@@ -2328,166 +2420,230 @@ function LoadingUnitPage() {
     }
   };
 
-  // Group by floor for listing
-  const floorsGrouped = useMemo(() => {
-    let filtered = iopSpaces || [];
+  const currentWeights = activeWeights;
 
+  // Filtered spaces list for search, filter & sort
+  const filteredSpaces = useMemo(() => {
+    let list = iopSpaces || [];
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(s => (s.desc || "").toLowerCase().includes(q) || (s.floor || "").toLowerCase().includes(q));
+      list = list.filter(s => (s.desc || "").toLowerCase().includes(q) || (s.floor || "").toLowerCase().includes(q));
     }
-
     if (showFlaggedOnly) {
-      filtered = filtered.filter(s => getLUSpaceValidation(s).isFlagged);
+      list = list.filter(s => getLUSpaceValidation(s).isFlagged);
     }
-
     if (filterFloor !== "all") {
-      filtered = filtered.filter(s => (s.floor || "6th FLOOR") === filterFloor);
+      list = list.filter(s => (s.floor || "6th FLOOR") === filterFloor);
     }
-
     if (sortBy === "desc") {
-      filtered = [...filtered].sort((a, b) => (a.desc || "").localeCompare(b.desc || ""));
+      list = [...list].sort((a, b) => (a.desc || "").localeCompare(b.desc || ""));
     } else if (sortBy === "lu") {
-      filtered = [...filtered].sort((a, b) => {
-        const currentWeights = STANDARD_FIXTURE_WEIGHTS[standardPreset];
+      list = [...list].sort((a, b) => {
         const luA = Object.entries(a.fixtures || {}).reduce((sum, [fid, qty]) => sum + (Number(qty) || 0) * (currentWeights[fid] || 0), 0);
         const luB = Object.entries(b.fixtures || {}).reduce((sum, [fid, qty]) => sum + (Number(qty) || 0) * (currentWeights[fid] || 0), 0);
         return luB - luA;
       });
     }
+    return list;
+  }, [iopSpaces, searchQuery, showFlaggedOnly, filterFloor, sortBy, currentWeights]);
 
-    const grouped: Record<string, LUSpace[]> = {};
+  // Group by floor for listing
+  const floorsGrouped = useMemo(() => {
+    const grouped = {};
     floorSections.forEach(fl => {
       grouped[fl] = [];
     });
-    filtered.forEach(s => {
+    filteredSpaces.forEach(s => {
       const fl = s.floor || "6th FLOOR";
       if (!grouped[fl]) grouped[fl] = [];
       grouped[fl].push(s);
     });
     return grouped;
-  }, [iopSpaces, floorSections, searchQuery, showFlaggedOnly, filterFloor, sortBy, standardPreset]);
+  }, [filteredSpaces, floorSections]);
 
   const allSelected = selectedIds.length === iopSpaces.length && iopSpaces.length > 0;
 
   return (
     <AppShell title="Loading Unit Calculator" onIntelClick={() => setIntelOpen((v) => !v)} intelOpen={intelOpen} hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
-            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-            : calcReviewState?.status === "REJECTED"
-            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-            : calcReviewState?.status === "REVIEWED"
-            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} animate-in fade-in-50 duration-200`}>
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
-          {/* Top Stationary Header Block (Fixed & Stationary) */}
-          <div className="shrink-0 flex flex-col gap-2.5">
-            {/* Page Header */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 select-none">
-              <div className="flex flex-col gap-1 max-w-2xl">
-                <div className="flex items-center gap-2 flex-wrap">
-                </div>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Loading Unit Calculator</h1>
-                  <button 
-                    onClick={() => setIntelOpen((v) => !v)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-xs font-medium border cursor-pointer shrink-0 ${
-                      intelOpen
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-[#E8F2FC] text-[#0A7BC7] dark:bg-[#0C2538] dark:text-[#38BDF8] border-[#BCE0FD] dark:border-[#1E4968] hover:bg-[#D4E8FA] dark:hover:bg-[#10324C]"
-                    }`}
-                  >
-                    <Sparkles className="size-3.5" />
-                    Intelligence
-                  </button>
-                  <CalculationReviewBar calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" />
-                </div>
-                <p className="text-xs sm:text-[13px] text-muted-foreground mt-0.5">
-                  Calculate Loading Units (LU / WSFU), peak demand flow rates, and booster pump sizing.
-                </p>
-              </div>
+          {/* Header Bar */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground">
+                Loading Unit Calculator
+              </h1>
+              <button 
+                type="button"
+                onClick={() => setIntelOpen((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+                title="Toggle Loading Unit Intelligence"
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-loading-unit" calculatorTitle="Loading Unit Calculator" />
             </div>
+          </div>
 
-            {/* Top Navigation Tabs Bar (Aligned Left above Filter header with rounded-full capsule design) */}
-            <div className="flex items-center justify-start select-none">
-              <div className="inline-flex bg-slate-200/70 dark:bg-slate-800/80 p-1 rounded-full gap-1 border border-border/60 shadow-2xs">
+          {/* Unified White Card Container (Matching Ventilation Layout Structure) */}
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+            calcReviewState?.status === "APPROVED" 
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+              : calcReviewState?.status === "REJECTED"
+              ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+              : calcReviewState?.status === "REVIEWED"
+              ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+          }`}>
+            
+            {/* Row 1: Header / Main Tabs on Left + Standard & Category Dropdowns on Right */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/50 gap-4 flex-wrap">
+              <div className="flex bg-slate-100 dark:bg-slate-900/70 p-1 rounded-full gap-1 border border-border/80">
                 <button
                   type="button"
                   onClick={() => setActiveTab("spaces")}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
-                    activeTab === "spaces" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    activeTab === "spaces"
+                      ? "bg-background text-foreground shadow-xs font-bold"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   Spaces
                 </button>
+
                 <button
                   type="button"
                   onClick={() => setActiveTab("report")}
-                  className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
-                    activeTab === "report" ? "bg-white dark:bg-slate-900 text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    activeTab === "report"
+                      ? "bg-background text-foreground shadow-xs font-bold"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   Sizing &amp; Report
                 </button>
               </div>
-            </div>
-          </div>
 
-          {/* Spaces Tab View */}
-          {activeTab === "spaces" && (
-            <div className="flex-1 min-h-0 flex flex-col bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
-              {/* Workspace Header Toolbar Strip */}
-              <div className="flex flex-wrap items-center justify-between px-3.5 py-2 bg-slate-50/60 dark:bg-slate-900/40 border-b border-border/60 shrink-0 select-none gap-2">
-                {/* Left Controls: Search, Filter, Sort */}
-                <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              {/* Right Side Standard & Category Selectors */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900/60 p-1 px-3 rounded-full border border-border/80 text-xs font-semibold select-none">
+                  <Globe className="size-3.5 text-primary shrink-0" />
+                  <label className="text-[11px] font-bold text-muted-foreground whitespace-nowrap">Standard:</label>
+                  <select
+                    value={standardPreset}
+                    onChange={(e) => {
+                      const newPreset = e.target.value as StandardPreset;
+                      setStandardPreset(newPreset);
+                      setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset] || "std");
+                      setWeightOverrides({});
+                    }}
+                    className="bg-background border border-border/60 rounded-full px-2.5 py-0.5 text-xs font-bold text-foreground outline-none focus:border-primary shadow-2xs cursor-pointer h-7 max-w-[200px] sm:max-w-[250px] truncate"
+                  >
+                    <optgroup label="Regional UAE">
+                      <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10 * √LU)</option>
+                    </optgroup>
+                    <optgroup label="British Standards & CIPHE">
+                      <option value="iop_bs">IoP PESDG / BS EN 806 / BS 8558 (LU Standard)</option>
+                      <option value="bs_806">BS 806 / BS EN 806 (UK / Europe)</option>
+                      <option value="bs_8558">BS 8558 Water Supply</option>
+                      <option value="iop_low">IoP / CIPHE Low Demand</option>
+                      <option value="iop_med">IoP / CIPHE Medium Demand</option>
+                      <option value="iop_high">IoP / CIPHE High Demand</option>
+                    </optgroup>
+                    <optgroup label="International Codes (US)">
+                      <option value="ipc_upc">IPC / UPC Combined Standard (WSFU)</option>
+                      <option value="ipc">IPC (International Plumbing Code - Table E103.3)</option>
+                      <option value="upc">UPC (Uniform Plumbing Code)</option>
+                    </optgroup>
+                  </select>
+                </div>
+
+                {STANDARD_CATEGORIES[standardPreset] && STANDARD_CATEGORIES[standardPreset].length > 1 && (
+                  <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900/60 p-1 px-3 rounded-full border border-border/80 text-xs font-semibold select-none">
+                    <label className="text-[11px] font-bold text-muted-foreground whitespace-nowrap">Category:</label>
+                    <select
+                      value={selectedCategory}
+                      onChange={(e) => {
+                        setSelectedCategory(e.target.value);
+                        setWeightOverrides({});
+                      }}
+                      className="bg-background border border-border/60 rounded-full px-2.5 py-0.5 text-xs font-bold text-foreground outline-none focus:border-primary shadow-2xs cursor-pointer h-7 max-w-[150px] sm:max-w-[200px] truncate"
+                    >
+                      {STANDARD_CATEGORIES[standardPreset].map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {Object.keys(weightOverrides).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleResetWeightsToDefault}
+                    className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2.5 py-1 rounded-full transition-all cursor-pointer"
+                    title="Reset custom weights to standard defaults"
+                  >
+                    ↺ Reset Weights
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Row 2: Action Toolbar (Search, Filter, Sort, Import, Export, + Add Floor Section, + Add Space) */}
+            {activeTab === "spaces" && (
+              <div className="flex items-center justify-between px-4 py-2 bg-slate-50/50 dark:bg-slate-900/30 shrink-0 select-none no-print border-b border-border/50 gap-3 flex-wrap">
+                {/* Left Side: Search Filter & Sort Options */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative flex items-center">
+                    <Search className="size-3.5 absolute left-3 text-muted-foreground pointer-events-none" />
                     <input
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Filter spaces..."
-                      className="h-7 w-44 sm:w-52 pl-8 pr-3 bg-background border border-border/80 focus:border-[#0A7BC7] rounded-full text-[12px] outline-none transition-all"
+                      className="h-8 w-48 pl-8 pr-3 bg-background border border-border rounded-full text-xs outline-none focus:border-primary transition-all"
                     />
                   </div>
 
-                  {/* Filters Icon Popover */}
+                  {/* Filter Popover */}
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
-                        className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                        className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${
                           activeFiltersCount > 0
-                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium"
+                            : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
                         }`}
+                        title="Filter spaces"
                       >
                         <Filter className="size-3.5 shrink-0" />
-                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
-                          Filter
-                        </span>
                         {activeFiltersCount > 0 && (
-                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-xs">
                             {activeFiltersCount}
                           </span>
                         )}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+                    <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
                       <div className="flex items-center justify-between pb-1.5 border-b border-border">
-                        <span className="text-xs font-bold text-foreground">Filter Spaces</span>
+                        <span className="text-xs font-semibold text-foreground">Filter Spaces</span>
                         {activeFiltersCount > 0 && (
-                          <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold">
-                            Reset All
+                          <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold cursor-pointer">
+                            Clear All
                           </button>
                         )}
                       </div>
-
                       <div className="flex flex-col gap-1">
                         <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Floor Section</span>
                         <select
                           value={filterFloor}
                           onChange={(e) => setFilterFloor(e.target.value)}
-                          className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
                         >
                           <option value="all">All Floor Sections</option>
                           {floorSections.map(fl => (
@@ -2502,30 +2658,33 @@ function LoadingUnitPage() {
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
-                        className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                        className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${
                           sortBy !== "none" || rowDensity === "compact"
-                            ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                            : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                            ? "bg-primary/10 border-primary/45 text-primary font-medium"
+                            : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
                         }`}
+                        title="Sort & View Options"
                       >
                         <SlidersHorizontal className="size-3.5 shrink-0" />
-                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
-                          View / Sort
-                        </span>
+                        {sortBy !== "none" && (
+                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-xs">
+                            ✓
+                          </span>
+                        )}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
-                      <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
+                    <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                      <div className="pb-1.5 border-b border-border text-xs font-semibold text-foreground">
                         View Options
                       </div>
 
                       <div className="flex flex-col gap-1">
                         <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Row Density</span>
-                        <div className="flex rounded-full border border-border p-0.5 bg-surface-2">
+                        <div className="flex rounded-full border border-border p-0.5 bg-slate-100 dark:bg-slate-900">
                           <button
                             onClick={() => setRowDensity("default")}
                             className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
-                              rowDensity === "default" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                              rowDensity === "default" ? "bg-background shadow-xs text-foreground" : "text-muted-foreground"
                             }`}
                           >
                             Default
@@ -2533,7 +2692,7 @@ function LoadingUnitPage() {
                           <button
                             onClick={() => setRowDensity("compact")}
                             className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
-                              rowDensity === "compact" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                              rowDensity === "compact" ? "bg-background shadow-xs text-foreground" : "text-muted-foreground"
                             }`}
                           >
                             Compact
@@ -2546,7 +2705,7 @@ function LoadingUnitPage() {
                         <select
                           value={sortBy}
                           onChange={(e) => setSortBy(e.target.value as any)}
-                          className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
                         >
                           <option value="none">Original Order</option>
                           <option value="desc">Description (A-Z)</option>
@@ -2557,689 +2716,449 @@ function LoadingUnitPage() {
                   </Popover>
                 </div>
 
-                {/* Right Controls: Standard Preset, Demand Category, Actions */}
-                <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-start lg:justify-end">
-                  <div className="flex items-center gap-1.5 bg-background border border-border/80 rounded-full px-2.5 py-1">
-                    <span className="text-[11px] font-bold text-muted-foreground shrink-0 uppercase tracking-wide">Standard:</span>
-                    <select
-                      value={standardPreset}
-                      onChange={(e) => {
-                        const newPreset = e.target.value as StandardPreset;
-                        setStandardPreset(newPreset);
-                        setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset] || "std");
-                        setWeightOverrides({});
-                      }}
-                      className="bg-transparent text-foreground text-xs font-bold outline-none cursor-pointer max-w-[200px] sm:max-w-[250px] truncate"
-                    >
-                      <optgroup label="Regional UAE">
-                        <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10 * √LU)</option>
-                      </optgroup>
-                      <optgroup label="British Standards & CIPHE">
-                        <option value="iop_bs">IoP PESDG / BS EN 806 / BS 8558 (LU Standard)</option>
-                        <option value="bs_806">BS 806 / BS EN 806 (UK / Europe)</option>
-                        <option value="bs_8558">BS 8558 Water Supply</option>
-                        <option value="iop_low">IoP / CIPHE Low Demand</option>
-                        <option value="iop_med">IoP / CIPHE Medium Demand</option>
-                        <option value="iop_high">IoP / CIPHE High Demand</option>
-                      </optgroup>
-                      <optgroup label="International Codes (US)">
-                        <option value="ipc_upc">IPC / UPC Combined Standard (WSFU)</option>
-                        <option value="ipc">IPC (International Plumbing Code - Table E103.3)</option>
-                        <option value="upc">UPC (Uniform Plumbing Code)</option>
-                      </optgroup>
-                    </select>
-                  </div>
-
-                  {STANDARD_CATEGORIES[standardPreset] && STANDARD_CATEGORIES[standardPreset].length > 1 && (
-                    <div className="flex items-center gap-1.5 bg-background border border-border/80 rounded-full px-2.5 py-1">
-                      <span className="text-[11px] font-bold text-muted-foreground shrink-0 uppercase tracking-wide">Category:</span>
-                      <select
-                        value={selectedCategory}
-                        onChange={(e) => {
-                          setSelectedCategory(e.target.value);
-                          setWeightOverrides({});
-                        }}
-                        className="bg-transparent text-foreground text-xs font-bold outline-none cursor-pointer max-w-[150px] sm:max-w-[200px] truncate"
-                      >
-                        {STANDARD_CATEGORIES[standardPreset].map(cat => (
-                          <option key={cat.id} value={cat.id}>{cat.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {Object.keys(weightOverrides).length > 0 && (
-                    <button
-                      onClick={handleResetWeightsToDefault}
-                      className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2.5 py-1 rounded-full transition-all cursor-pointer"
-                      title="Reset custom weights to standard defaults"
-                    >
-                      â†º Reset Weights
-                    </button>
-                  )}
-
+                {/* Right Side Actions */}
+                <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                  <input
+                    type="file"
+                    ref={importFileRef}
+                    onChange={handleImportExcel}
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                  />
                   <button
-                    onClick={handleExportPDF}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
+                    type="button"
+                    onClick={() => importFileRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-background hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
                   >
-                    <FileText className="size-3.5" /> Export PDF
+                    <Download className="size-3.5" /> Import
                   </button>
 
                   <button
+                    type="button"
+                    onClick={handleExportPDF}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-background hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <FileText className="size-3.5" /> Export
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={handleAddNewFloorSection}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-[#0A7BC7] hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-all cursor-pointer shadow-2xs"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all cursor-pointer shadow-2xs"
                   >
                     <Plus className="size-3.5" /> Add Floor Section
                   </button>
 
                   <button
+                    type="button"
                     onClick={handleAddSpace}
-                    className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs transition-all cursor-pointer"
                   >
                     <Plus className="size-3.5" /> Add Space
                   </button>
                 </div>
               </div>
+            )}
 
-              {/* Bulk Action Toolbar Bar (Visible when items selected) */}
-              {!isApprovedLocked && selectedIds.length > 0 && (
-                <div className="mx-3 mt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between bg-[#0A7BC7]/10 border border-[#0A7BC7]/30 text-foreground p-2.5 rounded-xl animate-in fade-in duration-150 shadow-xs gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="bg-[#0A7BC7] text-white font-extrabold px-2.5 py-0.5 rounded-full text-xs font-mono">
-                      {selectedIds.length} Selected
-                    </span>
-                    <span className="text-xs font-bold text-[#0A7BC7]">Bulk Actions:</span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto justify-end">
-                    <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border rounded-lg px-2 py-0.5 shadow-2xs">
-                      <span className="text-[11px] font-bold text-muted-foreground">Category:</span>
-                      <select
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            const newCat = e.target.value;
-                            setIopSpaces(iopSpaces.map(s => selectedIds.includes(s.id) ? { ...s, std: newCat } : s));
-                            toast.success(`Updated category for ${selectedIds.length} space(s)`);
-                          }
-                        }}
-                        defaultValue=""
-                        className="bg-transparent text-xs font-bold outline-none cursor-pointer text-foreground"
-                      >
-                        <option value="" disabled>Set Category...</option>
-                        {STANDARD_CATEGORIES[standardPreset].map(cat => (
-                          <option key={cat.id} value={cat.id}>{cat.label}</option>
-                        ))}
-                      </select>
+            {/* Row 3: Tab Content Body Area */}
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              {activeTab === "spaces" && (
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                  
+                  {/* Bulk Actions Banner */}
+                  {!isApprovedLocked && selectedIds.length > 0 && (
+                    <div className="mx-4 mt-3 flex items-center justify-between px-3.5 py-1.5 bg-primary/10 border border-primary/30 rounded-xl text-xs font-semibold text-primary select-none animate-fade-in">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-primary text-primary-foreground font-bold px-2 py-0.5 rounded-full text-[10.5px] font-mono shadow-2xs">
+                          {selectedIds.length} Selected
+                        </span>
+                        <span className="text-muted-foreground text-[11.5px]">
+                          Press <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Shift/Ctrl+Click</kbd> for multi-select, <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Delete</kbd> remove.
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleBulkDuplicate}
+                          className="px-2.5 py-1 bg-background hover:bg-slate-200 dark:hover:bg-slate-800 text-foreground border border-border rounded-lg text-[11px] font-bold cursor-pointer transition shadow-2xs flex items-center gap-1"
+                        >
+                          <Copy className="size-3" /> Duplicate ({selectedIds.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleBulkDelete}
+                          className="px-2.5 py-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground rounded-lg text-[11px] font-bold cursor-pointer transition shadow-2xs flex items-center gap-1"
+                        >
+                          <Trash2 className="size-3" /> Delete Selected
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedIds([])}
+                          className="px-2 py-1 bg-background hover:bg-slate-200 dark:hover:bg-slate-800 text-muted-foreground rounded-lg text-[11px] font-bold cursor-pointer transition border border-border/60"
+                        >
+                          Deselect (Esc)
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      onClick={handleBulkMoveFloor}
-                      className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                    >
-                      ðŸ¢ Move Floor
-                    </button>
-                    <button
-                      onClick={handleBulkEditQty}
-                      className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                    >
-                      <Edit3 className="size-3.5" /> Edit Qty
-                    </button>
-                    <button
-                      onClick={handleBulkDuplicate}
-                      className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-border text-foreground hover:bg-slate-50 dark:hover:bg-slate-800 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                    >
-                      <Copy className="size-3.5" /> Duplicate
-                    </button>
-                    <button
-                      onClick={handleBulkDelete}
-                      className="flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs border-0"
-                    >
-                      <Trash2 className="size-3.5" /> Delete
-                    </button>
-                    <button
-                      onClick={() => setSelectedIds([])}
-                      className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer border-0 bg-transparent ml-1"
-                    >
-                      <X className="size-4" />
-                    </button>
-                  </div>
-                </div>
-              )}
+                  )}
 
-              <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto w-full custom-scrollbar">
-                <table className="w-full min-w-full border-collapse text-[11.5px] font-sans select-none">
-                  <thead className="bg-slate-50 dark:bg-slate-900/60 sticky top-0 z-20 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                    <tr className="text-left text-[11px] font-bold uppercase tracking-wider">
-                      <th style={{ width: luColWidths.select, minWidth: luColWidths.select }} rowSpan={2} className="p-2 text-center relative group">
-                        <input
-                          type="checkbox"
-                          checked={allSelected}
-                          onChange={(e) => handleToggleSelectAll(e.target.checked)}
-                          className="size-3.5 accent-[#0A7BC7] cursor-pointer rounded"
-                        />
-                        <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                      </th>
-                      <th style={{ minWidth: luColWidths.desc }} rowSpan={2} className="p-2 text-left relative group">
-                        Description
-                        <div onMouseDown={(e) => handleResizeMouseDown("desc", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                      </th>
-                      {LU_FIXTURES_META.map(f => (
-                        <th key={f.id} style={{ width: luColWidths[f.id] || 60, minWidth: luColWidths[f.id] || 60 }} className="p-2 text-center relative group">
-                          {f.short}
-                          <div onMouseDown={(e) => handleResizeMouseDown(f.id, e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                        </th>
-                      ))}
-                      <th style={{ width: luColWidths.unitLu, minWidth: luColWidths.unitLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Unit value per 1 space">
-                        {standardPreset === "dubai" || standardPreset === "iop_bs" ? "LU" : "WSFU"}
-                        <div onMouseDown={(e) => handleResizeMouseDown("unitLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                      </th>
-                      <th style={{ width: luColWidths.spaceQty, minWidth: luColWidths.spaceQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Quantity of spaces per typical floor">
-                        Space Qty
-                        <div onMouseDown={(e) => handleResizeMouseDown("spaceQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                      </th>
-                      <th style={{ width: luColWidths.floorsQty, minWidth: luColWidths.floorsQty }} className="p-1.5 text-center text-foreground font-bold border-b border-border/40 relative group" title="Number of typical floors">
-                        No. of Floors
-                        <div onMouseDown={(e) => handleResizeMouseDown("floorsQty", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                      </th>
-                      <th style={{ width: luColWidths.totalLu, minWidth: luColWidths.totalLu }} rowSpan={2} className="p-2 text-center text-[#0A7BC7] font-bold relative group" title="Total LU = Unit Value Ã— (Space Qty if ON) Ã— (No. of Floors if ON)">
-                        {standardPreset === "dubai" || standardPreset === "iop_bs" ? "TOTAL LU" : "TOTAL WSFU"}
-                        <div onMouseDown={(e) => handleResizeMouseDown("totalLu", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                      </th>
-                      <th style={{ width: luColWidths.actions, minWidth: luColWidths.actions }} rowSpan={2} className="p-2 text-center font-bold">
-                        Actions
-                      </th>
-                    </tr>
-                    <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80">
-                        {LU_FIXTURES_META.map(f => (
-                          <th key={f.id} className="p-1 px-0.5 text-center font-bold">
+                  {/* Main Spaces Schedule Table with Floor Section Grouping */}
+                  <div className="overflow-x-auto overflow-y-auto w-full flex-1 min-h-0 custom-scrollbar">
+                    <table className="w-full border-collapse text-[12px] font-sans text-left">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none sticky top-0 z-20 backdrop-blur-sm">
+                          <th className="py-2.5 px-2 text-center w-10">
                             <input
-                              type="number"
-                              step="0.1"
-                              min="0"
-                              max="50"
-                              value={activeWeights[f.id] ?? ""}
-                              onChange={(e) => {
-                                const raw = e.target.value !== "" ? Number(e.target.value) : 0;
-                                const val = Math.min(50, Math.max(0, raw));
-                                setWeightOverrides(prev => ({ ...prev, [f.id]: val }));
-                              }}
-                              className="w-12 text-center bg-white dark:bg-slate-950 border border-blue-300 dark:border-blue-700 rounded text-[#0A7BC7] font-extrabold text-[11.5px] py-0.5 outline-none focus:ring-2 focus:ring-[#0A7BC7]"
-                              title={`Edit loading unit weight for ${f.short} (Standard default: ${STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY[standardPreset]?.[selectedCategory]?.[f.id] ?? ""})`}
+                              type="checkbox"
+                              checked={allSelected}
+                              onChange={(e) => handleToggleSelectAll(e.target.checked)}
+                              className="size-3.5 accent-primary cursor-pointer rounded"
+                              title="Select All Spaces"
                             />
                           </th>
-                        ))}
-                        {/* Toggle button under Space Qty header */}
-                        <th className="p-1 text-center border-b border-border">
-                          <button
-                            type="button"
-                            onClick={() => setShowSpaceQty(!showSpaceQty)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer border ${showSpaceQty ? "bg-[#0A7BC7] text-white border-[#0A7BC7] shadow-xs" : "bg-slate-200 dark:bg-slate-800 text-slate-500 border-border"}`}
-                            title={showSpaceQty ? "Space Qty is ON. Click to turn OFF." : "Space Qty is OFF. Click to turn ON."}
-                          >
-                            {showSpaceQty ? "ON" : "OFF"}
-                          </button>
-                        </th>
-                        {/* Toggle button under No. of Floors header */}
-                        <th className="p-1 text-center border-b border-border">
-                          <button
-                            type="button"
-                            onClick={() => setShowFloorsCol(!showFloorsCol)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-black transition-all cursor-pointer border ${showFloorsCol ? "bg-[#0A7BC7] text-white border-[#0A7BC7] shadow-xs" : "bg-slate-200 dark:bg-slate-800 text-slate-500 border-border"}`}
-                            title={showFloorsCol ? "No. of Floors is ON. Click to turn OFF." : "No. of Floors is OFF. Click to turn ON."}
-                          >
-                            {showFloorsCol ? "ON" : "OFF"}
-                          </button>
-                        </th>
-                      </tr>
-                    </thead>
-
-                    {/* Floor Section Blocks */}
-                    {Object.keys(floorsGrouped).map((floor, floorIndex) => (
-                      <tbody key={`floor-sec-${floorIndex}`} className="border-b border-border/80">
-                        
-                        {/* Floor Section Header (Matching Ventilation UI) */}
-                        <tr className="bg-slate-50/90 dark:bg-slate-900/70 border-y border-border/70 text-foreground font-bold text-[12px] group select-none">
-                          <td colSpan={LU_FIXTURES_META.length + 7} className="py-2 px-3 text-left">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <ChevronDown className="size-3.5 text-[#0A7BC7] shrink-0" />
-                                <FloorNameInput
-                                  floor={floor}
-                                  disabled={isApprovedLocked}
-                                  onRename={handleRenameFloorGroup}
-                                />
-                                <span className="text-[10px] text-muted-foreground font-normal">({floorsGrouped[floor].length} space types)</span>
-                                <span className="text-[10px] text-muted-foreground/60 font-normal hidden sm:inline">(Right-click or press Delete to remove)</span>
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteFloorGroup(floor)}
-                                  className="text-red-500 hover:text-red-700 text-[10.5px] font-semibold hover:bg-red-50 dark:hover:bg-red-950/20 px-2 py-0.5 rounded cursor-pointer border-0 bg-transparent transition-colors"
-                                >
-                                  Delete Section
-                                </button>
-                              </div>
-                            </div>
-                          </td>
+                          <th className="py-2.5 px-3 text-left min-w-[180px]">DESCRIPTION</th>
+                          {LU_FIXTURES_META.map(f => (
+                            <th key={f.key} className="py-2.5 px-2 text-center font-mono whitespace-nowrap">
+                              {f.label}
+                            </th>
+                          ))}
+                          <th className="py-2.5 px-3 text-center w-16 text-primary">LU</th>
+                          <th className="py-2.5 px-2 text-center w-20">SPACE QTY</th>
+                          <th className="py-2.5 px-2 text-center w-20">NO. OF FLOORS</th>
+                          <th className="py-2.5 px-3 text-right w-24 text-primary font-bold">TOTAL LU</th>
+                          <th className="py-2.5 px-2 text-center w-16">ACTIONS</th>
                         </tr>
 
-
-
-                        {/* Existing spaces on this floor */}
-                        {floorsGrouped[floor].map((s, spaceIdx) => {
-                          const isSelected = selectedIds.includes(s.id);
-                          const isEditing = editingSpace?.space.id === s.id;
-                          const isModalOpen = editingSpace !== null;
-
-                          return (
-                            <tr
-                              key={s.id}
-                              id={`lu-space-${s.id}`}
-                              onDoubleClick={() => {
-                                setSelectedIds([s.id]);
-                                setEditingSpace({ space: s, floor });
-                              }}
-                              onContextMenu={(e) => handleContextMenu(e, s.id)}
-                              className={`group transition-all duration-200 cursor-pointer ${rowDensity === "compact" ? "h-6 text-[11px]" : "h-9 text-xs"} ${
-                                isEditing
-                                  ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
-                                  : isModalOpen
-                                  ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
-                                  : isSelected
-                                  ? "bg-[#0A7BC7]/15 dark:bg-[#0A7BC7]/25 border-l-2 border-l-[#0A7BC7] font-semibold"
-                                  : "hover:bg-slate-50/50 dark:hover:bg-slate-900/30"
-                              }`}
-                            >
-                              <td className="p-2 text-center" onDoubleClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={(e) => handleToggleSelect(s.id, e.target.checked)}
-                                    className="size-3.5 accent-[#0A7BC7] cursor-pointer rounded shrink-0"
-                                  />
-                                  <span className="text-[11px] font-mono text-muted-foreground min-w-[14px] text-left font-bold shrink-0">{spaceIdx + 1}</span>
-                                  {Array.isArray(s.comments) && s.comments.length > 0 && (
-                                    <button 
-                                      type="button"
-                                      title={`${s.comments.length} comment(s)/task(s) assigned`} 
-                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-500/20 transition cursor-pointer shrink-0"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setCommentTarget({ id: String(s.id), name: s.desc, type: 'space' });
-                                        setAssignCommentOpen(true);
-                                      }}
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{s.comments.length}</span>
-                                    </button>
-                                  )}
-                                </div>
+                        {/* Fixture Weights Overview Row */}
+                        <tr className="bg-slate-100/70 dark:bg-slate-900/40 border-b border-border/60 text-[11px] text-muted-foreground select-none">
+                          <td className="p-1.5 text-center"></td>
+                          <td className="p-1.5 text-left font-semibold text-muted-foreground italic">Standard Rate Override</td>
+                          {LU_FIXTURES_META.map(f => {
+                            const val = currentWeights[f.key] ?? 0;
+                            const isOverridden = weightOverrides[f.key] !== undefined;
+                            return (
+                              <td key={f.key} className="p-1 text-center font-mono">
+                                <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                                  isOverridden 
+                                    ? "bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400" 
+                                    : "bg-primary/5 border-primary/20 text-primary"
+                                }`}>
+                                  {val}
+                                </span>
                               </td>
-                              <td className="p-1.5" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
-                                <input 
-                                  type="text" 
-                                  value={s.desc} 
-                                  onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
-                                  onChange={e => handleSpaceDescChange(s.id, e.target.value)} 
-                                  className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-bold text-foreground" 
-                                />
-                              </td>
-                              {LU_FIXTURES_META.map(f => (
-                                <td key={f.id} className="p-1" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
-                                  <input 
-                                    type="number" 
-                                    min="0" 
-                                    value={s.fixtures[f.id] || ""} 
-                                    onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
-                                    onChange={e => handleFixtureChange(s.id, f.id, Number(e.target.value))} 
-                                    className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono font-medium" 
-                                  />
+                            );
+                          })}
+                          <td className="p-1 text-center font-mono font-bold text-primary">Σ</td>
+                          <td className="p-1 text-center">
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-primary text-primary-foreground font-mono">ON</span>
+                          </td>
+                          <td className="p-1 text-center">
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-primary text-primary-foreground font-mono">ON</span>
+                          </td>
+                          <td className="p-1 text-right font-mono font-bold text-primary">Total</td>
+                          <td className="p-1 text-center"></td>
+                        </tr>
+                      </thead>
+
+                      {Object.keys(floorsGrouped).map((floor) => (
+                        <tbody key={floor} className="divide-y divide-border/50">
+                          {/* Floor Group Section Header */}
+                          <ContextMenu>
+                            <ContextMenuTrigger asChild>
+                              <tr className="bg-slate-50/90 dark:bg-slate-900/70 border-y border-border/70 text-foreground font-bold text-[12px] group select-none cursor-pointer">
+                                <td colSpan={LU_FIXTURES_META.length + 7} className="py-2 px-3 text-left">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <ChevronDown className="size-3.5 text-primary shrink-0" />
+                                      <FloorNameInput
+                                        floor={floor}
+                                        disabled={isApprovedLocked}
+                                        onRename={handleRenameFloorGroup}
+                                      />
+                                      <span className="text-[10px] text-muted-foreground font-normal">({floorsGrouped[floor].length} space types)</span>
+                                      <span className="text-[10px] text-muted-foreground/60 font-normal hidden sm:inline">(Right-click or press Delete to remove)</span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteFloorGroup(floor)}
+                                        className="text-destructive hover:underline text-[10.5px] font-semibold px-2 py-0.5 rounded cursor-pointer border-0 bg-transparent transition-colors"
+                                      >
+                                        Delete Section
+                                      </button>
+                                    </div>
+                                  </div>
                                 </td>
-                              ))}
-                              <td className="p-2 text-center font-mono font-bold text-[#0A7BC7] bg-[#0A7BC7]/5" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
-                                {(calculations.spaceUnitLU[s.id] || 0).toFixed(1)}
-                              </td>
-                              <td className="p-1 text-center" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
-                                {showSpaceQty ? (
-                                  <input 
-                                    type="number" 
-                                    min="1" 
-                                    value={s.qty || 1} 
-                                    onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
-                                    onChange={e => handleQtyChange(s.id, Number(e.target.value))} 
-                                    className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono font-medium text-foreground" 
-                                    title="Space Qty per floor" 
-                                  />
-                                ) : (
-                                  <span className="text-muted-foreground font-mono text-[11px]">â€”</span>
-                                )}
-                              </td>
-                              <td className="p-1 text-center" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
-                                {showFloorsCol ? (
-                                  <input 
-                                    type="number" 
-                                    min="1" 
-                                    value={s.floorQty || 1} 
-                                    onDoubleClick={(e) => { e.stopPropagation(); setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}
-                                    onChange={e => handleFloorQtyChange(s.id, Number(e.target.value))} 
-                                    className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono font-medium text-foreground" 
-                                    title="No. of typical floors" 
-                                  />
-                                ) : (
-                                  <span className="text-muted-foreground font-mono text-[11px]">â€”</span>
-                                )}
-                              </td>
-                              <td className="p-2 text-center font-mono font-extrabold text-[#0A7BC7]" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
-                                {(calculations.spaceTotalsLU[s.id] || 0).toFixed(1)}
-                              </td>
-                              <td className="p-1 text-center" onDoubleClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-center gap-1">
-                                  {(() => {
-                                    const totalFixtures = Object.values(s.fixtures || {}).reduce((sum, q) => sum + (Number(q) || 0), 0);
-                                    const isMissingDesc = !s.desc || s.desc.trim() === "";
-                                    const isNoFixtures = totalFixtures === 0;
-                                    const isMissingQty = showSpaceQty && (!s.qty || Number(s.qty) <= 0);
-                                    const isMissingFloorQty = showFloorsCol && (!s.floorQty || Number(s.floorQty) <= 0);
-                                    const isMissingValues = isMissingDesc || isNoFixtures || isMissingQty || isMissingFloorQty;
-                                    const isFlagActive = s.flagged || isMissingValues;
+                              </tr>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50 font-sans">
+                              <ContextMenuItem
+                                onClick={() => {
+                                  const newName = window.prompt("Enter new floor section name:", floor);
+                                  if (newName && newName.trim() && newName.trim() !== floor) {
+                                    handleRenameFloorGroup(floor, newName.trim());
+                                  }
+                                }}
+                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+                              >
+                                <Edit3 className="size-3.5 text-muted-foreground" />
+                                <span>Rename Section</span>
+                              </ContextMenuItem>
+                              <ContextMenuSeparator className="h-px bg-border my-1" />
+                              <ContextMenuItem
+                                onClick={() => handleDeleteFloorGroup(floor)}
+                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer text-[13px]"
+                              >
+                                <Trash2 className="size-3.5" />
+                                <span>Delete Section</span>
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
 
-                                    const missingMsg: string[] = [];
-                                    if (isMissingDesc) missingMsg.push("description");
-                                    if (isNoFixtures) missingMsg.push("fixtures (0 selected)");
-                                    if (isMissingQty) missingMsg.push("space quantity");
-                                    if (isMissingFloorQty) missingMsg.push("floor quantity");
+                          {/* Existing Spaces on this Floor */}
+                          {floorsGrouped[floor].map((s, spaceIdx) => {
+                            const isSelected = selectedIds.includes(s.id);
+                            const isEditing = editingSpace?.space.id === s.id;
+                            const isModalOpen = editingSpace !== null;
+                            const spaceLU = calculateSpaceLU(s, currentWeights);
+                            const totalSpaceLU = spaceLU * (s.qty || 1) * (s.floorQty || 1);
 
-                                    const tooltipTitle = missingMsg.length > 0
-                                      ? `Missing required value(s): ${missingMsg.join(", ")}`
-                                      : s.flagged ? "Unflag space" : "Flag space";
+                            return (
+                              <ContextMenu key={s.id}>
+                                <ContextMenuTrigger asChild>
+                                  <tr
+                                    id={`lu-space-${s.id}`}
+                                    onDoubleClick={() => {
+                                      setSelectedIds([s.id]);
+                                      setEditingSpace({ space: s, floor });
+                                    }}
+                                    className={`group transition-all duration-150 cursor-pointer ${rowDensity === "compact" ? "h-7 text-[11px]" : "h-9 text-xs"} ${
+                                      isEditing
+                                        ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-sm z-10 relative"
+                                        : isSelected
+                                        ? "bg-primary/15 dark:bg-primary/25 border-l-2 border-l-primary font-semibold"
+                                        : spaceIdx % 2 === 0
+                                        ? "bg-background hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                                        : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                                    }`}
+                                  >
+                                    <td className="p-2 text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                      <div className="flex items-center justify-center gap-1.5">
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={(e) => handleToggleSelect(s.id, e.target.checked)}
+                                          className="size-3.5 accent-primary cursor-pointer rounded shrink-0"
+                                        />
+                                        <span className="text-[11px] font-mono text-muted-foreground min-w-[14px] text-left font-bold shrink-0">{spaceIdx + 1}</span>
+                                        {Array.isArray(s.comments) && s.comments.length > 0 && (
+                                          <button 
+                                            type="button"
+                                            title={`${s.comments.length} comment(s)/task(s) assigned`} 
+                                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-500/20 transition cursor-pointer shrink-0"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setCommentTarget({ id: String(s.id), name: s.desc, type: 'space' });
+                                              setAssignCommentOpen(true);
+                                            }}
+                                          >
+                                            <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                            <span>{s.comments.length}</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
 
-                                    return (
-                                      <>
+                                    <td className="p-1.5" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
+                                      <span className="font-bold text-foreground">{s.desc || "Untitled Space"}</span>
+                                    </td>
+
+                                    {LU_FIXTURES_META.map(f => (
+                                      <td key={f.key} className="p-1 text-center font-mono">
+                                        {Number(s.fixtures?.[f.key] || 0) > 0 ? (
+                                          <span className="font-bold text-foreground">{s.fixtures[f.key]}</span>
+                                        ) : (
+                                          <span className="text-muted-foreground/30">—</span>
+                                        )}
+                                      </td>
+                                    ))}
+
+                                    <td className="p-1.5 text-center font-mono font-bold text-primary">
+                                      {spaceLU.toFixed(1)}
+                                    </td>
+
+                                    <td className="p-1.5 text-center font-mono">
+                                      {s.qty || 1}
+                                    </td>
+
+                                    <td className="p-1.5 text-center font-mono">
+                                      {s.floorQty || 1}
+                                    </td>
+
+                                    <td className="p-1.5 text-right font-mono font-extrabold text-primary">
+                                      {totalSpaceLU.toFixed(1)}
+                                    </td>
+
+                                    <td className="p-1 text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                      <div className="flex items-center justify-center gap-1">
                                         <button
                                           type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
+                                          onClick={() => {
                                             const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
                                             const newFlagged = !s.flagged;
                                             setIopSpaces(prev => prev.map(item => targets.includes(item.id) ? { ...item, flagged: newFlagged } : item));
                                           }}
-                                          className={`p-1 rounded hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-all cursor-pointer flex items-center justify-center ${
-                                            isFlagActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                                          }`}
-                                          title={tooltipTitle}
+                                          className="p-1 text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded transition-colors cursor-pointer"
+                                          title={s.flagged ? "Unflag space" : "Flag space for review"}
                                         >
-                                          <Flag 
-                                            className={`size-3.5 transition-all duration-200 ${
-                                              isFlagActive 
-                                                ? "fill-red-500 text-red-500 scale-110" 
-                                                : "text-slate-400 hover:text-red-500"
-                                            }`} 
-                                          />
+                                          <Flag className={`size-3.5 ${s.flagged ? "fill-amber-500 text-amber-500" : ""}`} />
                                         </button>
                                         <button
                                           type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
+                                          onClick={() => {
                                             setIopSpaces(prev => prev.filter(item => item.id !== s.id));
                                             toast.success(`Deleted "${s.desc || 'Space'}"`);
                                           }}
-                                          className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-all cursor-pointer opacity-0 group-hover:opacity-100"
+                                          className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
                                           title="Delete space"
                                         >
                                           <Trash2 className="size-3.5" />
                                         </button>
-                                      </>
-                                    );
-                                  })()}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-
-                      </tbody>
-                    ))}
-                    {/* Bottom Padding Spacer Row for 100% full visibility of last space */}
-                    <tbody>
-                      <tr className="h-16 border-0 bg-transparent pointer-events-none">
-                        <td colSpan={25} className="p-0 border-0 bg-transparent" />
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Table Summary Footer Strip (Directly at bottom of Outer Card) */}
-                <div className="flex flex-wrap items-center justify-between px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border-t border-border text-xs font-sans text-muted-foreground select-none shrink-0 gap-3">
-                  <div className="flex items-center gap-2">
-                    <span>Showing <strong className="text-foreground font-bold">{iopSpaces.length}</strong> of <strong className="text-foreground font-bold">{iopSpaces.length}</strong> spaces</span>
-                  </div>
-                  <div className="flex items-center gap-5 font-medium flex-wrap">
-                    <div>
-                      Total {unitLabel}: <strong className="text-[#0A7BC7] font-extrabold">{calculations.totalLU.toFixed(1)}</strong>
-                    </div>
-                    <div>
-                      Design Flow: <strong className="text-[#0A7BC7] font-extrabold">{calculations.displayFlow}</strong>
-                    </div>
-                    <div>
-                      Recommended Pipe Size: <strong className="text-foreground font-bold">{calculations.pipeSizing.sizeMM} mm (DN{calculations.pipeSizing.sizeMM})</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-          {/* Sizing & Report Tab View */}
-          {activeTab === "report" && (
-            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-5 custom-scrollbar pr-1 animate-in fade-in-50 duration-200">
-              
-
-
-              {/* Sizing Results & Recommended Pipe Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                
-                {/* Sizing Results Card */}
-                <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-xs">
-                  <div className="flex items-center gap-1.5 pb-1 border-b border-border/60">
-                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">ðŸ“Š Sizing Results</h3>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 font-sans text-xs">
-                    <div className="flex flex-col p-2.5 bg-surface-2 rounded-xl border border-border/50">
-                      <span className="font-semibold text-muted-foreground text-[10px] uppercase">Standard Preset</span>
-                      <span className="font-bold text-foreground text-xs">{standardPreset === "iop_bs" ? "IoP PESDG / BS 6700" : standardPreset === "dubai" ? "Dubai (DBC)" : standardPreset === "abudhabi" ? "Abu Dhabi (ADM)" : "IPC / UPC"}</span>
-                    </div>
-                    <div className="flex flex-col p-2.5 bg-surface-2 rounded-xl border border-border/50">
-                      <span className="font-semibold text-muted-foreground text-[10px] uppercase">Total Demand</span>
-                      <strong className="font-bold text-foreground font-mono text-xs">{calculations.totalLU.toFixed(1)} {standardPreset === "dubai" || standardPreset === "iop_bs" ? "LU" : "WSFU"}</strong>
-                    </div>
-                    <div className="flex flex-col p-2.5 bg-surface-2 rounded-xl border border-border/50">
-                      <span className="font-semibold text-muted-foreground text-[10px] uppercase">Peak Flow Rate</span>
-                      <strong className="font-bold text-[#0A7BC7] font-mono text-xs">{calculations.displayFlow}</strong>
-                    </div>
-                    <div className="flex flex-col p-2.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/50 dark:border-blue-800/40 rounded-xl">
-                      <span className="font-bold text-foreground uppercase tracking-wide text-[9.5px]">Pump Flow (Q)</span>
-                      <strong className="font-extrabold text-[#0A7BC7] text-xs font-mono">{calculations.displaySelectedFlow}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Recommended Pipe Size Card */}
-                <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-xs">
-                  <div className="flex items-center gap-1.5 pb-1 border-b border-border/60">
-                    <div className="w-1 h-3.5 bg-emerald-500 rounded-full"></div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">ðŸš° Recommended Pipe</h3>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl">
-                    <div className="flex flex-col">
-                      <span className="text-[9.5px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">Nominal Size</span>
-                      <span className="text-xl font-black text-emerald-600 dark:text-emerald-400 font-mono">DN{calculations.pipeSizing.sizeMM} mm</span>
-                    </div>
-                    <div className="text-right flex flex-col">
-                      <span className="text-[9.5px] font-bold text-muted-foreground uppercase">Capacity Limit</span>
-                      <span className="text-xs font-mono font-bold text-foreground">{calculations.pipeSizing.maxFlowLPS} L/s</span>
-                    </div>
-                  </div>
-
-                  {/* Collapsible / Compact Pipe Schedule Table */}
-                  <details className="group border border-border rounded-xl text-[10px]">
-                    <summary className="p-2 font-semibold text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-between bg-slate-50 dark:bg-slate-900 rounded-xl select-none">
-                      <span>View Pipe Size Table (15â€“200mm)</span>
-                      <span className="group-open:rotate-180 transition-transform text-[9px]">â–¼</span>
-                    </summary>
-                    <div className="overflow-x-auto overflow-y-auto max-h-48 p-1 border-t border-border custom-scrollbar">
-                      <table className="w-full border-collapse font-mono text-[9px]">
-                        <thead>
-                          <tr className="text-muted-foreground font-bold border-b border-border text-[9px] bg-slate-100 dark:bg-slate-800">
-                            <th className="p-1 text-center">Pipe (mm)</th>
-                            <th className="p-1 text-center">WSFU</th>
-                            <th className="p-1 text-center">Max L/s</th>
-                            <th className="p-1 text-center">@ 4 fps</th>
-                            <th className="p-1 text-center">@ 5 fps</th>
-                            <th className="p-1 text-center">@ 6 fps</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {PIPE_SIZING_TABLE.map((row) => {
-                            const isMatch = calculations.pipeSizing.sizeMM === row.sizeMM;
-                            return (
-                              <tr key={row.sizeMM} className={`border-b border-border/30 ${isMatch ? "bg-emerald-500/25 font-extrabold text-emerald-800 dark:text-emerald-200" : ""}`}>
-                                <td className="p-1 text-center font-bold">DN{row.sizeMM}</td>
-                                <td className="p-1 text-center font-semibold">{row.wsfuRange}</td>
-                                <td className="p-1 text-center">{row.flowMax}</td>
-                                <td className="p-1 text-center">{row.q4fps.toFixed(2)}</td>
-                                <td className="p-1 text-center">{row.q5fps.toFixed(2)}</td>
-                                <td className="p-1 text-center">{row.q6fps.toFixed(2)}</td>
-                              </tr>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50 font-sans">
+                                  <ContextMenuItem
+                                    onClick={() => setEditingSpace({ space: s, floor })}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+                                  >
+                                    <Edit3 className="size-3.5 text-muted-foreground" />
+                                    <span>Edit Space</span>
+                                    <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      setCommentTarget({ id: String(s.id), name: s.desc, type: 'space' });
+                                      setAssignCommentOpen(true);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium text-[13px]"
+                                  >
+                                    <MessageSquare className="size-3.5" />
+                                    <span>Add / View Comment</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
+                                      const newFlagged = !s.flagged;
+                                      setIopSpaces((prev) => prev.map((item) => targets.includes(item.id) ? { ...item, flagged: newFlagged } : item));
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+                                  >
+                                    <Flag className={`size-3.5 ${s.flagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
+                                    <span>{s.flagged ? "Unflag Space" : "Flag for Review"}</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
+                                      handleBulkDuplicate();
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+                                  >
+                                    <Copy className="size-3.5 text-muted-foreground" />
+                                    <span>{selectedIds.includes(s.id) && selectedIds.length > 1 ? `Duplicate (${selectedIds.length}) Spaces` : "Duplicate Space"}</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator className="h-px bg-border my-1" />
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
+                                      setIopSpaces((prev) => prev.filter((item) => !targets.includes(item.id)));
+                                      setSelectedIds((prev) => prev.filter((id) => !targets.includes(id)));
+                                      toast.success(`Deleted ${targets.length} space(s)`);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer text-[13px]"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                    <span>Delete Space</span>
+                                    <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
                             );
                           })}
                         </tbody>
-                      </table>
+                      ))}
+                    </table>
+                  </div>
+
+                  {/* Pinned Bottom Summary Footer Strip */}
+                  <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none no-print">
+                    <div>
+                      Showing <span className="text-foreground font-medium tabular">{filteredSpaces.length}</span> of {iopSpaces.length} spaces
                     </div>
-                  </details>
-
-                  <div className="bg-slate-50 dark:bg-slate-900 border border-border rounded-xl p-1.5 flex gap-1.5 text-[9.5px] text-muted-foreground">
-                    <Info className="size-3 shrink-0 text-[#0A7BC7] mt-0.5" />
-                    <span>DBC 2021 &amp; BS EN 806 limits (V &le; 1.5 - 2.0 m/s).</span>
+                    <div className="flex items-center gap-4 tabular">
+                      <span>Total {unitLabel}: <strong className="text-primary font-mono font-bold">{calculations.totalLU.toFixed(1)}</strong></span>
+                      <span>Design Flow: <strong className="text-primary font-mono font-bold">{calculations.displayFlow}</strong></span>
+                      <span>Recommended Pipe Size: <strong className="text-foreground font-mono font-bold">{calculations.pipeSizing.sizeMM} mm (DN{calculations.pipeSizing.sizeMM})</strong></span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              {/* Building Water Demand Table Summary */}
-              <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
-                <div className="bg-slate-100 dark:bg-slate-900 p-3 border-b border-border text-center font-bold text-xs uppercase tracking-wider text-foreground">
-                  {getStandardDemandHeaderTitle(standardPreset)}
-                </div>
-                <div className="divide-y divide-border text-xs font-sans">
-                  <div className="flex items-center justify-between p-3">
-                    <span className="font-semibold text-muted-foreground">No of Booster Pump</span>
-                    <span className="font-mono font-bold text-foreground">1W + 1A + 1S</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3">
-                    <span className="font-semibold text-muted-foreground">Total Water Supply Fixture ({unitLabel})</span>
-                    <span className="font-mono font-bold text-foreground">{calculations.totalLU.toFixed(1)}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3">
-                    <span className="font-semibold text-muted-foreground">Flow due to loading unit (L/s)</span>
-                    <span className="font-mono font-bold text-[#0A7BC7]">{calculations.flowLPS.toFixed(3)}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3">
-                    <span className="font-semibold text-muted-foreground">Total Water demand considered (L/s)</span>
-                    <span className="font-mono font-bold text-foreground">{calculations.selectedFlowLPS.toFixed(1)}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3">
-                    <span className="font-semibold text-muted-foreground">Diversity (if any)</span>
-                    <span className="font-mono font-medium text-muted-foreground">â€”</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 bg-blue-50/70 dark:bg-blue-950/40 font-bold">
-                    <span className="text-blue-700 dark:text-blue-300">Selected Water Flow Rate (Q) L/s</span>
-                    <span className="font-mono text-base text-[#0A7BC7]">{calculations.selectedFlowLPS.toFixed(1)} L/s</span>
-                  </div>
-                </div>
-              </div>
-
+              {/* Sizing & Report Tab View */}
+              {activeTab === "report" && (
+                <LoadingUnitReportView
+                  calculations={calculations}
+                  iopSpaces={iopSpaces}
+                  currentWeights={currentWeights}
+                  unitLabel={unitLabel}
+                  standardPreset={standardPreset}
+                  selectedCategory={selectedCategory}
+                  project={project}
+                  calcReviewState={calcReviewState}
+                  currentUserName={currentUserName}
+                  onExportPdf={handleExportPDF}
+                  onExportExcel={handleExportExcel}
+                />
+              )}
             </div>
-          )}
+          </div>
+        </div>
 
+        {/* Intelligence Drawer (Collapsible Right Side Panel) */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <LoadingUnitIntelligenceDrawer
+              onClose={() => setIntelOpen(false)}
+              calculations={calculations}
+              iopSpaces={iopSpaces}
+              unitLabel={unitLabel}
+              standardPreset={standardPreset}
+              setActiveTab={setActiveTab}
+            />
+          )}
         </div>
       </div>
 
-      {/* Floating Right-Click Context Menu */}
-      {contextMenu && (
-        <div
-          className="fixed z-50 bg-white dark:bg-slate-900 border border-border rounded-xl shadow-xl py-1.5 text-xs font-bold text-foreground w-48"
-          style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
-        >
-          <div className="px-3 py-1 text-[10.5px] text-muted-foreground border-b border-border/60 uppercase">
-            Options ({selectedIds.length} selected)
-          </div>
-          <button
-            onClick={handleBulkDuplicate}
-            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium"
-          >
-            <Copy className="size-3.5 text-[#0A7BC7]" /> Duplicate Space(s)
-          </button>
-          <button
-            onClick={handleBulkMoveFloor}
-            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium"
-          >
-            ðŸ¢ Move to Another Floor
-          </button>
-          <button
-            onClick={handleBulkEditQty}
-            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium"
-          >
-            <Edit3 className="size-3.5 text-amber-500" /> Edit Quantity
-          </button>
-          <button
-            onClick={() => {
-              const targetSpace = iopSpaces.find(s => s.id === contextMenu.spaceId);
-              if (targetSpace) {
-                setCommentTarget({ id: String(targetSpace.id), name: targetSpace.desc, type: 'space' });
-                setAssignCommentOpen(true);
-              }
-              setContextMenu(null);
-            }}
-            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-blue-600 dark:text-blue-400"
-          >
-            <MessageSquare className="size-3.5" /> Add Comment / Assign Task
-          </button>
-          {(() => {
-            const targetSpace = iopSpaces.find(s => s.id === contextMenu.spaceId);
-            const totalFixtures = Object.values(targetSpace?.fixtures || {}).reduce((sum, q) => sum + (Number(q) || 0), 0);
-            const isMissingDesc = !targetSpace?.desc || targetSpace?.desc.trim() === "";
-            const isNoFixtures = totalFixtures === 0;
-            const isMissingQty = showSpaceQty && (!targetSpace?.qty || Number(targetSpace.qty) <= 0);
-            const isMissingFloorQty = showFloorsCol && (!targetSpace?.floorQty || Number(targetSpace.floorQty) <= 0);
-            const isMissingValues = isMissingDesc || isNoFixtures || isMissingQty || isMissingFloorQty;
-            const isFlagActive = targetSpace?.flagged || isMissingValues;
-
-            return (
-              <button
-                onClick={() => {
-                  const targets = selectedIds.includes(contextMenu.spaceId) ? selectedIds : [contextMenu.spaceId];
-                  const newFlagged = !targetSpace?.flagged;
-                  setIopSpaces(prev => prev.map(s => targets.includes(s.id) ? { ...s, flagged: newFlagged } : s));
-                  setContextMenu(null);
-                }}
-                className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium"
-              >
-                <Flag className={`size-3.5 ${isFlagActive ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
-                {targetSpace?.flagged ? "Unflag Space" : isMissingValues ? "Flag Space (Warning Active)" : "Flag Space"}
-              </button>
-            );
-          })()}
-          <div className="my-1 border-t border-border/60"></div>
-          <button
-            onClick={handleBulkDelete}
-            className="w-full px-3 py-2 text-left hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-semibold"
-          >
-            <Trash2 className="size-3.5" /> Delete Space(s)
-          </button>
-        </div>
+      {/* Edit Space Modal */}
+      {editingSpace && (
+        <EditLoadingUnitRowModal
+          space={editingSpace.space}
+          floor={editingSpace.floor}
+          currentWeights={currentWeights}
+          onSave={handleSaveEditedSpace}
+          onClose={() => setEditingSpace(null)}
+          onDelete={() => {
+            setIopSpaces(prev => prev.filter(s => s.id !== editingSpace.space.id));
+            setEditingSpace(null);
+            toast.success("Space deleted");
+          }}
+        />
       )}
 
       {/* Assign Comment Modal Overlay */}
@@ -3259,65 +3178,441 @@ function LoadingUnitPage() {
           onSave={(newComment) => {
             const next = iopSpaces.map(s => {
               if (String(s.id) === commentTarget.id) {
-                const comments = [...(s.comments || []), newComment];
-                return { ...s, comments };
+                const currentComments = Array.isArray(s.comments) ? s.comments : [];
+                return { ...s, comments: [...currentComments, newComment] };
               }
               return s;
             });
-
             setIopSpaces(next);
-
-            const projId = project?.id || "default";
-            try {
-              const existingData = JSON.parse(localStorage.getItem(`mep_loading_unit_calc_${projId}`) || '{}');
-              localStorage.setItem(`mep_loading_unit_calc_${projId}`, JSON.stringify({
-                ...existingData,
-                iopSpaces: next,
-                updatedAt: new Date().toISOString()
-              }));
-            } catch (e) {}
-
-            if (project?.id) {
-              try {
-                let wdata = project.workspace_data || {};
-                if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
-                wdata.loading_unit_calc = { ...(wdata.loading_unit_calc || {}), iopSpaces: next, updatedAt: new Date().toISOString() };
-                api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
-              } catch(e) {}
-            }
-          }}
-        />
-      )}
-      {/* Double-Click Calculation Breakdown & Edit Modal */}
-      {editingSpace && (
-        <EditLoadingUnitRowModal
-          space={editingSpace.space}
-          rowIndex={(floorsGrouped[editingSpace.floor] || []).findIndex((sp) => sp.id === editingSpace.space.id) + 1 || 1}
-          floorName={editingSpace.floor}
-          standardPreset={standardPreset}
-          activeWeights={activeWeights}
-          showSpaceQty={showSpaceQty}
-          showFloorsCol={showFloorsCol}
-          onClose={() => setEditingSpace(null)}
-          onSave={(updated) => {
-            setIopSpaces((prev) =>
-              prev.map((sp) =>
-                sp.id === editingSpace.space.id
-                  ? {
-                      ...sp,
-                      desc: updated.desc,
-                      fixtures: updated.fixtures,
-                      qty: updated.qty,
-                      floorQty: updated.floorQty,
-                    }
-                  : sp
-              )
-            );
-            setEditingSpace(null);
-            toast.success(`Updated "${updated.desc || 'Space'}" parameters.`);
+            saveState(next);
+            notifyCommentAssigned(newComment, "Loading Unit & Pipe Sizer", "/plumbing-loading-unit", commentTarget.name);
           }}
         />
       )}
     </AppShell>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// In-Browser Preliminary Engineering Report Component
+// ─────────────────────────────────────────────────────────────────────────────
+function LoadingUnitReportView({
+  calculations,
+  iopSpaces,
+  currentWeights,
+  unitLabel,
+  standardPreset,
+  selectedCategory,
+  project,
+  calcReviewState,
+  currentUserName,
+  onExportPdf,
+  onExportExcel,
+}: {
+  calculations: any;
+  iopSpaces: LUSpace[];
+  currentWeights: Record<string, number>;
+  unitLabel: string;
+  standardPreset: StandardPreset;
+  selectedCategory: string;
+  project: any;
+  calcReviewState: CalculationReviewState | null;
+  currentUserName: string;
+  onExportPdf: () => void;
+  onExportExcel: () => void;
+}) {
+  const sigDetails = getSignatureBlockDetails(project?.id || "default", "/plumbing-loading-unit", currentUserName, calcReviewState);
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar">
+      {/* Action Header Banner */}
+      <div className="bg-card border border-border rounded-2xl p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 no-print">
+        <div>
+          <div className="flex items-center gap-2">
+            <FileText className="size-5 text-primary" />
+            <h2 className="text-base font-extrabold text-foreground tracking-tight">
+              Preliminary Engineering Sizing &amp; Compliance Report
+            </h2>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Plumbing loading unit fixture analysis, peak demand flow rates, hydraulic pipe sizing, and booster pump requirements.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            type="button"
+            onClick={onExportPdf}
+            className="h-9 px-4 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+          >
+            <FileText className="size-3.5" /> Export PDF
+          </button>
+          <button
+            type="button"
+            onClick={onExportExcel}
+            className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+          >
+            <FileSpreadsheet className="size-3.5" /> Export Excel
+          </button>
+        </div>
+      </div>
+
+      {/* Report Document Sheet */}
+      <div className="bg-card border border-border rounded-2xl p-6 md:p-8 space-y-6 shadow-sm">
+        
+        {/* Document Header with Verification Badge */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-2">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-foreground uppercase">
+              Plumbing Loading Unit &amp; Pipe Sizing Report
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Hydraulic Demand Sizing, Water Supply Pipework &amp; Booster Pump Capacity
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold font-mono ${
+                calcReviewState?.status === "APPROVED"
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                  : "bg-primary/10 text-primary border border-primary/20"
+              }`}
+            >
+              {calcReviewState?.status === "APPROVED" ? (
+                <>
+                  <CheckCircle2 className="size-3.5" /> CALCULATION VERIFIED &amp; APPROVED
+                </>
+              ) : (
+                <>
+                  <Sparkles className="size-3.5" /> PRELIMINARY CALCULATION DRAFT
+                </>
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Engineering Document Metadata Table */}
+        <div className="overflow-x-auto border border-border rounded-xl">
+          <table className="w-full text-xs font-sans">
+            <tbody>
+              <tr className="border-b border-border/60 bg-muted/20">
+                <td className="py-2 px-3 font-bold text-muted-foreground w-1/4">Project Name:</td>
+                <td className="py-2 px-3 font-semibold text-foreground w-1/4">{project?.name || "MEP Calculator Project"}</td>
+                <td className="py-2 px-3 font-bold text-muted-foreground w-1/4">Document Ref:</td>
+                <td className="py-2 px-3 font-mono text-foreground w-1/4">{project?.calcNo || "TRV-LU-CALC-R01"}</td>
+              </tr>
+              <tr className="border-b border-border/60">
+                <td className="py-2 px-3 font-bold text-muted-foreground">Project Code:</td>
+                <td className="py-2 px-3 font-mono text-foreground">{project?.code || project?.projectNo || "P000"}</td>
+                <td className="py-2 px-3 font-bold text-muted-foreground">Calculation Date:</td>
+                <td className="py-2 px-3 text-foreground">{formatDateStr(new Date().toISOString())}</td>
+              </tr>
+              <tr className="border-b border-border/60 bg-muted/20">
+                <td className="py-2 px-3 font-bold text-muted-foreground">Governing Standard:</td>
+                <td className="py-2 px-3 font-semibold text-primary">{standardPreset.toUpperCase()} ({selectedCategory})</td>
+                <td className="py-2 px-3 font-bold text-muted-foreground">Revision Status:</td>
+                <td className="py-2 px-3 font-mono text-foreground">Rev 0 (Preliminary)</td>
+              </tr>
+              <tr>
+                <td className="py-2 px-3 font-bold text-muted-foreground">Calculation Engine:</td>
+                <td className="py-2 px-3 text-foreground">MEP Suite v2.4 (Hydraulic Loading Engine)</td>
+                <td className="py-2 px-3 font-bold text-muted-foreground">Unit Unit:</td>
+                <td className="py-2 px-3 font-bold text-primary">{unitLabel}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Section 1: Executive Sizing & Peak Demand Summary */}
+        <div className="space-y-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
+            1. Executive Sizing &amp; Peak Demand Summary
+          </h3>
+          <div className="overflow-x-auto border border-border rounded-xl">
+            <table className="w-full border-collapse text-xs font-sans">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
+                  <th className="py-2 px-3 text-left">Calculated Parameter</th>
+                  <th className="py-2 px-3 text-right">Calculated Value</th>
+                  <th className="py-2 px-3 text-center">Unit</th>
+                  <th className="py-2 px-3 text-left">Engineering Design Basis</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                <tr>
+                  <td className="py-2 px-3 font-semibold">Total Water Supply Loading Units</td>
+                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.totalLU.toFixed(1)}</td>
+                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{unitLabel}</td>
+                  <td className="py-2 px-3 text-muted-foreground">{iopSpaces.length} Space Definition(s)</td>
+                </tr>
+                <tr>
+                  <td className="py-2 px-3 font-semibold">Simultaneous Peak Demand Flow Rate</td>
+                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.displayFlow}</td>
+                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">L/s</td>
+                  <td className="py-2 px-3 text-muted-foreground">Interpolated standard diversity curve</td>
+                </tr>
+                <tr>
+                  <td className="py-2 px-3 font-semibold">Recommended Pipe Header Size</td>
+                  <td className="py-2 px-3 text-right font-mono font-bold text-foreground">DN{calculations.pipeSizing.sizeMM} mm</td>
+                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">mm</td>
+                  <td className="py-2 px-3 text-muted-foreground">Velocity limit V ≤ 1.5 - 2.0 m/s (Cap: {calculations.pipeSizing.maxFlowLPS} L/s)</td>
+                </tr>
+                <tr>
+                  <td className="py-2 px-3 font-semibold">Booster Pump Duty Flow Rate (Q)</td>
+                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.displaySelectedFlow}</td>
+                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">L/s</td>
+                  <td className="py-2 px-3 text-muted-foreground">Standard 1W + 1A + 1S triplex configuration</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Section 2: Loading Unit Fixture Schedule by Floor / Space */}
+        <div className="space-y-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
+            2. Loading Unit Detailed Fixture Schedule
+          </h3>
+          <div className="overflow-x-auto border border-border rounded-xl">
+            <table className="w-full border-collapse text-xs font-sans">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
+                  <th className="py-2 px-2 text-center w-10">S.No</th>
+                  <th className="py-2 px-3 text-left">Description</th>
+                  <th className="py-2 px-3 text-left w-24">Floor</th>
+                  <th className="py-2 px-2 text-center w-14">Qty</th>
+                  <th className="py-2 px-2 text-center w-14">Fl. Qty</th>
+                  <th className="py-2 px-3 text-center">Unit LU</th>
+                  <th className="py-2 px-3 text-right w-28">Total LU</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {iopSpaces.map((s, idx) => {
+                  const spaceLU = calculateSpaceLU(s, currentWeights);
+                  const totalSpaceLU = spaceLU * (s.qty || 1) * (s.floorQty || 1);
+                  return (
+                    <tr key={s.id} className={idx % 2 === 0 ? "bg-white dark:bg-slate-950" : "bg-slate-50/40 dark:bg-slate-900/20"}>
+                      <td className="py-1.5 px-2 text-center font-mono text-muted-foreground">{idx + 1}</td>
+                      <td className="py-1.5 px-3 font-semibold">{s.desc}</td>
+                      <td className="py-1.5 px-3 font-medium text-muted-foreground">{s.floor || "L01"}</td>
+                      <td className="py-1.5 px-2 text-center font-mono">{s.qty || 1}</td>
+                      <td className="py-1.5 px-2 text-center font-mono">{s.floorQty || 1}</td>
+                      <td className="py-1.5 px-3 text-center font-mono text-muted-foreground">{spaceLU.toFixed(1)}</td>
+                      <td className="py-1.5 px-3 text-right font-mono font-bold text-primary">{totalSpaceLU.toFixed(1)}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="bg-slate-100/70 dark:bg-slate-900/50 font-bold">
+                  <td colSpan={3} className="py-2 px-3">TOTAL WATER SUPPLY LOADING UNITS</td>
+                  <td colSpan={3}></td>
+                  <td className="py-2 px-3 text-right font-mono text-primary">{calculations.totalLU.toFixed(1)} {unitLabel}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Section 3: Hydraulic Pipe Sizing & Capacity Schedule */}
+        <div className="space-y-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
+            3. Hydraulic Pipe Sizing &amp; Velocity Limits (DBC 2021 / BS EN 806 / IPC)
+          </h3>
+          <div className="overflow-x-auto border border-border rounded-xl">
+            <table className="w-full border-collapse font-mono text-xs">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none font-sans">
+                  <th className="py-2 px-3 text-center">Nominal Pipe Size</th>
+                  <th className="py-2 px-3 text-center">Design Flow Range ({unitLabel})</th>
+                  <th className="py-2 px-3 text-center">Max Flow Capacity (L/s)</th>
+                  <th className="py-2 px-3 text-center">Flow @ 1.2 m/s</th>
+                  <th className="py-2 px-3 text-center">Flow @ 1.5 m/s</th>
+                  <th className="py-2 px-3 text-center">Flow @ 1.8 m/s</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {PIPE_SIZING_TABLE.map((row) => {
+                  const isSelected = calculations.pipeSizing.sizeMM === row.sizeMM;
+                  return (
+                    <tr key={row.sizeMM} className={isSelected ? "bg-primary/10 font-bold text-primary" : ""}>
+                      <td className="py-1.5 px-3 text-center font-bold">DN{row.sizeMM} mm</td>
+                      <td className="py-1.5 px-3 text-center">{row.wsfuRange}</td>
+                      <td className="py-1.5 px-3 text-center">{row.flowMax} L/s</td>
+                      <td className="py-1.5 px-3 text-center">{row.q4fps.toFixed(2)} L/s</td>
+                      <td className="py-1.5 px-3 text-center">{row.q5fps.toFixed(2)} L/s</td>
+                      <td className="py-1.5 px-3 text-center">{row.q6fps.toFixed(2)} L/s</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Status Verification Banner */}
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
+          <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <span className="font-bold text-emerald-800 dark:text-emerald-300">
+              Hydraulic Loading &amp; Pipework Compliance Verification
+            </span>
+            <p className="text-muted-foreground leading-relaxed">
+              This calculation conforms to {standardPreset.toUpperCase()} standards for simultaneous fixture loading units ({calculations.totalLU.toFixed(1)} {unitLabel}) and peak design flow ({calculations.displayFlow}). Hydraulic pipe sizing velocity limits are satisfied within allowable code constraints.
+            </p>
+          </div>
+        </div>
+
+        {/* Section 4: 3-Tier Professional Signature & Sign-Off Block */}
+        <div className="space-y-3 pt-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
+            4. Professional Engineering Review &amp; Sign-Off Block
+          </h3>
+          <div className="overflow-x-auto border border-border rounded-xl">
+            <table className="w-full border-collapse text-xs font-sans">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
+                  <th className="py-2.5 px-3 text-left w-1/4">Approval Role</th>
+                  <th className="py-2.5 px-3 text-center w-1/4">Engineer Name</th>
+                  <th className="py-2.5 px-3 text-center w-1/4">Status / Role Title</th>
+                  <th className="py-2.5 px-3 text-center w-1/4">Signature / Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50 font-sans">
+                <tr>
+                  <td className="py-2.5 px-3 font-bold text-foreground">Originator / Prepared By</td>
+                  <td className="py-2.5 px-3 text-center font-semibold text-foreground">{sigDetails.originatedName}</td>
+                  <td className="py-2.5 px-3 text-center text-muted-foreground">MEP Design Engineer</td>
+                  <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">{sigDetails.originatedDate}</td>
+                </tr>
+                <tr>
+                  <td className="py-2.5 px-3 font-bold text-foreground">Reviewer / Checked By</td>
+                  <td className="py-2.5 px-3 text-center font-semibold text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
+                  <td className="py-2.5 px-3 text-center text-muted-foreground">Senior Plumbing Lead</td>
+                  <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
+                </tr>
+                <tr>
+                  <td className="py-2.5 px-3 font-bold text-foreground">Approver / Verified By</td>
+                  <td className="py-2.5 px-3 text-center font-semibold text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
+                  <td className="py-2.5 px-3 text-center text-muted-foreground">Principal / MEP Director</td>
+                  <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Intelligence Drawer Component for Loading Unit Calculator
+// ─────────────────────────────────────────────────────────────────────────────
+function LoadingUnitIntelligenceDrawer({
+  onClose,
+  calculations,
+  iopSpaces,
+  unitLabel,
+  standardPreset,
+  setActiveTab,
+}: {
+  onClose: () => void;
+  calculations: any;
+  iopSpaces: LUSpace[];
+  unitLabel: string;
+  standardPreset: StandardPreset;
+  setActiveTab: (t: "spaces" | "report") => void;
+}) {
+  const flaggedCount = iopSpaces.filter((s) => s.flagged).length;
+  const missingFixtures = iopSpaces.filter((s) => !Object.values(s.fixtures || {}).some((v) => Number(v) > 0)).length;
+  const compliancePct = iopSpaces.length > 0 ? Math.round(((iopSpaces.length - flaggedCount) / iopSpaces.length) * 100) : 100;
+
+  return (
+    <div className="h-full w-[360px] flex flex-col animate-fade-in font-sans">
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-3.5 text-primary" />
+          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
+        </div>
+        <button
+          onClick={onClose}
+          className="size-7 grid place-items-center rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
+        >
+          <X className="size-3.5" />
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+        {/* Compliance Status */}
+        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2 shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="size-4 text-emerald-500" />
+            <span className="text-xs font-bold text-foreground">Standard Compliance Status</span>
+          </div>
+          <div className="text-[11.5px] text-muted-foreground">
+            {standardPreset.toUpperCase()} validation across {iopSpaces.length} defined spaces.
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${compliancePct}%` }} />
+            </div>
+            <span className="font-mono text-[11px] font-bold text-foreground">{compliancePct}%</span>
+          </div>
+        </div>
+
+        {/* Loading Unit & Demand KPI */}
+        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2.5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Building2 className="size-4 text-primary" />
+              <span className="text-xs font-bold text-foreground">Loading Unit Summary</span>
+            </div>
+            <button
+              onClick={() => setActiveTab("spaces")}
+              className="text-[10.5px] text-primary hover:underline font-semibold cursor-pointer"
+            >
+              View Spaces
+            </button>
+          </div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+              <span className="text-muted-foreground">Total {unitLabel}:</span>
+              <span className="font-mono font-bold text-primary text-xs">{calculations.totalLU.toFixed(1)}</span>
+            </div>
+            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+              <span className="text-muted-foreground">Simultaneous Flow:</span>
+              <span className="font-mono font-bold text-foreground">{calculations.displayFlow}</span>
+            </div>
+            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+              <span className="text-muted-foreground">Pump Flow (Q):</span>
+              <span className="font-mono font-bold text-primary">{calculations.displaySelectedFlow}</span>
+            </div>
+            <div className="flex justify-between items-center pt-1 font-bold">
+              <span className="text-foreground">Recommended Pipe:</span>
+              <span className="font-mono text-primary text-xs font-extrabold">DN{calculations.pipeSizing.sizeMM} mm</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Calculation Issues & Warnings */}
+        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2 shadow-xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className={`size-4 ${flaggedCount > 0 || missingFixtures > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
+            <span className="text-xs font-bold text-foreground">Audit &amp; Flagged Items</span>
+          </div>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Flagged spaces:</span>
+              <span className={`font-mono font-bold ${flaggedCount > 0 ? "text-amber-500" : "text-muted-foreground"}`}>{flaggedCount}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Spaces with 0 fixtures:</span>
+              <span className={`font-mono font-bold ${missingFixtures > 0 ? "text-amber-500" : "text-muted-foreground"}`}>{missingFixtures}</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
   );
 }

@@ -152,13 +152,12 @@ export function VentilationModule() {
       intelOpen={intelOpen}
     >
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           {/* Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Ventilation</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">{spaces.length} spaces</span>
               </div>
               <button
                 onClick={() => setIntelOpen(v => !v)}
@@ -6558,108 +6557,159 @@ function ReportView() {
   const warningsCount = spaces.filter((s) => s.status === "warning").length;
   const compliance = spaces.length > 0 ? Math.round(((spaces.length - warningsCount) / spaces.length) * 100) : 100;
 
+  const formatDateStr = (date: Date) => {
+    return date.toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' });
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50">
-        <span className="text-[12px] text-muted-foreground font-semibold">Generated: <span className="text-foreground font-mono">{new Date().toLocaleDateString()}</span></span>
+        <span className="text-[12px] text-muted-foreground font-semibold">Generated: <span className="text-foreground font-mono">{formatDateStr(new Date())}</span></span>
         <div className="ml-auto flex items-center gap-1.5">
           <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print</TBtn>
           <TBtn primary onClick={() => exportVentilationPDF(spaces)}><FileText className="size-3.5" /> Export PDF</TBtn>
         </div>
       </div>
-      <div className="flex-1 overflow-auto p-6 bg-slate-50/30 dark:bg-zinc-950/20">
-        <div className="max-w-4xl mx-auto space-y-6">
-          <ReportSection title="Project Summary">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-              <KPI label="Spaces" value={spaces.length.toLocaleString()} />
-              <KPI label="Zones" value={zones.length} />
-              <KPI label="Equipment" value={equipment.length} />
-              <KPI label="Total Area" value={`${totalArea.toFixed(0)} m²`} />
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+        <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
+          <div className="flex justify-between items-start pb-4 border-b border-border">
+            <div>
+              <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                Ventilation Calculation Report
+              </h2>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                ASHRAE Standard 62.1 Ventilation Rate Procedure (VRP) &amp; Pressure Analysis
+              </p>
             </div>
-          </ReportSection>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <ReportSection title="Fresh Air Totals">
-              <div className="bg-surface-2 dark:bg-zinc-800/40 p-4 rounded-2xl border border-border/80 space-y-1">
-                <KVRow k="Required (min)" v={`${spaces.reduce((a, s) => a + (s.minOA || 0), 0).toLocaleString()} L/s`} />
-                <KVRow k="Supplied" v={`${totalFresh.toLocaleString()} L/s`} tone="primary" />
-                <KVRow k="Surplus" v={`+${(totalFresh - spaces.reduce((a, s) => a + (s.minOA || 0), 0)).toLocaleString()} L/s`} tone="success" />
-              </div>
-            </ReportSection>
-            <ReportSection title="Extract Air Totals">
-              <div className="bg-surface-2 dark:bg-zinc-800/40 p-4 rounded-2xl border border-border/80 space-y-1">
-                <KVRow k="Required (min)" v={`${spaces.reduce((a, s) => a + (s.minExt || 0), 0).toLocaleString()} L/s`} />
-                <KVRow k="Extracted" v={`${totalExtract.toLocaleString()} L/s`} tone="primary" />
-                <KVRow k="Surplus" v={`+${(totalExtract - spaces.reduce((a, s) => a + (s.minExt || 0), 0)).toLocaleString()} L/s`} tone="success" />
-              </div>
-            </ReportSection>
+            <div className="text-right">
+              <span className="text-[11px] text-muted-foreground block mt-0.5">Date: {formatDateStr(new Date())}</span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <ReportSection title="Pressure Balance Summary">
-              <div className="bg-surface-2 dark:bg-zinc-800/40 p-4 rounded-2xl border border-border/80 space-y-1">
-                <KVRow k="Net Balance" v={`${balance > 0 ? "+" : ""}${balance.toLocaleString()} L/s`} tone={Math.abs(balance) < 500 ? "success" : "warning"} />
-                <KVRow k="Positive Zones" v={zones.filter((z) => z.pressureType === "positive").length} />
-                <KVRow k="Negative Zones" v={zones.filter((z) => z.pressureType === "negative").length} />
-                <KVRow k="Neutral Zones" v={zones.filter((z) => z.pressureType === "neutral").length} />
-              </div>
-            </ReportSection>
-
-            <ReportSection title="ASHRAE 62.1 Compliance">
-              <div className="bg-surface-2 dark:bg-zinc-800/40 p-5 rounded-2xl border border-border/80 flex flex-col justify-center h-full min-h-[155px]">
-                <div className="flex items-center justify-between mb-2.5">
-                  <span className="text-[13px] font-semibold text-foreground">Compliance Rating</span>
-                  <span className="font-mono tabular text-[18px] font-extrabold text-primary">{compliance}%</span>
-                </div>
-                <div className="w-full h-3 bg-[#e2e8f0] dark:bg-zinc-700 rounded-full overflow-hidden shadow-inner">
-                  <div className="h-full bg-success transition-all duration-500 rounded-full" style={{ width: `${compliance}%` }} />
-                </div>
-                <div className="text-[12px] text-muted-foreground mt-3 font-medium">
-                  {spaces.length - warningsCount} compliant spaces · {warningsCount} require attention
-                </div>
-              </div>
-            </ReportSection>
+          {/* Table 1: Design Parameters & Overall Summary */}
+          <div className="space-y-2">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              1. Project Summary &amp; Parameters
+            </h3>
+            <table className="w-full text-[12px] border-collapse border border-border">
+              <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                <tr>
+                  <th className="border border-border p-2 text-center w-12">No.</th>
+                  <th className="border border-border p-2 text-left">Description</th>
+                  <th className="border border-border p-2 text-center w-28">Value</th>
+                  <th className="border border-border p-2 text-center w-20">Unit</th>
+                  <th className="border border-border p-2 text-left">Standard / Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                  <td className="border border-border p-2 font-bold">Total Conditioned Spaces</td>
+                  <td className="border border-border p-2 text-center font-bold">{spaces.length.toLocaleString()}</td>
+                  <td className="border border-border p-2 text-center">spaces</td>
+                  <td className="border border-border p-2 text-muted-foreground">Architectural Space Schedule</td>
+                </tr>
+                <tr>
+                  <td className="border border-border p-2 text-center text-muted-foreground">2</td>
+                  <td className="border border-border p-2 font-bold">Total Conditioned Floor Area</td>
+                  <td className="border border-border p-2 text-center font-bold">{totalArea.toFixed(1)}</td>
+                  <td className="border border-border p-2 text-center">m²</td>
+                  <td className="border border-border p-2 text-muted-foreground">Sum of Scheduled Areas</td>
+                </tr>
+                <tr>
+                  <td className="border border-border p-2 text-center text-muted-foreground">3</td>
+                  <td className="border border-border p-2 font-bold">Total Fresh Air Supplied</td>
+                  <td className="border border-border p-2 text-center font-bold text-blue-600 dark:text-blue-400">{totalFresh.toLocaleString()}</td>
+                  <td className="border border-border p-2 text-center font-bold">L/s</td>
+                  <td className="border border-border p-2 text-muted-foreground">Target Minimum: {spaces.reduce((a, s) => a + (s.minOA || 0), 0).toLocaleString()} L/s</td>
+                </tr>
+                <tr>
+                  <td className="border border-border p-2 text-center text-muted-foreground">4</td>
+                  <td className="border border-border p-2 font-bold">Total Extract Air</td>
+                  <td className="border border-border p-2 text-center font-bold text-orange-600 dark:text-orange-400">{totalExtract.toLocaleString()}</td>
+                  <td className="border border-border p-2 text-center font-bold">L/s</td>
+                  <td className="border border-border p-2 text-muted-foreground">Target Minimum: {spaces.reduce((a, s) => a + (s.minExt || 0), 0).toLocaleString()} L/s</td>
+                </tr>
+                <tr>
+                  <td className="border border-border p-2 text-center text-muted-foreground">5</td>
+                  <td className="border border-border p-2 font-bold">Net Pressure Balance</td>
+                  <td className="border border-border p-2 text-center font-bold">{balance > 0 ? "+" : ""}{balance.toLocaleString()}</td>
+                  <td className="border border-border p-2 text-center">L/s</td>
+                  <td className="border border-border p-2 text-muted-foreground">Building overall pressurization</td>
+                </tr>
+                <tr>
+                  <td className="border border-border p-2 text-center text-muted-foreground">6</td>
+                  <td className="border border-border p-2 font-bold">ASHRAE 62.1 Compliance</td>
+                  <td className="border border-border p-2 text-center font-bold text-emerald-600 dark:text-emerald-400">{compliance}%</td>
+                  <td className="border border-border p-2 text-center">%</td>
+                  <td className="border border-border p-2 text-muted-foreground">{warningsCount} warnings / flags active</td>
+                </tr>
+                <tr>
+                  <td className="border border-border p-2 text-center text-muted-foreground">7</td>
+                  <td className="border border-border p-2 font-bold">Total Zones</td>
+                  <td className="border border-border p-2 text-center font-bold">{zones.length}</td>
+                  <td className="border border-border p-2 text-center">zones</td>
+                  <td className="border border-border p-2 text-muted-foreground">HVAC Zone Distribution</td>
+                </tr>
+                <tr>
+                  <td className="border border-border p-2 text-center text-muted-foreground">8</td>
+                  <td className="border border-border p-2 font-bold">Active Equipment</td>
+                  <td className="border border-border p-2 text-center font-bold">{equipment.length}</td>
+                  <td className="border border-border p-2 text-center">units</td>
+                  <td className="border border-border p-2 text-muted-foreground">AHUs, FCUs, Fans, etc.</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          <ReportSection title="Equipment Summary">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-              <KPI label="Operational" value={zones.length} />
-              <KPI label="Warnings" value={equipment.filter((e) => e.status === "warning").length} />
-              <KPI label="Avg Utilization" value={`${equipment.length > 0 ? Math.round(equipment.reduce((a, e) => a + e.utilization, 0) / equipment.length) : 0}%`} />
-            </div>
-          </ReportSection>
+          {/* Table 2: Zone-Wise Ventilation Breakdown */}
+          <div className="space-y-2 mt-8">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              2. Zone-Wise Ventilation &amp; Pressure Breakdown
+            </h3>
+            <table className="w-full text-[12px] border-collapse border border-border">
+              <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                <tr>
+                  <th className="border border-border p-2 text-center w-12">No.</th>
+                  <th className="border border-border p-2 text-left">Zone Name</th>
+                  <th className="border border-border p-2 text-center w-24">Spaces</th>
+                  <th className="border border-border p-2 text-right w-24">Fresh (L/s)</th>
+                  <th className="border border-border p-2 text-right w-24">Extract (L/s)</th>
+                  <th className="border border-border p-2 text-right w-24">Balance (L/s)</th>
+                  <th className="border border-border p-2 text-center w-28">Pressure</th>
+                </tr>
+              </thead>
+              <tbody>
+                {zones.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="border border-border p-4 text-center text-muted-foreground">No zones defined.</td>
+                  </tr>
+                ) : (
+                  zones.map((z, idx) => {
+                    const zSpaces = spaces.filter(s => s.zone === z.name);
+                    const zFresh = zSpaces.reduce((a, s) => a + (s.freshAir || 0), 0);
+                    const zExt = zSpaces.reduce((a, s) => a + (s.extractAir || 0), 0);
+                    const zBal = zFresh - zExt;
+                    const pTone = z.pressureType === "positive" ? "text-blue-600 dark:text-blue-400" : z.pressureType === "negative" ? "text-orange-600 dark:text-orange-400" : "text-emerald-600 dark:text-emerald-400";
+                    return (
+                      <tr key={z.id}>
+                        <td className="border border-border p-2 text-center text-muted-foreground">{idx + 1}</td>
+                        <td className="border border-border p-2 font-semibold">{z.name}</td>
+                        <td className="border border-border p-2 text-center">{zSpaces.length}</td>
+                        <td className="border border-border p-2 text-right font-mono">{zFresh.toLocaleString()}</td>
+                        <td className="border border-border p-2 text-right font-mono">{zExt.toLocaleString()}</td>
+                        <td className="border border-border p-2 text-right font-mono font-bold">{zBal > 0 ? "+" : ""}{zBal.toLocaleString()}</td>
+                        <td className={`border border-border p-2 text-center font-bold capitalize ${pTone}`}>{z.pressureType}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
         </div>
       </div>
-    </div>
-  );
-}
-
-function ReportSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="border border-border/80 rounded-3xl bg-card shadow-[0_1px_3px_rgba(0,0,0,0.02)] overflow-hidden">
-      <header className="px-5 h-11 flex items-center border-b border-border/50 bg-card shrink-0">
-        <h3 className="text-[10px] uppercase tracking-widest font-extrabold text-slate-500 dark:text-zinc-400">{title}</h3>
-      </header>
-      <div className="p-5">{children}</div>
-    </section>
-  );
-}
-
-function KPI({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="bg-surface-2 dark:bg-zinc-800/40 px-4 py-3.5 rounded-2xl border border-border/80 shadow-xs flex flex-col justify-between">
-      <div className="text-[9.5px] uppercase tracking-wider font-extrabold text-muted-foreground">{label}</div>
-      <div className="font-mono tabular text-[20px] font-bold mt-1 text-foreground">{value}</div>
-    </div>
-  );
-}
-
-function KVRow({ k, v, tone }: { k: string; v: React.ReactNode; tone?: "primary" | "success" | "warning" }) {
-  const color = tone === "success" ? "text-success font-semibold" : tone === "warning" ? "text-warning font-semibold" : tone === "primary" ? "text-primary font-semibold" : "text-foreground";
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-border/40 last:border-b-0 text-[12.5px]">
-      <span className="text-muted-foreground font-medium">{k}</span>
-      <span className={`font-mono tabular ${color}`}>{v}</span>
     </div>
   );
 }

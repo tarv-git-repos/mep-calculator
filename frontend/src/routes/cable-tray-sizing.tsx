@@ -8,7 +8,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal, Info, FileText } from "lucide-react";
+import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal, Info, FileText, ChevronDown, ChevronRight } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import { exportCableTrayExcel } from '../lib/exportCableTrayExcel';
@@ -16,7 +16,6 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { cn } from "@/lib/utils";
 import { Cable, Tray, TRAY_RANGES, getCableTraySize } from "../lib/cableTrayHelpers";
-import { calculateTraySizing } from "@/lib/calc-cable-tray";
 import { calculateTraySizing } from "@/lib/calc-cable-tray";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -1132,7 +1131,17 @@ function CableTraySizingPage() {
   let globalRowIndex = 0;
 
   return (
-    <AppShell title="Cable Tray Sizing" subtitle="Calculate cable tray containment sizes">
+    <AppShell
+      title="Cable Tray Sizing"
+      subtitle="Calculate cable tray containment sizes"
+      actions={
+        <UnitToggle
+          unitSystem={unitSystem}
+          onChange={handleUnitToggle}
+          inputDescriptions="Cable Diameters, Tray Sizing Output"
+        />
+      }
+    >
       
       <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
@@ -1263,16 +1272,6 @@ function CableTraySizingPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
-            <UnitToggle
-              unitSystem={unitSystem}
-              onChange={handleUnitToggle}
-              inputDescriptions="Cable Diameters, Tray Sizing Output"
-              conversionExample={
-                unitSystem === "si"
-                  ? "Convert 150 mm â†’ 6\", 300 mm â†’ 12\""
-                  : "Convert 6\" â†’ 150 mm, 12\" â†’ 300 mm"
-              }
-            />
 
             <input type="file" ref={fileInputRef} onChange={handleImportCatalog} className="hidden" accept=".xlsx, .xls, .csv" />
             
@@ -1374,92 +1373,83 @@ function CableTraySizingPage() {
               
               {/* Tray Header */}
               <div 
-                className="bg-surface-2/70 border-b border-border px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap cursor-pointer select-none hover:bg-surface-2 transition-colors"
+                className="bg-blue-50/60 dark:bg-blue-950/20 border-b border-border/80 px-3.5 py-1.5 flex items-center justify-between gap-3 flex-wrap cursor-pointer select-none hover:bg-blue-100/50 dark:hover:bg-blue-900/30 transition-colors"
                 onClick={() => setExpandedTrayId(isExpanded ? "NONE" : tray.id)}
               >
-                <div className="flex items-center gap-3 flex-1 min-w-[200px]">
-                  <div className="w-1 h-4 bg-primary rounded-sm"></div>
+                <div className="flex items-center gap-2 flex-1 min-w-[200px] flex-wrap">
+                  {isExpanded ? (
+                    <ChevronDown className="size-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                  ) : (
+                    <ChevronRight className="size-4 text-muted-foreground shrink-0" />
+                  )}
                   <input 
                     type="text" 
-                    className="font-bold text-sm bg-transparent border-none outline-none focus:border-b-2 focus:border-primary px-1 py-0 text-foreground w-48"
+                    className="font-bold text-xs uppercase tracking-tight text-blue-600 dark:text-blue-400 bg-transparent border-b border-transparent focus:border-primary px-1 py-0 w-44"
                     value={tray.name}
                     onChange={(e) => updateTrayField(tray.id, "name", e.target.value)}
                     onClick={(e) => e.stopPropagation()}
-                    placeholder="Location (Tray Name)..."
+                    placeholder="TRAY NAME..."
                   />
-                  <input
-                    type="text"
-                    className="text-sm bg-transparent border border-border rounded px-2 py-0.5 text-foreground w-48 ml-2 focus:border-primary outline-none"
-                    value={tray.from || ""}
-                    onChange={(e) => updateTrayField(tray.id, "from", e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    placeholder="From..."
-                  />
-                  <span className="text-muted-foreground text-sm flex-shrink-0">â†’</span>
-                  <input
-                    type="text"
-                    className="text-sm bg-transparent border border-border rounded px-2 py-0.5 text-foreground w-48 focus:border-primary outline-none"
-                    value={tray.to || ""}
-                    onChange={(e) => updateTrayField(tray.id, "to", e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    placeholder="To..."
-                  />
+                  <span className="text-[10.5px] text-muted-foreground/70 font-normal italic shrink-0 hidden sm:inline">
+                    (Right-click or press Delete to remove)
+                  </span>
+
+                  <div className="flex items-center gap-1.5 ml-2" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="text"
+                      className="text-xs bg-background/60 border border-border/60 rounded px-2 py-0.5 text-foreground w-36 focus:border-primary outline-none"
+                      value={tray.from || ""}
+                      onChange={(e) => updateTrayField(tray.id, "from", e.target.value)}
+                      placeholder="From..."
+                    />
+                    <span className="text-muted-foreground text-xs shrink-0">→</span>
+                    <input
+                      type="text"
+                      className="text-xs bg-background/60 border border-border/60 rounded px-2 py-0.5 text-foreground w-36 focus:border-primary outline-none"
+                      value={tray.to || ""}
+                      onChange={(e) => updateTrayField(tray.id, "to", e.target.value)}
+                      placeholder="To..."
+                    />
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    {tray.comments && tray.comments.length > 0 && (
-                      <span
-                        className="inline-flex items-center justify-center p-1.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer text-xs font-medium gap-1"
-                        title={`${tray.comments.length} comment(s):\n${tray.comments.map((cm: any) => `${cm.authorName || 'User'}: ${cm.text}`).join('\n')}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCommentTarget({
-                            id: tray.id,
-                            name: tray.name,
-                            type: "tray",
-                          });
-                          setAssignCommentOpen(true);
-                        }}
-                      >
-                        <MessageSquare className="size-3.5" />
-                        <span>{tray.comments.length}</span>
-                      </span>
-                    )}
-                    <TBtn onClick={(e) => {
-                      e.stopPropagation();
-                      setCommentTarget({
-                        id: tray.id,
-                        name: tray.name,
-                        type: "tray",
-                      });
-                      setAssignCommentOpen(true);
-                    }} title="Add comment to tray">
-                      <MessageSquare className="size-3.5 text-blue-600 dark:text-blue-400" /> Comment
-                    </TBtn>
-                    <TBtn onClick={() => clearTray(tray.id)}><Trash2 className="size-3.5" /> Clear Cables</TBtn>
-                    <button 
-                      onClick={() => removeTray(tray.id)}
-                      className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-xs font-medium transition-colors focus-visible:outline-none h-8 px-3 py-1 bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  {tray.comments && tray.comments.length > 0 && (
+                    <span
+                      className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer text-xs font-medium gap-1"
+                      title={`${tray.comments.length} comment(s):\n${tray.comments.map((cm: any) => `${cm.authorName || 'User'}: ${cm.text}`).join('\n')}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCommentTarget({
+                          id: tray.id,
+                          name: tray.name,
+                          type: "tray",
+                        });
+                        setAssignCommentOpen(true);
+                      }}
                     >
-                      <Trash className="size-3.5" /> Delete Tray
-                    </button>
-                  </div>
-                  <div className="px-2 text-muted-foreground flex items-center justify-center pointer-events-none">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="24"
-                      height="24"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className={cn("h-4 w-4 transition-transform duration-200", isExpanded ? "rotate-180" : "")}
-                    >
-                      <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                  </div>
+                      <MessageSquare className="size-3.5" />
+                      <span>{tray.comments.length}</span>
+                    </span>
+                  )}
+                  <TBtn onClick={(e) => {
+                    e.stopPropagation();
+                    setCommentTarget({
+                      id: tray.id,
+                      name: tray.name,
+                      type: "tray",
+                    });
+                    setAssignCommentOpen(true);
+                  }} title="Add comment to tray">
+                    <MessageSquare className="size-3.5 text-blue-600 dark:text-blue-400" /> Comment
+                  </TBtn>
+                  <TBtn onClick={() => clearTray(tray.id)}><Trash2 className="size-3.5" /> Clear Cables</TBtn>
+                  <button 
+                    onClick={() => removeTray(tray.id)}
+                    className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-xs font-medium transition-colors focus-visible:outline-none h-7 px-2.5 py-1 bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground cursor-pointer"
+                  >
+                    <Trash className="size-3.5" /> Delete Tray
+                  </button>
                 </div>
               </div>
 
@@ -1470,7 +1460,7 @@ function CableTraySizingPage() {
               {/* Cables Table */}
               <div className="w-full overflow-x-auto">
                 <table className="w-full text-[13px] border-collapse whitespace-nowrap">
-                  <thead className="bg-header-bg border-b border-border text-muted-foreground font-semibold select-none">
+                  <thead className="bg-slate-100/80 dark:bg-slate-900/50 border-b border-border/80 text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider select-none h-8">
                     <tr className="text-left">
                       <th style={{ width: colWidths.select, minWidth: colWidths.select }} className="px-3 py-1.5 text-center relative group">
                         <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
@@ -1478,43 +1468,43 @@ function CableTraySizingPage() {
                         </div>
                       </th>
                       <th style={{ width: colWidths.no, minWidth: colWidths.no }} className="px-3 py-1.5 text-center relative group">
-                        No.
+                        NO.
                         <div onMouseDown={(e) => handleResizeMouseDown("no", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
                           <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
                         </div>
                       </th>
                       <th style={{ width: colWidths.type, minWidth: colWidths.type }} className="px-3 py-1.5 relative group">
-                        Cable Type
+                        CABLE TYPE
                         <div onMouseDown={(e) => handleResizeMouseDown("type", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
                           <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
                         </div>
                       </th>
                       <th style={{ width: colWidths.cores, minWidth: colWidths.cores }} className="px-3 py-1.5 relative group">
-                        No. of Cores
+                        NO. OF CORES
                         <div onMouseDown={(e) => handleResizeMouseDown("cores", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
                           <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
                         </div>
                       </th>
                       <th style={{ width: colWidths.size, minWidth: colWidths.size }} className="px-3 py-1.5 relative group">
-                        Cable Size (mmÂ²)
+                        CABLE SIZE (MM²)
                         <div onMouseDown={(e) => handleResizeMouseDown("size", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
                           <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
                         </div>
                       </th>
                       <th style={{ width: colWidths.qty, minWidth: colWidths.qty }} className="px-3 py-1.5 text-center relative group">
-                        Qty
+                        QTY
                         <div onMouseDown={(e) => handleResizeMouseDown("qty", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
                           <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
                         </div>
                       </th>
-                      <th style={{ width: colWidths.od, minWidth: colWidths.od }} className="px-3 py-1.5 text-center bg-surface-2 text-foreground relative group">
-                        O.D. ({unitSystem === "si" ? "mm" : "in"})
+                      <th style={{ width: colWidths.od, minWidth: colWidths.od }} className="px-3 py-1.5 text-center bg-surface-2/60 text-foreground relative group">
+                        O.D. ({unitSystem === "si" ? "MM" : "IN"})
                         <div onMouseDown={(e) => handleResizeMouseDown("od", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
                           <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
                         </div>
                       </th>
-                      <th style={{ width: colWidths.sumOd, minWidth: colWidths.sumOd }} className="px-3 py-1.5 text-center bg-surface-2 text-foreground relative group">
-                        Sum O.D. ({unitSystem === "si" ? "mm" : "in"})
+                      <th style={{ width: colWidths.sumOd, minWidth: colWidths.sumOd }} className="px-3 py-1.5 text-center bg-surface-2/60 text-foreground relative group">
+                        SUM O.D. ({unitSystem === "si" ? "MM" : "IN"})
                         <div onMouseDown={(e) => handleResizeMouseDown("sumOd", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
                           <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
                         </div>
@@ -1555,7 +1545,7 @@ function CableTraySizingPage() {
                                     ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
                                     : selectedRows.has(c.id)
                                     ? "bg-primary/10"
-                                    : "hover:bg-surface-2/50"
+                                    : "hover:bg-slate-100/50 dark:hover:bg-slate-800/30"
                                 )}
                                 onClick={(e) => {
                                   const tagName = (e.target as HTMLElement).tagName;

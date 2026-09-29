@@ -17,6 +17,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { api } from "@/services/api";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import type { TaskComment } from "@/lib/ventilation-calc";
 
@@ -138,6 +139,7 @@ function CapacitorBankSizingPage() {
   const [editingPanel, setEditingPanel] = useState<CapPanel | null>(null);
   const [intelOpen, setIntelOpen] = useState(false);
   const [tableModalOpen, setTableModalOpen] = useState(false);
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
   const panelInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -184,6 +186,9 @@ function CapacitorBankSizingPage() {
           setPanels(cbc.panels);
           setNextId(cbc.panels.length + 1);
         }
+        if (cbc.unitSystem === "si" || cbc.unitSystem === "ip") {
+          setUnitSystem(cbc.unitSystem);
+        }
         if (cbc.project !== undefined) setProject(cbc.project);
         if (cbc.sub !== undefined) setSub(cbc.sub);
       }
@@ -191,7 +196,7 @@ function CapacitorBankSizingPage() {
   }, [projectObj?.id]);
 
   // Sync state changes to workspace_data
-  const saveToWorkspace = (updatedPanels: CapPanel[], projName: string = project, subRef: string = sub) => {
+  const saveToWorkspace = (updatedPanels: CapPanel[], projName: string = project, subRef: string = sub, curUnit: "si" | "ip" = unitSystem) => {
     if (!projectObj?.id) return;
     try {
       let wdata = projectObj.workspace_data || {};
@@ -200,6 +205,7 @@ function CapacitorBankSizingPage() {
       }
       wdata.capacitor_bank_calc = {
         panels: updatedPanels,
+        unitSystem: curUnit,
         project: projName,
         sub: subRef,
         updatedAt: new Date().toISOString()
@@ -209,6 +215,29 @@ function CapacitorBankSizingPage() {
     } catch(err) {
       console.error("Failed to save capacitor bank data to workspace:", err);
     }
+  };
+
+  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    if (targetUnit === unitSystem) return;
+
+    if (shouldConvert) {
+      const factor = targetUnit === "ip" ? (1 / 0.746) : 0.746;
+      const updated = panels.map(p => ({
+        ...p,
+        totalLoadKw: p.totalLoadKw === "" ? "" : Number((Number(p.totalLoadKw) * factor).toFixed(1)),
+        maxDemandLoadKw: p.maxDemandLoadKw === "" ? "" : Number((Number(p.maxDemandLoadKw) * factor).toFixed(1)),
+      }));
+      setPanels(updated);
+      saveToWorkspace(updated, project, sub, targetUnit);
+    } else {
+      saveToWorkspace(panels, project, sub, targetUnit);
+    }
+    setUnitSystem(targetUnit);
+    toast.success(`Switched unit system to ${targetUnit.toUpperCase()}`);
   };
 
   const updatePanel = (id: string, field: keyof CapPanel, value: any) => {
@@ -352,7 +381,8 @@ function CapacitorBankSizingPage() {
   };
 
   const calculatePanel = (p: CapPanel) => {
-    const demand = Number(p.maxDemandLoadKw) || 0;
+    const demandRaw = Number(p.maxDemandLoadKw) || 0;
+    const demand = unitSystem === "ip" ? demandRaw * 0.746 : demandRaw;
     const pf1 = Number(p.initialPf) || 1;
     const pf2 = Number(p.targetPf) || 1;
 
@@ -677,7 +707,7 @@ function CapacitorBankSizingPage() {
         doc.text("Total Connected Load", 14, leftY);
         doc.setFont("helvetica", "bold");
         doc.text("=", 64, leftY);
-        doc.text(`${Number(p.totalLoadKw || 0).toFixed(1)} kW`, 72, leftY);
+        doc.text(`${Number(p.totalLoadKw || 0).toFixed(1)} ${unitSystem === "ip" ? "HP" : "kW"}`, 72, leftY);
         leftY += 3.8;
         doc.setFont("helvetica", "italic");
         doc.setFontSize(7.5);
@@ -692,7 +722,7 @@ function CapacitorBankSizingPage() {
         doc.text("Max Demand Load (IFC)", 14, leftY);
         doc.setFont("helvetica", "bold");
         doc.text("=", 64, leftY);
-        doc.text(`${Number(p.maxDemandLoadKw || 0).toFixed(1)} kW`, 72, leftY);
+        doc.text(`${Number(p.maxDemandLoadKw || 0).toFixed(1)} ${unitSystem === "ip" ? "HP" : "kW"}`, 72, leftY);
         leftY += 7;
 
         // Assumed Existing P.F
@@ -783,7 +813,7 @@ function CapacitorBankSizingPage() {
         doc.setFont("helvetica", "bold");
         doc.text("=", 64, leftY);
         doc.setFont("helvetica", "italic");
-        doc.text("kVAr/kW", 72, leftY);
+        doc.text(unitSystem === "ip" ? "kVAr/HP" : "kVAr/kW", 72, leftY);
         leftY += 9;
 
         // Therefore kVAr
@@ -791,7 +821,7 @@ function CapacitorBankSizingPage() {
         doc.text("Therefore kVAr", 14, leftY);
         doc.setFont("helvetica", "bold");
         doc.text("=", 64, leftY);
-        drawPdfThetaText(doc, "kW x Tan θ", 72, leftY);
+        drawPdfThetaText(doc, unitSystem === "ip" ? "(HP x 0.746) x Tan θ" : "kW x Tan θ", 72, leftY);
         leftY += 5.5;
         doc.setFont("helvetica", "bold");
         doc.text("=", 64, leftY);
@@ -928,35 +958,47 @@ function CapacitorBankSizingPage() {
       <div className="flex flex-col h-full overflow-hidden pt-4 gap-4 bg-slate-50/30 dark:bg-slate-950/30 relative">
         
         {/* Breadcrumbs & Page Header */}
-        <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg z-10">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-3 mt-0.5">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Capacitor Bank Sizing</h1>
-                <button
-                  onClick={() => setIntelOpen(!intelOpen)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border transition-all cursor-pointer shadow-2xs ${
-                    intelOpen
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                  }`}
-                >
-                  <Sparkles className="size-3.5" />
-                  Intelligence
-                </button>
-                <button
-                  onClick={() => setTableModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border border-emerald-600/30 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 transition-all cursor-pointer shadow-2xs"
-                >
-                  <Activity className="size-3.5 text-emerald-600" />
-                  Multiplication Table
-                </button>
-                <CalculationReviewBar projectId={projectObj?.id} calculatorPath="/capacitor-bank-sizing" calculatorTitle="Capacitor Bank Sizing" />
-              </div>
-            </div>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              P.F. Correction Capacitor Calculation (Right-click or Double-click panels to edit & add comments)
-            </p>
+        <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg z-10 py-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-[28px] font-bold tracking-tight text-foreground">Capacitor Bank Sizing</h1>
+            <button
+              onClick={() => setIntelOpen(!intelOpen)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border transition-all cursor-pointer shadow-2xs ${
+                intelOpen
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+              }`}
+            >
+              <Sparkles className="size-3.5" />
+              Intelligence
+            </button>
+            <button
+              onClick={() => setTableModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border border-emerald-600/30 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 transition-all cursor-pointer shadow-2xs"
+            >
+              <Activity className="size-3.5 text-emerald-600" />
+              Multiplication Table
+            </button>
+            <CalculationReviewBar projectId={projectObj?.id} calculatorPath="/capacitor-bank-sizing" calculatorTitle="Capacitor Bank Sizing" />
+          </div>
+
+          {/* Unit System Toggle Pill */}
+          <div className="flex items-center gap-2">
+            <UnitToggle
+              unitSystem={unitSystem}
+              onChange={handleUnitSystemChange}
+              disabled={isApprovedLocked}
+              ipLabel="IP"
+              siLabel="SI"
+              ipDescription="Imperial (IP) [Load in HP]"
+              siDescription="Metric (SI) [Load in kW]"
+              inputDescriptions="Total Connected Load & Max Demand Load"
+              conversionExample={
+                unitSystem === "si"
+                  ? "Convert 1000 kW → 1341.0 HP (1 HP = 0.746 kW)"
+                  : "Convert 1341.0 HP → 1000 kW (1 kW = 1.341 HP)"
+              }
+            />
           </div>
         </div>
 
@@ -1080,7 +1122,9 @@ function CapacitorBankSizingPage() {
                     "Name": "name",
                     "Panel Ref": "panelRef",
                     "Total Load (kW)": "totalLoadKw",
+                    "Total Load (HP)": "totalLoadKw",
                     "Max Demand Load (kW)": "maxDemandLoadKw",
+                    "Max Demand Load (HP)": "maxDemandLoadKw",
                     "Existing PF": "existingPf",
                     "Target PF": "targetPf",
                     "Step Size": "capacitorStepSize",
@@ -1206,12 +1250,12 @@ function CapacitorBankSizingPage() {
                             <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
                               
                               <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Total Connected Load (kW)</label>
+                                <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Total Connected Load ({unitSystem === "ip" ? "HP" : "kW"})</label>
                                 <input type="number" disabled={isApprovedLocked} className="h-7 px-2 bg-surface-1 border border-border rounded outline-none focus:ring-1 focus:ring-primary/20 focus:border-primary transition-all font-mono text-[11px]" value={p.totalLoadKw} onChange={e => updatePanel(p.id, "totalLoadKw", e.target.value === "" ? "" : Number(e.target.value))} />
                               </div>
                               
                               <div className="flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Max Demand Load (IFC)</label>
+                                <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Max Demand Load ({unitSystem === "ip" ? "HP" : "kW"})</label>
                                 <input type="number" disabled={isApprovedLocked} className="h-7 px-2 bg-primary/5 border border-primary/20 rounded outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary transition-all font-mono text-[11px] text-primary font-bold" value={p.maxDemandLoadKw} onChange={e => updatePanel(p.id, "maxDemandLoadKw", e.target.value === "" ? "" : Number(e.target.value))} />
                               </div>
 
@@ -1311,7 +1355,7 @@ function CapacitorBankSizingPage() {
                                 </div>
                                 
                                 <div className="bg-primary/5 rounded p-2 border border-primary/10 flex items-center justify-between mt-1">
-                                  <span className="text-primary font-bold text-[9px] uppercase tracking-wider">kVAr = kW × Tan θ</span>
+                                  <span className="text-primary font-bold text-[9px] uppercase tracking-wider">{unitSystem === "ip" ? "kVAr = (HP × 0.746) × Tan θ" : "kVAr = kW × Tan θ"}</span>
                                   <span className="font-mono font-bold text-primary text-[10px]">{calc.requiredKvar.toFixed(2)} kVAr</span>
                                 </div>
                               </div>
@@ -1564,6 +1608,7 @@ function CapacitorBankSizingPage() {
           panel={editingPanel}
           onClose={() => setEditingPanel(null)}
           onSave={handleSaveModalPanel}
+          unitSystem={unitSystem}
         />
       )}
 
@@ -1601,9 +1646,10 @@ interface EditCapPanelModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (updatedPanel: CapPanel) => void;
+  unitSystem?: "si" | "ip";
 }
 
-function EditCapPanelModal({ panel, isOpen, onClose, onSave }: EditCapPanelModalProps) {
+function EditCapPanelModal({ panel, isOpen, onClose, onSave, unitSystem = "si" }: EditCapPanelModalProps) {
   const [formData, setFormData] = useState<CapPanel | null>(panel);
 
   useEffect(() => {
@@ -1669,7 +1715,7 @@ function EditCapPanelModal({ panel, isOpen, onClose, onSave }: EditCapPanelModal
 
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-bold uppercase text-muted-foreground">Total Connected Load (kW)</label>
+              <label className="text-[10px] font-bold uppercase text-muted-foreground">Total Connected Load ({unitSystem === "ip" ? "HP" : "kW"})</label>
               <input 
                 type="number" 
                 step="0.1"
@@ -1679,7 +1725,7 @@ function EditCapPanelModal({ panel, isOpen, onClose, onSave }: EditCapPanelModal
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-bold uppercase text-muted-foreground">Max Demand Load (kW)</label>
+              <label className="text-[10px] font-bold uppercase text-muted-foreground">Max Demand Load ({unitSystem === "ip" ? "HP" : "kW"})</label>
               <input 
                 type="number" 
                 step="0.1"

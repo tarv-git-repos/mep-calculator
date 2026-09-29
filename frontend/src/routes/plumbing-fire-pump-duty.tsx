@@ -905,9 +905,7 @@ function FirePumpDutyPage() {
                 <h1 className="text-[24px] sm:text-[26px] font-bold tracking-tight text-foreground">
                   Fire Pump Duty
                 </h1>
-                <span className="text-[13.5px] font-semibold text-muted-foreground">
-                  NFPA 20 Rated Head, Churn Pressure & Motor Sizing
-                </span>
+                
               </div>
               <button
                 type="button"
@@ -937,6 +935,20 @@ function FirePumpDutyPage() {
                   </span>
                 </div>
               )}
+            </div>
+          
+            <div className="flex items-center gap-2 shrink-0">
+              <UnitToggle
+                    unitSystem={unitSystem}
+                    onChange={handleUnitSystemChange}
+                    disabled={isEffectiveReadOnly}
+                    inputDescriptions="Flow (GPM / L/min), Head/Pressure (psi / bar), Power (HP / kW)"
+                    conversionExample={
+                      unitSystem === "ip"
+                        ? "Convert 500 GPM @ 100 psi → 1,893 L/min @ 6.89 bar"
+                        : "Convert 1,893 L/min @ 6.89 bar → 500 GPM @ 100 psi"
+                    }
+                  />
             </div>
           </div>
 
@@ -1028,19 +1040,9 @@ function FirePumpDutyPage() {
                 {/* Right Side Controls */}
                 <div className="flex items-center gap-2 select-none shrink-0">
                   <TBtn onClick={exportPdf}>
-                    <FileText className="size-3.5" /> Export PDF
+                    <FileText className="size-3.5" /> Export
                   </TBtn>
-                  <UnitToggle
-                    unitSystem={unitSystem}
-                    onChange={handleUnitSystemChange}
-                    disabled={isEffectiveReadOnly}
-                    inputDescriptions="Flow (GPM / L/min), Head/Pressure (psi / bar), Power (HP / kW)"
-                    conversionExample={
-                      unitSystem === "ip"
-                        ? "Convert 500 GPM @ 100 psi → 1,893 L/min @ 6.89 bar"
-                        : "Convert 1,893 L/min @ 6.89 bar → 500 GPM @ 100 psi"
-                    }
-                  />
+                  
                 </div>
               </div>
 

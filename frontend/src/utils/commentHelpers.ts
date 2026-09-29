@@ -20,74 +20,36 @@ export function getMergedItemComments(
 
   const isTargetMatch = (c: any) => {
     if (!c || typeof c !== 'object') return false;
-
-    // Extract targets from comment
     const cTargetId = String(c.targetId || c.spaceId || c.itemId || '').trim().toLowerCase();
     const cTargetName = String(c.targetName || c.spaceName || c.name || '').trim().toLowerCase();
+    const normCTargetId = cTargetId.replace(/[^a-z0-9]/g, '');
+    const normCTargetName = cTargetName.replace(/[^a-z0-9]/g, '');
 
-    // If the comment has no specific target ID or name, it cannot match a specific field/row
-    if (!cTargetId && !cTargetName) return false;
-
-    // Reject general calculator/page-level targets from matching specific fields/inputs unless targeted directly
-    const pageLevelIds = new Set([
-      'global', 'project', 'page', 'calc', 'calculator',
-      'condensate-drain', '/condensate-drain'
-    ]);
-    if (pageLevelIds.has(cTargetId) && cleanTargetId !== cTargetId) {
-      return false;
-    }
-
-    // 1. Direct ID matching
-    if (cleanTargetId && cTargetId) {
-      // Direct exact equality
-      if (cleanTargetId === cTargetId) return true;
-
-      // Prefix variations: field-xxx, res-xxx, step-xxx
-      if (
+    const matchesId = Boolean(
+      cleanTargetId &&
+      cTargetId &&
+      (cTargetId === cleanTargetId ||
         cTargetId === `field-${cleanTargetId}` ||
         cleanTargetId === `field-${cTargetId}` ||
         cTargetId === `res-${cleanTargetId}` ||
         cleanTargetId === `res-${cTargetId}` ||
         cTargetId === `step-${cleanTargetId}` ||
-        cleanTargetId === `step-${cTargetId}`
-      ) {
-        return true;
-      }
+        cleanTargetId === `step-${cTargetId}` ||
+        (normTargetId && normCTargetId && (normTargetId === normCTargetId || normCTargetId.includes(normTargetId) || normTargetId.includes(normCTargetId))))
+    );
 
-      // Exact match after removing hyphens/underscores (e.g. units_quantity vs units-quantity)
-      const normCleanId = cleanTargetId.replace(/[-_]/g, '');
-      const normCId = cTargetId.replace(/[-_]/g, '');
-      if (normCleanId && normCId && normCleanId === normCId) {
-        return true;
-      }
-    }
+    const matchesName = Boolean(
+      (cleanTargetName && cTargetName && (
+        cTargetName === cleanTargetName ||
+        cTargetName.includes(cleanTargetName) ||
+        cleanTargetName.includes(cTargetName) ||
+        (normTargetName && normCTargetName && normTargetName === normCTargetName)
+      )) ||
+      (cleanTargetId && cTargetName && normTargetId && normCTargetName && normTargetId === normCTargetName) ||
+      (cleanTargetName && cTargetId && normTargetName && normCTargetId && normTargetName === normCTargetId)
+    );
 
-    // 2. Exact or Base Label/Name matching
-    if (cleanTargetName && cTargetName) {
-      // Direct exact equality
-      if (cleanTargetName === cTargetName) return true;
-
-      // Base label comparison ignoring unit suffix like "(kW)", "(TR)", "(m)", "(ft)", "(19mm)"
-      const baseCleanName = cleanTargetName.replace(/\s*\([^)]*\)/g, '').trim();
-      const baseCName = cTargetName.replace(/\s*\([^)]*\)/g, '').trim();
-      if (baseCleanName && baseCName && baseCleanName === baseCName) {
-        return true;
-      }
-    }
-
-    // 3. Match if comment targetId matches item label (or vice versa) strictly
-    if (cleanTargetId && cTargetName) {
-      const normCleanId = cleanTargetId.replace(/[-_]/g, '');
-      const normCName = cTargetName.replace(/[^a-z0-9]/g, '');
-      if (normCleanId && normCName && normCleanId === normCName) return true;
-    }
-    if (cleanTargetName && cTargetId) {
-      const normCleanName = cleanTargetName.replace(/[^a-z0-9]/g, '');
-      const normCId = cTargetId.replace(/[-_]/g, '');
-      if (normCleanName && normCId && normCleanName === normCId) return true;
-    }
-
-    return false;
+    return matchesId || matchesName;
   };
 
   const addCommentIfMatch = (c: any, isDirectRowAttachment: boolean = false) => {

@@ -1203,7 +1203,7 @@ function SprinklerDensityPage() {
               <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                 <div className="flex items-baseline gap-2">
                   <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sprinkler Density &amp; Flow</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">NFPA 13 density/area</span>
+                  
                 </div>
                 <button 
                   onClick={() => setIntelOpen(v => !v)}
@@ -1236,13 +1236,23 @@ function SprinklerDensityPage() {
                   </button>
                 )}
               </div>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                Preliminary NFPA 13 sprinkler water density, design area, and water supply sizing schedule.
-              </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitToggle}
+                  disabled={isApprovedLocked}
+                  inputDescriptions="Coverage, Design Density, Design Area, K-Factor"
+                  conversionExample={
+                    unitSystem === "si"
+                      ? "Convert 130 sq ft → 12.1 m², 0.20 gpm/ft² → 8.15 mm/min, K-5.6 → K-80"
+                      : "Convert 12.1 m² → 130 sq ft, 8.15 mm/min → 0.20 gpm/ft², K-80 → K-5.6"
+                  }
+                />
+              </div>
             </div>
-          </div>
 
-          {/* White card container for Tabs & Data Grid */}
+            {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
@@ -1295,18 +1305,7 @@ function SprinklerDensityPage() {
                   <FileText className="size-3.5" /> Export
                 </TBtn>
 
-                {/* Sizing Unit system toggle */}
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitToggle}
-                  disabled={isApprovedLocked}
-                  inputDescriptions="Coverage, Design Density, Design Area, K-Factor"
-                  conversionExample={
-                    unitSystem === "si"
-                      ? "Convert 130 sq ft → 12.1 m², 0.20 gpm/ft² → 8.15 mm/min, K-5.6 → K-80"
-                      : "Convert 12.1 m² → 130 sq ft, 8.15 mm/min → 0.20 gpm/ft², K-80 → K-5.6"
-                  }
-                />
+                
               </div>
             </div>
 
@@ -1435,8 +1434,8 @@ function SprinklerDensityPage() {
                       <TBtn onClick={() => window.print()}>
                         <Printer className="size-3.5" /> Print
                       </TBtn>
-                      <TBtn primary onClick={exportPdf}>
-                        <FileText className="size-3.5" /> Export PDF
+                      <TBtn onClick={exportPdf}>
+                        <FileText className="size-3.5" /> Export
                       </TBtn>
                     </div>
                   </div>

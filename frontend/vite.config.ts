@@ -22,10 +22,19 @@ const asyncHooksPolyfill = {
     if (id === 'node:async_hooks' || id === 'async_hooks') {
       return `
         export class AsyncLocalStorage {
-          getStore() { return undefined; }
-          run(store, fn) { return typeof fn === 'function' ? fn() : fn; }
-          enterWith() {}
-          disable() {}
+          constructor() { this._store = undefined; }
+          getStore() { return this._store; }
+          run(store, fn, ...args) {
+            const prev = this._store;
+            this._store = store;
+            try {
+              return typeof fn === 'function' ? fn(...args) : fn;
+            } finally {
+              this._store = prev;
+            }
+          }
+          enterWith(store) { this._store = store; }
+          disable() { this._store = undefined; }
         }
         export default { AsyncLocalStorage };
       `;

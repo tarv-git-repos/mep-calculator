@@ -7,12 +7,14 @@ import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { Download, FileSpreadsheet, FileText, Filter, HelpCircle, Plus, Printer, RefreshCw, Save, Settings, SlidersHorizontal, Trash2, FolderKanban, Search, ArrowRight, GripVertical, Upload, Copy, Info, Edit3, MessageSquare, Sparkles, Flag, ChevronRight, ChevronLeft, ChevronUp, ChevronDown, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
-import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import { api } from "@/services/api";
+import { notifyCommentAssigned, executeHighlightAndScroll } from "@/utils/notificationHelpers";
 import { EditGeneratorRowModal } from "@/components/workspace/EditGeneratorRowModal";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
@@ -55,66 +57,6 @@ export const Route = createFileRoute("/generator-sizing")({
   }),
   component: GeneratorSizingPage,
 });
-
-type StarterType = "DOL" | "SD" | "Soft Starter" | "VFD" | "None";
-
-interface GenRow {
-  id: string;
-  desc: string;
-  unit: number | string;
-  kwPerUnit: number | string;
-  starter: StarterType;
-  multiplier: number | string;
-  standby: number | string;
-  emergency: number | string;
-  powerFail: number | string;
-  remark: string;
-  excludeEmergency?: boolean;
-  flagged?: boolean;
-  comments?: TaskComment[];
-}
-
-export function getGenRowValidation(r?: Partial<GenRow>) {
-  const warnings: string[] = [];
-  if (!r) return { isAutoFlagged: false, isFlagged: false, warnings: [] };
-
-  const descEmpty = !r.desc || String(r.desc).trim() === "";
-  const unitEmpty = r.unit === "" || r.unit === undefined || r.unit === null || Number(r.unit) === 0;
-  const kwEmpty = r.kwPerUnit === "" || r.kwPerUnit === undefined || r.kwPerUnit === null || Number(r.kwPerUnit) === 0;
-
-  // Don't auto-flag brand new completely blank rows
-  const isCompletelyEmpty = descEmpty && unitEmpty && kwEmpty;
-
-  if (!isCompletelyEmpty) {
-    if (descEmpty) {
-      warnings.push("description");
-    }
-    if (r.unit === "" || r.unit === undefined || r.unit === null || isNaN(Number(r.unit)) || Number(r.unit) <= 0) {
-      warnings.push("unit count (0 or missing)");
-    }
-    if (r.kwPerUnit === "" || r.kwPerUnit === undefined || r.kwPerUnit === null || isNaN(Number(r.kwPerUnit)) || Number(r.kwPerUnit) <= 0) {
-      warnings.push("kW/unit (0 or missing)");
-    }
-  }
-
-  const isAutoFlagged = warnings.length > 0;
-  const isFlagged = r.flagged !== undefined ? Boolean(r.flagged) : isAutoFlagged;
-  return { isAutoFlagged, isFlagged, warnings };
-}
-
-const STARTER_MULTIPLIERS: Record<StarterType, number> = {
-  DOL: 7,
-  SD: 3,
-  "Soft Starter": 2,
-  VFD: 1,
-  None: 0,
-};
-
-const STANDARD_SIZES = [
-  5, 7.5, 10, 12.5, 15, 20, 25, 30, 35, 40, 45, 50, 62.5, 75, 82.5, 100,
-  125, 160, 200, 250, 320, 400, 500, 625, 750, 800, 1000, 1250, 1500, 1600, 2000, 2500,
-  2750, 3000, 3250, 3500, 3750, 4000, 4250, 4500, 4750, 5000
-];
 
 function GeneratorSizingPage() {
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
@@ -381,10 +323,11 @@ function GeneratorSizingPage() {
     setManualOverrides({});
   };
 
-  const handleUnitToggle = (newSystem: "si" | "ip") => {
+  const handleUnitToggle = (newSystem: "si" | "ip", shouldConvert: boolean = true) => {
     if (newSystem === unitSystem) return;
     setUnitSystem(newSystem);
     clearOverrides();
+    if (shouldConvert) {
     const newRows = rows.map((r) => {
       const kw = Number(r.kwPerUnit) || 0;
       const sb = Number(r.standby) || 0;
@@ -403,6 +346,7 @@ function GeneratorSizingPage() {
       };
     });
     pushState(newRows);
+    }
   };
 
   const addRow = () => {
@@ -1257,6 +1201,7 @@ function GeneratorSizingPage() {
     <AppShell
       title="Generator Sizing"
       subtitle="Calculate DG set size based on connected and emergency loads"
+      actions={<UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isEffectiveReadOnly} />}
     >
       
       <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
@@ -1539,7 +1484,7 @@ function GeneratorSizingPage() {
                       <table id="generator-grid" className="w-full text-[12.5px] border-collapse">
                         <thead className="bg-muted/40 dark:bg-surface-2/60 sticky top-0 z-10 font-semibold text-muted-foreground select-none text-[10.5px] uppercase tracking-wider border-b border-border/60">
                           <tr className="text-left font-semibold">
-                            <th style={{ width: `${colWidths.select}px`, minWidth: `${colWidths.select}px` }} className="px-2 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.select}px`, minWidth: `${colWidths.select}px` }} className="px-2 py-1.5 text-center relative group/col select-none">
                               <input
                                 type="checkbox"
                                 className="cursor-pointer rounded border-border"
@@ -1551,23 +1496,23 @@ function GeneratorSizingPage() {
                               />
                               <div onMouseDown={(e) => handleResizeStart("select", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.desc}px`, minWidth: `${colWidths.desc}px` }} className="px-3 py-2.5 relative group/col select-none">
+                            <th style={{ width: `${colWidths.desc}px`, minWidth: `${colWidths.desc}px` }} className="px-3 py-1.5 relative group/col select-none">
                               Description
                               <div onMouseDown={(e) => handleResizeStart("desc", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.unit}px`, minWidth: `${colWidths.unit}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.unit}px`, minWidth: `${colWidths.unit}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               Unit
                               <div onMouseDown={(e) => handleResizeStart("unit", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.kwPerUnit}px`, minWidth: `${colWidths.kwPerUnit}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.kwPerUnit}px`, minWidth: `${colWidths.kwPerUnit}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               {unitSystem === "ip" ? "HP / UNIT" : "kW / UNIT"}
                               <div onMouseDown={(e) => handleResizeStart("kwPerUnit", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.starter}px`, minWidth: `${colWidths.starter}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.starter}px`, minWidth: `${colWidths.starter}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               Starter Type
                               <div onMouseDown={(e) => handleResizeStart("starter", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Multiplication factor for starting current. Typically 7 for DOL, 3.5 for Star Delta/Soft Starter, 1 for VFD."
@@ -1576,7 +1521,7 @@ function GeneratorSizingPage() {
                               </span>
                               <div onMouseDown={(e) => handleResizeStart("multiplier", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.startCur}px`, minWidth: `${colWidths.startCur}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.startCur}px`, minWidth: `${colWidths.startCur}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="kW * 1.739 * Multiplier"
@@ -1585,15 +1530,15 @@ function GeneratorSizingPage() {
                               </span>
                               <div onMouseDown={(e) => handleResizeStart("startCur", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               {unitSystem === "ip" ? "Total (HP)" : "Total (kW)"}
                               <div onMouseDown={(e) => handleResizeStart("totalKw", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.standby}px`, minWidth: `${colWidths.standby}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.standby}px`, minWidth: `${colWidths.standby}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               {unitSystem === "ip" ? "Standby (HP)" : "Standby (kW)"}
                               <div onMouseDown={(e) => handleResizeStart("standby", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Actual Connected Load (Total kW - Standby)"
@@ -1602,7 +1547,7 @@ function GeneratorSizingPage() {
                               </span>
                               <div onMouseDown={(e) => handleResizeStart("acl", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.emergency}px`, minWidth: `${colWidths.emergency}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.emergency}px`, minWidth: `${colWidths.emergency}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Defaults to ACL. Used to calculate emergency DG size."
@@ -1611,7 +1556,7 @@ function GeneratorSizingPage() {
                               </span>
                               <div onMouseDown={(e) => handleResizeStart("emergency", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.powerFail}px`, minWidth: `${colWidths.powerFail}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.powerFail}px`, minWidth: `${colWidths.powerFail}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
                                 title="Power Failure Load"
@@ -1620,11 +1565,11 @@ function GeneratorSizingPage() {
                               </span>
                               <div onMouseDown={(e) => handleResizeStart("powerFail", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.remark}px`, minWidth: `${colWidths.remark}px` }} className="px-3 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.remark}px`, minWidth: `${colWidths.remark}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               Remarks
                               <div onMouseDown={(e) => handleResizeStart("remark", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: `${colWidths.actions}px`, minWidth: `${colWidths.actions}px` }} className="px-2 py-2.5 text-center relative group/col select-none">
+                            <th style={{ width: `${colWidths.actions}px`, minWidth: `${colWidths.actions}px` }} className="px-2 py-1.5 text-center relative group/col select-none">
                               Actions
                               <div onMouseDown={(e) => handleResizeStart("actions", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary z-20 group-hover/col:bg-border/60 transition-colors" title="Drag to resize column" />
                             </th>
@@ -1664,7 +1609,7 @@ function GeneratorSizingPage() {
                                         toggleSelection(r.id, false, false);
                                         setEditingRow({ row: r, index: rowIndex });
                                       }}
-                                      className={`transition-colors duration-150 cursor-pointer select-none text-[12px] ${rowDensity === "compact" ? "h-7.5" : "h-9"} ${
+                                      className={`transition-colors duration-150 cursor-pointer select-none text-[12.5px] border-b border-border/60 ${rowDensity === "compact" ? "h-[26px]" : "h-[30px]"} ${
                                         isEditing
                                           ? "bg-primary/15 font-semibold"
                                           : isModalOpen
@@ -1693,10 +1638,10 @@ function GeneratorSizingPage() {
                                       }}
                                     >
                                       <td style={{ width: `${colWidths.select}px`, minWidth: `${colWidths.select}px` }} className="p-0">
-                                        <div className="flex items-center justify-center h-9 px-1">
+                                        <div className="flex items-center justify-center h-full px-1">
                                           <input
                                             type="checkbox"
-                                            className="cursor-pointer"
+                                            className="size-3.5 accent-primary cursor-pointer rounded border-border"
                                             checked={selectedRows.has(r.id)}
                                             onChange={() => {}}
                                             onClick={(e) => {
@@ -1707,7 +1652,7 @@ function GeneratorSizingPage() {
                                         </div>
                                       </td>
                                       <td style={{ width: `${colWidths.desc}px`, minWidth: `${colWidths.desc}px` }} className="p-0">
-                                        <div className="flex items-center gap-1.5 w-full px-2">
+                                        <div className="flex items-center gap-1.5 w-full h-full px-2">
                                           {r.comments && r.comments.length > 0 && (
                                             <span
                                               className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
@@ -1729,7 +1674,7 @@ function GeneratorSizingPage() {
                                             data-row={rowIndex}
                                             data-col={0}
                                             type="text"
-                                            className="w-full h-9 px-2 text-foreground placeholder:text-muted-foreground/60 bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors flex-1"
+                                            className="w-full h-full px-1.5 text-[12.5px] text-foreground placeholder:text-muted-foreground/60 bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors flex-1"
                                             value={r.desc}
                                             onChange={(e) => updateRow(r.id, "desc", e.target.value)}
                                             placeholder="Description"
@@ -1741,7 +1686,7 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={1}
                                           type="number"
-                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="w-full h-full px-1 text-center text-[12.5px] font-mono text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           value={r.unit}
                                           onChange={(e) => updateRow(r.id, "unit", e.target.value)}
                                         />
@@ -1751,7 +1696,7 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={2}
                                           type="number"
-                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="w-full h-full px-1 text-center text-[12.5px] font-mono text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           value={r.kwPerUnit}
                                           onChange={(e) => updateRow(r.id, "kwPerUnit", e.target.value)}
                                         />
@@ -1760,7 +1705,7 @@ function GeneratorSizingPage() {
                                         <select
                                           data-row={rowIndex}
                                           data-col={3}
-                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors cursor-pointer"
+                                          className="w-full h-full px-1 text-center text-[12px] text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors cursor-pointer"
                                           value={r.starter}
                                           onChange={(e) => updateRow(r.id, "starter", e.target.value)}
                                         >
@@ -1776,17 +1721,17 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={4}
                                           type="number"
-                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 font-medium transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="w-full h-full px-1 text-center text-[12.5px] font-mono text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 font-medium transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           value={r.multiplier}
                                           onChange={(e) =>
                                             updateRow(r.id, "multiplier", e.target.value)
                                           }
                                         />
                                       </td>
-                                      <td style={{ width: `${colWidths.startCur}px`, minWidth: `${colWidths.startCur}px` }} className="p-0 text-center font-semibold text-foreground">
+                                      <td style={{ width: `${colWidths.startCur}px`, minWidth: `${colWidths.startCur}px` }} className="p-0 text-center font-mono text-[12px] font-semibold text-foreground">
                                         {startCur.toFixed(2)}
                                       </td>
-                                      <td style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="p-0 text-center text-muted-foreground">
+                                      <td style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="p-0 text-center font-mono text-[12px] text-muted-foreground">
                                         {totalKw.toFixed(2)}
                                       </td>
                                       <td style={{ width: `${colWidths.standby}px`, minWidth: `${colWidths.standby}px` }} className="p-0">
@@ -1794,12 +1739,12 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={5}
                                           type="number"
-                                          className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          className="w-full h-full px-1 text-center text-[12.5px] font-mono text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                           value={r.standby}
                                           onChange={(e) => updateRow(r.id, "standby", e.target.value)}
                                         />
                                       </td>
-                                      <td style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="p-0 text-center font-semibold text-primary">
+                                      <td style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="p-0 text-center font-mono text-[12px] font-semibold text-primary">
                                         {actualKw.toFixed(2)}
                                       </td>
                                       <td style={{ width: `${colWidths.emergency}px`, minWidth: `${colWidths.emergency}px` }} className="p-0 relative group/em">
@@ -1808,7 +1753,7 @@ function GeneratorSizingPage() {
                                             data-row={rowIndex}
                                             data-col={6}
                                             type="number"
-                                            className={`w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${r.excludeEmergency ? "opacity-30 line-through" : ""}`}
+                                            className={`w-full h-full px-1 text-center text-[12.5px] font-mono text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${r.excludeEmergency ? "opacity-30 line-through" : ""}`}
                                             value={r.emergency}
                                             onChange={(e) =>
                                               updateRow(r.id, "emergency", e.target.value)
@@ -1840,12 +1785,12 @@ function GeneratorSizingPage() {
                                             data-row={rowIndex}
                                             data-col={7}
                                             type="number"
-                                            className="w-full h-9 px-2 text-center text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none flex-1"
+                                            className="w-full h-full px-1 text-center text-[12.5px] font-mono text-foreground bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none flex-1"
                                             value={r.powerFail}
                                             onChange={(e) => updateRow(r.id, "powerFail", e.target.value)}
                                           />
                                           <select
-                                            className="h-9 w-12 px-1 bg-primary/10 text-primary outline-none cursor-pointer border-l border-border/50 text-[11px] font-medium dark:bg-primary/20 dark:text-primary-foreground"
+                                            className="h-full w-10 px-0.5 bg-primary/10 text-primary outline-none cursor-pointer border-l border-border/50 text-[10px] font-medium dark:bg-primary/20 dark:text-primary-foreground"
                                             defaultValue=""
                                             onChange={(e) => {
                                               setPowerFailPercent(r.id, e.target.value);
@@ -1873,7 +1818,7 @@ function GeneratorSizingPage() {
                                           data-row={rowIndex}
                                           data-col={8}
                                           type="text"
-                                          className="w-full h-9 px-2 text-center text-foreground placeholder:text-muted-foreground/60 bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors"
+                                          className="w-full h-full px-2 text-center text-[12px] text-foreground placeholder:text-muted-foreground/60 bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground focus:ring-1 focus:ring-primary/50 transition-colors"
                                           value={!r.remark || r.remark === "undefined" ? "" : r.remark}
                                           onChange={(e) => updateRow(r.id, "remark", e.target.value)}
                                         />
@@ -1894,7 +1839,7 @@ function GeneratorSizingPage() {
                                                   e.stopPropagation();
                                                   toggleFlagRows(r.id, isFlagged);
                                                 }}
-                                                className={`p-1 rounded transition-colors cursor-pointer ${
+                                                className={`p-0.5 rounded transition-colors cursor-pointer ${
                                                   isFlagged
                                                     ? "bg-red-500/10 text-red-600 dark:bg-red-500/20 dark:text-red-400 hover:bg-red-500/20"
                                                     : "text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
@@ -2349,7 +2294,7 @@ function GeneratorSizingPage() {
 
             if (project?.id) {
               try {
-                let wdata = project.workspace_data || {};
+                let wdata = (project as any)?.workspace_data || {};
                 if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
                 wdata.generator_calc = { ...(wdata.generator_calc || {}), rows: newRows };
                 api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);

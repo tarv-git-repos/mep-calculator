@@ -1108,9 +1108,7 @@ function FireTankCapacityPage() {
                 <h1 className="text-[24px] sm:text-[26px] font-bold tracking-tight text-foreground">
                   Fire Tank Capacity
                 </h1>
-                <span className="text-[13.5px] font-semibold text-muted-foreground">
-                  NFPA 22 Dedicated Water Storage Demand
-                </span>
+                
               </div>
               <button
                 onClick={() => setIntelOpen((v) => !v)}
@@ -1139,6 +1137,20 @@ function FireTankCapacityPage() {
                   </span>
                 </div>
               )}
+            </div>
+          
+            <div className="flex items-center gap-2 shrink-0">
+              <UnitToggle
+                    unitSystem={unitSystem}
+                    onChange={handleUnitSystemChange}
+                    disabled={isEffectiveReadOnly}
+                    inputDescriptions="Flow Rate (GPM / L/s), Storage Volume (gal / m³ or L)"
+                    conversionExample={
+                      unitSystem === "ip"
+                        ? "Convert 500 GPM → 31.5 L/s, 75,000 gal → 283.9 m³"
+                        : "Convert 31.5 L/s → 500 GPM, 283.9 m³ → 75,000 gal"
+                    }
+                  />
             </div>
           </div>
 
@@ -1219,19 +1231,9 @@ function FireTankCapacityPage() {
                 {/* Right Side Controls */}
                 <div className="flex items-center gap-2 select-none shrink-0">
                   <TBtn onClick={exportPdf}>
-                    <FileText className="size-3.5" /> Export PDF
+                    <FileText className="size-3.5" /> Export
                   </TBtn>
-                  <UnitToggle
-                    unitSystem={unitSystem}
-                    onChange={handleUnitSystemChange}
-                    disabled={isEffectiveReadOnly}
-                    inputDescriptions="Flow Rate (GPM / L/s), Storage Volume (gal / m³ or L)"
-                    conversionExample={
-                      unitSystem === "ip"
-                        ? "Convert 500 GPM → 31.5 L/s, 75,000 gal → 283.9 m³"
-                        : "Convert 31.5 L/s → 500 GPM, 283.9 m³ → 75,000 gal"
-                    }
-                  />
+                  
                 </div>
               </div>
 
@@ -1608,7 +1610,7 @@ function FireTankCapacityPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <TBtn onClick={exportPdf}>
-                            <FileText className="size-3.5" /> Export PDF
+                            <FileText className="size-3.5" /> Export
                           </TBtn>
                         </div>
                       </div>

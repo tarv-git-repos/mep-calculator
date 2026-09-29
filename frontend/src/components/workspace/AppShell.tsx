@@ -3457,7 +3457,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         </div>
       </aside>
 
-      <main className="col-start-2 row-start-2 min-w-0 flex flex-col overflow-hidden bg-surface dark:bg-[#121212] print:block print:h-auto print:overflow-visible transition-all duration-300">
+      <main className="col-start-2 row-start-2 min-w-0 flex flex-row overflow-hidden bg-surface dark:bg-[#121212] print:block print:h-auto print:overflow-visible transition-all duration-300">
         <AnimatePresence>
           {!isPaidPlan && profile?.role !== 'SUPER_ADMIN' && rawExpiry && computedRemainingDays <= 7 && computedRemainingDays > 0 && computedStatus === 'FREE_TRIAL' && (
             <motion.div
@@ -3515,7 +3515,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           )}
         </AnimatePresence>
 
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col relative custom-scrollbar">
+        <div className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col relative custom-scrollbar transition-all duration-300">
           {!shouldHideSubHeader && (
             <div className={`shrink-0 flex items-center justify-between py-3.5 bg-surface-1/90 backdrop-blur-md border-b border-border select-none z-10 ${
               sidebarOpen ? "pl-0 pr-6" : "px-6"
@@ -3932,7 +3932,7 @@ function UniversalIntelligenceDrawer({
   const standardBadge = isHvac ? "ASHRAE / CIBSE / SMACNA" : isElec ? "IEC 60364 / BS 7671 / DEWA" : isPlumbing ? "CIPHE / BS 8558 / BS EN 806 / IPC" : isFire ? "NFPA 13 / NFPA 20 / NFPA 2001" : "MEP International Standards";
 
   return (
-    <div className="fixed top-[80px] right-0 bottom-0 w-[360px] bg-card border-l border-border shadow-2xl z-50 flex flex-col animate-in slide-in-from-right-5 duration-200 select-none">
+    <div className="w-[360px] min-w-[360px] h-full bg-card border-l border-border shadow-xl flex flex-col animate-in slide-in-from-right-5 duration-200 select-none shrink-0 z-30">
       <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-2">
           <Sparkles className="size-3.5 text-primary" />

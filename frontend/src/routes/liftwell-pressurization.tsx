@@ -12,7 +12,9 @@ import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
-import { Plus, Trash2, MessageSquare, FileSpreadsheet, FileText, Check, X, Wrench } from "lucide-react";
+import { Plus, Trash2, MessageSquare, FileSpreadsheet, FileText, Check, X, Wrench, Sparkles, Search, CheckCircle2 } from "lucide-react";
+import { DataGrid, type Column } from "@/components/workspace/DataGrid";
+import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -38,11 +40,16 @@ function LiftwellPressurizationPage() {
     { id: generateId(), name: "LIFTWELL-01", doorType: "lift_landing", doorArea: 2.76, openDoorsCount: 1, closedDoorsCount: 17 }
   ]);
   
+  const [searchQuery, setSearchQuery] = useState("");
+  const [tab, setTab] = useState<"schedule" | "report">("schedule");
+  const [intelOpen, setIntelOpen] = useState(false);
+  
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
   const [showFormulaModal, setShowFormulaModal] = useState(false);
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const isIp = unitSystem === "ip";
 
   const handleUnitSystemChange = (target: "si" | "ip", shouldConvert: boolean = true) => {
     if (target === unitSystem) return;
@@ -111,6 +118,16 @@ function LiftwellPressurizationPage() {
     if (isEffectiveReadOnly) return;
     saveItems(items.filter(i => !selectedItems.has(i.id)));
     setSelectedItems(new Set());
+  };
+
+  const deleteItem = (id: string) => {
+    if (isEffectiveReadOnly) return;
+    saveItems(items.filter(i => i.id !== id));
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   };
 
   const toggleSelect = (id: string) => {
@@ -239,199 +256,363 @@ function LiftwellPressurizationPage() {
     }
   };
 
-  const isIp = unitSystem === "ip";
+    const filteredRows = React.useMemo(() => {
+    if (!searchQuery) return items;
+    const lowerQuery = searchQuery.toLowerCase();
+    return items.filter((row) => row.name.toLowerCase().includes(lowerQuery));
+  }, [items, searchQuery]);
+
+  const columns: Column<LiftwellItem>[] = React.useMemo(() => [
+    {
+      key: "name",
+      header: "LIFTWELL NAME",
+      width: 160,
+      render: (row) => (
+        <div className="flex items-center gap-1 w-full">
+          <input 
+            type="text"
+            value={row.name}
+            onChange={(e) => updateItem(row.id, "name", e.target.value)}
+            disabled={isEffectiveReadOnly}
+            className="bg-transparent outline-none w-full font-medium"
+            placeholder="Name..."
+          />
+        </div>
+      )
+    },
+    {
+      key: "doorType",
+      header: "DOOR TYPE",
+      width: 200,
+      render: (row) => (
+        <select 
+          value={row.doorType}
+          onChange={(e) => updateItem(row.id, "doorType", e.target.value as DoorTypeKey)}
+          disabled={isEffectiveReadOnly}
+          className="bg-transparent outline-none w-full text-xs"
+        >
+          {(Object.keys(DOOR_TYPES_CONFIG) as DoorTypeKey[]).map(k => (
+            <option key={k} value={k}>{DOOR_TYPES_CONFIG[k].name}</option>
+          ))}
+        </select>
+      )
+    },
+    {
+      key: "doorArea",
+      header: `DOOR AREA (${unitSystem === "ip" ? "sq ft" : "m²"})`,
+      width: 130,
+      render: (row) => (
+        <input 
+          type="number"
+          value={row.doorArea} 
+          onChange={(e) => updateItem(row.id, "doorArea", e.target.value)}
+          disabled={isEffectiveReadOnly}
+          className="bg-transparent outline-none w-full text-xs"
+          placeholder="Area"
+        />
+      )
+    },
+    {
+      key: "openDoorsCount",
+      header: "OPEN DOORS",
+      width: 110,
+      render: (row) => (
+        <input 
+          type="number"
+          value={row.openDoorsCount} 
+          onChange={(e) => updateItem(row.id, "openDoorsCount", e.target.value)}
+          disabled={isEffectiveReadOnly}
+          className="bg-transparent outline-none w-full text-xs"
+          placeholder="Qty"
+        />
+      )
+    },
+    {
+      key: "closedDoorsCount",
+      header: "CLOSED DOORS",
+      width: 110,
+      render: (row) => (
+        <input 
+          type="number"
+          value={row.closedDoorsCount} 
+          onChange={(e) => updateItem(row.id, "closedDoorsCount", e.target.value)}
+          disabled={isEffectiveReadOnly}
+          className="bg-transparent outline-none w-full text-xs"
+          placeholder="Qty"
+        />
+      )
+    },
+    {
+      key: "fanAirflow",
+      header: `FAN AIRFLOW (${unitSystem === "ip" ? "CFM" : "L/s"})`,
+      width: 140,
+      render: (row) => {
+        const calc = calculateLiftwell(row, unitSystem === "ip");
+        return <span className="text-blue-600 font-semibold cursor-pointer" onDoubleClick={() => setShowFormulaModal(true)}>{unitSystem === "ip" ? calc.totalFanCapacityCfm : calc.totalFanCapacityLs}</span>;
+      }
+    },
+    {
+      key: "dP",
+      header: `dP (${unitSystem === "ip" ? "in. wg" : "Pa"})`,
+      width: 100,
+      render: (row) => {
+        const calc = calculateLiftwell(row, unitSystem === "ip");
+        return <span className="cursor-pointer" onDoubleClick={() => setShowFormulaModal(true)}>{unitSystem === "ip" ? calc.designPressureDropInWg : calc.designPressureDropPa}</span>;
+      }
+    },
+    {
+      key: "reliefArea",
+      header: `RELIEF AREA (${unitSystem === "ip" ? "sq ft" : "m²"})`,
+      width: 130,
+      render: (row) => {
+        const calc = calculateLiftwell(row, unitSystem === "ip");
+        return <span className="cursor-pointer" onDoubleClick={() => setShowFormulaModal(true)}>{unitSystem === "ip" ? calc.reliefAreaSqFt : calc.reliefAreaM2}</span>;
+      }
+    },
+    {
+      key: "comments",
+      header: "STATUS",
+      width: 80,
+      render: (row) => {
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            {Array.isArray((row as any).comments) && (row as any).comments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCommentTargetItem(row);
+                  setCommentModalOpen(true);
+                }}
+                className="flex items-center justify-center size-5 rounded-md hover:bg-blue-100 text-blue-500 transition-colors"
+                title="View/Add Comments"
+              >
+                <MessageSquare className="size-3.5 fill-blue-50/50" />
+                <span className="text-[10px] font-bold ml-0.5">{(row as any).comments.length}</span>
+              </button>
+            )}
+          </div>
+        );
+      }
+    }
+  ], [unitSystem, isEffectiveReadOnly, items]);
+
+  const renderLiftwellContextMenu = (row: LiftwellItem) => (
+    <ContextMenuContent className="w-48 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+      <ContextMenuItem
+        onClick={() => {
+          if (isEffectiveReadOnly) {
+            toast.info("Workspace is in Read-Only mode.");
+            return;
+          }
+          setCommentTargetItem(row);
+          setCommentModalOpen(true);
+        }}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 text-blue-600 rounded cursor-pointer"
+      >
+        <MessageSquare className="size-3.5" />
+        <span>Add Comment</span>
+      </ContextMenuItem>
+      <ContextMenuSeparator className="h-px bg-border my-1" />
+      <ContextMenuItem
+        onClick={() => {
+          if (!isEffectiveReadOnly) {
+            deleteItem(row.id);
+          }
+        }}
+        disabled={isEffectiveReadOnly}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 text-destructive rounded cursor-pointer"
+      >
+        <Trash2 className="size-3.5" />
+        <span>Delete</span>
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
 
   return (
-    <AppShell title="Liftwell Pressurization" hideSubHeader={true}>
-      <div className="flex flex-col h-full bg-slate-50 select-none">
-        
-        {/* Bulk actions overlay */}
-        {!isEffectiveReadOnly && selectedItems.size > 0 && (
-          <div className="absolute top-14 left-0 right-0 h-10 flex items-center gap-2 px-4 bg-[#eef6fc] text-[12px] text-[#06456F] z-20 shadow-sm">
-            <span className="font-semibold">{selectedItems.size} selected</span>
-            <button onClick={deleteSelected} className="flex items-center gap-1.5 px-3 py-1 bg-white border border-[#06456F]/20 rounded hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition shadow-sm ml-2">
-              <Trash2 className="size-3.5" /> Delete Selected
-            </button>
-            <button onClick={() => setSelectedItems(new Set())} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors px-2 py-0.5 rounded">
-              <X className="size-3" /> Clear Selection
-            </button>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between p-4 bg-white border-b border-border shadow-sm shrink-0">
-          <div className="flex items-center gap-3">
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">Liftwell Pressurization</h1>
-            </div>
-            <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/liftwell-pressurization" calculatorTitle="Liftwell Pressurization" />
-          </div>
-          <div className="flex items-center gap-2">
-            <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
-            <button onClick={handleExportPdf} className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full bg-[#0A7BC7] text-white hover:bg-[#0866A5] transition shadow-xs cursor-pointer">
-              <FileText className="size-3.5" /> Export PDF
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 flex overflow-hidden">
-          <div className="flex-1 overflow-auto p-4">
-          <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden pb-12">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left border-collapse">
-                <thead className="bg-slate-100 border-b border-border">
-                  <tr className="text-muted-foreground font-semibold uppercase">
-                    <th className="py-2.5 px-3 w-10 text-center">
-                      <input 
-                        type="checkbox" 
-                        checked={items.length > 0 && selectedItems.size === items.length}
-                        onChange={toggleSelectAll}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                    </th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Liftwell Name</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Door Type</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Door Area ({isIp ? "sq ft" : "m²"})</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Open Doors</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap">Closed Doors</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap bg-blue-50 text-blue-700 border-l border-blue-100">Fan Airflow ({isIp ? "CFM" : "L/s"})</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap bg-blue-50 text-blue-700">Pressure Drop ({isIp ? "in. w.g." : "Pa"})</th>
-                    <th className="py-2.5 px-3 whitespace-nowrap bg-blue-50 text-blue-700">Relief Area ({isIp ? "sq ft" : "m²"})</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) => {
-                    const calc = calculateLiftwell(item, isIp);
-                    const isSelected = selectedItems.has(item.id);
-                    const trClass = "border-b border-border hover:bg-slate-50 transition " + (isSelected ? "bg-blue-50/50" : "");
-                    return (
-                      <tr key={item.id} className={trClass}>
-                        <td className="p-2 text-center">
-                          <input 
-                            type="checkbox" 
-                            checked={isSelected}
-                            onChange={() => toggleSelect(item.id)}
-                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <div className="flex items-center gap-1.5 w-full">
-                            {(() => {
-                              const itemComments = getMergedItemComments(item.id, item.name, (item as any).comments, "/liftwell-pressurization", project?.id);
-                              return itemComments.length > 0 ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenComment(item.id, item.name);
-                                  }}
-                                  title={`${itemComments.length} comment(s)/task(s) assigned`}
-                                  className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                                >
-                                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                  <span className="text-[10px] font-bold">{itemComments.length}</span>
-                                </button>
-                              ) : null;
-                            })()}
-                            <input 
-                              value={item.name} 
-                              onChange={(e) => updateItem(item.id, "name", e.target.value)}
-                              disabled={isEffectiveReadOnly}
-                              className="w-full px-2 py-1.5 rounded border border-border focus:border-blue-500 outline-none bg-white"
-                            />
-                          </div>
-                        </td>
-                        <td className="p-2">
-                          <select 
-                            value={item.doorType} 
-                            onChange={(e) => updateItem(item.id, "doorType", e.target.value as DoorTypeKey)}
-                            disabled={isEffectiveReadOnly}
-                            className="w-full px-2 py-1.5 rounded border border-border focus:border-blue-500 outline-none bg-white"
-                          >
-                            {(Object.keys(DOOR_TYPES_CONFIG) as DoorTypeKey[]).map(k => (
-                              <option key={k} value={k}>{DOOR_TYPES_CONFIG[k].name}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-2">
-                          <input 
-                            type="number"
-                            value={item.doorArea} 
-                            onChange={(e) => updateItem(item.id, "doorArea", e.target.value)}
-                            disabled={isEffectiveReadOnly}
-                            className="w-24 px-2 py-1.5 rounded border border-border focus:border-blue-500 outline-none bg-white"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input 
-                            type="number"
-                            value={item.openDoorsCount} 
-                            onChange={(e) => updateItem(item.id, "openDoorsCount", e.target.value)}
-                            disabled={isEffectiveReadOnly}
-                            className="w-20 px-2 py-1.5 rounded border border-border focus:border-blue-500 outline-none bg-white"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input 
-                            type="number"
-                            value={item.closedDoorsCount} 
-                            onChange={(e) => updateItem(item.id, "closedDoorsCount", e.target.value)}
-                            disabled={isEffectiveReadOnly}
-                            className="w-20 px-2 py-1.5 rounded border border-border focus:border-blue-500 outline-none bg-white"
-                          />
-                        </td>
-                        <td 
-                          className="p-2 bg-blue-50 border-l border-blue-100 font-semibold text-slate-800 cursor-help hover:bg-blue-100/50 transition-colors"
-                          onDoubleClick={() => setShowFormulaModal(true)}
-                          title="Double-click to view calculation formulas"
-                        >
-                          {isIp ? calc.totalFanCapacityCfm : calc.totalFanCapacityLs}
-                        </td>
-                        <td 
-                          className="p-2 bg-blue-50 font-semibold text-slate-800 cursor-help hover:bg-blue-100/50 transition-colors"
-                          onDoubleClick={() => setShowFormulaModal(true)}
-                          title="Double-click to view calculation formulas"
-                        >
-                          {isIp ? calc.designPressureDropInWg : calc.designPressureDropPa}
-                        </td>
-                        <td 
-                          className="p-2 bg-blue-50 font-semibold text-slate-800 cursor-help hover:bg-blue-100/50 transition-colors"
-                          onDoubleClick={() => setShowFormulaModal(true)}
-                          title="Double-click to view calculation formulas"
-                        >
-                          {isIp ? calc.reliefAreaSqFt : calc.reliefAreaM2}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+    <AppShell 
+      title="Liftwell Pressurization" 
+      hideSubHeader={true}
+      onIntelClick={() => setIntelOpen(v => !v)}
+      intelOpen={intelOpen}
+    >
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+          {/* Page Header */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
+            <div className="flex flex-col gap-1 w-full">
+              <div className="flex items-center gap-3 mt-0.5">
+                <div className="flex items-baseline gap-2">
+                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Liftwell Pressurization</h1>
+                  
+                </div>
+                <button 
+                  onClick={() => setIntelOpen(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                    intelOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" /> Intelligence
+                </button>
+                <CalculationReviewBar 
+                  projectId={project?.id || "default"} 
+                  calculatorPath="/liftwell-pressurization" 
+                  calculatorTitle="Liftwell Pressurization" 
+                />
+              </div>
+              
             </div>
             
-            <div className="p-3 bg-slate-50 border-t border-border flex justify-start">
-              <button 
-                onClick={addItem}
-                disabled={isEffectiveReadOnly}
-                className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 transition shadow-sm disabled:opacity-50"
-              >
-                <Plus className="size-4" /> Add Liftwell
-              </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
             </div>
+          </div>
+
+          {/* White card container for Tabs & Data Grid */}
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+            calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-sm"
+          }`}>
+            
+            {/* Tabs Selector */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80">
+              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                <button
+                  onClick={() => setTab("schedule")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "schedule"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-black/5"
+                  }`}
+                >
+                  Liftwell Schedule
+                </button>
+                <button
+                  onClick={() => setTab("report")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "report"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-black/5"
+                  }`}
+                >
+                  Report
+                </button>
+              </div>
+            </div>
+
+            {/* Active Tab Content */}
+            <div className="flex-1 flex flex-col min-h-0 bg-background relative">
+              {tab === "schedule" && (
+                <div className="absolute inset-0 flex flex-col animate-in fade-in duration-300">
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50 bg-slate-50/50 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                        <input
+                          placeholder="Search liftwells..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="h-8 w-48 pl-8 pr-7 border border-border focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-xl text-[12.5px] bg-background outline-none transition-all"
+                        />
+                        {searchQuery && (
+                          <button onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                            <X className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleExportPdf}
+                        className="h-8 px-3 inline-flex items-center gap-1.5 rounded-xl border border-border bg-background hover:bg-surface-2 text-[12.5px] font-semibold text-foreground cursor-pointer shadow-xs"
+                      >
+                        <FileText className="size-3.5" /> Export
+                      </button>
+                      <button
+                        onClick={addItem}
+                        disabled={isEffectiveReadOnly}
+                        className="h-8 px-3 inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-[12.5px] font-bold cursor-pointer shadow-xs disabled:opacity-50"
+                      >
+                        <Plus className="size-3.5" /> Add Liftwell
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Bulk Actions overlay */}
+                  {!isEffectiveReadOnly && selectedItems.size > 0 && (
+                    <div className="absolute top-12 left-0 right-0 h-10 flex items-center gap-2 px-4 bg-blue-50/90 backdrop-blur-sm text-[12px] text-blue-700 z-20 border-b border-blue-100">
+                      <span className="font-semibold">{selectedItems.size} selected</span>
+                      <button onClick={deleteSelected} className="flex items-center gap-1.5 px-3 py-1 bg-white border border-blue-200 rounded hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition shadow-sm ml-2">
+                        <Trash2 className="size-3.5" /> Delete Selected
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex-1 min-h-0 bg-background overflow-hidden relative flex flex-col">
+                    {filteredRows.length > 0 ? (
+                      <DataGrid
+                        rows={filteredRows}
+                        columns={columns}
+                        selected={selectedItems}
+                        onToggle={toggleSelect}
+                        onToggleAll={toggleSelectAll}
+                        isReadOnly={isEffectiveReadOnly}
+                        renderContextMenu={renderLiftwellContextMenu}
+                        activeRowId={Array.from(selectedItems).length === 1 ? Array.from(selectedItems)[0] : undefined}
+                        rowClassName={(row, index) =>
+                          index % 2 === 0
+                            ? "bg-[#f4f4f7]/70 hover:bg-[#ebebee]"
+                            : "bg-card hover:bg-[#ebebee]"
+                        }
+                      />
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
+                        <div className="size-12 rounded-2xl bg-surface-2 flex items-center justify-center mb-4">
+                          <Search className="size-6 text-muted-foreground/50" />
+                        </div>
+                        <p className="text-sm font-medium text-foreground">No liftwells found.</p>
+                        <p className="text-xs mt-1">Try adjusting your search query or add a new liftwell.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {tab === "report" && (
+                <div className="absolute inset-0 flex flex-col animate-in fade-in duration-300 p-6 overflow-y-auto">
+                   <h2 className="text-xl font-bold mb-4">Liftwell Pressurization Report</h2>
+                   <p className="text-sm text-muted-foreground mb-6">Generated calculation results for {items.length} liftwells.</p>
+                   <button onClick={handleExportPdf} className="self-start px-4 py-2 bg-primary text-white rounded-xl font-bold shadow-sm inline-flex items-center gap-2 text-sm">
+                     <FileText className="size-4" /> Download PDF Report
+                   </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Calculation Preview Sidebar */}
-        <div 
-          className={`shrink-0 bg-white border-l border-border transition-all duration-300 ease-in-out flex flex-col ${
-            selectedItems.size === 1 ? "w-[360px] opacity-100" : "w-0 opacity-0 overflow-hidden"
+        {/* Right-Side Panel: Intelligence / Calculation Preview */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen || selectedItems.size === 1
+              ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-card shadow-lg"
+              : "w-0"
           }`}
         >
-          {(() => {
-            if (selectedItems.size !== 1) return null;
-            const item = items.find(i => selectedItems.has(i.id));
+          {selectedItems.size === 1 && !intelOpen ? (() => {
+            const selectedId = Array.from(selectedItems)[0];
+            const item = items.find((i) => i.id === selectedId);
             if (!item) return null;
-            const calc = calculateLiftwell(item, isIp);
-            
+            const calc = calculateLiftwell(item, unitSystem === "ip");
+
             return (
               <div className="flex flex-col h-full w-[360px]">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-slate-50 shrink-0">
@@ -445,15 +626,14 @@ function LiftwellPressurizationPage() {
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-4 custom-scrollbar text-[12px]">
-                  
                   <div className="space-y-4">
                     <div className="bg-slate-50 rounded-lg p-3 border border-border">
                       <h4 className="font-bold text-slate-700 mb-2 border-b border-border pb-1 uppercase text-[10px]">1. Airflow Breakdown</h4>
                       <div className="space-y-1.5 text-slate-600">
-                        <div className="flex justify-between"><span>Open Door Flow (Q_open):</span><span className="font-mono">{calc.openFlowM3s} m³/s</span></div>
-                        <div className="flex justify-between"><span>Closed Door Flow (Base):</span><span className="font-mono">{calc.closedFlowM3s} m³/s</span></div>
+                        <div className="flex justify-between"><span>Open Door Flow:</span><span className="font-mono">{calc.openFlowM3s} m³/s</span></div>
+                        <div className="flex justify-between"><span>Closed Door Flow:</span><span className="font-mono">{calc.closedFlowM3s} m³/s</span></div>
                         <div className="flex justify-between text-slate-400"><span>Closed Safety (25%):</span><span className="font-mono">{calc.closedSafetyFlowM3s} m³/s</span></div>
-                        <div className="flex justify-between pt-1 border-t border-border border-dashed font-medium text-slate-800">
+                        <div className="flex justify-between pt-1 border-t border-border font-medium text-slate-800">
                           <span>Subtotal Flow:</span><span className="font-mono">{calc.subTotalM3s} m³/s</span>
                         </div>
                         <div className="flex justify-between text-slate-400"><span>Final Safety (10%):</span><span className="font-mono">{calc.finalSafetyM3s} m³/s</span></div>
@@ -464,7 +644,7 @@ function LiftwellPressurizationPage() {
                       <h4 className="font-bold text-blue-800 mb-2 border-b border-blue-200 pb-1 uppercase text-[10px]">2. Required Fan Capacity</h4>
                       <div className="space-y-1.5 text-blue-900">
                         <div className="flex justify-between text-[14px] font-bold">
-                          <span>Total Flow:</span><span className="font-mono">{isIp ? `${calc.totalFanCapacityCfm} CFM` : `${calc.totalFanCapacityLs} L/s`}</span>
+                          <span>Total Flow:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.totalFanCapacityCfm} CFM` : `${calc.totalFanCapacityLs} L/s`}</span>
                         </div>
                         <div className="flex justify-between text-[11px] opacity-80">
                           <span>In m³/s:</span><span className="font-mono">{calc.totalFanCapacityM3s} m³/s</span>
@@ -476,99 +656,63 @@ function LiftwellPressurizationPage() {
                       <h4 className="font-bold text-slate-700 mb-2 border-b border-border pb-1 uppercase text-[10px]">3. Pressure & Relief</h4>
                       <div className="space-y-1.5 text-slate-600">
                         <div className="flex justify-between"><span>Duct Friction Loss:</span><span className="font-mono">{calc.ductLoss} Pa</span></div>
-                        <div className="flex justify-between"><span>Combined System Drop:</span><span className="font-mono">{calc.combinedDrop} Pa</span></div>
+                        <div className="flex justify-between"><span>Combined Drop:</span><span className="font-mono">{calc.combinedDrop} Pa</span></div>
                         <div className="flex justify-between text-slate-400"><span>Safety Drop (25%):</span><span className="font-mono">{calc.safetyDrop} Pa</span></div>
                         
                         <div className="flex justify-between pt-2 mt-2 border-t border-border font-bold text-slate-800">
-                          <span>Design Pressure Drop:</span><span className="font-mono">{isIp ? `${calc.designPressureDropInWg} in. w.g.` : `${calc.designPressureDropPa} Pa`}</span>
+                          <span>Design dP:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.designPressureDropInWg} in. w.g.` : `${calc.designPressureDropPa} Pa`}</span>
                         </div>
                         <div className="flex justify-between pt-1 font-bold text-slate-800">
-                          <span>Relief Area:</span><span className="font-mono">{isIp ? `${calc.reliefAreaSqFt} sq ft` : `${calc.reliefAreaM2} m²`}</span>
+                          <span>Relief Area:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.reliefAreaSqFt} sq ft` : `${calc.reliefAreaM2} m²`}</span>
                         </div>
                       </div>
                     </div>
-
                   </div>
                 </div>
               </div>
             );
-          })()}
+          })() : intelOpen ? (
+            <div className="flex flex-col h-full w-[360px] p-4 items-center justify-center text-center">
+              <Sparkles className="size-8 text-primary mb-3" />
+              <h3 className="font-bold text-foreground">AI Intelligence</h3>
+              <p className="text-sm text-muted-foreground mt-2">Chat with your building data or ask for calculation recommendations.</p>
+            </div>
+          ) : null}
         </div>
-      
-        {/* Formula Modal */}
-        {showFormulaModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-            <div className="bg-card border border-border rounded-2xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-4 font-sans">
-              <div className="flex items-center justify-between pb-3 border-b border-border">
-                <h2 className="text-base font-bold text-foreground">Liftwell Pressurization Formulas</h2>
-                <button
-                  onClick={() => setShowFormulaModal(false)}
-                  className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
+      </div>
 
-              <div className="space-y-3 text-xs text-muted-foreground">
-                <div className="p-3 rounded-xl bg-muted/60 flex flex-col gap-1.5">
-                  <span className="font-bold text-foreground">1. Open Door Air Flow</span>
-                  <code className="font-mono text-[#0A7BC7] text-[11px]">
-                    Q_open = Door Area × Velocity (1.0 m/s) × Number of Open Doors
-                  </code>
-                </div>
-
-                <div className="p-3 rounded-xl bg-muted/60 flex flex-col gap-1.5">
-                  <span className="font-bold text-foreground">2. Closed Door Air Flow (with 25% Safety)</span>
-                  <code className="font-mono text-[#0A7BC7] text-[11px]">
-                    Q_closed = Leakage Rate × Number of Closed Doors × 1.25
-                  </code>
-                </div>
-
-                <div className="p-3 rounded-xl bg-muted/60 flex flex-col gap-1.5">
-                  <span className="font-bold text-foreground">3. Total Fan Capacity (with 10% Safety)</span>
-                  <code className="font-mono text-[#0A7BC7] text-[11px]">
-                    Q_total = (Q_open + Q_closed) × 1.10
-                  </code>
-                </div>
-
-                <div className="p-3 rounded-xl bg-muted/60 flex flex-col gap-1.5">
-                  <span className="font-bold text-foreground">4. Pressure Relief Louver Area</span>
-                  <code className="font-mono text-[#0A7BC7] text-[11px]">
-                    A_relief = Q_fan / (0.827 × √P)
-                  </code>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-2 border-t border-border">
-                <button
-                  onClick={() => setShowFormulaModal(false)}
-                  className="px-4 py-1.5 rounded-xl bg-[#0A7BC7] text-white font-semibold text-xs cursor-pointer hover:bg-[#0866A5] transition"
-                >
-                  Done
-                </button>
-              </div>
+      {showFormulaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-card border border-border rounded-2xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-4 font-sans">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h2 className="text-base font-bold text-foreground">Liftwell Pressurization Formulas</h2>
+              <button onClick={() => setShowFormulaModal(false)} className="p-1 rounded-lg hover:bg-muted cursor-pointer"><X className="size-4" /></button>
+            </div>
+            <div className="space-y-3 text-xs text-muted-foreground">
+              <div className="p-3 rounded-xl bg-muted/60"><span className="font-bold">1. Open Door Flow</span> <br/><code className="text-blue-600">Q = Area × Vel × OpenDoors</code></div>
+              <div className="p-3 rounded-xl bg-muted/60"><span className="font-bold">2. Closed Door Flow</span> <br/><code className="text-blue-600">Q = Leakage × ClosedDoors × 1.25</code></div>
+              <div className="p-3 rounded-xl bg-muted/60"><span className="font-bold">3. Total Fan Capacity</span> <br/><code className="text-blue-600">Q = (Open + Closed) × 1.10</code></div>
+            </div>
+            <div className="flex justify-end pt-2 border-t border-border">
+              <button onClick={() => setShowFormulaModal(false)} className="px-4 py-1.5 rounded-xl bg-primary text-primary-foreground font-semibold text-xs cursor-pointer">Done</button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Comment Assignment Modal */}
-        {commentTargetItem && (
-          <AssignCommentModal
-            isOpen={commentModalOpen}
-            onClose={() => {
-              setCommentModalOpen(false);
-              setCommentTargetItem(null);
-            }}
-            targetId={commentTargetItem.id}
-            targetName={commentTargetItem.name}
-            targetType="equipment"
-            calculatorTitle="Liftwell Pressurization"
-            calculatorPath="/liftwell-pressurization"
-            existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, (items.find(i => i.id === commentTargetItem.id) as any)?.comments, "/liftwell-pressurization", project?.id)}
-            onSave={handleSaveComment}
-          />
-        )}
-      </div>
+      {commentTargetItem && (
+        <AssignCommentModal
+          isOpen={commentModalOpen}
+          onClose={() => { setCommentModalOpen(false); setCommentTargetItem(null); }}
+          targetId={commentTargetItem.id}
+          targetName={commentTargetItem.name}
+          targetType="equipment"
+          calculatorTitle="Liftwell Pressurization"
+          calculatorPath="/liftwell-pressurization"
+          existingComments={Array.isArray((commentTargetItem as any).comments) ? (commentTargetItem as any).comments : []}
+          onSave={handleSaveComment}
+        />
+      )}
     </AppShell>
   );
 }
