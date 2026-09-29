@@ -14,6 +14,7 @@ import {
   MessageSquare, Search, Filter, ArrowUpDown, Sparkles, Check, Sun, Edit3, Layers, Flag
 } from "lucide-react";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { getMergedItemComments } from "@/utils/commentHelpers";
@@ -169,6 +170,27 @@ function LightingLuxCalculationPage() {
 
   const [rows, setRows] = useState<LuxRow[]>(DEFAULT_ROWS);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+
+  const handleUnitToggle = (newSystem: "si" | "ip", shouldConvert: boolean = true) => {
+    if (newSystem === unitSystem) return;
+    setUnitSystem(newSystem);
+    if (shouldConvert) {
+      setRows(prev => prev.map(r => {
+        const isToIp = newSystem === "ip";
+        const factor = isToIp ? 3.28084 : (1 / 3.28084);
+        const luxFactor = isToIp ? (1 / 10.7639) : 10.7639;
+        const updated: LuxRow = {
+          ...r,
+          length: r.length ? Number((r.length * factor).toFixed(2)) : r.length,
+          width: r.width ? Number((r.width * factor).toFixed(2)) : r.width,
+          height: r.height ? Number((r.height * factor).toFixed(2)) : r.height,
+          reqLux: r.reqLux ? Math.round(r.reqLux * luxFactor) : r.reqLux,
+        };
+        return computeRowOutputs(updated);
+      }));
+    }
+  };
   const [activeRowId, setActiveRowId] = useState<string | undefined>();
   const [history, setHistory] = useState<LuxRow[][]>([]);
   const [redoStack, setRedoStack] = useState<LuxRow[][]>([]);
@@ -969,7 +991,7 @@ function LightingLuxCalculationPage() {
     },
     {
       key: "length",
-      header: "Length (L) m",
+      header: unitSystem === "ip" ? "Length (L) ft" : "Length (L) m",
       width: 100,
       align: "right",
       render: (row) => {
@@ -988,7 +1010,7 @@ function LightingLuxCalculationPage() {
     },
     {
       key: "width",
-      header: "Width (W) m",
+      header: unitSystem === "ip" ? "Width (W) ft" : "Width (W) m",
       width: 100,
       align: "right",
       render: (row) => {
@@ -1007,7 +1029,7 @@ function LightingLuxCalculationPage() {
     },
     {
       key: "height",
-      header: "Height (H) m",
+      header: unitSystem === "ip" ? "Height (H) ft" : "Height (H) m",
       width: 100,
       align: "right",
       render: (row) => {
@@ -1033,14 +1055,14 @@ function LightingLuxCalculationPage() {
     },
     {
       key: "area",
-      header: "Area (m²)",
+      header: unitSystem === "ip" ? "Area (sq ft)" : "Area (m²)",
       width: 100,
       align: "right",
       render: (row) => <span className="font-medium px-2">{row.area}</span>
     },
     {
       key: "reqLux",
-      header: "Req. Lux (LL)",
+      header: unitSystem === "ip" ? "Req. Illum (fc)" : "Req. Lux (LL)",
       width: 110,
       align: "right",
       render: (row) => {
@@ -1179,7 +1201,7 @@ function LightingLuxCalculationPage() {
         );
       }
     }
-  ], [rows]);
+  ], [rows, unitSystem]);
 
   const renderContextMenu = (row: LuxRow) => {
     return (
@@ -1252,15 +1274,46 @@ function LightingLuxCalculationPage() {
   return (
     <AppShell 
       title="Lighting LUX Calculation" 
-      subtitle="Design and calculate lighting levels for different spaces"
+      hideSubHeader={true}
     >
-      <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
-            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-            : calcReviewState?.status === "REJECTED"
-            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-            : calcReviewState?.status === "REVIEWED"
-            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+
+          {/* Breadcrumbs & Page Header */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg py-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Lighting LUX Calculation</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "space" : "spaces"}</span>
+              </div>
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/lighting-lux-calculation" calculatorTitle="Lighting LUX Calculation" />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitToggle}
+                ipLabel="IP"
+                siLabel="SI"
+                ipDescription="Imperial (IP) [Feet - ft, Foot-Candles - fc]"
+                siDescription="Metric (SI) [Meters - m, Lux - lx]"
+                conversionExample={
+                  unitSystem === "si"
+                    ? "Convert 500 Lux → 46.5 fc, 5 m → 16.4 ft"
+                    : "Convert 46.5 fc → 500 Lux, 16.4 ft → 5 m"
+                }
+                disabled={isEffectiveReadOnly}
+              />
+            </div>
+          </div>
+
+          <div className={`flex-1 flex flex-col min-h-[450px] mb-6 overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+                ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+                : calcReviewState?.status === "REJECTED"
+                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+                : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
         {/* Subtle Grid Background */}
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         
@@ -1565,6 +1618,9 @@ function LightingLuxCalculationPage() {
             )}
           </div>
           
+        </div>
+      </div>
+
         </div>
       </div>
 

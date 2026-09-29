@@ -819,14 +819,8 @@ function HazenWilliamsPage() {
       intelOpen={intelOpen}
       intelLabel="Intelligence"
     >
-      <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
-            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-            : calcReviewState?.status === "REJECTED"
-            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-            : calcReviewState?.status === "REVIEWED"
-            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
           {/* Page Header matching FM-200 Gas Sizing */}
           <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
@@ -872,7 +866,14 @@ function HazenWilliamsPage() {
           </div>
 
           {/* White card container for Tabs & Data Grid */}
-          <div className="flex-1 flex flex-col min-h-[420px] overflow-hidden rounded-2xl bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+          <div className={`flex-1 flex flex-col min-h-[420px] overflow-hidden rounded-2xl transition-all duration-300 ${
+              calcReviewState?.status === "APPROVED" 
+                ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+                : calcReviewState?.status === "REJECTED"
+                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+                : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-3.5 py-1.5 bg-card shrink-0 select-none no-print border-b border-border/80">
               <div className="flex items-center gap-2">

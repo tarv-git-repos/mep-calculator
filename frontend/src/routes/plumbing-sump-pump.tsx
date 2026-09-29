@@ -443,8 +443,8 @@ function SumpPumpPage() {
           <div
             id={`field-${fieldId}`}
             className={`p-3 rounded-xl border transition-all relative ${isHighlighted
-                ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
-                : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
+              ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
+              : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
               }`}
           >
             <div className="flex items-center justify-between mb-1.5">
@@ -744,8 +744,8 @@ function SumpPumpPage() {
                 type="button"
                 onClick={() => setIntelOpen((v) => !v)}
                 className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
                   }`}
                 title="Toggle Sump Pump Sizing Intelligence"
               >
@@ -764,12 +764,12 @@ function SumpPumpPage() {
 
           {/* Main Content Card Container */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED"
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
-              : calcReviewState?.status === "REJECTED"
-                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-                : calcReviewState?.status === "REVIEWED"
-                  ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-                  : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
+            : calcReviewState?.status === "REJECTED"
+              ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+              : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
             }`}>
 
             {/* Tabs Selector row */}
@@ -779,8 +779,8 @@ function SumpPumpPage() {
                   <button
                     onClick={() => setTab("solver")}
                     className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${tab === "solver"
-                        ? "bg-background text-foreground shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
                       }`}
                   >
                     Pump Sizer
@@ -788,8 +788,8 @@ function SumpPumpPage() {
                   <button
                     onClick={() => setTab("report")}
                     className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${tab === "report"
-                        ? "bg-background text-foreground shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
                       }`}
                   >
                     Report
@@ -1628,8 +1628,8 @@ function SumpPumpIntelligenceDrawer({
                   disabled={isEffectiveReadOnly}
                   onClick={() => onSelectPreset(k)}
                   className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${isSelected
-                      ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary"
-                      : "border-border/80 bg-surface-2 hover:bg-surface text-muted-foreground hover:text-foreground"
+                    ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary"
+                    : "border-border/80 bg-surface-2 hover:bg-surface text-muted-foreground hover:text-foreground"
                     }`}
                 >
                   <div className="flex items-center justify-between font-bold text-xs">

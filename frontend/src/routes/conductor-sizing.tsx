@@ -120,6 +120,21 @@ function ConductorSizingPage() {
 
   const [tab, setTab] = useState<"schedule" | "report">("schedule");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+
+  const handleUnitToggle = (newSystem: "si" | "ip", shouldConvert: boolean = true) => {
+    if (newSystem === unitSystem) return;
+    setUnitSystem(newSystem);
+    if (shouldConvert) {
+      setRows(prev => prev.map(r => ({
+        ...r,
+        length: r.length !== "" && r.length !== undefined
+          ? newSystem === "ip"
+            ? Number((Number(r.length) * 3.28084).toFixed(1))
+            : Number((Number(r.length) / 3.28084).toFixed(1))
+          : r.length
+      })));
+    }
+  };
   const [globalDerating, setGlobalDerating] = useState(0.85);
   const [globalVdLimit, setGlobalVdLimit] = useState(3);
   const [globalPf, setGlobalPf] = useState(0.85);
@@ -1015,7 +1030,7 @@ function ConductorSizingPage() {
       )
     },
     {
-      key: "length", header: "Length (m)", width: 90, align: "center",
+      key: "length", header: unitSystem === "ip" ? "Length (ft)" : "Length (m)", width: 90, align: "center",
       render: (row: any) => (
         <InlineInput
           type="number"
@@ -1192,19 +1207,31 @@ function ConductorSizingPage() {
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-3 gap-3 overflow-y-auto h-full">
           
-          {/* Header Title & Calculation Review Bar */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print px-1">
-            <div className="flex flex-col gap-1 w-full">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-baseline gap-2.5">
-                  <h1 className="text-[26px] font-bold tracking-tight text-foreground">Conductor (Cable) Sizing</h1>
-                  <span className="text-[14px] font-semibold text-muted-foreground">{rows.length} segments</span>
-                </div>
-                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/conductor-sizing" calculatorTitle="Conductor Sizing" />
+          {/* Breadcrumbs & Page Header */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg py-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Conductor (Cable) Sizing</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "segment" : "segments"}</span>
               </div>
-              <p className="text-[12.5px] text-muted-foreground">
-                Calculate conductor (cable) sizing automatically complying with IEC 60364-5-52 and BS 7671 standards.
-              </p>
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/conductor-sizing" calculatorTitle="Conductor Sizing" />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitToggle}
+                ipLabel="IP"
+                siLabel="SI"
+                ipDescription="Imperial (IP) [Feet - ft]"
+                siDescription="Metric (SI) [Meters - m]"
+                conversionExample={
+                  unitSystem === "si"
+                    ? "Convert 30 m → 98.4 ft"
+                    : "Convert 98.4 ft → 30 m"
+                }
+                disabled={isEffectiveReadOnly}
+              />
             </div>
           </div>
 
@@ -1241,14 +1268,6 @@ function ConductorSizingPage() {
                   Report
                 </button>
               </div>
-
-              {/* IP / SI Unit System Toggle Pill */}
-              <UnitToggle
-                unitSystem={unitSystem}
-                onChange={(newUnit) => setUnitSystem(newUnit)}
-                ipLabel="IP"
-                siLabel="SI"
-              />
             </div>
 
             {/* Tab 1: Sizing Schedule View */}

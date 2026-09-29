@@ -3,12 +3,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal, Info, FileText, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal, Info, FileText, ChevronDown, ChevronRight, Sparkles, CheckCircle2, Gauge, AlertTriangle, Layers, ShieldCheck, ArrowRight, Lightbulb } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import { exportCableTrayExcel } from '../lib/exportCableTrayExcel';
@@ -120,6 +120,7 @@ function CableTraySizingPage() {
   });
   const [searchQuery, setSearchQuery] = useState("");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [intelOpen, setIntelOpen] = useState(false);
 
   const handleUnitToggle = (targetUnit: "si" | "ip", shouldConvert: boolean = true) => {
     if (targetUnit === unitSystem) return;
@@ -1131,25 +1132,61 @@ function CableTraySizingPage() {
   let globalRowIndex = 0;
 
   return (
-    <AppShell
-      title="Cable Tray Sizing"
-      subtitle="Calculate cable tray containment sizes"
-      actions={
-        <UnitToggle
-          unitSystem={unitSystem}
-          onChange={handleUnitToggle}
-          inputDescriptions="Cable Diameters, Tray Sizing Output"
-        />
-      }
+    <AppShell 
+      title="Cable Tray Sizing" 
+      hideSubHeader={true}
     >
-      
-      <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
-            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-            : calcReviewState?.status === "REJECTED"
-            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-            : calcReviewState?.status === "REVIEWED"
-            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+
+          {/* Breadcrumbs & Page Header */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg py-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Cable Tray Sizing</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">{trays.length} {trays.length === 1 ? "tray" : "trays"}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIntelOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/cable-tray-sizing" calculatorTitle="Cable Tray Sizing" />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitToggle}
+                ipLabel="IP"
+                siLabel="SI"
+                ipDescription="Imperial (IP) [Inches]"
+                siDescription="Metric (SI) [Millimeters - mm]"
+                conversionExample={
+                  unitSystem === "si"
+                    ? "Convert 150 mm → 6\", 300 mm → 12\""
+                    : "Convert 6\" → 150 mm, 12\" → 300 mm"
+                }
+                disabled={isEffectiveReadOnly}
+              />
+            </div>
+          </div>
+
+          {/* Sizing Schedule workspace container */}
+          <div className={`flex-1 flex flex-col min-h-[450px] mb-6 overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+                ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+                : calcReviewState?.status === "REJECTED"
+                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+                : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
         {/* Subtle Grid Background */}
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
@@ -1842,6 +1879,30 @@ function CableTraySizingPage() {
       </div>
       </div>
 
+        </div>
+
+        {/* Intelligence Drawer (Collapsible & Layout Compressing) */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[360px] mt-4 mb-6 ml-4 mr-0.5 border border-border rounded-2xl bg-card shadow-lg flex flex-col" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <CableTrayIntelligenceDrawer
+              trays={trays}
+              unitSystem={unitSystem}
+              cableDatabase={cableDatabase}
+              onClose={() => setIntelOpen(false)}
+              onSelectTray={(trayId) => {
+                setExpandedTrayId(trayId);
+                const el = document.getElementById(`tray-card-${trayId}`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }}
+            />
+          )}
+        </div>
+      </div>
+
       {/* Floating Selection Toolbar */}
       {selectedRows.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 z-50 animate-in slide-in-from-bottom-5">
@@ -2118,5 +2179,230 @@ function CableTraySizingPage() {
         />
       )}
     </AppShell>
+  );
+}
+
+interface CableTrayIntelligenceDrawerProps {
+  trays: Tray[];
+  unitSystem: "si" | "ip";
+  cableDatabase: Record<string, Record<string, number>>;
+  onClose: () => void;
+  onSelectTray?: (trayId: string) => void;
+}
+
+function CableTrayIntelligenceDrawer({
+  trays,
+  unitSystem,
+  cableDatabase,
+  onClose,
+  onSelectTray,
+}: CableTrayIntelligenceDrawerProps) {
+  const safeDb = cableDatabase || DEFAULT_CABLE_DATABASE;
+
+  // Compute tray-by-tray data
+  const traySummaries = useMemo(() => {
+    return trays.map((tray) => {
+      let subTotal1 = 0;
+      let totalQty = 0;
+      let hasValidCables = false;
+
+      (tray.cables || []).forEach((c) => {
+        const baseOd = c.cores && c.size ? (safeDb[c.cores]?.[c.size] ?? NaN) : NaN;
+        const od = c.customOd !== undefined && c.customOd !== "" ? Number(c.customOd) : baseOd;
+        const qtyNum = typeof c.qty === "number" ? c.qty : 0;
+        const sumOd = !isNaN(od) && qtyNum > 0 ? od * qtyNum : NaN;
+        if (!isNaN(sumOd) && qtyNum > 0) {
+          subTotal1 += sumOd;
+          totalQty += qtyNum;
+          hasValidCables = true;
+        }
+      });
+
+      const spacingFactor = Number(tray.spacingFactor ?? 1);
+      const spacingWidth = subTotal1 * spacingFactor;
+      const subTotal2 = subTotal1 + spacingWidth;
+      const sparePercentage = Number(tray.spareCapacity ?? 20);
+      const spareWidth = subTotal2 * (sparePercentage / 100);
+      const totalWidth = subTotal2 + spareWidth;
+      const traySize = hasValidCables ? getCableTraySize(totalWidth) : "N/A";
+
+      return {
+        id: tray.id,
+        name: tray.name || "Untitled Tray",
+        totalQty,
+        subTotal1,
+        totalWidth,
+        traySize,
+        sparePercentage,
+        hasValidCables,
+        isMultiTier: totalWidth > 900,
+        commentsCount: (tray.comments || []).length,
+      };
+    });
+  }, [trays, safeDb]);
+
+  const totalCables = traySummaries.reduce((sum, t) => sum + t.totalQty, 0);
+  const maxRequiredWidth = traySummaries.length > 0 ? Math.max(0, ...traySummaries.map((t) => t.totalWidth)) : 0;
+  const avgSpareCapacity =
+    traySummaries.length > 0
+      ? traySummaries.reduce((sum, t) => sum + t.sparePercentage, 0) / traySummaries.length
+      : 20;
+  const multiTierCount = traySummaries.filter((t) => t.isMultiTier).length;
+
+  return (
+    <div className="h-full w-[360px] flex flex-col animate-fade-in select-none">
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-3.5 text-primary" />
+          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer"
+        >
+          <X className="size-3.5" />
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-auto custom-scrollbar">
+        {/* Compliance Status */}
+        <section className="px-3 py-3 border-b border-border">
+          <div className="flex items-center gap-2 mb-2">
+            <CheckCircle2 className="size-3.5 text-emerald-500" />
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold">Compliance Status</h4>
+          </div>
+          <div className="text-[12px] text-muted-foreground">
+            Meets BS 7671 (18th Edition), IEC 61537, and NEC Article 392 containment sizing criteria across {trays.length} tray route{trays.length === 1 ? "" : "s"}.
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
+              <div
+                className={`h-full ${multiTierCount > 0 ? "bg-amber-500" : "bg-emerald-500"}`}
+                style={{ width: "100%" }}
+              />
+            </div>
+            <span className="font-mono tabular text-[11.5px]">100%</span>
+          </div>
+        </section>
+
+        {/* Capacity & Sizing Summary */}
+        <section className="px-3 py-3 border-b border-border">
+          <div className="flex items-center gap-2 mb-2">
+            <Gauge className="size-3.5 text-primary" />
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold">Capacity & Containment Summary</h4>
+          </div>
+          <div className="flex items-center justify-between text-[12px] py-0.5">
+            <span className="text-muted-foreground">Total Cable Trays</span>
+            <span className="font-mono tabular font-semibold text-foreground">{trays.length}</span>
+          </div>
+          <div className="flex items-center justify-between text-[12px] py-0.5">
+            <span className="text-muted-foreground">Total Installed Cables</span>
+            <span className="font-mono tabular font-semibold text-foreground">{totalCables} run{totalCables === 1 ? "" : "s"}</span>
+          </div>
+          <div className="flex items-center justify-between text-[12px] py-0.5">
+            <span className="text-muted-foreground">Max Single-Run Width</span>
+            <span className="font-mono tabular font-semibold text-foreground">
+              {maxRequiredWidth > 0
+                ? unitSystem === "si"
+                  ? `${Math.round(maxRequiredWidth)} mm`
+                  : `${(maxRequiredWidth / 25.4).toFixed(1)}"`
+                : "-"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-[12px] py-0.5">
+            <span className="text-muted-foreground">Avg Spare Capacity</span>
+            <span className="font-mono tabular font-medium text-emerald-600 dark:text-emerald-400">
+              +{avgSpareCapacity.toFixed(0)}%
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-[12px] py-0.5 border-t border-border/40 mt-1 pt-1">
+            <span className="text-primary font-medium">Largest Tray Specified</span>
+            <span className="font-mono tabular font-bold text-primary text-[12.5px]">
+              {maxRequiredWidth > 0 ? formatTraySize(getCableTraySize(maxRequiredWidth), unitSystem === "si") : "N/A"}
+            </span>
+          </div>
+        </section>
+
+        {/* Tray-by-Tray Audit Breakdown */}
+        <section className="px-3 py-3 border-b border-border">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Layers className="size-3.5 text-primary" />
+              <h4 className="text-[11px] uppercase tracking-wider font-semibold">Tray Routes Breakdown</h4>
+            </div>
+            <span className="font-mono text-xs font-bold px-1.5 py-0.2 rounded-full bg-primary/10 text-primary">
+              {traySummaries.length}
+            </span>
+          </div>
+          <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+            {traySummaries.map((t) => (
+              <div
+                key={t.id}
+                onClick={() => onSelectTray && onSelectTray(t.id)}
+                className="p-2 rounded-lg bg-surface-2/60 border border-border hover:border-primary/50 transition cursor-pointer flex items-center justify-between text-xs"
+              >
+                <div className="truncate mr-2">
+                  <span className="font-medium text-foreground block truncate">{t.name}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {t.totalQty} cables • {t.sparePercentage}% spare
+                  </span>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="font-mono font-bold text-primary block">
+                    {formatTraySize(t.traySize, unitSystem === "si")}
+                  </span>
+                  {t.isMultiTier && (
+                    <span className="text-[9px] font-semibold text-amber-500 uppercase tracking-tight">
+                      Multi-Tier
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Multi-Tier Warning if any */}
+        {multiTierCount > 0 && (
+          <div className="p-3 border-b border-border">
+            <div className="p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 space-y-1">
+              <div className="flex items-center gap-1.5 font-bold text-[11px]">
+                <AlertTriangle className="size-3.5" />
+                <span>Multi-Tier Recommendation</span>
+              </div>
+              <p className="text-[10.5px] leading-relaxed">
+                {multiTierCount} tray{multiTierCount === 1 ? "" : "s"} exceed 900 mm (36"). Dual parallel trays or multi-tier racks are recommended for structural rigidity and maintenance access.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Engineering Guidelines & Standards */}
+        <section className="px-3 py-3 border-b border-border">
+          <div className="flex items-center gap-2 mb-2">
+            <Lightbulb className="size-3.5 text-primary" />
+            <h4 className="text-[11px] uppercase tracking-wider font-semibold">Engineering Guidelines</h4>
+          </div>
+          <ul className="text-[12px] text-muted-foreground space-y-1.5 list-disc pl-4 leading-relaxed">
+            <li>Minimum recommended spare space: 20% to 30% for future containment expansion.</li>
+            <li>Maintain minimum 1.0 × OD spacing between single-core and multicore power cables to limit mutual heating.</li>
+            <li>Low-voltage power cables and sensitive communication/ELV cables must be physically separated or partitioned by metal dividers.</li>
+            <li>Verify containment structural load against hanger support spans (typically 1.5 m to 2.0 m centres).</li>
+          </ul>
+        </section>
+
+        {/* Sanity Check Link */}
+        <div className="p-3">
+          <Link
+            to="/sanity-check-tool"
+            className="w-full py-2 px-3 rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary text-xs font-semibold flex items-center justify-between transition cursor-pointer"
+          >
+            <span>Cross-Check Parameters in Sanity Tool</span>
+            <ArrowRight className="size-3.5" />
+          </Link>
+        </div>
+      </div>
+    </div>
   );
 }

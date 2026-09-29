@@ -1088,18 +1088,30 @@ function ShortCircuitCalculationsPage() {
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
           {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
-            <div className="flex flex-col gap-1 w-full">
-              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Short Circuit Calculator</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} segments</span>
-                </div>
-                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/short-circuit-calculations" calculatorTitle="Short Circuit Calculator" />
+          <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg py-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Short Circuit Calculator</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "segment" : "segments"}</span>
               </div>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                IEC 60909 prospective short-circuit current calculator at the end of a cascading cable run.
-              </p>
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/short-circuit-calculations" calculatorTitle="Short Circuit Calculator" />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitToggle}
+                ipLabel="IP"
+                siLabel="SI"
+                ipDescription="Imperial (IP) [Feet - ft]"
+                siDescription="Metric (SI) [Meters - m]"
+                conversionExample={
+                  unitSystem === "si"
+                    ? "Convert 30 m → 98.4 ft"
+                    : "Convert 98.4 ft → 30 m"
+                }
+                disabled={isEffectiveReadOnly}
+              />
             </div>
           </div>
 
@@ -1329,16 +1341,6 @@ function ShortCircuitCalculationsPage() {
 
                     {/* Right: Actions */}
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <UnitToggle
-                        unitSystem={unitSystem}
-                        onChange={handleUnitToggle}
-                        inputDescriptions="Cable Length, Conductor Properties"
-                        conversionExample={
-                          unitSystem === "si"
-                            ? "Convert 30 m â†’ 98.4 ft"
-                            : "Convert 98.4 ft â†’ 30 m"
-                        }
-                      />
                       <ImportExcelBtn
                         columnMapping={{
                           "Description": "description",
