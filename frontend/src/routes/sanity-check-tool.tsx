@@ -1,21 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle, CheckCircle2, FileText, Zap, SlidersHorizontal,
   X, Check, Edit3, MessageSquare, Copy, RotateCcw, Trash2, Sparkles,
-  ShieldCheck, Info
+  ShieldCheck, Info, ArrowRight, BookOpen, Layers, Lightbulb, Activity, Gauge, Sliders, ChevronRight
 } from "lucide-react";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { toast } from "sonner";
 import { exportSanityCheckPDF } from "@/lib/exportSanityCheckPDF";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
-import { CalculationReviewBar } from "@/components/workspace/CalculationReviewBar";
-import { VersionManager } from "@/components/workspace/VersionManager";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { dirtyStore } from "@/lib/dirty-store";
+import { CalculationPreviewModal, CalculationPreviewData } from "@/components/calculator-framework/CalculationPreviewModal";
+import { useCalculatorFramework } from "@/components/calculator-framework";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -29,1313 +31,1162 @@ export const Route = createFileRoute("/sanity-check-tool")({
   head: () => ({
     meta: [
       { title: "Sanity Check Tool — MEP Calc" },
-      { name: "description", content: "Interactive engineering sanity checker for duct, pipe, and energy values." },
+      { name: "description", content: "Interactive engineering sanity checker for duct, pipe, and energy values with step-by-step formula breakdown." },
     ],
   }),
   component: SanityCheckToolPage,
 });
 
 interface CheckResult {
+  id: string;
   label: string;
   value: string;
   status: "pass" | "warn";
   range: string;
   desc: string;
+  category: "air" | "hydronic" | "plant";
 }
 
-interface ParamDef {
-  id: string;
-  label: string;
-  val: number;
-  unit: string;
-  min: number;
-  baseline: number;
-  max: number;
-  desc: string;
-  setter: (val: number) => void;
-  gridSpan?: string;
-}
+// Standard Application Presets (Referenced from Reference MEP Calculator)
+const SANITY_PRESETS = {
+  commercial_office: {
+    label: "Commercial Office",
+    desc: "Baseline HVAC & hydronic design parameters for typical office space.",
+    valuesIP: { ductVel: 1500, ductFr: 0.08, esp: 0.5, pipeVel: 4.0, pumpHead: 50, cfmTr: 400, supTemp: 55, chwDt: 10, chillerEff: 0.65 },
+    valuesSI: { ductVel: 7.62, ductFr: 0.65, esp: 124, pipeVel: 1.22, pumpHead: 149, cfmTr: 47.2, supTemp: 12.8, chwDt: 5.6, chillerEff: 5.41 },
+  },
+  vav_main_riser: {
+    label: "VAV Main Riser",
+    desc: "Main supply shafts and high-pressure ductwork with VAV fan loops.",
+    valuesIP: { ductVel: 2200, ductFr: 0.12, esp: 1.2, pipeVel: 6.0, pumpHead: 75, cfmTr: 420, supTemp: 53, chwDt: 12, chillerEff: 0.58 },
+    valuesSI: { ductVel: 11.18, ductFr: 0.98, esp: 298, pipeVel: 1.83, pumpHead: 224, cfmTr: 49.6, supTemp: 11.7, chwDt: 6.7, chillerEff: 6.06 },
+  },
+  low_noise_quiet: {
+    label: "Low-Noise Quiet Zone",
+    desc: "Acoustically sensitive zones requiring reduced air speed and low pipe friction.",
+    valuesIP: { ductVel: 1100, ductFr: 0.05, esp: 0.3, pipeVel: 3.0, pumpHead: 35, cfmTr: 380, supTemp: 57, chwDt: 10, chillerEff: 0.62 },
+    valuesSI: { ductVel: 5.59, ductFr: 0.41, esp: 75, pipeVel: 0.91, pumpHead: 105, cfmTr: 44.8, supTemp: 13.9, chwDt: 5.6, chillerEff: 5.67 },
+  },
+  leed_green_building: {
+    label: "LEED Green Building",
+    desc: "Energy-optimized design with high chiller COP and low pressure drops.",
+    valuesIP: { ductVel: 1300, ductFr: 0.06, esp: 0.4, pipeVel: 3.5, pumpHead: 40, cfmTr: 400, supTemp: 55, chwDt: 14, chillerEff: 0.52 },
+    valuesSI: { ductVel: 6.60, ductFr: 0.49, esp: 100, pipeVel: 1.07, pumpHead: 119, cfmTr: 47.2, supTemp: 12.8, chwDt: 7.8, chillerEff: 6.76 },
+  },
+};
 
 function SanityCheckToolPage() {
-  const { project, activeProjectId, isReadOnly } = useWorkspace();
+  const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
   const { userData, profile, user } = useAuth();
   const currentUserName = userData?.name || profile?.name || (user as any)?.user_metadata?.full_name || user?.email?.split("@")[0] || "Design Engineer";
+  const isApprovedLocked = useCalculationLock("/sanity-check-tool", project?.id);
 
-  const [tab, setTab] = useState<"calculator" | "report">("calculator");
+  const calcReviewState = useCalculationReviewState("/sanity-check-tool", activeProjectId || project?.id);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/sanity-check-tool", activeProjectId || project?.id);
+
+  // States
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
-  const [ductVel, setDuctVel] = useState<number>(1500);
-  const [ductFr, setDuctFr] = useState<number>(0.08);
-  const [esp, setEsp] = useState<number>(0.5);
-  const [pipeVel, setPipeVel] = useState<number>(4.0);
-  const [pumpHead, setPumpHead] = useState<number>(50);
-  const [cfmTr, setCfmTr] = useState<number>(400);
-  const [supTemp, setSupTemp] = useState<number>(55);
-  const [chwDt, setChwDt] = useState<number>(10);
-  const [chillerEff, setChillerEff] = useState<number>(0.65);
-  const [hasCalculated, setHasCalculated] = useState<boolean>(true);
-  const [calcReviewState, setCalcReviewState] = useState<any>(null);
-  const isApprovedLocked = calcReviewState?.status === "APPROVED";
-  const isEffectiveReadOnly = isReadOnly || (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly)) || isApprovedLocked;
   const [intelOpen, setIntelOpen] = useState<boolean>(false);
+  const [activePreset, setActivePreset] = useState<string>("commercial_office");
 
-  // Edit modal state (triggered on double-click or right-click -> Edit)
-  const [editingParam, setEditingParam] = useState<ParamDef | null>(null);
-  const [tempEditValue, setTempEditValue] = useState<number>(0);
+  // Inputs matching Reference MEP Calculator
+  const [ductVel, setDuctVel] = useState<number>(7.62); // m/s (1500 fpm)
+  const [ductFr, setDuctFr] = useState<number>(0.65);  // Pa/m (0.08 in w.g./100ft)
+  const [esp, setEsp] = useState<number>(124);          // Pa (0.5 in w.g.)
+  const [pipeVel, setPipeVel] = useState<number>(1.22); // m/s (4.0 fps)
+  const [pumpHead, setPumpHead] = useState<number>(149); // kPa (50 ft w.g.)
+  const [cfmTr, setCfmTr] = useState<number>(47.2);     // L/s/kW (400 CFM/TR)
+  const [supTemp, setSupTemp] = useState<number>(12.8);  // °C (55 °F)
+  const [chwDt, setChwDt] = useState<number>(5.6);      // °C (10 °F)
+  const [chillerEff, setChillerEff] = useState<number>(5.41); // COP (0.65 kW/TR)
 
-  // Comment & Task Assignment Modal State - exactly like Preliminary Cooling Load
-  const [commentModalOpen, setCommentModalOpen] = useState(false);
-  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string; type?: string } | null>(null);
+  const isSI = unitSystem === "si";
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const ip = unitSystem === "ip";
+  // Comments state
+  const [commentsList, setCommentsList] = useState<any[]>([]);
+  const [commentModalOpen, setCommentModalOpen] = useState<boolean>(false);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
 
-  // Project-keyed comments storage - exactly matching Preliminary Cooling Load logic
-  const [paramComments, setParamComments] = useState<Record<string, any[]>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const pId = activeProjectId || project?.id || "default";
-      const saved = localStorage.getItem(`mep_sanity_comments_${pId}`);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {};
-  });
+  const getItemComments = (itemId: string) => commentsList.filter(c => c.targetId === itemId || c.spaceId === itemId || c.itemId === itemId);
 
-  // Sync with project changes - exactly like Preliminary Cooling Load
+  // Load comments on project switch
   useEffect(() => {
-    const pId = activeProjectId || project?.id;
-    if (!pId) return;
-    const projKey = `mep_sanity_comments_${pId}`;
-    const saved = localStorage.getItem(projKey);
-    if (saved !== null) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === "object") {
-          setParamComments(parsed);
-          return;
-        }
-      } catch {}
-    }
-    setParamComments({});
-  }, [activeProjectId, project?.id]);
-
-  const saveParamComments = (updated: Record<string, any[]>) => {
-    setParamComments(updated);
+    const pId = project?.id || "default";
+    const storageKey = `mep_calc_comments_${pId}_/sanity-check-tool`;
     try {
-      const pId = activeProjectId || project?.id || "default";
-      localStorage.setItem(`mep_sanity_comments_${pId}`, JSON.stringify(updated));
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) setCommentsList(parsed);
+      } else {
+        setCommentsList([]);
+      }
     } catch (e) {
-      console.error(e);
+      console.error("Failed to load comments", e);
     }
-  };
-
-  // Auto-persist full calculator state for VersionManager snapshots
-  useEffect(() => {
-    const pId = activeProjectId || project?.id || "default";
-    const dataToSave = {
-      unitSystem,
-      ductVel,
-      ductFr,
-      esp,
-      pipeVel,
-      pumpHead,
-      cfmTr,
-      supTemp,
-      chwDt,
-      chillerEff,
-      hasCalculated,
-      paramComments,
-    };
-    try {
-      localStorage.setItem(`mep_sanity_calc_${pId}`, JSON.stringify(dataToSave));
-    } catch (e) {}
-  }, [
-    activeProjectId, project?.id, unitSystem, ductVel, ductFr, esp,
-    pipeVel, pumpHead, cfmTr, supTemp, chwDt, chillerEff, hasCalculated, paramComments
-  ]);
-
-  // Version History Restore Listener (Full parity with Ventilation & VersionManager)
-  useEffect(() => {
-    const handleVersionRestored = (e: any) => {
-      const pId = activeProjectId || project?.id || "default";
-      const pKey = `mep_sanity_calc_${pId}`;
-      const lsCache = e?.detail?.localStorageCache;
-      let restoredData: any = null;
-      if (lsCache && lsCache[pKey]) {
-        try {
-          restoredData = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
-        } catch (err) {}
-      }
-      if (!restoredData) {
-        const stored = localStorage.getItem(pKey);
-        if (stored) {
-          try {
-            restoredData = JSON.parse(stored);
-          } catch (err) {}
-        }
-      }
-      if (restoredData) {
-        if (restoredData.unitSystem) setUnitSystem(restoredData.unitSystem);
-        if (restoredData.ductVel !== undefined) setDuctVel(restoredData.ductVel);
-        if (restoredData.ductFr !== undefined) setDuctFr(restoredData.ductFr);
-        if (restoredData.esp !== undefined) setEsp(restoredData.esp);
-        if (restoredData.pipeVel !== undefined) setPipeVel(restoredData.pipeVel);
-        if (restoredData.pumpHead !== undefined) setPumpHead(restoredData.pumpHead);
-        if (restoredData.cfmTr !== undefined) setCfmTr(restoredData.cfmTr);
-        if (restoredData.supTemp !== undefined) setSupTemp(restoredData.supTemp);
-        if (restoredData.chwDt !== undefined) setChwDt(restoredData.chwDt);
-        if (restoredData.chillerEff !== undefined) setChillerEff(restoredData.chillerEff);
-        if (restoredData.hasCalculated !== undefined) setHasCalculated(restoredData.hasCalculated);
-        if (restoredData.paramComments !== undefined) {
-          setParamComments(restoredData.paramComments);
-          try {
-            localStorage.setItem(`mep_sanity_comments_${pId}`, JSON.stringify(restoredData.paramComments));
-          } catch (err) {}
-        }
-        toast.success("Sanity Check Tool restored to selected version!");
-      }
-    };
-    window.addEventListener("mep_version_restored", handleVersionRestored as any);
-    return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
-  }, [activeProjectId, project?.id]);
+  }, [project?.id]);
 
   const handleOpenComment = (id: string, name: string) => {
-    if (isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only mode. Adding comments is locked.", { id: "readonly-notice" });
-      return;
-    }
-    setCommentTargetItem({ id, name, type: "parameter" });
+    setCommentTargetItem({ id, name });
     setCommentModalOpen(true);
   };
 
-  const totalCommentsCount = useMemo(() => {
-    return Object.values(paramComments).reduce((sum, list) => sum + (Array.isArray(list) ? list.length : 0), 0);
-  }, [paramComments]);
+  const handleSaveComment = (commentData: any) => {
+    const targetId = commentTargetItem?.id || commentData?.targetId || "ductVel";
+    const targetName = commentTargetItem?.name || commentData?.targetName || "Sanity Parameter";
 
-  const handleUnitSystemChange = (targetUnit: "si" | "ip", shouldConvert: boolean) => {
-    if (targetUnit === unitSystem) return;
-    setUnitSystem(targetUnit);
+    const commentWithMeta = {
+      ...commentData,
+      targetId,
+      targetName,
+      spaceId: targetId,
+      spaceName: targetName,
+      itemId: targetId,
+      targetType: "Sanity Check Parameter",
+      calculatorPath: "/sanity-check-tool",
+    };
 
-    if (shouldConvert) {
-      // Convert inputs
-      if (targetUnit === "ip") {
-        setDuctVel(Number((ductVel * 196.85).toFixed(0)));
-        setDuctFr(Number((ductFr / 8.16828).toFixed(3)));
-        setEsp(Number((esp / 248.84).toFixed(2)));
-        setPipeVel(Number((pipeVel * 3.28084).toFixed(1)));
-        setPumpHead(Number((pumpHead * 0.33455).toFixed(1)));
-        setCfmTr(Number((cfmTr * 8.48).toFixed(0)));
-        setSupTemp(Number((supTemp * 1.8 + 32).toFixed(1)));
-        setChwDt(Number((chwDt * 1.8).toFixed(1)));
-        setChillerEff(Number((3.51685 / chillerEff).toFixed(2)));
-      } else {
-        setDuctVel(Number((ductVel / 196.85).toFixed(2)));
-        setDuctFr(Number((ductFr * 8.16828).toFixed(2)));
-        setEsp(Number((esp * 248.84).toFixed(0)));
-        setPipeVel(Number((pipeVel / 3.28084).toFixed(2)));
-        setPumpHead(Number((pumpHead / 0.33455).toFixed(0)));
-        setCfmTr(Number((cfmTr / 8.48).toFixed(1)));
-        setSupTemp(Number(((supTemp - 32) / 1.8).toFixed(1)));
-        setChwDt(Number((chwDt / 1.8).toFixed(1)));
-        setChillerEff(Number((3.51685 / chillerEff).toFixed(2)));
-      }
-    }
-    toast.info(`Switched to ${targetUnit === "ip" ? "Imperial (IP)" : "Metric (SI)"} units`);
-  };
+    const updated = [commentWithMeta, ...commentsList];
+    setCommentsList(updated);
+    const pId = project?.id || "default";
+    localStorage.setItem(`mep_calc_comments_${pId}_/sanity-check-tool`, JSON.stringify(updated));
 
-  const paramsList = useMemo((): ParamDef[] => [
-    {
-      id: "duct-vel",
-      label: "Duct Velocity",
-      val: ductVel,
-      unit: ip ? "FPM" : "m/s",
-      min: ip ? 1000 : 5.0,
-      baseline: ip ? 1500 : 7.62,
-      max: ip ? 2500 : 12.7,
-      desc: "Main duct velocity range to balance noise and friction.",
-      setter: setDuctVel,
-    },
-    {
-      id: "duct-fr",
-      label: "Duct Friction",
-      val: ductFr,
-      unit: ip ? "in w.g./100ft" : "Pa/m",
-      min: ip ? 0.05 : 0.4,
-      baseline: ip ? 0.08 : 0.65,
-      max: ip ? 0.15 : 1.2,
-      desc: "Standard friction design rate for equal friction method.",
-      setter: setDuctFr,
-    },
-    {
-      id: "esp",
-      label: "Duct Static (ESP)",
-      val: esp,
-      unit: ip ? "in w.g." : "Pa",
-      min: ip ? 0.2 : 50,
-      baseline: ip ? 0.5 : 124,
-      max: ip ? 2.0 : 500,
-      desc: "Typical external static pressure for fans.",
-      setter: setEsp,
-    },
-    {
-      id: "cfm-tr",
-      label: "Airflow / Ton",
-      val: cfmTr,
-      unit: ip ? "CFM/TR" : "L/s/kW",
-      min: ip ? 350 : 47,
-      baseline: ip ? 400 : 47.2,
-      max: ip ? 450 : 60,
-      desc: "Comfort cooling sensible heat ratio airflow index.",
-      setter: setCfmTr,
-    },
-    {
-      id: "pipe-vel",
-      label: "Pipe Velocity",
-      val: pipeVel,
-      unit: ip ? "fps" : "m/s",
-      min: ip ? 2.0 : 0.6,
-      baseline: ip ? 4.0 : 1.22,
-      max: ip ? 8.0 : 2.4,
-      desc: "Pipe fluid velocity limits to prevent erosion and sedimentation.",
-      setter: setPipeVel,
-    },
-    {
-      id: "pump-head",
-      label: "Pump Total Head",
-      val: pumpHead,
-      unit: ip ? "ft w.g." : "kPa",
-      min: ip ? 20 : 60,
-      baseline: ip ? 50 : 149,
-      max: ip ? 100 : 300,
-      desc: "Typical chilled water circuit head requirement.",
-      setter: setPumpHead,
-    },
-    {
-      id: "sup-temp",
-      label: "Supply Air Temp",
-      val: supTemp,
-      unit: ip ? "°F" : "°C",
-      min: ip ? 50 : 10,
-      baseline: ip ? 55 : 12.8,
-      max: ip ? 60 : 15,
-      desc: "Cooling coil supply dew point range for space relative humidity control.",
-      setter: setSupTemp,
-    },
-    {
-      id: "chw-dt",
-      label: "CHW Delta T",
-      val: chwDt,
-      unit: ip ? "°F" : "°C",
-      min: ip ? 8 : 4.4,
-      baseline: ip ? 10 : 5.6,
-      max: ip ? 14 : 7.7,
-      desc: "Chilled water temperature rise across coil.",
-      setter: setChwDt,
-    },
-    {
-      id: "chiller-eff",
-      label: ip ? "Chiller Efficiency" : "Chiller COP",
-      val: chillerEff,
-      unit: ip ? "kW/TR" : "COP",
-      min: ip ? 0.5 : 4.4,
-      baseline: ip ? 0.65 : 5.41,
-      max: ip ? 0.8 : 7.0,
-      desc: ip
-        ? "Centrifugal / water-cooled chiller full-load index."
-        : "Centrifugal / water-cooled chiller full-load coefficient of performance.",
-      setter: setChillerEff,
-      gridSpan: "sm:col-span-2",
-    },
-  ], [ductVel, ductFr, esp, cfmTr, pipeVel, pumpHead, supTemp, chwDt, chillerEff, ip]);
-
-  const checks = useMemo((): CheckResult[] => {
-    return paramsList.map((p) => {
-      const pass = p.val >= p.min && p.val <= p.max;
-      return {
-        label: p.label,
-        value: `${p.val.toFixed(p.val < 10 ? 3 : 1)} ${p.unit}`,
-        status: pass ? "pass" : "warn",
-        range: `${p.min} – ${p.max} ${p.unit}`,
-        desc: p.desc,
-      };
+    notifyCommentAssigned({
+      ...commentWithMeta,
+      url: `/sanity-check-tool?targetId=${targetId}&targetName=${encodeURIComponent(targetName)}`
     });
-  }, [paramsList]);
 
-  const handleCalculate = () => {
-    setHasCalculated(true);
+    setCommentModalOpen(false);
+    toast.success("Comment/Task added successfully!");
   };
 
-  const handleExportPDF = () => {
-    exportSanityCheckPDF({
-      checks,
-      unitSystem,
-    });
-  };
-
-  // Double-click / Right-click handlers
-  const handleOpenEditParam = (p: ParamDef) => {
-    if (isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only mode. Modifications are disabled.", { id: "readonly-notice" });
-      return;
-    }
-    setEditingParam(p);
-    setTempEditValue(p.val);
-  };
-
-  const handleSaveEditedParam = () => {
-    if (!editingParam) return;
-    if (isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only mode. Modifications are disabled.", { id: "readonly-notice" });
-      setEditingParam(null);
-      return;
-    }
-    editingParam.setter(tempEditValue);
-    setEditingParam(null);
-    setHasCalculated(true);
-    toast.success(`Updated ${editingParam.label} to ${tempEditValue} ${editingParam.unit}`);
-  };
-
-  const handleResetBaseline = (p: ParamDef) => {
-    if (isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only mode. Modifications are disabled.", { id: "readonly-notice" });
-      return;
-    }
-    p.setter(p.baseline);
-    setHasCalculated(true);
-    toast.success(`Reset ${p.label} to baseline (${p.baseline} ${p.unit})`);
-  };
-
-  const handleResetAllBaselines = () => {
-    if (isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only mode. Modifications are disabled.", { id: "readonly-notice" });
-      return;
-    }
-    paramsList.forEach(p => p.setter(p.baseline));
-    setHasCalculated(true);
-    toast.success("Reset all parameters to standard baseline values!");
-  };
-
-  const handleCopyParamValue = (p: ParamDef) => {
-    navigator.clipboard.writeText(`${p.val} ${p.unit}`);
-    toast.success(`Copied ${p.label} value: ${p.val} ${p.unit}`);
-  };
-
-  const handleCopyParam = (p: ParamDef) => {
-    const text = `${p.label}: ${p.val} ${p.unit}\nStandard Range: ${p.min} – ${p.max} ${p.unit}\nGuideline: ${p.desc}`;
-    navigator.clipboard.writeText(text);
-    toast.success(`Copied ${p.label} details to clipboard`);
-  };
-
-  // Reusable Context Menu Content (Standardized to match Preliminary Cooling Load / Ventilation)
-  const renderParamContextMenu = (p: ParamDef) => {
-    const itemComments = paramComments[p.id] || [];
+  const renderCommentBadge = (id: string, name: string) => {
+    const existing = getItemComments(id);
+    if (existing.length === 0) return null;
+    const unresolvedCount = existing.filter(c => c.status !== "resolved").length;
+    if (unresolvedCount === 0) return null;
     return (
-      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-        <ContextMenuItem
-          onClick={() => handleOpenEditParam(p)}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
-        >
-          <Edit3 className="size-3.5 text-muted-foreground" />
-          <span>Edit Parameter</span>
-          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-        </ContextMenuItem>
-
-        <ContextMenuItem
-          onClick={() => handleCopyParamValue(p)}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-        >
-          <Copy className="size-3.5 text-muted-foreground" />
-          <span>Duplicate / Copy Value</span>
-        </ContextMenuItem>
-
-        <ContextMenuItem
-          onClick={() => handleOpenComment(p.id, p.label)}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-        >
-          <MessageSquare className="size-3.5" />
-          <span>{itemComments.length > 0 ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
-        </ContextMenuItem>
-
-        <ContextMenuSeparator className="h-px bg-border my-1" />
-
-        <ContextMenuItem
-          onClick={() => handleResetBaseline(p)}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
-        >
-          <RotateCcw className="size-3.5 text-muted-foreground" />
-          <span>Reset to Baseline ({p.baseline} {p.unit})</span>
-        </ContextMenuItem>
-
-        <ContextMenuItem
-          onClick={() => handleCopyParam(p)}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
-        >
-          <Copy className="size-3.5 text-muted-foreground" />
-          <span>Copy Value & Guideline</span>
-        </ContextMenuItem>
-
-        <ContextMenuSeparator className="h-px bg-border my-1" />
-
-        <ContextMenuItem
-          onClick={handleExportPDF}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
-        >
-          <FileText className="size-3.5 text-muted-foreground" />
-          <span>Export PDF Report</span>
-        </ContextMenuItem>
-
-        <ContextMenuSeparator className="h-px bg-border my-1" />
-
-        <ContextMenuItem
-          onClick={() => handleResetBaseline(p)}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
-        >
-          <Trash2 className="size-3.5" />
-          <span>Reset to Default</span>
-          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-        </ContextMenuItem>
-      </ContextMenuContent>
+      <button 
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleOpenComment(id, name); }}
+        className="ml-2 inline-flex items-center justify-center size-4 bg-primary text-primary-foreground rounded-full text-[9px] font-bold shadow-sm"
+      >
+        {unresolvedCount}
+      </button>
     );
   };
 
-  const passCount = checks.filter((c) => c.status === "pass").length;
-  const warnCount = checks.length - passCount;
-  const sigDetails = getSignatureBlockDetails(activeProjectId || project?.id || "default", "/sanity-check-tool", currentUserName, calcReviewState);
+  // Modular Framework Hook
+  const framework = useCalculatorFramework({
+    calculatorId: "/sanity-check-tool",
+    calculatorTitle: "Sanity Check Tool",
+    items: [
+      {
+        id: "sanity-check-1",
+        name: "HVAC & Hydronic System Sanity Check",
+        code: "SANITY-01",
+      },
+    ],
+  });
+
+  // Handle Unit Toggle with precise mathematical conversions
+  const handleUnitToggle = (targetUnit: "si" | "ip", shouldConvert: boolean = true) => {
+    if (targetUnit === unitSystem) return;
+    if (shouldConvert) {
+      if (targetUnit === "ip") {
+        setDuctVel((v) => Math.round(v * 196.85)); // m/s -> FPM
+        setDuctFr((v) => Number((v * 0.1233).toFixed(2))); // Pa/m -> in w.g./100ft
+        setEsp((v) => Number((v * 0.00401865).toFixed(2))); // Pa -> in w.g.
+        setPipeVel((v) => Number((v * 3.28084).toFixed(1))); // m/s -> fps
+        setPumpHead((v) => Number((v * 0.33455).toFixed(1))); // kPa -> ft w.g.
+        setCfmTr((v) => Math.round(v * 8.473)); // L/s/kW -> CFM/TR
+        setSupTemp((v) => Number(((v * 9) / 5 + 32).toFixed(1))); // °C -> °F
+        setChwDt((v) => Number((v * 1.8).toFixed(1))); // °C -> °F (delta)
+        setChillerEff((v) => Number((3.517 / Math.max(0.1, v)).toFixed(2))); // COP -> kW/TR
+      } else {
+        setDuctVel((v) => Number((v / 196.85).toFixed(2))); // FPM -> m/s
+        setDuctFr((v) => Number((v / 0.1233).toFixed(2))); // in w.g./100ft -> Pa/m
+        setEsp((v) => Math.round(v / 0.00401865)); // in w.g. -> Pa
+        setPipeVel((v) => Number((v / 3.28084).toFixed(2))); // fps -> m/s
+        setPumpHead((v) => Math.round(v / 0.33455)); // ft w.g. -> kPa
+        setCfmTr((v) => Number((v / 8.473).toFixed(1))); // CFM/TR -> L/s/kW
+        setSupTemp((v) => Number((((v - 32) * 5) / 9).toFixed(1))); // °F -> °C
+        setChwDt((v) => Number((v / 1.8).toFixed(1))); // °F -> °C (delta)
+        setChillerEff((v) => Number((3.517 / Math.max(0.1, v)).toFixed(2))); // kW/TR -> COP
+      }
+    }
+    setUnitSystem(targetUnit);
+    dirtyStore.set(true);
+  };
+
+  const applyPreset = (presetKey: string) => {
+    setActivePreset(presetKey);
+    const p = SANITY_PRESETS[presetKey as keyof typeof SANITY_PRESETS];
+    if (!p) return;
+    const vals = isSI ? p.valuesSI : p.valuesIP;
+    setDuctVel(vals.ductVel);
+    setDuctFr(vals.ductFr);
+    setEsp(vals.esp);
+    setPipeVel(vals.pipeVel);
+    setPumpHead(vals.pumpHead);
+    setCfmTr(vals.cfmTr);
+    setSupTemp(vals.supTemp);
+    setChwDt(vals.chwDt);
+    setChillerEff(vals.chillerEff);
+    dirtyStore.set(true);
+    toast.success(`Applied preset: ${p.label}`);
+  };
+
+  // Load state from localStorage
+  useEffect(() => {
+    const pId = activeProjectId || project?.id || "default";
+    try {
+      const stored = localStorage.getItem(`mep_sanity_calc_${pId}`);
+      if (stored) {
+        const data = JSON.parse(stored);
+        if (data.ductVel !== undefined) setDuctVel(data.ductVel);
+        if (data.ductFr !== undefined) setDuctFr(data.ductFr);
+        if (data.esp !== undefined) setEsp(data.esp);
+        if (data.pipeVel !== undefined) setPipeVel(data.pipeVel);
+        if (data.pumpHead !== undefined) setPumpHead(data.pumpHead);
+        if (data.cfmTr !== undefined) setCfmTr(data.cfmTr);
+        if (data.supTemp !== undefined) setSupTemp(data.supTemp);
+        if (data.chwDt !== undefined) setChwDt(data.chwDt);
+        if (data.chillerEff !== undefined) setChillerEff(data.chillerEff);
+        if (data.unitSystem !== undefined) setUnitSystem(data.unitSystem);
+        if (data.activePreset !== undefined) setActivePreset(data.activePreset);
+      }
+      setTimeout(() => dirtyStore.set(false), 50);
+    } catch (e) {
+      console.error("Failed to load sanity check calculation", e);
+    }
+  }, [activeProjectId, project?.id]);
+
+  const handleSaveCurrent = useCallback(() => {
+    try {
+      const pId = activeProjectId || project?.id || "default";
+      const dataToSave = {
+        ductVel, ductFr, esp, pipeVel, pumpHead, cfmTr, supTemp, chwDt, chillerEff,
+        unitSystem, activePreset
+      };
+      localStorage.setItem(`mep_sanity_calc_${pId}`, JSON.stringify(dataToSave));
+      dirtyStore.set(false);
+      if (forceSaveToCloud) forceSaveToCloud();
+      toast.success("Sanity Check Calculation saved to project successfully!");
+    } catch (e) {
+      toast.error("Failed to save calculation.");
+    }
+  }, [activeProjectId, project?.id, ductVel, ductFr, esp, pipeVel, pumpHead, cfmTr, supTemp, chwDt, chillerEff, unitSystem, activePreset, forceSaveToCloud]);
+
+  useEffect(() => {
+    const handleTriggerSave = (e: any) => {
+      if (e.detail) e.detail.handled = true;
+      handleSaveCurrent();
+    };
+    window.addEventListener("mep-trigger-save", handleTriggerSave);
+    return () => window.removeEventListener("mep-trigger-save", handleTriggerSave);
+  }, [handleSaveCurrent]);
+
+  // Compute Evaluated Sanity Check Results
+  const results: CheckResult[] = useMemo(() => {
+    if (isSI) {
+      // SI Checks
+      const velOk = ductVel >= 5.0 && ductVel <= 12.7;
+      const frOk = ductFr >= 0.4 && ductFr <= 1.2;
+      const espOk = esp >= 50 && esp <= 500;
+      const pipeVelOk = pipeVel >= 0.6 && pipeVel <= 2.4;
+      const pumpHeadOk = pumpHead >= 60 && pumpHead <= 300;
+      const cfmTrOk = cfmTr >= 47.0 && cfmTr <= 60.0;
+      const satOk = supTemp >= 10.0 && supTemp <= 15.0;
+      const chwdtOk = chwDt >= 4.4 && chwDt <= 7.7;
+      const kwtrOk = chillerEff >= 4.4 && chillerEff <= 7.0; // COP range
+
+      return [
+        {
+          id: "ductVel",
+          label: "Supply Main Duct Velocity",
+          value: `${ductVel.toFixed(2)} m/s`,
+          status: velOk ? "pass" : "warn",
+          range: "5.0 – 12.7 m/s",
+          desc: velOk ? "Velocity within recommended SMACNA main riser limit." : "Velocity outside standard noise/pressure drop range (5.0–12.7 m/s).",
+          category: "air",
+        },
+        {
+          id: "ductFr",
+          label: "Duct Friction Rate",
+          value: `${ductFr.toFixed(2)} Pa/m`,
+          status: frOk ? "pass" : "warn",
+          range: "0.40 – 1.20 Pa/m",
+          desc: frOk ? "Friction rate aligns with equal friction design method." : "Friction rate high/low (Target equal friction: ~0.8 Pa/m).",
+          category: "air",
+        },
+        {
+          id: "esp",
+          label: "Total External Static Pressure",
+          value: `${Math.round(esp)} Pa`,
+          status: espOk ? "pass" : "warn",
+          range: "50 – 500 Pa",
+          desc: espOk ? "Fan ESP reasonable for commercial AHU/VAV loops." : "Fan ESP unusually high/low for standard commercial system.",
+          category: "air",
+        },
+        {
+          id: "pipeVel",
+          label: "CHW Main Pipe Velocity",
+          value: `${pipeVel.toFixed(2)} m/s`,
+          status: pipeVelOk ? "pass" : "warn",
+          range: "0.60 – 2.40 m/s",
+          desc: pipeVelOk ? "Pipe velocity avoids erosion noise and high pump head." : "Velocity outside CIBSE/ASHRAE hydronic range (0.6–2.4 m/s).",
+          category: "hydronic",
+        },
+        {
+          id: "pumpHead",
+          label: "Pump Total Head",
+          value: `${Math.round(pumpHead)} kPa`,
+          status: pumpHeadOk ? "pass" : "warn",
+          range: "60 – 300 kPa",
+          desc: pumpHeadOk ? "Pump dynamic head consistent with medium building circuit." : "Pump head abnormally high or low for standard distribution.",
+          category: "hydronic",
+        },
+        {
+          id: "cfmTr",
+          label: "Airflow per Cooling Load",
+          value: `${cfmTr.toFixed(1)} L/s/kW`,
+          status: cfmTrOk ? "pass" : "warn",
+          range: "47.0 – 60.0 L/s/kW",
+          desc: cfmTrOk ? "Airflow density complies with sensible load ratio." : "Airflow ratio off baseline (Standard: 47.0–60.0 L/s/kW).",
+          category: "plant",
+        },
+        {
+          id: "supTemp",
+          label: "Supply Air Temperature",
+          value: `${supTemp.toFixed(1)} °C`,
+          status: satOk ? "pass" : "warn",
+          range: "10.0 – 15.0 °C",
+          desc: satOk ? "Supply air temperature within non-condensing zone." : "Supply air temp creates condensation or humidity risk.",
+          category: "air",
+        },
+        {
+          id: "chwDt",
+          label: "CHW ΔT (Supply to Return)",
+          value: `${chwDt.toFixed(1)} °C`,
+          status: chwdtOk ? "pass" : "warn",
+          range: "4.4 – 7.7 °C",
+          desc: chwdtOk ? "Hydronic temperature differential optimal for delta P valves." : "ΔT low (risk of low delta-T syndrome) or high.",
+          category: "hydronic",
+        },
+        {
+          id: "chillerEff",
+          label: "Chiller Efficiency (COP)",
+          value: `${chillerEff.toFixed(2)} COP`,
+          status: kwtrOk ? "pass" : "warn",
+          range: "4.40 – 7.00 COP",
+          desc: kwtrOk ? "Chiller COP satisfies ASHRAE 90.1 energy baseline." : "Chiller COP lower than energy code compliance threshold.",
+          category: "plant",
+        },
+      ];
+    } else {
+      // IP Checks
+      const velOk = ductVel >= 1000 && ductVel <= 2500;
+      const frOk = ductFr >= 0.05 && ductFr <= 0.15;
+      const espOk = esp >= 0.2 && esp <= 2.0;
+      const pipeVelOk = pipeVel >= 2.0 && pipeVel <= 8.0;
+      const pumpHeadOk = pumpHead >= 20 && pumpHead <= 100;
+      const cfmTrOk = cfmTr >= 350 && cfmTr <= 450;
+      const satOk = supTemp >= 50 && supTemp <= 60;
+      const chwdtOk = chwDt >= 8 && chwDt <= 14;
+      const kwtrOk = chillerEff >= 0.5 && chillerEff <= 0.8; // kW/TR range
+
+      return [
+        {
+          id: "ductVel",
+          label: "Supply Main Duct Velocity",
+          value: `${Math.round(ductVel)} FPM`,
+          status: velOk ? "pass" : "warn",
+          range: "1,000 – 2,500 FPM",
+          desc: velOk ? "Velocity within recommended SMACNA main riser limit." : "Velocity outside standard noise/pressure drop range (1,000–2,500 FPM).",
+          category: "air",
+        },
+        {
+          id: "ductFr",
+          label: "Duct Friction Rate",
+          value: `${ductFr.toFixed(2)} in w.g./100ft`,
+          status: frOk ? "pass" : "warn",
+          range: "0.05 – 0.15 in w.g./100ft",
+          desc: frOk ? "Friction rate aligns with equal friction design method." : "Friction rate high/low (Target equal friction: ~0.08 in w.g./100ft).",
+          category: "air",
+        },
+        {
+          id: "esp",
+          label: "Total External Static Pressure",
+          value: `${esp.toFixed(2)} in w.g.`,
+          status: espOk ? "pass" : "warn",
+          range: "0.20 – 2.00 in w.g.",
+          desc: espOk ? "Fan ESP reasonable for commercial AHU/VAV loops." : "Fan ESP unusually high/low for standard commercial system.",
+          category: "air",
+        },
+        {
+          id: "pipeVel",
+          label: "CHW Main Pipe Velocity",
+          value: `${pipeVel.toFixed(1)} fps`,
+          status: pipeVelOk ? "pass" : "warn",
+          range: "2.0 – 8.0 fps",
+          desc: pipeVelOk ? "Pipe velocity avoids erosion noise and high pump head." : "Velocity outside CIBSE/ASHRAE hydronic range (2.0–8.0 fps).",
+          category: "hydronic",
+        },
+        {
+          id: "pumpHead",
+          label: "Pump Total Head",
+          value: `${Math.round(pumpHead)} ft w.g.`,
+          status: pumpHeadOk ? "pass" : "warn",
+          range: "20 – 100 ft w.g.",
+          desc: pumpHeadOk ? "Pump dynamic head consistent with medium building circuit." : "Pump head abnormally high or low for standard distribution.",
+          category: "hydronic",
+        },
+        {
+          id: "cfmTr",
+          label: "Airflow per TR",
+          value: `${Math.round(cfmTr)} CFM/TR`,
+          status: cfmTrOk ? "pass" : "warn",
+          range: "350 – 450 CFM/TR",
+          desc: cfmTrOk ? "Airflow density complies with sensible load ratio." : "Airflow ratio off baseline (Standard: 350–450 CFM/TR).",
+          category: "plant",
+        },
+        {
+          id: "supTemp",
+          label: "Supply Air Temperature",
+          value: `${supTemp.toFixed(1)} °F`,
+          status: satOk ? "pass" : "warn",
+          range: "50.0 – 60.0 °F",
+          desc: satOk ? "Supply air temperature within non-condensing zone." : "Supply air temp creates condensation or humidity risk.",
+          category: "air",
+        },
+        {
+          id: "chwDt",
+          label: "CHW ΔT (Supply to Return)",
+          value: `${chwDt.toFixed(1)} °F`,
+          status: chwdtOk ? "pass" : "warn",
+          range: "8.0 – 14.0 °F",
+          desc: chwdtOk ? "Hydronic temperature differential optimal for delta P valves." : "ΔT low (risk of low delta-T syndrome) or high.",
+          category: "hydronic",
+        },
+        {
+          id: "chillerEff",
+          label: "Chiller Efficiency",
+          value: `${chillerEff.toFixed(2)} kW/TR`,
+          status: kwtrOk ? "pass" : "warn",
+          range: "0.50 – 0.80 kW/TR",
+          desc: kwtrOk ? "Chiller kW/TR satisfies ASHRAE 90.1 energy baseline." : "Chiller kW/TR higher than energy code compliance threshold.",
+          category: "plant",
+        },
+      ];
+    }
+  }, [ductVel, ductFr, esp, pipeVel, pumpHead, cfmTr, supTemp, chwDt, chillerEff, isSI]);
+
+  const passCount = useMemo(() => results.filter(r => r.status === "pass").length, [results]);
+  const warnCount = useMemo(() => results.filter(r => r.status === "warn").length, [results]);
+  const scorePct = useMemo(() => Math.round((passCount / results.length) * 100), [passCount, results.length]);
+
+  // Framework Calculation Preview Data
+  const calculationPreviewData: CalculationPreviewData = useMemo(() => {
+    return {
+      title: "Engineering Sanity Check Step-by-Step Proofs",
+      itemName: "HVAC & Hydronic System Checks",
+      itemCode: "SANITY-01",
+      standardReference: "SMACNA Duct Design / ASHRAE Fundamentals / ASHRAE 90.1",
+      inputs: [
+        { label: "Supply Main Duct Velocity", value: isSI ? `${ductVel} m/s` : `${ductVel} FPM` },
+        { label: "Duct Friction Rate", value: isSI ? `${ductFr} Pa/m` : `${ductFr} in w.g./100ft` },
+        { label: "External Static Pressure", value: isSI ? `${esp} Pa` : `${esp} in w.g.` },
+        { label: "CHW Main Pipe Velocity", value: isSI ? `${pipeVel} m/s` : `${pipeVel} fps` },
+        { label: "Pump Total Head", value: isSI ? `${pumpHead} kPa` : `${pumpHead} ft w.g.` },
+        { label: "Airflow Density", value: isSI ? `${cfmTr} L/s/kW` : `${cfmTr} CFM/TR` },
+        { label: "Supply Air Temperature", value: isSI ? `${supTemp} °C` : `${supTemp} °F` },
+        { label: "CHW ΔT", value: isSI ? `${chwDt} °C` : `${chwDt} °F` },
+        { label: "Chiller Efficiency", value: isSI ? `${chillerEff} COP` : `${chillerEff} kW/TR` },
+      ],
+      steps: results.map((res, index) => {
+        return {
+          stepNumber: index + 1,
+          label: res.label,
+          formula: `Evaluation Check: ${res.range}`,
+          substitution: `InputValue = ${res.value} vs Recommended Range (${res.range})`,
+          result: res.status.toUpperCase(),
+          unit: "-",
+          status: res.status === "pass" ? "info" : "warning",
+          description: `${res.desc} (Standard Reference: SMACNA / ASHRAE 90.1)`
+        };
+      }),
+      results: [
+        { label: "Total Evaluated Parameters", value: `${results.length}` },
+        { label: "Compliant Parameters", value: `${passCount} PASS` },
+        { label: "Guideline Warnings", value: `${warnCount} CHECK` },
+        { label: "Sanity Compliance Score", value: `${scorePct}%` },
+      ],
+    };
+  }, [results, passCount, warnCount, scorePct, isSI, ductVel, ductFr, esp, pipeVel, pumpHead, cfmTr, supTemp, chwDt, chillerEff]);
+
+  const handleExportPDF = () => {
+    try {
+      const pdfChecks = results.map(r => ({
+        label: r.label,
+        value: r.value,
+        status: r.status,
+        range: r.range,
+        desc: r.desc,
+      }));
+      exportSanityCheckPDF({
+        checks: pdfChecks,
+        unitSystem,
+        meta: {
+          userName: currentUserName,
+          projectName: project?.name || "General MEP Project",
+          projectNo: activeProjectId !== "default" ? activeProjectId.slice(0, 8) : "P000",
+        }
+      });
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to export PDF report.");
+    }
+  };
+
+  const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
 
   return (
-    <AppShell title="Sanity Check Tool" hideSubHeader={true}>
-      <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 pb-6 gap-4 overflow-y-auto h-full w-full">
-          {/* Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
-            <div className="flex flex-col gap-1 w-full">
-              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Engineering Sanity Check Tool</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">{checks.length} checks</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIntelOpen(v => !v)}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                    intelOpen
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                  }`}
-                >
-                  <Sparkles className="size-3.5" />
-                  Intelligence
-                </button>
-                <CalculationReviewBar
-                  projectId={activeProjectId || project?.id || "default"}
-                  calculatorPath="/sanity-check-tool"
-                  calculatorTitle="Engineering Sanity Check Tool"
-                />
-                {totalCommentsCount > 0 && (
-                  <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
-                    <MessageSquare className="size-3.5 fill-blue-500/20" />
-                    <span>{totalCommentsCount} Active Task(s) / Comment(s)</span>
-                  </div>
-                )}
+    <AppShell
+      title="Sanity Check Tool"
+      hideSubHeader={true}
+      onIntelClick={() => setIntelOpen((v) => !v)}
+      intelOpen={intelOpen}
+    >
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+          
+          {/* Header matching Pump Sizing */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sanity Check Tool</h1>
               </div>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                Verify your design numbers against standard ASHRAE, SMACNA, and Carrier parameters.
-              </p>
+              <button
+                onClick={() => setIntelOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
+              <CalculationReviewBar
+                projectId={activeProjectId}
+                calculatorPath="/sanity-check-tool"
+                calculatorTitle="Sanity Check Tool"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} />
             </div>
           </div>
 
-          {/* White Card Container for Tabs & Content */}
-          <div className="flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
-            {/* Tabs Selector row */}
+          {/* White / Dark Card Container */}
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED"
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
+            : calcReviewState?.status === "REJECTED"
+              ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+              : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            }`}>
+
+            {/* Top Tabs Selector Row matching Pump Sizing */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
-              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                <button
-                  type="button"
-                  onClick={() => setTab("calculator")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "calculator"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                  {Object.entries(SANITY_PRESETS).map(([key, p]) => {
+                    const active = activePreset === key;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => applyPreset(key)}
+                        className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${active
+                          ? "bg-background text-foreground shadow-sm font-bold"
+                          : "text-muted-foreground hover:text-foreground"
+                          }`}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <TBtn
+                  onClick={() => framework.openPreviewModal(calculationPreviewData)}
+                  title="View Step-by-Step Formula Breakdown"
                 >
-                  Calculator
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTab("report")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "report"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Report
-                </button>
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
               </div>
 
-              {/* Units toggle option */}
-              <div className="flex items-center gap-2 select-none shrink-0">
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  inputDescriptions="Duct & Pipe Velocities, Pressures, Temps"
-                  conversionExample={unitSystem === "si" ? "Convert 7.6 m/s → 1,500 FPM, 20 Pa/m → 0.08 in.wg/100ft" : "Convert 1500 FPM → 7.6 m/s, 0.08 in.wg/100ft → 20 Pa/m"}
-                />
+              <div className="flex items-center gap-2">
+                <TBtn
+                  onClick={handleExportPDF}
+                  title="Export PDF Report"
+                >
+                  <FileText className="size-3.5" /> Export PDF
+                </TBtn>
               </div>
             </div>
 
-            {/* Active Tab View */}
-            <div key={tab} className="flex-1 min-h-0 animate-fade-in flex flex-col overflow-y-auto p-4 md:p-6">
-              {tab === "calculator" && (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                  {/* Left Inputs */}
-                  <div className="lg:col-span-5 flex flex-col gap-4">
-                    <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
-                      <div className="flex items-center justify-between pb-3 border-b border-border/60">
-                        <div className="flex items-center gap-2">
-                          <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Design Values</h3>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                        {paramsList.map((p) => {
-                          const itemComments = paramComments[p.id] || [];
-                          const isActive = editingParam?.id === p.id;
-                          return (
-                            <ContextMenu key={p.id}>
-                              <ContextMenuTrigger asChild>
-                                <div
-                                  onDoubleClick={() => handleOpenEditParam(p)}
-                                  className={`flex flex-col gap-1 select-none p-2 rounded-xl transition-all hover:bg-slate-100/70 dark:hover:bg-slate-800/50 cursor-pointer group border ${
-                                    isActive
-                                      ? "border-primary bg-primary/5 ring-1 ring-primary shadow-xs"
-                                      : "border-transparent"
-                                  } ${p.gridSpan || ""}`}
-                                  title="Right-click for options • Double-click to edit"
-                                >
-                                  <label className="text-[11px] font-semibold text-muted-foreground flex items-center justify-between cursor-pointer">
-                                    <span className="flex items-center gap-1.5">
-                                      <span>{p.label}</span>
-                                      {Array.isArray(itemComments) && itemComments.length > 0 && (
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleOpenComment(p.id, p.label);
-                                          }}
-                                          className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                                          title={`${itemComments.length} comment(s)/task(s) assigned to "${p.label}"`}
-                                        >
-                                          <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                          <span className="text-[10px] font-bold font-mono">{itemComments.length}</span>
-                                        </button>
-                                      )}
-                                    </span>
-                                    <span className="text-[10px] font-mono text-muted-foreground/70">{p.unit}</span>
-                                  </label>
-                                  <input
-                                    type="number"
-                                    step="any"
-                                    value={p.val}
-                                    disabled={isEffectiveReadOnly}
-                                    onChange={(e) => {
-                                      if (isEffectiveReadOnly) return;
-                                      p.setter(Number(e.target.value));
-                                      setHasCalculated(true);
-                                    }}
-                                    className={`bg-slate-50/80 dark:bg-slate-900/60 border border-border/80 focus:border-[#0A7BC7] focus:ring-1 focus:ring-[#0A7BC7] rounded-lg px-2.5 py-1.5 font-bold font-mono text-xs text-foreground outline-none transition-all ${
-                                      isEffectiveReadOnly ? "opacity-60 cursor-not-allowed" : ""
-                                    }`}
-                                  />
-                                </div>
-                              </ContextMenuTrigger>
-                              {renderParamContextMenu(p)}
-                            </ContextMenu>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleCalculate}
-                      className="w-full bg-[#0A7BC7] hover:bg-[#0863A0] text-white font-bold py-2.5 px-4 rounded-xl shadow-xs hover:shadow-sm active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer text-xs"
-                    >
-                      <Zap className="size-3.5 fill-current" />
-                      Run Sanity Check
-                    </button>
-                  </div>
-
-                  {/* Right Results */}
-                  <div className="lg:col-span-7 flex flex-col gap-5">
-                    {!hasCalculated ? (
-                      <div className="bg-card border border-border border-dashed rounded-2xl p-8 flex flex-col items-center justify-center min-h-[350px] text-center shadow-xs">
-                        <div className="size-12 rounded-full bg-slate-50 dark:bg-slate-800/40 flex items-center justify-center text-muted-foreground text-xl mb-4 border border-border/40 select-none">
-                          📐
-                        </div>
-                        <h4 className="text-xs font-bold text-foreground mb-1 uppercase tracking-wider">Ready to Check</h4>
-                        <p className="text-[11.5px] text-muted-foreground max-w-xs leading-normal">
-                          Enter your calculated project parameters and run sanity checks to verify they comply with engineering guidelines.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs animate-fade-in">
-                        <div className="flex items-center justify-between pb-3 border-b border-border/60 flex-wrap gap-2">
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <div className="flex items-center gap-2">
-                              <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Engineering Audit Summary</h3>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-[11px] font-mono">
-                              <span className="px-2 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-                                <CheckCircle2 className="size-3" />
-                                {passCount} Passed
-                              </span>
-                              {warnCount > 0 && (
-                                <span className="px-2 py-0.5 rounded-full font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1">
-                                  <AlertTriangle className="size-3" />
-                                  {warnCount} Requires Review
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <TBtn
-                            onClick={handleExportPDF}
-                          >
-                            <FileText className="size-3.5" /> Export PDF
-                          </TBtn>
-                        </div>
-
-                        <div className="flex flex-col font-sans text-xs divide-y divide-border/40">
-                          {checks.map((c, i) => {
-                            const p = paramsList[i];
-                            const itemComments = p ? (paramComments[p.id] || []) : [];
-                            const isActive = p && editingParam?.id === p.id;
-                            return (
-                              <ContextMenu key={i}>
-                                <ContextMenuTrigger asChild>
-                                  <div
-                                    onDoubleClick={() => p && handleOpenEditParam(p)}
-                                    className={`flex items-center justify-between py-2 px-2.5 rounded-lg transition-colors gap-3 cursor-pointer select-none border ${
-                                      isActive
-                                        ? "border-primary bg-primary/5 ring-1 ring-primary shadow-xs"
-                                        : "border-transparent hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
-                                    }`}
-                                    title="Right-click for options • Double-click to edit"
-                                  >
-                                    <div className="flex flex-col min-w-0">
-                                      <span className="font-semibold text-foreground text-xs leading-snug flex items-center gap-1.5">
-                                        <span>{c.label}</span>
-                                        {Array.isArray(itemComments) && itemComments.length > 0 && (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (p) handleOpenComment(p.id, p.label);
-                                            }}
-                                            className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                                            title={`${itemComments.length} comment(s)/task(s) assigned to "${c.label}"`}
-                                          >
-                                            <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                            <span className="text-[10px] font-bold font-mono">{itemComments.length}</span>
-                                          </button>
-                                        )}
-                                      </span>
-                                      <span className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">{c.desc}</span>
-                                    </div>
-                                    <div className="flex flex-col items-end shrink-0">
-                                      <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-mono font-bold ${
-                                        c.status === "pass"
-                                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
-                                          : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
-                                      }`}>
-                                        <span>{c.value}</span>
-                                        {c.status === "pass" ? (
-                                          <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                        ) : (
-                                          <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
-                                        )}
-                                      </div>
-                                      <span className="text-[10px] font-mono text-muted-foreground/80 mt-1">Std: {c.range}</span>
-                                    </div>
-                                  </div>
-                                </ContextMenuTrigger>
-                                {p && renderParamContextMenu(p)}
-                              </ContextMenu>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* PRINTABLE REPORT PREVIEW TAB (MATCHING VENTILATION & COIL CONDENSATE FORMAT) */}
-              {tab === "report" && (
-                <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                  <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
-                    
-                    <div className="flex justify-between items-start pb-4 border-b border-border">
-                      <div>
-                        <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-                          Engineering Sanity Check Report
-                        </h2>
-                        <p className="text-[12px] text-muted-foreground mt-0.5">
-                          Design Standards: ASHRAE Handbook Fundamentals, SMACNA HVAC Systems Duct Design &amp; Carrier System Design
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <TBtn primary onClick={handleExportPDF}>
-                          <FileText className="size-3.5" /> Export PDF
-                        </TBtn>
-                      </div>
-                    </div>
-
-                    {/* Enclosed Project Metadata Grid (3 rows x 2 cols) */}
-                    <div className="border border-border rounded-xl overflow-hidden text-[12px] bg-card">
-                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border bg-muted/20">
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">Calculation No.:</span>
-                          <span className="text-muted-foreground font-mono">
-                            {(project as any)?.calcNo || `TRV-CAL-SNT-${(activeProjectId || project?.id || "0000").slice(-4).toUpperCase()}`}
-                          </span>
-                        </div>
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">Date:</span>
-                          <span className="text-muted-foreground">{formatDateStr(new Date().toISOString())}</span>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">Project No.:</span>
-                          <span className="text-muted-foreground">{project?.code || project?.id?.substring(0, 8) || "P000"}</span>
-                        </div>
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">Client:</span>
-                          <span className="text-muted-foreground">{project?.client || "-"}</span>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 divide-x divide-border">
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">Project Name:</span>
-                          <span className="text-muted-foreground">{project?.name || "MEP Project"}</span>
-                        </div>
-                        <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-bold text-foreground">End User:</span>
-                          <span className="text-muted-foreground">{(project as any)?.endUser || (project as any)?.location || "-"}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Structured Summary & Audit Bar */}
-                    <div className="border border-border rounded-xl p-3 bg-[#F5F7FA] dark:bg-slate-900/60 flex items-center justify-between text-xs font-bold text-foreground flex-wrap gap-2">
-                      <span>Standards: ASHRAE / SMACNA / Carrier</span>
-                      <span>Units: {unitSystem === "ip" ? "Imperial (IP)" : "Metric (SI)"}</span>
-                      <span className={warnCount === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
-                        {warnCount === 0
-                          ? `Audit: ${passCount}/${checks.length} Passed (All In-Range)`
-                          : `Audit: ${passCount} Passed | ${warnCount} Requires Review`}
+            {/* Scrollable Content Workspace */}
+            <div
+              ref={scrollContainerRef}
+              className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20"
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                
+                {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
+                <div className="lg:col-span-5 space-y-5">
+                  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                      <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                        📥 System Input Parameters
                       </span>
                     </div>
 
-                    {/* Table 1: 6-Column Checklist Table */}
-                    <div className="border border-border rounded-xl overflow-hidden bg-card">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-[11px] border-collapse">
-                          <thead>
-                            <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
-                              <th className="py-2 px-2.5 w-12">Sr. No.</th>
-                              <th className="py-2 px-3 text-left">Design Parameter</th>
-                              <th className="py-2 px-3 text-center">Design Value</th>
-                              <th className="py-2 px-3 text-center">Standard Range</th>
-                              <th className="py-2 px-3 text-center">Compliance</th>
-                              <th className="py-2 px-3 text-left">Engineering Guideline / Reference</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border/60 font-sans">
-                            {checks.map((c, idx) => {
-                              const isPass = c.status === "pass";
-                              return (
-                                <tr key={idx} className="hover:bg-muted/30">
-                                  <td className="py-2 px-2.5 text-center font-mono">{idx + 1}</td>
-                                  <td className="py-2 px-3 font-bold text-foreground">{c.label}</td>
-                                  <td className="py-2 px-3 text-center font-mono font-bold">{c.value}</td>
-                                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{c.range}</td>
-                                  <td className="py-2 px-3 text-center">
-                                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-bold font-mono ${
-                                      isPass
-                                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800"
-                                        : "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-300 dark:border-amber-800"
-                                    }`}>
-                                      {isPass ? "IN RANGE" : "CHECK VALUE"}
-                                    </span>
-                                  </td>
-                                  <td className="py-2 px-3 text-muted-foreground text-[10.5px]">{c.desc}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+                    {/* AIR & DUCTWORK PARAMETERS */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div 
+                          id="field-airParams" 
+                          data-field-id="airParams" 
+                          className="space-y-3 p-2 -m-2 rounded-lg transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                              Air & Ductwork Systems
+                            </span>
+                            {renderCommentBadge("airParams", "Air & Ductwork Systems")}
+                          </div>
+                          
+                          <div className="space-y-3 text-xs">
+                            <div>
+                              <div className="flex justify-between text-slate-700 dark:text-zinc-300 font-semibold mb-1">
+                                <span>Supply Main Duct Velocity</span>
+                                <span className="font-mono font-bold text-primary">{ductVel} {isSI ? "m/s" : "FPM"}</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={isSI ? "0.1" : "50"}
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={ductVel}
+                                onChange={(e) => setDuctVel(parseFloat(e.target.value) || 0)}
+                                className={inputClass}
+                              />
+                            </div>
 
-                    {/* Table 2: 4-Column Dynamic Signature Block */}
-                    <div className="border border-border rounded-xl overflow-hidden mt-6 bg-card">
-                      <table className="w-full text-center text-[11px] border-collapse">
-                        <thead>
-                          <tr className="bg-[#FFE6CC] text-black font-bold border-b border-border">
-                            <th className="py-2 px-3 text-left w-1/4">Designation</th>
-                            <th className="py-2 px-3 w-1/4">Originator</th>
-                            <th className="py-2 px-3 w-1/4">Reviewer</th>
-                            <th className="py-2 px-3 w-1/4">Approver</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border font-sans">
-                          <tr>
-                            <td className="py-2 px-3 text-left font-bold text-foreground">Name:</td>
-                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.name || sigDetails?.originatedName || "-"}</td>
-                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.name || sigDetails?.reviewerName || "-"}</td>
-                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.name || sigDetails?.approverName || "-"}</td>
-                          </tr>
-                          <tr>
-                            <td className="py-2 px-3 text-left font-bold text-foreground">Date:</td>
-                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.date || sigDetails?.originatedDate || "-"}</td>
-                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.date || sigDetails?.reviewerDate || "-"}</td>
-                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.date || sigDetails?.approverDate || "-"}</td>
-                          </tr>
-                          <tr>
-                            <td className="py-2 px-3 text-left font-bold text-foreground">Signature:</td>
-                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.originator?.status || (sigDetails?.originatedName ? "Signed" : "-")}</td>
-                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.reviewer?.status || (sigDetails?.reviewerName ? "Reviewed" : "-")}</td>
-                            <td className="py-2 px-3 text-muted-foreground">{sigDetails?.approver?.status || (sigDetails?.approverName ? "Approved" : "-")}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
+                            <div>
+                              <div className="flex justify-between text-slate-700 dark:text-zinc-300 font-semibold mb-1">
+                                <span>Duct Friction Rate</span>
+                                <span className="font-mono font-bold text-primary">{ductFr} {isSI ? "Pa/m" : "in w.g./100ft"}</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={isSI ? "0.05" : "0.01"}
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={ductFr}
+                                onChange={(e) => setDuctFr(parseFloat(e.target.value) || 0)}
+                                className={inputClass}
+                              />
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between text-slate-700 dark:text-zinc-300 font-semibold mb-1">
+                                <span>Total External Static Pressure (ESP)</span>
+                                <span className="font-mono font-bold text-primary">{esp} {isSI ? "Pa" : "in w.g."}</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={isSI ? "10" : "0.05"}
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={esp}
+                                onChange={(e) => setEsp(parseFloat(e.target.value) || 0)}
+                                className={inputClass}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          disabled={framework.isReadOnly || isApprovedLocked}
+                          onClick={() => {
+                            if (framework.isReadOnly || isApprovedLocked) return;
+                            setDuctVel(isSI ? 7.62 : 1500);
+                            setDuctFr(isSI ? 0.65 : 0.08);
+                            setEsp(isSI ? 124 : 0.5);
+                            toast.success("Air parameters reset to baseline");
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                        >
+                          <RotateCcw className="size-3.5 text-muted-foreground" />
+                          <span>Reset Air Parameters</span>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => handleOpenComment("airParams", "Air & Ductwork Systems")}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment / Assign Task</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+
+                    {/* HYDRONIC & PUMP PARAMETERS */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div 
+                          id="field-hydronicParams" 
+                          data-field-id="hydronicParams" 
+                          className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                              Hydronic Piping & Pump Systems
+                            </span>
+                            {renderCommentBadge("hydronicParams", "Hydronic Piping & Pump Systems")}
+                          </div>
+
+                          <div className="space-y-3 text-xs">
+                            <div>
+                              <div className="flex justify-between text-slate-700 dark:text-zinc-300 font-semibold mb-1">
+                                <span>CHW Main Pipe Velocity</span>
+                                <span className="font-mono font-bold text-primary">{pipeVel} {isSI ? "m/s" : "fps"}</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={isSI ? "0.1" : "0.5"}
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={pipeVel}
+                                onChange={(e) => setPipeVel(parseFloat(e.target.value) || 0)}
+                                className={inputClass}
+                              />
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between text-slate-700 dark:text-zinc-300 font-semibold mb-1">
+                                <span>Pump Total Dynamic Head</span>
+                                <span className="font-mono font-bold text-primary">{pumpHead} {isSI ? "kPa" : "ft w.g."}</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={isSI ? "5" : "5"}
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={pumpHead}
+                                onChange={(e) => setPumpHead(parseFloat(e.target.value) || 0)}
+                                className={inputClass}
+                              />
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between text-slate-700 dark:text-zinc-300 font-semibold mb-1">
+                                <span>CHW ΔT (Supply to Return)</span>
+                                <span className="font-mono font-bold text-primary">{chwDt} {isSI ? "°C" : "°F"}</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={isSI ? "0.5" : "1"}
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={chwDt}
+                                onChange={(e) => setChwDt(parseFloat(e.target.value) || 0)}
+                                className={inputClass}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          disabled={framework.isReadOnly || isApprovedLocked}
+                          onClick={() => {
+                            if (framework.isReadOnly || isApprovedLocked) return;
+                            setPipeVel(isSI ? 1.22 : 4.0);
+                            setPumpHead(isSI ? 149 : 50);
+                            setChwDt(isSI ? 5.6 : 10);
+                            toast.success("Hydronic parameters reset to baseline");
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                        >
+                          <RotateCcw className="size-3.5 text-muted-foreground" />
+                          <span>Reset Hydronic Parameters</span>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => handleOpenComment("hydronicParams", "Hydronic Piping & Pump Systems")}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment / Assign Task</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+
+                    {/* AIRFLOW & PLANT PERFORMANCE */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div 
+                          id="field-plantParams" 
+                          data-field-id="plantParams" 
+                          className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                              Airflow & Plant Performance
+                            </span>
+                            {renderCommentBadge("plantParams", "Airflow & Plant Performance")}
+                          </div>
+
+                          <div className="space-y-3 text-xs">
+                            <div>
+                              <div className="flex justify-between text-slate-700 dark:text-zinc-300 font-semibold mb-1">
+                                <span>Airflow Density</span>
+                                <span className="font-mono font-bold text-primary">{cfmTr} {isSI ? "L/s/kW" : "CFM/TR"}</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={isSI ? "1" : "10"}
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={cfmTr}
+                                onChange={(e) => setCfmTr(parseFloat(e.target.value) || 0)}
+                                className={inputClass}
+                              />
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between text-slate-700 dark:text-zinc-300 font-semibold mb-1">
+                                <span>Supply Air Temperature</span>
+                                <span className="font-mono font-bold text-primary">{supTemp} {isSI ? "°C" : "°F"}</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={isSI ? "0.5" : "1"}
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={supTemp}
+                                onChange={(e) => setSupTemp(parseFloat(e.target.value) || 0)}
+                                className={inputClass}
+                              />
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between text-slate-700 dark:text-zinc-300 font-semibold mb-1">
+                                <span>Chiller Efficiency</span>
+                                <span className="font-mono font-bold text-primary">{chillerEff} {isSI ? "COP" : "kW/TR"}</span>
+                              </div>
+                              <input
+                                type="number"
+                                step={isSI ? "0.1" : "0.05"}
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={chillerEff}
+                                onChange={(e) => setChillerEff(parseFloat(e.target.value) || 0)}
+                                className={inputClass}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          disabled={framework.isReadOnly || isApprovedLocked}
+                          onClick={() => {
+                            if (framework.isReadOnly || isApprovedLocked) return;
+                            setCfmTr(isSI ? 47.2 : 400);
+                            setSupTemp(isSI ? 12.8 : 55);
+                            setChillerEff(isSI ? 5.41 : 0.65);
+                            toast.success("Plant performance parameters reset to baseline");
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                        >
+                          <RotateCcw className="size-3.5 text-muted-foreground" />
+                          <span>Reset Plant Parameters</span>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => handleOpenComment("plantParams", "Airflow & Plant Performance")}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment / Assign Task</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
 
                   </div>
                 </div>
-              )}
+
+                {/* RIGHT COLUMN: CALCULATION RESULTS (lg:col-span-7) matching Pump Sizing */}
+                <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <div 
+                        id="card-hero-results" 
+                        data-field-id="card-hero-results" 
+                        className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6 transition-colors"
+                      >
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                          <div className="flex items-center">
+                            <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                              ⚡ Design Sanity Evaluation
+                            </span>
+                            {renderCommentBadge("card-hero-results", "Design Sanity Evaluation")}
+                          </div>
+                        </div>
+
+                        {/* STAT CARDS matching Pump Sizing */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5">
+                            <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Total Checks</div>
+                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                              {results.length} <span className="text-xs font-normal text-muted-foreground">params</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5">
+                            <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Compliant</div>
+                            <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
+                              {passCount} <span className="text-xs font-normal text-muted-foreground">PASS</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5">
+                            <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Warnings</div>
+                            <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
+                              {warnCount} <span className="text-xs font-normal text-muted-foreground">CHECK</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5">
+                            <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Compliance</div>
+                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                              {scorePct}% <span className="text-xs font-normal text-muted-foreground">score</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* DETAILED CHECK ITEMS TABLE / LIST matching Pump Sizing */}
+                        <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-3">
+                          <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider pb-1 border-b border-slate-200/50 dark:border-zinc-700/50">
+                            Parameter Sanity Verification Table
+                          </div>
+
+                          {results.map((r) => (
+                            <div key={r.id} className="py-2 border-b border-slate-200/40 dark:border-zinc-800 last:border-none space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-slate-700 dark:text-zinc-200 text-xs flex items-center gap-1.5">
+                                  {r.label}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-xs text-foreground">{r.value}</span>
+                                  {r.status === "pass" ? (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                      PASS
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                                      CHECK
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                                <span>Allowable Range: <strong className="font-mono text-slate-600 dark:text-zinc-300">{r.range}</strong></span>
+                                <span className="text-[10.5px] italic text-slate-500">{r.desc}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                      <ContextMenuItem
+                        onClick={() => framework.openPreviewModal(calculationPreviewData)}
+                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                      >
+                        <Info className="size-3.5 text-primary" />
+                        <span>Calculation Preview</span>
+                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                      </ContextMenuItem>
+                      <ContextMenuSeparator className="h-px bg-border my-1" />
+                      <ContextMenuItem
+                        onClick={() => handleOpenComment("card-hero-results", "Design Sanity Evaluation")}
+                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                      >
+                        <MessageSquare className="size-3.5" />
+                        <span>Add Comment / Assign Task</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                </div>
+
+              </div>
             </div>
+
           </div>
         </div>
 
-        {/* Intelligence drawer */}
+        {/* Collapsible Intelligence Drawer matching Pump Sizing */}
         <div
           className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg flex flex-col" : "w-0"
+            intelOpen
+              ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg flex flex-col"
+              : "w-0"
           }`}
         >
           {intelOpen && (
-            <SanityIntelligenceDrawer
+            <SanityCheckIntelligenceDrawer
               onClose={() => setIntelOpen(false)}
-              checks={checks}
-              paramsList={paramsList}
               unitSystem={unitSystem}
-              handleExportPDF={handleExportPDF}
-              onResetAllBaseline={handleResetAllBaselines}
-              isReadOnly={isEffectiveReadOnly}
+              applyPreset={applyPreset}
+              onOpenPreview={() => framework.openPreviewModal(calculationPreviewData)}
             />
           )}
         </div>
       </div>
 
-      {/* Edit Parameter Modal (Triggered on Double-Click or Context Menu -> Edit) */}
-      {editingParam && (() => {
-        const isCompliant = tempEditValue >= editingParam.min && tempEditValue <= editingParam.max;
-        return (
-          <div 
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in select-none"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setEditingParam(null);
-            }}
-          >
-            <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col animate-scale-in">
-              {/* Modal Header */}
-              <div className="flex items-center justify-between px-5 py-4 border-b border-border/60 bg-muted/20">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-primary/10 text-primary">
-                    <SlidersHorizontal className="size-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-foreground">Edit {editingParam.label}</h3>
-                    <p className="text-[11px] text-muted-foreground font-mono">
-                      Standard Range: {editingParam.min} – {editingParam.max} {editingParam.unit}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEditingParam(null)}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-
-              {/* Modal Body */}
-              <div className="p-5 flex flex-col gap-4 text-xs">
-                {/* Engineering Guidance Box */}
-                <div className="text-[12px] text-muted-foreground bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-border/60 leading-relaxed">
-                  <span className="font-semibold text-foreground">Engineering Guidance:</span> {editingParam.desc}
-                </div>
-
-                {/* Live Real-time Compliance Status */}
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                  isCompliant
-                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
-                    : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
-                }`}>
-                  {isCompliant ? (
-                    <>
-                      <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span>Complies with standard engineering guidelines ({editingParam.min} – {editingParam.max} {editingParam.unit})</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 animate-pulse" />
-                      <span>Outside allowable range ({editingParam.min} – {editingParam.max} {editingParam.unit}) — Requires review</span>
-                    </>
-                  )}
-                </div>
-
-                {/* Input with Baseline reference */}
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-semibold text-foreground flex justify-between items-center">
-                    <span>Design Value ({editingParam.unit})</span>
-                    <span className="text-muted-foreground font-mono text-[11px]">Std Baseline: {editingParam.baseline} {editingParam.unit}</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    autoFocus
-                    value={tempEditValue}
-                    onChange={(e) => setTempEditValue(Number(e.target.value))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleSaveEditedParam();
-                      if (e.key === "Escape") setEditingParam(null);
-                    }}
-                    className="w-full bg-slate-100/60 dark:bg-slate-950/60 border border-border/80 focus:border-primary focus:ring-1 focus:ring-primary rounded-xl px-3.5 py-2 text-sm font-mono font-bold outline-none text-foreground"
-                  />
-                </div>
-
-                {/* Quick Baseline Presets */}
-                <div className="flex items-center gap-2 pt-1 flex-wrap">
-                  <span className="text-[11px] font-semibold text-muted-foreground">Presets:</span>
-                  <button
-                    type="button"
-                    onClick={() => setTempEditValue(editingParam.min)}
-                    className="px-2.5 py-1 text-[11px] font-mono rounded-lg bg-muted hover:bg-muted/80 text-foreground border border-border/60 transition cursor-pointer"
-                  >
-                    Min ({editingParam.min})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTempEditValue(editingParam.baseline)}
-                    className="px-2.5 py-1 text-[11px] font-mono rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 transition cursor-pointer font-bold"
-                  >
-                    Baseline ({editingParam.baseline})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTempEditValue(editingParam.max)}
-                    className="px-2.5 py-1 text-[11px] font-mono rounded-lg bg-muted hover:bg-muted/80 text-foreground border border-border/60 transition cursor-pointer"
-                  >
-                    Max ({editingParam.max})
-                  </button>
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-border/60 bg-muted/20">
-                <button
-                  type="button"
-                  onClick={() => setEditingParam(null)}
-                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-border/80 hover:bg-muted/60 transition cursor-pointer text-muted-foreground"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveEditedParam}
-                  className="px-5 py-2 text-xs font-bold rounded-xl bg-[#0A7BC7] hover:bg-[#0863A0] text-white shadow-xs hover:shadow-sm transition cursor-pointer flex items-center gap-1.5"
-                >
-                  <Check className="size-3.5" />
-                  Apply & Recalculate
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Assign Comment & Task Modal - exactly like Preliminary Cooling Load */}
-      {commentModalOpen && commentTargetItem && (
-        <AssignCommentModal
-          isOpen={commentModalOpen}
-          onClose={() => setCommentModalOpen(false)}
-          targetId={commentTargetItem.id}
-          targetName={commentTargetItem.name}
-          targetType="Parameter"
-          calculatorTitle="Engineering Sanity Check Tool"
-          calculatorPath="/sanity-check-tool"
-          existingComments={paramComments[commentTargetItem.id] || []}
-          onSave={(comment) => {
-            const currentList = paramComments[commentTargetItem.id] || [];
-            const nextComments = {
-              ...paramComments,
-              [commentTargetItem.id]: [...currentList, comment],
-            };
-            saveParamComments(nextComments);
-          }}
-        />
-      )}
+      {/* Modals */}
+      <CalculationPreviewModal
+        isOpen={framework.isPreviewOpen}
+        onClose={framework.closePreviewModal}
+        data={framework.previewData || calculationPreviewData}
+        onExportPDF={handleExportPDF}
+      />
+      <AssignCommentModal
+        isOpen={commentModalOpen}
+        onClose={() => setCommentModalOpen(false)}
+        targetId={commentTargetItem?.id || ""}
+        targetName={commentTargetItem?.name || ""}
+        onSave={handleSaveComment}
+        currentUserId={userData?.id || "user-1"}
+        currentUserName={currentUserName}
+      />
     </AppShell>
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   Sanity Check Intelligence Drawer Component
-   Real-time HVAC & Plumbing audit metrics, compliance scoring,
-   dynamic engineering optimization advice, standards checks, and 1-click presets.
-───────────────────────────────────────────────────────────────────────────── */
-
-interface SanityIntelligenceDrawerProps {
+// INTELLIGENCE DRAWER COMPONENT
+interface SanityCheckIntelligenceDrawerProps {
   onClose: () => void;
-  checks: CheckResult[];
-  paramsList: ParamDef[];
   unitSystem: "si" | "ip";
-  handleExportPDF: () => void;
-  onResetAllBaseline: () => void;
-  isReadOnly: boolean;
+  applyPreset: (presetKey: string) => void;
+  onOpenPreview: () => void;
 }
 
-function SanityIntelligenceDrawer({
+function SanityCheckIntelligenceDrawer({
   onClose,
-  checks,
-  paramsList,
   unitSystem,
-  handleExportPDF,
-  onResetAllBaseline,
-  isReadOnly,
-}: SanityIntelligenceDrawerProps) {
-  const passCount = checks.filter((c) => c.status === "pass").length;
-  const warnCount = checks.length - passCount;
-  const passPercentage = Math.round((passCount / checks.length) * 100);
-
-  // Generate dynamic smart recommendations based on actual parameter values
-  const recommendations = useMemo(() => {
-    const recs: { title: string; desc: string; type: "warning" | "success" | "info" }[] = [];
-
-    paramsList.forEach((p) => {
-      if (p.id === "duct-vel") {
-        if (p.val > p.max) {
-          recs.push({
-            title: "Excessive Duct Velocity",
-            desc: `Duct velocity of ${p.val} ${p.unit} exceeds the recommended ${p.max} ${p.unit} maximum. High airflow speeds create regenerative duct noise, increase fan static pressure demand, and may require sound attenuators (SMACNA Manual).`,
-            type: "warning",
-          });
-        } else if (p.val < p.min) {
-          recs.push({
-            title: "Low Duct Velocity",
-            desc: `Duct velocity of ${p.val} ${p.unit} is below the ${p.min} ${p.unit} threshold. This may result in oversized duct dimensions and space constraints.`,
-            type: "info",
-          });
-        }
-      }
-
-      if (p.id === "duct-fr") {
-        if (p.val > p.max) {
-          recs.push({
-            title: "High Duct Friction Loss",
-            desc: `Friction rate of ${p.val} ${p.unit} exceeds energy-efficient targets (${p.max} ${p.unit}). Consider resizing main trunk ducts to reduce fan brake horsepower (BHP).`,
-            type: "warning",
-          });
-        }
-      }
-
-      if (p.id === "esp") {
-        if (p.val > 1.2) {
-          recs.push({
-            title: "High Fan External Static Pressure",
-            desc: `ESP of ${p.val} ${p.unit} requires heavy-duty centrifugal or VAV fans. Verify filter pressure drop, silencers, and VAV box resistance.`,
-            type: "warning",
-          });
-        }
-      }
-
-      if (p.id === "pipe-vel") {
-        if (p.val > p.max) {
-          recs.push({
-            title: "High Piping Velocity (Erosion Risk)",
-            desc: `Water velocity of ${p.val} ${p.unit} exceeds ASHRAE 90.1 limits (${p.max} ${p.unit}). Velocities above threshold cause internal pipe wall erosion and water hammer in copper/steel headers.`,
-            type: "warning",
-          });
-        }
-      }
-
-      if (p.id === "chw-dt") {
-        if (p.val < 10 && unitSystem === "ip") {
-          recs.push({
-            title: "Low ΔT Syndrome Risk",
-            desc: `Chilled water ΔT of ${p.val}°F is below standard 10°F–14°F. Low ΔT forces extra chillers and pumps to run at partial load, drastically wasting energy.`,
-            type: "warning",
-          });
-        }
-      }
-
-      if (p.id === "chiller-eff") {
-        if ((unitSystem === "ip" && p.val > 0.7) || (unitSystem === "si" && p.val < 5.0)) {
-          recs.push({
-            title: "Chiller Efficiency Optimization",
-            desc: `Current chiller rating (${p.val} ${p.unit}) has room for improvement. Upgrading to VFD magnetic-bearing centrifugal chillers can achieve < 0.55 kW/TR (COP > 6.4).`,
-            type: "info",
-          });
-        }
-      }
-    });
-
-    if (recs.length === 0) {
-      recs.push({
-        title: "All Systems Within Engineering Guidelines",
-        desc: "All entered ductwork, hydronic, and thermodynamic parameters fully comply with ASHRAE 90.1, SMACNA, and Carrier standard baselines.",
-        type: "success",
-      });
-    }
-
-    return recs;
-  }, [paramsList, unitSystem]);
+  applyPreset,
+  onOpenPreview,
+}: SanityCheckIntelligenceDrawerProps) {
+  const isSI = unitSystem === "si";
 
   return (
-    <div className="flex flex-col h-full text-xs font-sans select-none overflow-hidden">
+    <div className="flex flex-col h-full bg-background select-none">
       {/* Drawer Header */}
-      <div className="p-4 border-b border-border/80 flex items-center justify-between bg-muted/20 shrink-0">
+      <div className="p-4 border-b border-border flex items-center justify-between bg-muted/20">
         <div className="flex items-center gap-2">
-          <div className="p-2 rounded-xl bg-[#0A7BC7]/10 text-[#0A7BC7]">
+          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
             <Sparkles className="size-4" />
           </div>
           <div>
-            <h3 className="font-bold text-foreground text-sm tracking-tight">Sanity Intelligence & Audit</h3>
-            <p className="text-[11px] text-muted-foreground">Real-time HVAC & Plumbing standard verification</p>
+            <h3 className="text-sm font-bold text-foreground">Engineering Intelligence</h3>
+            <p className="text-[11px] text-muted-foreground">Sanity rules & SMACNA / ASHRAE standard limits</p>
           </div>
         </div>
         <button
-          type="button"
           onClick={onClose}
-          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition cursor-pointer"
-          title="Close Intelligence Drawer"
+          className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
         >
           <X className="size-4" />
         </button>
       </div>
 
-      {/* Drawer Scrollable Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Compliance Health Score Card */}
-        <div className="bg-card border border-border/80 rounded-2xl p-4 shadow-xs flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <span className="font-bold text-xs uppercase tracking-wider text-muted-foreground">Audit Compliance Score</span>
-            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold font-mono border ${
-              passPercentage >= 80
-                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20"
-                : "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
-            }`}>
-              {passPercentage}% Compliant
-            </span>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex justify-between text-[11px] font-mono text-muted-foreground">
-              <span>{passCount} of {checks.length} Passed</span>
-              <span>{warnCount} Requires Review</span>
+      {/* Drawer Scroll Body */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs custom-scrollbar">
+        {/* Formula breakdown shortcut */}
+        <button
+          onClick={onOpenPreview}
+          className="w-full flex items-center justify-between p-3 rounded-xl bg-primary/5 hover:bg-primary/10 border border-primary/20 text-primary transition-all group"
+        >
+          <div className="flex items-center gap-2.5">
+            <Info className="size-4 shrink-0" />
+            <div className="text-left">
+              <div className="font-bold text-xs">View Step-by-Step Proofs</div>
+              <div className="text-[10.5px] text-muted-foreground">Inspect detailed formulas & numerical substitutions</div>
             </div>
-            <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 ${
-                  passPercentage >= 80 ? "bg-emerald-500" : "bg-amber-500"
-                }`}
-                style={{ width: `${passPercentage}%` }}
-              />
+          </div>
+          <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+        </button>
+
+        {/* Quick Presets */}
+        <div className="p-3 rounded-xl bg-card border border-border space-y-2">
+          <span className="font-bold text-foreground flex items-center gap-1.5 text-xs">
+            <Sliders className="size-3.5 text-primary" /> Application Design Presets
+          </span>
+          <div className="grid grid-cols-1 gap-1.5 pt-1">
+            {Object.entries(SANITY_PRESETS).map(([key, p]) => (
+              <button
+                key={key}
+                onClick={() => applyPreset(key)}
+                className="w-full text-left p-2 rounded-lg bg-muted/40 hover:bg-muted transition-colors text-[11.5px] border border-border/50"
+              >
+                <div className="font-semibold text-foreground">{p.label}</div>
+                <div className="text-[10.5px] text-muted-foreground line-clamp-1">{p.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Velocity Limits Reference */}
+        <div className="p-3 rounded-xl bg-card border border-border space-y-2">
+          <span className="font-bold text-foreground flex items-center gap-1.5 text-xs">
+            <Gauge className="size-3.5 text-primary" /> Air & Hydronic Limits
+          </span>
+          <div className="space-y-1.5 text-[11px] text-muted-foreground">
+            <div className="flex justify-between py-1 border-b border-border/40">
+              <span>Supply Main Duct Velocity:</span>
+              <strong className="text-foreground font-mono">{isSI ? "5.0 – 12.7 m/s" : "1,000 – 2,500 FPM"}</strong>
+            </div>
+            <div className="flex justify-between py-1 border-b border-border/40">
+              <span>Duct Friction Rate Target:</span>
+              <strong className="text-foreground font-mono">{isSI ? "0.4 – 1.2 Pa/m" : "0.05 – 0.15 in w.g./100ft"}</strong>
+            </div>
+            <div className="flex justify-between py-1 border-b border-border/40">
+              <span>CHW Main Pipe Velocity:</span>
+              <strong className="text-foreground font-mono">{isSI ? "0.6 – 2.4 m/s" : "2.0 – 8.0 fps"}</strong>
+            </div>
+            <div className="flex justify-between py-1 border-b border-border/40">
+              <span>AHU Airflow Density:</span>
+              <strong className="text-foreground font-mono">{isSI ? "47 – 60 L/s/kW" : "350 – 450 CFM/TR"}</strong>
+            </div>
+            <div className="flex justify-between py-1">
+              <span>CHW Temp Differential ΔT:</span>
+              <strong className="text-foreground font-mono">{isSI ? "4.4 – 7.7 °C" : "8 – 14 °F"}</strong>
             </div>
           </div>
         </div>
 
-        {/* Intelligent Optimizations & Warnings */}
-        <div className="flex flex-col gap-2.5">
-          <h4 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 px-0.5">
-            <Sparkles className="size-3.5 text-[#0A7BC7]" />
-            Smart Optimization Insights
-          </h4>
-
-          {recommendations.map((rec, idx) => (
-            <div
-              key={idx}
-              className={`p-3 rounded-xl border text-xs flex flex-col gap-1 transition-all ${
-                rec.type === "warning"
-                  ? "bg-amber-500/5 border-amber-500/20 text-amber-900 dark:text-amber-200"
-                  : rec.type === "success"
-                  ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-900 dark:text-emerald-200"
-                  : "bg-blue-500/5 border-blue-500/20 text-blue-900 dark:text-blue-200"
-              }`}
-            >
-              <div className="flex items-center gap-1.5 font-bold">
-                {rec.type === "warning" && <AlertTriangle className="size-3.5 text-amber-600 shrink-0" />}
-                {rec.type === "success" && <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />}
-                {rec.type === "info" && <Info className="size-3.5 text-blue-600 shrink-0" />}
-                <span>{rec.title}</span>
-              </div>
-              <p className="text-[11.5px] leading-relaxed opacity-90">{rec.desc}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Governing Engineering Standards */}
-        <div className="bg-muted/30 border border-border/60 rounded-xl p-3 flex flex-col gap-2">
-          <h4 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-            <ShieldCheck className="size-3.5 text-slate-500" />
-            Governing Standards Reference
-          </h4>
-          <ul className="text-[11px] text-muted-foreground space-y-1 font-mono">
-            <li className="flex items-center justify-between py-0.5 border-b border-border/30">
-              <span>ASHRAE 90.1-2022:</span>
-              <span className="font-semibold text-foreground">Fan & Pipe Limits</span>
-            </li>
-            <li className="flex items-center justify-between py-0.5 border-b border-border/30">
-              <span>SMACNA Duct Design:</span>
-              <span className="font-semibold text-foreground">Equal Friction</span>
-            </li>
-            <li className="flex items-center justify-between py-0.5 border-b border-border/30">
-              <span>Carrier System Design:</span>
-              <span className="font-semibold text-foreground">Coil ΔT & CFM/TR</span>
-            </li>
-            <li className="flex items-center justify-between py-0.5">
-              <span>CIBSE Guide B2/B3:</span>
-              <span className="font-semibold text-foreground">Hydronic Velocity</span>
-            </li>
+        {/* Engineering Guidelines */}
+        <div className="p-3 rounded-xl bg-card border border-border space-y-2">
+          <span className="font-bold text-foreground flex items-center gap-1.5 text-xs">
+            <BookOpen className="size-3.5 text-primary" /> Standards & Reference Codes
+          </span>
+          <ul className="list-disc list-inside space-y-1 text-[11px] text-muted-foreground leading-relaxed">
+            <li>SMACNA HVAC Duct Construction Standards (High/Low Pressure Ductwork).</li>
+            <li>ASHRAE Fundamentals (Chapter 21: Duct Design & Chapter 22: Pipe Sizing).</li>
+            <li>ASHRAE Standard 90.1 Energy Efficient Design for Buildings (Chiller COP baselines).</li>
+            <li>CIBSE Guide W: Hydronic Pipe Sizing & Noise Control Limits.</li>
           </ul>
         </div>
-      </div>
-
-      {/* Drawer Footer Actions */}
-      <div className="p-3 border-t border-border/80 bg-muted/20 flex flex-col gap-2 shrink-0">
-        <button
-          type="button"
-          onClick={onResetAllBaseline}
-          disabled={isReadOnly}
-          className="w-full py-2 px-3 bg-card hover:bg-muted border border-border text-foreground font-semibold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition disabled:opacity-50"
-        >
-          <RotateCcw className="size-3.5 text-muted-foreground" />
-          Reset All Parameters to Baseline
-        </button>
-
-        <button
-          type="button"
-          onClick={handleExportPDF}
-          className="w-full py-2 px-3 bg-[#0A7BC7] hover:bg-[#0863A0] text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition shadow-2xs"
-        >
-          <FileText className="size-3.5" />
-          Export Sanity Audit PDF
-        </button>
       </div>
     </div>
   );

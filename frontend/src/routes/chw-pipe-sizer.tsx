@@ -534,8 +534,8 @@ function ChwPipeSizerPage() {
     }
   };
 
-  const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs font-semibold focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
-  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
+  const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs font-normal focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
+  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-normal focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
 
   return (
     <AppShell
@@ -588,8 +588,8 @@ function ChwPipeSizerPage() {
                 <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                   <button
                     onClick={() => setActiveTab("calculator")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${activeTab === "calculator"
-                      ? "bg-background text-foreground shadow-sm font-bold"
+                    className={`px-4 py-1.5 text-xs font-medium rounded-full transition-all duration-150 cursor-pointer ${activeTab === "calculator"
+                      ? "bg-background text-foreground shadow-sm font-semibold"
                       : "text-muted-foreground hover:text-foreground"
                       }`}
                   >
@@ -597,8 +597,8 @@ function ChwPipeSizerPage() {
                   </button>
                   <button
                     onClick={() => setActiveTab("report")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${activeTab === "report"
-                      ? "bg-background text-foreground shadow-sm font-bold"
+                    className={`px-4 py-1.5 text-xs font-medium rounded-full transition-all duration-150 cursor-pointer ${activeTab === "report"
+                      ? "bg-background text-foreground shadow-sm font-semibold"
                       : "text-muted-foreground hover:text-foreground"
                       }`}
                   >
@@ -763,47 +763,30 @@ function ChwPipeSizerPage() {
                       </h3>
                       <span className="text-[11px] text-muted-foreground">Colebrook-White Friction Evaluation</span>
                     </div>
-                    <div className="border border-border rounded-xl overflow-hidden text-xs">
-                      <table className="w-full text-left border-collapse font-sans">
-                        <thead>
-                          <tr className="bg-muted/50 font-bold border-b border-border text-foreground">
-                            <th className="p-2.5 text-center">NPS</th>
-                            <th className="p-2.5 text-center">ID ({isSI ? "mm" : "in"})</th>
-                            <th className="p-2.5 text-right">Velocity</th>
-                            <th className="p-2.5 text-right">Pressure Drop Gradient</th>
-                            <th className="p-2.5 text-right">Reynolds No.</th>
-                            <th className="p-2.5 text-center">Friction Factor (f)</th>
-                            <th className="p-2.5 text-center">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border font-mono">
-                          {calculatedData.allPipes.map((p) => {
-                            const isChosen = calculatedData.chosen?.nps === p.nps;
-                            return (
-                              <tr key={p.nps} className={isChosen ? "bg-primary/10 font-bold" : ""}>
-                                <td className="p-2.5 text-center font-bold font-sans">{p.nps}"</td>
-                                <td className="p-2.5 text-center">{isSI ? p.idMm : p.idIn.toFixed(3)}</td>
-                                <td className="p-2.5 text-right">{isSI ? `${p.v.toFixed(2)} m/s` : `${p.vFps.toFixed(2)} fps`}</td>
-                                <td className="p-2.5 text-right">{isSI ? `${p.dpPaM.toFixed(1)} Pa/m` : `${p.dpFt.toFixed(2)} ft/100ft`}</td>
-                                <td className="p-2.5 text-right">{Math.round(p.Re).toLocaleString()}</td>
-                                <td className="p-2.5 text-center">{p.f.toFixed(4)}</td>
-                                <td className="p-2.5 text-center">
-                                  {p.isCompliant ? (
-                                    <span className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold px-2 py-0.5 rounded text-[10px]">
-                                      {isChosen ? "✓ SELECTED" : "✓ PASS"}
-                                    </span>
-                                  ) : (
-                                    <span className="bg-red-500/15 text-red-600 dark:text-red-400 font-bold px-2 py-0.5 rounded text-[10px]">
-                                      HIGH DROP
-                                    </span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setScheduleModalOpen(true)}
+                      className="w-full flex items-center justify-between p-4 bg-muted/40 hover:bg-muted/70 border border-border rounded-xl transition-colors text-xs font-semibold cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-primary/10 rounded-xl text-primary">
+                          <FileSpreadsheet className="size-5" />
+                        </div>
+                        <div className="text-left">
+                          <div className="font-bold text-foreground group-hover:text-primary transition-colors text-sm">
+                            Piping Sizing Schedule Table
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Click to open full hydronic pipe schedule &amp; friction comparison popup
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg font-bold text-xs shadow-xs">
+                        <span>View Schedule</span>
+                        <Eye className="size-3.5" />
+                      </div>
+                    </button>
                   </div>
 
                   {/* Section 4: Mathematical Method & Standards */}
@@ -845,7 +828,7 @@ function ChwPipeSizerPage() {
                 <div className="lg:col-span-5 space-y-5">
                   <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
                     <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-                      <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
                         📥 Sizing Parameters
                       </span>
                     </div>
@@ -853,7 +836,7 @@ function ChwPipeSizerPage() {
                     {/* INPUT 1: Flow Rate */}
                     <div className="space-y-1">
                       <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                        <label className="text-xs font-medium text-slate-600 dark:text-zinc-300">
                           Flow Rate ({isSI ? "L/s" : "GPM"})
                         </label>
                       </div>
@@ -870,18 +853,18 @@ function ChwPipeSizerPage() {
                     {/* INPUT 2 & 3: Fluid Type & Operating Temp */}
                     <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                           Fluid Properties &amp; Temperature
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
-                          <label className="text-[11px] text-slate-500">Fluid Type</label>
+                          <label className="text-[11px] text-slate-500 font-medium">Fluid Type</label>
                           <select
                             disabled={isEffectiveReadOnly || isApprovedLocked}
                             value={sizingParams.fluidType}
                             onChange={(e) => saveParams({ ...sizingParams, fluidType: e.target.value as any }, unitSystem)}
-                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs font-semibold focus:outline-none"
+                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs font-normal focus:outline-none"
                           >
                             <option value="chw">Chilled Water</option>
                             <option value="cw">Condenser Water</option>
@@ -890,7 +873,7 @@ function ChwPipeSizerPage() {
                           </select>
                         </div>
                         <div>
-                          <label className="text-[11px] text-slate-500">Fluid Temp ({isSI ? "°C" : "°F"})</label>
+                          <label className="text-[11px] text-slate-500 font-medium">Fluid Temp ({isSI ? "°C" : "°F"})</label>
                           <input
                             type="number"
                             disabled={isEffectiveReadOnly || isApprovedLocked}
@@ -906,18 +889,18 @@ function ChwPipeSizerPage() {
                     {/* INPUT 4 & 5: Material & Target ΔP */}
                     <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                           Piping &amp; Friction Criteria
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
-                          <label className="text-[11px] text-slate-500">Pipe Material</label>
+                          <label className="text-[11px] text-slate-500 font-medium">Pipe Material</label>
                           <select
                             disabled={isEffectiveReadOnly || isApprovedLocked}
                             value={sizingParams.pipeMaterial}
                             onChange={(e) => saveParams({ ...sizingParams, pipeMaterial: e.target.value as any }, unitSystem)}
-                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs font-semibold focus:outline-none"
+                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs font-normal focus:outline-none"
                           >
                             {Object.entries(PIPE_MATERIALS).map(([k, m]) => (
                               <option key={k} value={k}>{m.label}</option>
@@ -925,7 +908,7 @@ function ChwPipeSizerPage() {
                           </select>
                         </div>
                         <div>
-                          <label className="text-[11px] text-slate-500">Target ΔP ({isSI ? "Pa/m" : "ft/100ft"})</label>
+                          <label className="text-[11px] text-slate-500 font-medium">Target ΔP ({isSI ? "Pa/m" : "ft/100ft"})</label>
                           <input
                             type="number"
                             disabled={isEffectiveReadOnly || isApprovedLocked}
@@ -945,99 +928,74 @@ function ChwPipeSizerPage() {
                 <div className="lg:col-span-7 space-y-5">
                   <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6">
                     <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-                      <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
                         ⚡ Sizing Results Summary
                       </span>
                     </div>
 
-                    {/* 4 TOP DISPLAY STAT CARDS matching Pump Sizing layout exactly */}
+                    {/* 4 TOP DISPLAY STAT CARDS */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5">
                         <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Selected Pipe Size</div>
-                        <div className="text-xl font-bold font-mono text-foreground mt-1">
+                        <div className="text-lg font-semibold font-mono text-foreground mt-1">
                           {calculatedData.chosen ? `NPS ${calculatedData.chosen.nps}"` : "NaN"}{" "}
                           <span className="text-xs font-normal text-muted-foreground">{calculatedData.chosen ? `(DN ${calculatedData.chosen.idMm})` : ""}</span>
                         </div>
                       </div>
 
                       <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5">
-                        <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Velocity</div>
-                        <div className="text-xl font-bold font-mono text-foreground mt-1">
+                        <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium font-sans">Velocity</div>
+                        <div className="text-lg font-semibold font-mono text-foreground mt-1">
                           {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.v.toFixed(2)}` : `${calculatedData.chosen.vFps.toFixed(2)}`) : "NaN"}{" "}
                           <span className="text-xs font-normal text-muted-foreground">{isSI ? "m/s" : "fps"}</span>
                         </div>
                       </div>
 
                       <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5">
-                        <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Pressure Drop</div>
-                        <div className="text-xl font-bold font-mono text-foreground mt-1">
+                        <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium font-sans">Pressure Drop</div>
+                        <div className="text-lg font-semibold font-mono text-foreground mt-1">
                           {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.dpPaM.toFixed(1)}` : `${calculatedData.chosen.dpFt.toFixed(2)}`) : "NaN"}{" "}
                           <span className="text-xs font-normal text-muted-foreground">{isSI ? "Pa/m" : "ft/100ft"}</span>
                         </div>
                       </div>
 
                       <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5">
-                        <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Reynolds Number</div>
-                        <div className="text-xl font-bold font-mono text-foreground mt-1">
+                        <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium font-sans">Reynolds Number</div>
+                        <div className="text-lg font-semibold font-mono text-foreground mt-1">
                           {calculatedData.chosen ? Math.round(calculatedData.chosen.Re).toLocaleString() : "NaN"}
                         </div>
                       </div>
                     </div>
 
-                    {/* DETAILED METRICS TABLE matching Pump Sizing */}
+                    {/* DETAILED METRICS TABLE */}
                     <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs">
                       <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                         <span className="text-slate-600 dark:text-zinc-400">Internal Diameter:</span>
-                        <span className="font-mono font-bold">
+                        <span className="font-mono font-medium">
                           {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.idMm} mm` : `${calculatedData.chosen.idIn.toFixed(3)} in (${calculatedData.chosen.idMm} mm)`) : "-"}
                         </span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                         <span className="text-slate-600 dark:text-zinc-400">Flow Regime:</span>
-                        <span className="font-mono font-bold">{calculatedData.chosen ? calculatedData.chosen.regime : "-"}</span>
+                        <span className="font-mono font-medium">{calculatedData.chosen ? calculatedData.chosen.regime : "-"}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                         <span className="text-slate-600 dark:text-zinc-400">Darcy Friction Factor (f):</span>
-                        <span className="font-mono font-bold">{calculatedData.chosen ? calculatedData.chosen.f.toFixed(4) : "-"}</span>
+                        <span className="font-mono font-medium">{calculatedData.chosen ? calculatedData.chosen.f.toFixed(4) : "-"}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                         <span className="text-slate-600 dark:text-zinc-400">Fluid Density (ρ) &amp; Viscosity (μ):</span>
-                        <span className="font-mono font-bold">{calculatedData.rho.toFixed(1)} kg/m³ | {calculatedData.mu.toExponential(2)} Pa·s</span>
+                        <span className="font-mono font-medium">{calculatedData.rho.toFixed(1)} kg/m³ | {calculatedData.mu.toExponential(2)} Pa·s</span>
                       </div>
-                      <div className="flex justify-between py-1 font-bold text-foreground">
+                      <div className="flex justify-between py-1 font-medium text-foreground">
                         <span>Optimal Pipe Specification:</span>
-                        <span className="font-mono text-[#0A7BC7]">
+                        <span className="font-mono font-semibold text-[#0A7BC7]">
                           {calculatedData.chosen ? `NPS ${calculatedData.chosen.nps}" / DN ${calculatedData.chosen.idMm} mm Pipe` : "-"}
                         </span>
                       </div>
                     </div>
 
-                    {/* PIPING SIZING SCHEDULE TRIGGER BUTTON */}
-                    <div className="pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setScheduleModalOpen(true)}
-                        className="w-full flex items-center justify-between p-3.5 bg-slate-50 hover:bg-slate-100 dark:bg-zinc-800/60 dark:hover:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl transition-colors text-xs font-semibold cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <div className="p-1.5 bg-primary/10 rounded-lg text-primary">
-                            <FileSpreadsheet className="size-4" />
-                          </div>
-                          <div className="text-left">
-                            <div className="font-bold text-foreground group-hover:text-primary transition-colors">
-                              Piping Sizing Schedule Table
-                            </div>
-                            <div className="text-[11px] text-muted-foreground">
-                              Click to view full size schedule &amp; friction comparison popup
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-primary text-xs font-bold shrink-0">
-                          <span>View Schedule</span>
-                          <Eye className="size-3.5" />
-                        </div>
-                      </button>
-                    </div>
+
 
                   </div>
                 </div>

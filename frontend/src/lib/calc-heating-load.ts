@@ -65,6 +65,7 @@ export const calculateHeatingLoad = (
   const kwWall = qWall * BTU_HR_TO_KW;
   const kwGlaz = qGlaz * BTU_HR_TO_KW;
   const kwInfil = qInfil * BTU_HR_TO_KW;
+  const kwTotalAir = qTotalAir * BTU_HR_TO_KW;
 
   // Load Density Indices
   const loadDensityBtuPerSqft = areaVal > 0 ? qTotal / areaVal : 0;
@@ -100,6 +101,7 @@ export const calculateHeatingLoad = (
     qTotal,
     kwBase,
     kwTotal,
+    kwTotalAir,
     kwWall,
     kwRoof,
     kwGlaz,

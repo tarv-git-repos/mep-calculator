@@ -886,7 +886,7 @@ function HeatingLoadPage() {
   };
 
   const inputClass = "w-full h-8 px-2.5 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
-  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
+  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-medium focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
 
   const totalCondLossKw = calcResults.kwWall + calcResults.kwRoof + calcResults.kwSlab;
   const totalCondLossBtu = calcResults.qWall + calcResults.qRoof + calcResults.qSlab;
@@ -999,7 +999,7 @@ function HeatingLoadPage() {
                       className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-4 ${isFieldHighlighted("spaceEnvelopeCard", "Space & Envelope")}`}
                     >
                       <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-                        <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                        <span className="text-[12.5px] font-semibold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
                           📥 SIZING PARAMETERS
                         </span>
                         {renderCommentBadge("spaceEnvelopeCard", "SPACE & ENVELOPE")}
@@ -1008,7 +1008,7 @@ function HeatingLoadPage() {
                       {/* Preset Profile Dropdown inside Parameters Table */}
                       <div className="space-y-1 pb-1">
                         <div className="flex justify-between items-center">
-                          <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                          <label className="text-[11.5px] font-medium text-slate-700 dark:text-zinc-300">
                             Building Application Preset
                           </label>
                           {renderCommentBadge("preset", "Heating Preset")}
@@ -1030,7 +1030,7 @@ function HeatingLoadPage() {
                           <ContextMenuTrigger asChild>
                             <div className="space-y-1">
                               <div className="flex justify-between items-center">
-                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                <label className="text-[11.5px] font-medium text-slate-700 dark:text-zinc-300">
                                   Floor area ({isSI ? "m²" : "sq.ft"})
                                 </label>
                               </div>
@@ -1065,7 +1065,7 @@ function HeatingLoadPage() {
                           <ContextMenuTrigger asChild>
                             <div className="space-y-1">
                               <div className="flex justify-between items-center">
-                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                <label className="text-[11.5px] font-medium text-slate-700 dark:text-zinc-300">
                                   Ceiling height ({isSI ? "m" : "ft"})
                                 </label>
                               </div>
@@ -1100,7 +1100,7 @@ function HeatingLoadPage() {
                           <ContextMenuTrigger asChild>
                             <div className="space-y-1">
                               <div className="flex justify-between items-center">
-                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                <label className="text-[11.5px] font-medium text-slate-700 dark:text-zinc-300">
                                   Outdoor temp ({isSI ? "°C" : "°F"})
                                 </label>
                               </div>
@@ -1135,7 +1135,7 @@ function HeatingLoadPage() {
                           <ContextMenuTrigger asChild>
                             <div className="space-y-1">
                               <div className="flex justify-between items-center">
-                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                <label className="text-[11.5px] font-medium text-slate-700 dark:text-zinc-300">
                                   Indoor setpoint ({isSI ? "°C" : "°F"})
                                 </label>
                               </div>
@@ -1170,7 +1170,7 @@ function HeatingLoadPage() {
                           <ContextMenuTrigger asChild>
                             <div className="space-y-1">
                               <div className="flex justify-between items-center">
-                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                <label className="text-[11.5px] font-medium text-slate-700 dark:text-zinc-300">
                                   Glazing area ({isSI ? "m²" : "sq.ft"})
                                 </label>
                               </div>
@@ -1205,7 +1205,7 @@ function HeatingLoadPage() {
                           <ContextMenuTrigger asChild>
                             <div className="space-y-1">
                               <div className="flex justify-between items-center">
-                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                <label className="text-[11.5px] font-medium text-slate-700 dark:text-zinc-300">
                                   Glazing U-value ({isSI ? "W/m²K" : "BTU/hr·ft²·°F"})
                                 </label>
                               </div>
@@ -1241,7 +1241,7 @@ function HeatingLoadPage() {
                           <ContextMenuTrigger asChild>
                             <div className="space-y-1">
                               <div className="flex justify-between items-center">
-                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                <label className="text-[11.5px] font-medium text-slate-700 dark:text-zinc-300">
                                   Wall + roof U-value ({isSI ? "W/m²K" : "BTU/hr·ft²·°F"})
                                 </label>
                               </div>
@@ -1277,7 +1277,7 @@ function HeatingLoadPage() {
                           <ContextMenuTrigger asChild>
                             <div className="space-y-1">
                               <div className="flex justify-between items-center">
-                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                <label className="text-[11.5px] font-medium text-slate-700 dark:text-zinc-300">
                                   Infiltration Rate (ACH)
                                 </label>
                               </div>
@@ -1310,7 +1310,7 @@ function HeatingLoadPage() {
                           <ContextMenuTrigger asChild>
                             <div className="space-y-1 sm:col-span-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
                               <div className="flex justify-between items-center">
-                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                <label className="text-[11.5px] font-medium text-slate-700 dark:text-zinc-300">
                                   Design Safety Margin (%)
                                 </label>
                               </div>

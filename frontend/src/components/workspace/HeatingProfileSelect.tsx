@@ -79,7 +79,7 @@ export function HeatingProfileSelect({
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <IconComp className={cn("size-3.5 shrink-0", isCustom ? "text-primary" : "text-muted-foreground")} />
-              <span className="truncate max-w-[180px] font-bold">{triggerLabel}</span>
+              <span className="truncate max-w-[180px] font-semibold">{triggerLabel}</span>
             </div>
             <ChevronsUpDown className="size-3 text-muted-foreground shrink-0 opacity-60 ml-0.5" />
           </button>

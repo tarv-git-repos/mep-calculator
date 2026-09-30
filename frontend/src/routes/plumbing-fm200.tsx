@@ -1,4 +1,4 @@
-﻿import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -43,6 +43,7 @@ function FM200SizerPage() {
   const calcReviewState = useCalculationReviewState("/plumbing-fm200", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-fm200", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || (userData as any)?.full_name || "Design Engineer";
   const isApprovedLocked = useCalculationLock("/plumbing-fm200", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
