@@ -1097,6 +1097,101 @@ function ChwPipeSizerPage() {
         comments={commentsList}
         onSave={handleSaveComment}
       />
+
+      {/* Piping Sizing Schedule Popup Modal */}
+      {scheduleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-card border border-border shadow-2xl rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-card">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-primary/10 text-primary rounded-xl">
+                  <FileSpreadsheet className="size-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Piping Sizing Schedule</h3>
+                  <p className="text-xs text-muted-foreground">Colebrook-White friction evaluation &amp; hydrodynamic comparison</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setScheduleModalOpen(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: Schedule Table */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground font-medium">
+                  Fluid: <strong className="text-foreground">{sizingParams.fluidType.toUpperCase()}</strong> @ <strong className="text-foreground">{calculatedData.tRaw} {isSI ? "°C" : "°F"}</strong> | Material: <strong className="text-foreground">{PIPE_MATERIALS[sizingParams.pipeMaterial]?.label}</strong>
+                </span>
+                <span className="text-muted-foreground font-medium font-mono">
+                  Target ΔP: <strong className="text-foreground">{calculatedData.dpRaw} {isSI ? "Pa/m" : "ft/100ft"}</strong>
+                </span>
+              </div>
+
+              <div className="overflow-x-auto border border-border rounded-xl">
+                <table className="w-full text-xs font-sans text-left border-collapse">
+                  <thead>
+                    <tr className="bg-muted font-bold text-foreground border-b border-border">
+                      <th className="p-3 text-center">NPS</th>
+                      <th className="p-3 text-center">ID ({isSI ? "mm" : "in"})</th>
+                      <th className="p-3 text-right">Velocity</th>
+                      <th className="p-3 text-right">Pressure Drop</th>
+                      <th className="p-3 text-right">Reynolds Number</th>
+                      <th className="p-3 text-center">Friction Factor (f)</th>
+                      <th className="p-3 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border font-mono">
+                    {calculatedData.allPipes.map((p) => {
+                      const isChosen = calculatedData.chosen?.nps === p.nps;
+                      return (
+                        <tr key={p.nps} className={`hover:bg-muted/40 transition-colors ${isChosen ? "bg-primary/10 font-bold" : ""}`}>
+                          <td className="p-3 text-center font-bold font-sans text-foreground">{p.nps}"</td>
+                          <td className="p-3 text-center">{isSI ? p.idMm : p.idIn.toFixed(3)}</td>
+                          <td className="p-3 text-right">{isSI ? `${p.v.toFixed(2)} m/s` : `${p.vFps.toFixed(2)} fps`}</td>
+                          <td className="p-3 text-right">{isSI ? `${p.dpPaM.toFixed(1)} Pa/m` : `${p.dpFt.toFixed(2)} ft/100ft`}</td>
+                          <td className="p-3 text-right">{Math.round(p.Re).toLocaleString()}</td>
+                          <td className="p-3 text-center">{p.f.toFixed(4)}</td>
+                          <td className="p-3 text-center">
+                            {p.isCompliant ? (
+                              <span className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold px-2 py-0.5 rounded text-[10px]">
+                                {isChosen ? "✓ SELECTED" : "✓ PASS"}
+                              </span>
+                            ) : (
+                              <span className="bg-red-500/15 text-red-600 dark:text-red-400 font-bold px-2 py-0.5 rounded text-[10px]">
+                                HIGH DROP
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between px-6 py-3 border-t border-border bg-muted/20 text-xs">
+              <span className="text-muted-foreground font-mono">
+                {calculatedData.chosen ? `Optimal Selected: NPS ${calculatedData.chosen.nps}" / DN ${calculatedData.chosen.idMm} mm` : ""}
+              </span>
+              <button
+                onClick={() => setScheduleModalOpen(false)}
+                className="px-4 py-1.5 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 transition-colors cursor-pointer"
+              >
+                Close Schedule
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }
