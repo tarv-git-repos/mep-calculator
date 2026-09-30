@@ -52,7 +52,7 @@ const PIPE_MATERIALS: Record<string, { label: string; roughness: number }> = {
   steel: { label: "Carbon Steel", roughness: 0.000046 },
   copper: { label: "Copper", roughness: 0.0000015 },
   stainless: { label: "Stainless Steel", roughness: 0.000015 },
-  hdpe: { label: "HDPE / PPR", roughness: 0.000007 },
+  galvanized: { label: "Galvanized Steel", roughness: 0.00015 },
 };
 
 export type CHWModePill = "primary_chw" | "secondary_chw" | "condenser_cw" | "district_cooling" | "glycol_loop";
@@ -67,7 +67,7 @@ interface CHWPreset {
   tempIP: number;
   targetDpSI: number;
   targetDpIP: number;
-  material: "steel" | "copper" | "stainless" | "hdpe";
+  material: "steel" | "copper" | "stainless" | "galvanized";
 }
 
 const CHW_PRESETS: Record<CHWModePill, CHWPreset> = {
@@ -178,7 +178,7 @@ function ChwPipeSizerPage() {
     flowRate: "80" as string | number,
     fluidType: "chw" as "chw" | "cw" | "g25" | "g40",
     temperature: "44" as string | number,
-    pipeMaterial: "steel" as "steel" | "copper" | "stainless" | "hdpe",
+    pipeMaterial: "steel" as "steel" | "copper" | "stainless" | "galvanized",
     targetDp: "4.0" as string | number,
   });
 
@@ -624,18 +624,20 @@ function ChwPipeSizerPage() {
                 
                 {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
                 <div className="lg:col-span-5 space-y-5">
-                  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-4">
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800">
+                  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                       <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
                         📥 Sizing Parameters
                       </span>
                     </div>
 
-                    {/* Flow Rate */}
-                    <div>
-                      <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                        Flow Rate ({isSI ? "L/s" : "GPM"})
-                      </label>
+                    {/* INPUT 1: Flow Rate */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          Flow Rate ({isSI ? "L/s" : "GPM"})
+                        </label>
+                      </div>
                       <input
                         type="number"
                         disabled={isEffectiveReadOnly || isApprovedLocked}
@@ -646,60 +648,74 @@ function ChwPipeSizerPage() {
                       />
                     </div>
 
-                    {/* Fluid Type & Temp */}
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Fluid Type</label>
-                        <select
-                          disabled={isEffectiveReadOnly || isApprovedLocked}
-                          value={sizingParams.fluidType}
-                          onChange={(e) => saveParams({ ...sizingParams, fluidType: e.target.value as any }, unitSystem)}
-                          className="w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-semibold focus:outline-none focus:border-[#0A7BC7]"
-                        >
-                          <option value="chw">Chilled Water</option>
-                          <option value="cw">Condenser Water</option>
-                          <option value="g25">25% Ethylene Glycol</option>
-                          <option value="g40">40% Ethylene Glycol</option>
-                        </select>
+                    {/* INPUT 2 & 3: Fluid Type & Operating Temp */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Fluid Properties &amp; Temperature
+                        </span>
                       </div>
-                      <div>
-                        <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Fluid Temp ({isSI ? "°C" : "°F"})</label>
-                        <input
-                          type="number"
-                          disabled={isEffectiveReadOnly || isApprovedLocked}
-                          value={sizingParams.temperature}
-                          onChange={(e) => saveParams({ ...sizingParams, temperature: e.target.value }, unitSystem)}
-                          className={flowInputClass}
-                          placeholder={isSI ? "e.g. 6.7" : "e.g. 44"}
-                        />
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <label className="text-[11px] text-slate-500">Fluid Type</label>
+                          <select
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            value={sizingParams.fluidType}
+                            onChange={(e) => saveParams({ ...sizingParams, fluidType: e.target.value as any }, unitSystem)}
+                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs font-semibold focus:outline-none"
+                          >
+                            <option value="chw">Chilled Water</option>
+                            <option value="cw">Condenser Water</option>
+                            <option value="g25">25% Ethylene Glycol</option>
+                            <option value="g40">40% Ethylene Glycol</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-500">Fluid Temp ({isSI ? "°C" : "°F"})</label>
+                          <input
+                            type="number"
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            value={sizingParams.temperature}
+                            onChange={(e) => saveParams({ ...sizingParams, temperature: e.target.value }, unitSystem)}
+                            className={inputClass}
+                            placeholder={isSI ? "e.g. 6.7" : "e.g. 44"}
+                          />
+                        </div>
                       </div>
                     </div>
 
-                    {/* Pipe Material & Target ΔP */}
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Pipe Material</label>
-                        <select
-                          disabled={isEffectiveReadOnly || isApprovedLocked}
-                          value={sizingParams.pipeMaterial}
-                          onChange={(e) => saveParams({ ...sizingParams, pipeMaterial: e.target.value as any }, unitSystem)}
-                          className="w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-semibold focus:outline-none focus:border-[#0A7BC7]"
-                        >
-                          {Object.entries(PIPE_MATERIALS).map(([k, m]) => (
-                            <option key={k} value={k}>{m.label}</option>
-                          ))}
-                        </select>
+                    {/* INPUT 4 & 5: Material & Target ΔP */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Piping &amp; Friction Criteria
+                        </span>
                       </div>
-                      <div>
-                        <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Target ΔP ({isSI ? "Pa/m" : "ft/100ft"})</label>
-                        <input
-                          type="number"
-                          disabled={isEffectiveReadOnly || isApprovedLocked}
-                          value={sizingParams.targetDp}
-                          onChange={(e) => saveParams({ ...sizingParams, targetDp: e.target.value }, unitSystem)}
-                          className={flowInputClass}
-                          placeholder={isSI ? "e.g. 40" : "e.g. 4.0"}
-                        />
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <label className="text-[11px] text-slate-500">Pipe Material</label>
+                          <select
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            value={sizingParams.pipeMaterial}
+                            onChange={(e) => saveParams({ ...sizingParams, pipeMaterial: e.target.value as any }, unitSystem)}
+                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs font-semibold focus:outline-none"
+                          >
+                            {Object.entries(PIPE_MATERIALS).map(([k, m]) => (
+                              <option key={k} value={k}>{m.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] text-slate-500">Target ΔP ({isSI ? "Pa/m" : "ft/100ft"})</label>
+                          <input
+                            type="number"
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            value={sizingParams.targetDp}
+                            onChange={(e) => saveParams({ ...sizingParams, targetDp: e.target.value }, unitSystem)}
+                            className={inputClass}
+                            placeholder={isSI ? "e.g. 40" : "e.g. 4.0"}
+                          />
+                        </div>
                       </div>
                     </div>
 

@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
+import { TBtn, BulkBtn } from "@/components/workspace/Button";
 import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown, ChevronUp, FileText, Calculator, CheckCircle2, AlertTriangle, FileSpreadsheet, Layers, Globe } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, ContextMenuShortcut } from "@/components/ui/context-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -2597,7 +2598,7 @@ function LoadingUnitPage() {
 
             {/* Row 2: Action Toolbar (Search, Filter, Sort, Import, Export, + Add Floor Section, + Add Space) */}
             {activeTab === "spaces" && (
-              <div className="flex items-center justify-between px-4 py-2 bg-slate-50/50 dark:bg-slate-900/30 shrink-0 select-none no-print border-b border-border/50 gap-3 flex-wrap">
+              <div className="relative flex items-center justify-between px-4 py-2 bg-slate-50/50 dark:bg-slate-900/30 shrink-0 select-none no-print border-b border-border/50 gap-3 flex-wrap">
                 {/* Left Side: Search Filter & Sort Options */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className="relative flex items-center">
@@ -2757,6 +2758,24 @@ function LoadingUnitPage() {
                     <Plus className="size-3.5" /> Add Space
                   </button>
                 </div>
+
+                {/* Bulk actions bar overlay (Matching Ventilation Schedule exactly) */}
+                {!isApprovedLocked && selectedIds.length > 0 && (
+                  <div className="absolute inset-0 flex items-center justify-between px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{selectedIds.length} selected</span>
+                      <span className="text-primary/30">·</span>
+                      <BulkBtn icon={Copy} onClick={handleBulkDuplicate}>Duplicate ({selectedIds.length})</BulkBtn>
+                      <BulkBtn icon={Building2} onClick={handleBulkMoveFloor}>Move to Floor</BulkBtn>
+                      <BulkBtn icon={Edit3} onClick={handleBulkEditQty}>Edit Qty</BulkBtn>
+                      <BulkBtn icon={Trash2} onClick={handleBulkDelete}>Delete</BulkBtn>
+                    </div>
+
+                    <button onClick={() => setSelectedIds([])} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer">
+                      <X className="size-3" /> Clear
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2764,43 +2783,6 @@ function LoadingUnitPage() {
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               {activeTab === "spaces" && (
                 <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                  
-                  {/* Bulk Actions Banner */}
-                  {!isApprovedLocked && selectedIds.length > 0 && (
-                    <div className="mx-4 mt-3 flex items-center justify-between px-3.5 py-1.5 bg-primary/10 border border-primary/30 rounded-xl text-xs font-semibold text-primary select-none animate-fade-in">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-primary text-primary-foreground font-bold px-2 py-0.5 rounded-full text-[10.5px] font-mono shadow-2xs">
-                          {selectedIds.length} Selected
-                        </span>
-                        <span className="text-muted-foreground text-[11.5px]">
-                          Press <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Shift/Ctrl+Click</kbd> for multi-select, <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Delete</kbd> remove.
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={handleBulkDuplicate}
-                          className="px-2.5 py-1 bg-background hover:bg-slate-200 dark:hover:bg-slate-800 text-foreground border border-border rounded-lg text-[11px] font-bold cursor-pointer transition shadow-2xs flex items-center gap-1"
-                        >
-                          <Copy className="size-3" /> Duplicate ({selectedIds.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleBulkDelete}
-                          className="px-2.5 py-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground rounded-lg text-[11px] font-bold cursor-pointer transition shadow-2xs flex items-center gap-1"
-                        >
-                          <Trash2 className="size-3" /> Delete Selected
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedIds([])}
-                          className="px-2 py-1 bg-background hover:bg-slate-200 dark:hover:bg-slate-800 text-muted-foreground rounded-lg text-[11px] font-bold cursor-pointer transition border border-border/60"
-                        >
-                          Deselect (Esc)
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Main Spaces Schedule Table with Floor Section Grouping */}
                   <div className="overflow-x-auto overflow-y-auto w-full flex-1 min-h-0 custom-scrollbar">

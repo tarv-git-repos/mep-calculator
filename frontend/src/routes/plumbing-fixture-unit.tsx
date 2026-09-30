@@ -1121,7 +1121,7 @@ function FixtureUnitPage() {
 
             {/* Row 2: Secondary Action Sub-Bar */}
             {activeTab === "spaces" && (
-              <div className="flex items-center justify-between px-4 py-2 bg-slate-50/50 dark:bg-slate-900/30 shrink-0 select-none no-print border-b border-border/40 gap-2 flex-wrap text-xs">
+              <div className="relative flex items-center justify-between px-4 py-2 bg-slate-50/50 dark:bg-slate-900/30 shrink-0 select-none no-print border-b border-border/40 gap-2 flex-wrap text-xs">
                 
                 {/* Left Side: Filter / Search */}
                 <div className="flex items-center gap-2 flex-wrap flex-1 max-w-xl">
@@ -1299,6 +1299,73 @@ function FixtureUnitPage() {
                     <Plus className="size-3.5" /> New Space
                   </button>
                 </div>
+
+                {/* Bulk actions bar overlay (Matching Ventilation Schedule exactly) */}
+                {!isApprovedLocked && selectedIds.length > 0 && (
+                  <div className="absolute inset-0 flex items-center justify-between px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{selectedIds.length} selected</span>
+                      <span className="text-primary/30">·</span>
+                      <BulkBtn icon={Copy} onClick={handleBulkDuplicate}>Duplicate ({selectedIds.length})</BulkBtn>
+                      
+                      {/* Floor Move */}
+                      <div className="flex items-center gap-1 bg-white/80 dark:bg-black/40 border border-[#06456F]/20 dark:border-[#0A7BC7]/30 rounded-md px-2 py-0.5">
+                        <span className="text-[11px] text-muted-foreground font-semibold">Floor:</span>
+                        <input
+                          type="text"
+                          value={bulkFloor}
+                          onChange={(e) => setBulkFloor(e.target.value)}
+                          placeholder="e.g. 2F"
+                          className="w-12 text-xs font-mono font-bold bg-transparent outline-none uppercase"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleApplyBulkFloor}
+                          className="px-1.5 py-0.5 bg-primary text-primary-foreground text-[10.5px] font-bold rounded cursor-pointer"
+                        >
+                          Set
+                        </button>
+                      </div>
+
+                      {/* Standard Bulk Apply */}
+                      <div className="flex items-center gap-1 bg-white/80 dark:bg-black/40 border border-[#06456F]/20 dark:border-[#0A7BC7]/30 rounded-md px-2 py-0.5">
+                        <select
+                          value={bulkStd}
+                          onChange={(e) => setBulkStd(e.target.value)}
+                          className="text-xs font-semibold bg-transparent outline-none cursor-pointer"
+                        >
+                          <option value="ipc-total">IPC Total</option>
+                          <option value="ipc-cold">IPC Cold</option>
+                          <option value="ipc-hot">IPC Hot</option>
+                          <option value="low">Low Demand</option>
+                          <option value="med">Medium Demand</option>
+                          <option value="high">High Demand</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleApplyBulkStd}
+                          className="px-1.5 py-0.5 bg-primary text-primary-foreground text-[10.5px] font-bold rounded cursor-pointer"
+                        >
+                          Set Std
+                        </button>
+                      </div>
+
+                      <BulkBtn icon={Trash2} onClick={async () => {
+                        if (isApprovedLocked || isEffectiveReadOnly) return;
+                        if (window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected space(s)?`)) {
+                          pushToUndo(fuSpaces);
+                          setFuSpaces(fuSpaces.filter(s => !selectedIds.includes(s.id)));
+                          setSelectedIds([]);
+                          toast.info(`Deleted ${selectedIds.length} space(s)`);
+                        }
+                      }}>Delete</BulkBtn>
+                    </div>
+
+                    <button onClick={() => setSelectedIds([])} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer">
+                      <X className="size-3" /> Clear
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1306,79 +1373,6 @@ function FixtureUnitPage() {
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               {activeTab === "spaces" && (
                 <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                  
-                  {/* Bulk Actions Banner */}
-                  {!isApprovedLocked && selectedIds.length > 0 && (
-                    <div className="mx-4 mt-3 flex items-center justify-between px-3.5 py-1.5 bg-primary/10 border border-primary/30 rounded-xl text-xs font-semibold text-primary select-none animate-fade-in">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-primary text-primary-foreground font-bold px-2 py-0.5 rounded-full text-[10.5px] font-mono shadow-2xs">
-                          {selectedIds.length} Selected
-                        </span>
-                        <span className="text-muted-foreground text-[11.5px]">
-                          Press <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Shift/Ctrl+Click</kbd> for multi-select, <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Delete</kbd> remove.
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {/* Floor Move */}
-                        <div className="flex items-center gap-1 bg-background border border-border rounded-lg px-2 py-0.5">
-                          <span className="text-[11px] text-muted-foreground">Floor:</span>
-                          <input
-                            type="text"
-                            value={bulkFloor}
-                            onChange={(e) => setBulkFloor(e.target.value)}
-                            placeholder="e.g. 2F"
-                            className="w-14 text-xs font-mono font-bold bg-transparent outline-none uppercase"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleApplyBulkFloor}
-                            className="px-2 py-0.5 bg-primary text-primary-foreground text-[11px] font-bold rounded cursor-pointer"
-                          >
-                            Set
-                          </button>
-                        </div>
-
-                        {/* Standard Bulk Apply */}
-                        <div className="flex items-center gap-1 bg-background border border-border rounded-lg px-2 py-0.5">
-                          <select
-                            value={bulkStd}
-                            onChange={(e) => setBulkStd(e.target.value)}
-                            className="text-xs font-semibold bg-transparent outline-none cursor-pointer"
-                          >
-                            <option value="ipc-total">IPC Total</option>
-                            <option value="ipc-cold">IPC Cold</option>
-                            <option value="ipc-hot">IPC Hot</option>
-                            <option value="low">Low Demand</option>
-                            <option value="med">Medium Demand</option>
-                            <option value="high">High Demand</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={handleApplyBulkStd}
-                            className="px-2 py-0.5 bg-primary text-primary-foreground text-[11px] font-bold rounded cursor-pointer"
-                          >
-                            Set Std
-                          </button>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={handleBulkDuplicate}
-                          className="px-2.5 py-1 bg-background hover:bg-slate-100 dark:hover:bg-slate-800 border border-border rounded-lg text-foreground font-semibold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Copy className="size-3" /> Duplicate
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setSelectedIds([])}
-                          className="px-2 py-1 text-muted-foreground hover:text-foreground cursor-pointer"
-                        >
-                          Deselect
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Spaces Data Grid / Table */}
                   <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar">

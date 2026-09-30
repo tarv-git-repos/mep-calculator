@@ -1025,317 +1025,320 @@ function HeatingLoadPage() {
                         />
                       </div>
 
-                      {/* Input 1: Floor area */}
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Floor area ({isSI ? "m²" : "sq.ft"})
-                              </label>
+                      {/* 2-Column Grid for Input Parameters */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 pt-3 border-t border-slate-100 dark:border-zinc-800">
+                        {/* Input 1: Floor area */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                  Floor area ({isSI ? "m²" : "sq.ft"})
+                                </label>
+                              </div>
+                              <input
+                                type="number"
+                                disabled={isEffectiveReadOnly}
+                                value={isSI && typeof area === "number" ? parseFloat((area * SQFT_TO_SQM).toFixed(1)) : area}
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                  if (val === "") setArea("");
+                                  else if (isSI) setArea(val * SQM_TO_SQFT);
+                                  else setArea(val);
+                                  dirtyStore.set(true);
+                                }}
+                                className={flowInputClass}
+                                placeholder={isSI ? "e.g. 185" : "e.g. 2000"}
+                              />
                             </div>
-                            <input
-                              type="number"
-                              disabled={isEffectiveReadOnly}
-                              value={isSI && typeof area === "number" ? parseFloat((area * SQFT_TO_SQM).toFixed(1)) : area}
-                              onChange={(e) => {
-                                const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                if (val === "") setArea("");
-                                else if (isSI) setArea(val * SQM_TO_SQFT);
-                                else setArea(val);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder={isSI ? "e.g. 185" : "e.g. 2000"}
-                            />
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => { setArea(2000); toast.success("Reset floor area to default"); }}>
-                            <RotateCcw className="size-3.5 mr-2" /> Reset to Default
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Floor area")}>
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                            <ContextMenuItem onClick={() => { setArea(2000); toast.success("Reset floor area to default"); }}>
+                              <RotateCcw className="size-3.5 mr-2" /> Reset to Default
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Floor area")}>
+                              <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
-                      {/* Input 2: Ceiling height */}
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Ceiling height ({isSI ? "m" : "ft"})
-                              </label>
+                        {/* Input 2: Ceiling height */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                  Ceiling height ({isSI ? "m" : "ft"})
+                                </label>
+                              </div>
+                              <input
+                                type="number"
+                                disabled={isEffectiveReadOnly}
+                                value={isSI && typeof height === "number" ? parseFloat((height * FT_TO_M).toFixed(2)) : height}
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                  if (val === "") setHeight("");
+                                  else if (isSI) setHeight(val * M_TO_FT);
+                                  else setHeight(val);
+                                  dirtyStore.set(true);
+                                }}
+                                className={flowInputClass}
+                                placeholder={isSI ? "e.g. 3.0" : "e.g. 10"}
+                              />
                             </div>
-                            <input
-                              type="number"
-                              disabled={isEffectiveReadOnly}
-                              value={isSI && typeof height === "number" ? parseFloat((height * FT_TO_M).toFixed(2)) : height}
-                              onChange={(e) => {
-                                const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                if (val === "") setHeight("");
-                                else if (isSI) setHeight(val * M_TO_FT);
-                                else setHeight(val);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder={isSI ? "e.g. 3.0" : "e.g. 10"}
-                            />
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => { setHeight(10); toast.success("Reset ceiling height to default"); }}>
-                            <RotateCcw className="size-3.5 mr-2" /> Reset to Default
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Ceiling height")}>
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                            <ContextMenuItem onClick={() => { setHeight(10); toast.success("Reset ceiling height to default"); }}>
+                              <RotateCcw className="size-3.5 mr-2" /> Reset to Default
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Ceiling height")}>
+                              <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
-                      {/* Input 3: Wall + roof U-value */}
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Wall + roof U-value ({isSI ? "W/m²K" : "BTU/hr·ft²·°F"})
-                              </label>
+                        {/* Input 3: Outdoor design temperature */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                  Outdoor temp ({isSI ? "°C" : "°F"})
+                                </label>
+                              </div>
+                              <input
+                                type="number"
+                                disabled={isEffectiveReadOnly}
+                                value={isSI && typeof oat === "number" ? parseFloat(((oat - 32) / 1.8).toFixed(1)) : oat}
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                  if (val === "") setOat("");
+                                  else if (isSI) setOat(val * 1.8 + 32);
+                                  else setOat(val);
+                                  dirtyStore.set(true);
+                                }}
+                                className={flowInputClass}
+                                placeholder={isSI ? "e.g. 0" : "e.g. 32"}
+                              />
                             </div>
-                            <input
-                              type="number"
-                              step="0.005"
-                              disabled={isEffectiveReadOnly}
-                              value={isSI && typeof uWall === "number" ? parseFloat((uWall * U_IP_TO_SI).toFixed(2)) : uWall}
-                              onChange={(e) => {
-                                const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                if (val === "") setUWall("");
-                                else if (isSI) setUWall(val * U_SI_TO_IP);
-                                else setUWall(val);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder={isSI ? "e.g. 0.37" : "e.g. 0.065"}
-                            />
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => { setUWall(0.065); toast.success("Reset U-value to default"); }}>
-                            <RotateCcw className="size-3.5 mr-2" /> Reset to Default
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Wall + roof U-value")}>
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                            <ContextMenuItem onClick={() => { setOat(20); toast.success("Reset outdoor temp to default"); }}>
+                              <RotateCcw className="size-3.5 mr-2" /> Reset to Default
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Outdoor design temperature")}>
+                              <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
-                      {/* Input 4: Glazing area */}
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Glazing area ({isSI ? "m²" : "sq.ft"})
-                              </label>
+                        {/* Input 4: Indoor setpoint */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                  Indoor setpoint ({isSI ? "°C" : "°F"})
+                                </label>
+                              </div>
+                              <input
+                                type="number"
+                                disabled={isEffectiveReadOnly}
+                                value={isSI && typeof iat === "number" ? parseFloat(((iat - 32) / 1.8).toFixed(1)) : iat}
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                  if (val === "") setIat("");
+                                  else if (isSI) setIat(val * 1.8 + 32);
+                                  else setIat(val);
+                                  dirtyStore.set(true);
+                                }}
+                                className={flowInputClass}
+                                placeholder={isSI ? "e.g. 21.1" : "e.g. 70"}
+                              />
                             </div>
-                            <input
-                              type="number"
-                              disabled={isEffectiveReadOnly}
-                              value={isSI && typeof glazArea === "number" ? parseFloat((glazArea * SQFT_TO_SQM).toFixed(1)) : glazArea}
-                              onChange={(e) => {
-                                const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                if (val === "") setGlazArea("");
-                                else if (isSI) setGlazArea(val * SQM_TO_SQFT);
-                                else setGlazArea(val);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder={isSI ? "e.g. 18.5" : "e.g. 200"}
-                            />
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => { setGlazArea(600); toast.success("Reset glazing area to default"); }}>
-                            <RotateCcw className="size-3.5 mr-2" /> Reset to Default
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Glazing area")}>
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                            <ContextMenuItem onClick={() => { setIat(70); toast.success("Reset indoor setpoint to default"); }}>
+                              <RotateCcw className="size-3.5 mr-2" /> Reset to Default
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Indoor setpoint")}>
+                              <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
-                      {/* Input 5: Glazing U-value */}
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Glazing U-value ({isSI ? "W/m²K" : "BTU/hr·ft²·°F"})
-                              </label>
+                        {/* Input 5: Glazing area */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                  Glazing area ({isSI ? "m²" : "sq.ft"})
+                                </label>
+                              </div>
+                              <input
+                                type="number"
+                                disabled={isEffectiveReadOnly}
+                                value={isSI && typeof glazArea === "number" ? parseFloat((glazArea * SQFT_TO_SQM).toFixed(1)) : glazArea}
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                  if (val === "") setGlazArea("");
+                                  else if (isSI) setGlazArea(val * SQM_TO_SQFT);
+                                  else setGlazArea(val);
+                                  dirtyStore.set(true);
+                                }}
+                                className={flowInputClass}
+                                placeholder={isSI ? "e.g. 18.5" : "e.g. 200"}
+                              />
                             </div>
-                            <input
-                              type="number"
-                              step="0.01"
-                              disabled={isEffectiveReadOnly}
-                              value={isSI && typeof uGlaz === "number" ? parseFloat((uGlaz * U_IP_TO_SI).toFixed(2)) : uGlaz}
-                              onChange={(e) => {
-                                const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                if (val === "") setUGlaz("");
-                                else if (isSI) setUGlaz(val * U_SI_TO_IP);
-                                else setUGlaz(val);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder={isSI ? "e.g. 1.6" : "e.g. 0.28"}
-                            />
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => { setUGlaz(0.32); toast.success("Reset glazing U-value to default"); }}>
-                            <RotateCcw className="size-3.5 mr-2" /> Reset to Default
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Glazing U-value")}>
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                            <ContextMenuItem onClick={() => { setGlazArea(600); toast.success("Reset glazing area to default"); }}>
+                              <RotateCcw className="size-3.5 mr-2" /> Reset to Default
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Glazing area")}>
+                              <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
-                      {/* Input 6: Outdoor design temperature */}
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Outdoor design temperature ({isSI ? "°C" : "°F"})
-                              </label>
+                        {/* Input 6: Glazing U-value */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                  Glazing U-value ({isSI ? "W/m²K" : "BTU/hr·ft²·°F"})
+                                </label>
+                              </div>
+                              <input
+                                type="number"
+                                step="0.01"
+                                disabled={isEffectiveReadOnly}
+                                value={isSI && typeof uGlaz === "number" ? parseFloat((uGlaz * U_IP_TO_SI).toFixed(2)) : uGlaz}
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                  if (val === "") setUGlaz("");
+                                  else if (isSI) setUGlaz(val * U_SI_TO_IP);
+                                  else setUGlaz(val);
+                                  dirtyStore.set(true);
+                                }}
+                                className={flowInputClass}
+                                placeholder={isSI ? "e.g. 1.6" : "e.g. 0.28"}
+                              />
                             </div>
-                            <input
-                              type="number"
-                              disabled={isEffectiveReadOnly}
-                              value={isSI && typeof oat === "number" ? parseFloat(((oat - 32) / 1.8).toFixed(1)) : oat}
-                              onChange={(e) => {
-                                const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                if (val === "") setOat("");
-                                else if (isSI) setOat(val * 1.8 + 32);
-                                else setOat(val);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder={isSI ? "e.g. 0" : "e.g. 32"}
-                            />
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => { setOat(20); toast.success("Reset outdoor temp to default"); }}>
-                            <RotateCcw className="size-3.5 mr-2" /> Reset to Default
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Outdoor design temperature")}>
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                            <ContextMenuItem onClick={() => { setUGlaz(0.32); toast.success("Reset glazing U-value to default"); }}>
+                              <RotateCcw className="size-3.5 mr-2" /> Reset to Default
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Glazing U-value")}>
+                              <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
-                      {/* Input 7: Indoor setpoint */}
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Indoor setpoint ({isSI ? "°C" : "°F"})
-                              </label>
+                        {/* Input 7: Wall + roof U-value */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                  Wall + roof U-value ({isSI ? "W/m²K" : "BTU/hr·ft²·°F"})
+                                </label>
+                              </div>
+                              <input
+                                type="number"
+                                step="0.005"
+                                disabled={isEffectiveReadOnly}
+                                value={isSI && typeof uWall === "number" ? parseFloat((uWall * U_IP_TO_SI).toFixed(2)) : uWall}
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                  if (val === "") setUWall("");
+                                  else if (isSI) setUWall(val * U_SI_TO_IP);
+                                  else setUWall(val);
+                                  dirtyStore.set(true);
+                                }}
+                                className={flowInputClass}
+                                placeholder={isSI ? "e.g. 0.37" : "e.g. 0.065"}
+                              />
                             </div>
-                            <input
-                              type="number"
-                              disabled={isEffectiveReadOnly}
-                              value={isSI && typeof iat === "number" ? parseFloat(((iat - 32) / 1.8).toFixed(1)) : iat}
-                              onChange={(e) => {
-                                const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                if (val === "") setIat("");
-                                else if (isSI) setIat(val * 1.8 + 32);
-                                else setIat(val);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder={isSI ? "e.g. 21.1" : "e.g. 70"}
-                            />
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => { setIat(70); toast.success("Reset indoor setpoint to default"); }}>
-                            <RotateCcw className="size-3.5 mr-2" /> Reset to Default
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Indoor setpoint")}>
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                            <ContextMenuItem onClick={() => { setUWall(0.065); toast.success("Reset U-value to default"); }}>
+                              <RotateCcw className="size-3.5 mr-2" /> Reset to Default
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Wall + roof U-value")}>
+                              <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
-                      {/* Input 8: Infiltration (ACH) */}
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Infiltration Rate (ACH) (air changes/hr)
-                              </label>
+                        {/* Input 8: Infiltration (ACH) */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div className="space-y-1">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                  Infiltration Rate (ACH)
+                                </label>
+                              </div>
+                              <input
+                                type="number"
+                                step="0.05"
+                                disabled={isEffectiveReadOnly}
+                                value={ach}
+                                onChange={(e) => {
+                                  setAch(e.target.value === "" ? "" : parseFloat(e.target.value));
+                                  dirtyStore.set(true);
+                                }}
+                                className={flowInputClass}
+                                placeholder="e.g. 0.5"
+                              />
                             </div>
-                            <input
-                              type="number"
-                              step="0.05"
-                              disabled={isEffectiveReadOnly}
-                              value={ach}
-                              onChange={(e) => {
-                                setAch(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder="e.g. 0.5"
-                            />
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => { setAch(0.35); toast.success("Reset ACH to default"); }}>
-                            <RotateCcw className="size-3.5 mr-2" /> Reset to Default
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Infiltration (ACH)")}>
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                            <ContextMenuItem onClick={() => { setAch(0.35); toast.success("Reset ACH to default"); }}>
+                              <RotateCcw className="size-3.5 mr-2" /> Reset to Default
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Infiltration (ACH)")}>
+                              <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
-                      {/* Input 9: Safety Margin (%) */}
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
-                            <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Design Safety Margin (%)
-                              </label>
+                        {/* Input 9: Safety Margin (%) - Full width across 2 columns */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div className="space-y-1 sm:col-span-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                  Design Safety Margin (%)
+                                </label>
+                              </div>
+                              <input
+                                type="number"
+                                disabled={isEffectiveReadOnly}
+                                value={safetyMargin}
+                                onChange={(e) => {
+                                  setSafetyMargin(e.target.value === "" ? "" : parseFloat(e.target.value));
+                                  dirtyStore.set(true);
+                                }}
+                                className={flowInputClass}
+                                placeholder="e.g. 15"
+                              />
                             </div>
-                            <input
-                              type="number"
-                              disabled={isEffectiveReadOnly}
-                              value={safetyMargin}
-                              onChange={(e) => {
-                                setSafetyMargin(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder="e.g. 15"
-                            />
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => { setSafetyMargin(15); toast.success("Reset safety margin to default"); }}>
-                            <RotateCcw className="size-3.5 mr-2" /> Reset to Default
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Design Safety Margin")}>
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                            <ContextMenuItem onClick={() => { setSafetyMargin(15); toast.success("Reset safety margin to default"); }}>
+                              <RotateCcw className="size-3.5 mr-2" /> Reset to Default
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Design Safety Margin")}>
+                              <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      </div>
 
                     </div>
                   </div>
@@ -1427,9 +1430,6 @@ function HeatingLoadPage() {
                               <span className="font-mono text-[#0A7BC7]">{calcResults.kwTotal.toFixed(2)} kW ({Math.round(calcResults.qTotal).toLocaleString()} BTU/hr)</span>
                             </div>
                           </div>
-
-                          {/* Breakdown progress bar chart */}
-                          {renderBreakdownChart()}
                         </div>
                       </ContextMenuTrigger>
                       <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1544,7 +1544,7 @@ function HeatingLoadPage() {
                   </div>
 
                   {/* Table 2 */}
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
                       2. Winter Heat Loss Breakdown & Sizing Summary
                     </h3>
@@ -1600,6 +1600,11 @@ function HeatingLoadPage() {
                         </tr>
                       </tbody>
                     </table>
+
+                    {/* Heat Loss Breakdown Visual Progress Bars in Report Preview */}
+                    <div className="pt-2">
+                      {renderBreakdownChart()}
+                    </div>
                   </div>
 
                   {/* Table 3 */}

@@ -2163,8 +2163,9 @@ function LPDCalculationPage() {
                                     onDoubleClick={(e) => {
                                       const target = e.target as HTMLElement;
                                       if (
-                                        ["INPUT", "SELECT", "TEXTAREA", "BUTTON", "A"].includes(target.tagName) ||
-                                        target.closest("button")
+                                        (target.tagName === "INPUT" && (target as HTMLInputElement).type === "checkbox") ||
+                                        target.closest("button") ||
+                                        target.closest("a")
                                       ) {
                                         return;
                                       }
@@ -2202,6 +2203,7 @@ function LPDCalculationPage() {
                                             type="checkbox"
                                             checked={isSelected}
                                             onChange={() => toggleSelectRow(space.id)}
+                                            onDoubleClick={(e) => e.stopPropagation()}
                                             className="size-3.5 accent-primary cursor-pointer align-middle"
                                           />
                                         </td>
@@ -2224,6 +2226,10 @@ function LPDCalculationPage() {
                                         <td
                                           className="p-0 border-r border-border/40"
                                           rowSpan={space.fixtures.length}
+                                          onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
                                         >
                                           <div className="flex items-center gap-1.5 w-full h-full px-2.5">
                                             {itemComments.length > 0 && (
@@ -2233,6 +2239,7 @@ function LPDCalculationPage() {
                                                   e.stopPropagation();
                                                   handleOpenComment(space.id, space.name);
                                                 }}
+                                                onDoubleClick={(e) => e.stopPropagation()}
                                                 title={`${itemComments.length} comment(s)/task(s) assigned`}
                                                 className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
                                               >
@@ -2246,7 +2253,12 @@ function LPDCalculationPage() {
                                               onChange={(e) =>
                                                 updateSpace(group.id, space.id, "name", e.target.value)
                                               }
+                                              onDoubleClick={(e) => {
+                                                e.stopPropagation();
+                                                handleOpenCalculationPreview(space, group.name);
+                                              }}
                                               placeholder="e.g. Electrical Room"
+                                              title="Double-click to view calculation preview"
                                             />
                                           </div>
                                         </td>
@@ -2255,6 +2267,10 @@ function LPDCalculationPage() {
                                         <td
                                           className="p-0 border-r border-border/40"
                                           rowSpan={space.fixtures.length}
+                                          onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
                                         >
                                           <div className="flex items-center gap-2 px-2.5 w-full h-full">
                                             <span
@@ -2265,6 +2281,11 @@ function LPDCalculationPage() {
                                             <select
                                               className="w-full h-full min-h-[34px] bg-transparent outline-none cursor-pointer font-medium text-[12.5px] text-foreground transition-colors"
                                               value={space.areaType || ""}
+                                              onDoubleClick={(e) => {
+                                                e.stopPropagation();
+                                                handleOpenCalculationPreview(space, group.name);
+                                              }}
+                                              title="Double-click to view calculation preview"
                                               onChange={async (e) => {
                                                 const val = e.target.value;
                                                 if (val === "ADD_NEW") {
@@ -2323,7 +2344,13 @@ function LPDCalculationPage() {
                                     )}
 
                                     {/* Fixture Light Type */}
-                                    <td className="p-0 border-r border-border/40 relative">
+                                    <td
+                                      className="p-0 border-r border-border/40 relative"
+                                      onDoubleClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenCalculationPreview(space, group.name);
+                                      }}
+                                    >
                                       {!Object.keys(LIGHT_TYPE_MAPPING).includes(fixture.type) &&
                                       fixture.type !== "" ? (
                                         <div className="flex w-full h-full items-center px-2">
@@ -2339,14 +2366,20 @@ function LPDCalculationPage() {
                                                 e.target.value || "custom"
                                               )
                                             }
+                                            onDoubleClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOpenCalculationPreview(space, group.name);
+                                            }}
                                             placeholder="Type Light Name..."
                                             autoFocus={fixture.type === "custom"}
+                                            title="Double-click to view calculation preview"
                                           />
                                           <button
                                             type="button"
                                             onClick={() =>
                                               updateFixture(group.id, space.id, fixture.id, "type", "")
                                             }
+                                            onDoubleClick={(e) => e.stopPropagation()}
                                             className="px-1 text-muted-foreground hover:text-red-500 font-bold transition-colors"
                                             title="Reset to Dropdown"
                                           >
@@ -2360,6 +2393,11 @@ function LPDCalculationPage() {
                                           onChange={(e) =>
                                             updateFixture(group.id, space.id, fixture.id, "type", e.target.value)
                                           }
+                                          onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
+                                          title="Double-click to view calculation preview"
                                         >
                                           <option value="">Select Light...</option>
                                           {Object.keys(LIGHT_TYPE_MAPPING).map((k) => (
@@ -2373,7 +2411,13 @@ function LPDCalculationPage() {
                                     </td>
 
                                     {/* Fixture Watts */}
-                                    <td className="p-0 border-r border-border/40">
+                                    <td
+                                      className="p-0 border-r border-border/40"
+                                      onDoubleClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenCalculationPreview(space, group.name);
+                                      }}
+                                    >
                                       <input
                                         type="number"
                                         min="0"
@@ -2383,13 +2427,24 @@ function LPDCalculationPage() {
                                         onChange={(e) =>
                                           updateFixture(group.id, space.id, fixture.id, "watts", e.target.value)
                                         }
+                                        onDoubleClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenCalculationPreview(space, group.name);
+                                        }}
                                         placeholder="0"
                                         disabled={Object.keys(LIGHT_TYPE_MAPPING).includes(fixture.type)}
+                                        title="Double-click to view calculation preview"
                                       />
                                     </td>
 
                                     {/* Fixture Qty */}
-                                    <td className="p-0 border-r border-border/40">
+                                    <td
+                                      className="p-0 border-r border-border/40"
+                                      onDoubleClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenCalculationPreview(space, group.name);
+                                      }}
+                                    >
                                       <input
                                         type="number"
                                         min="1"
@@ -2398,7 +2453,12 @@ function LPDCalculationPage() {
                                         onChange={(e) =>
                                           updateFixture(group.id, space.id, fixture.id, "qty", e.target.value)
                                         }
+                                        onDoubleClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenCalculationPreview(space, group.name);
+                                        }}
                                         placeholder="1"
+                                        title="Double-click to view calculation preview"
                                       />
                                     </td>
 
@@ -2422,6 +2482,10 @@ function LPDCalculationPage() {
                                         <td
                                           className="p-0 border-r border-border/40"
                                           rowSpan={space.fixtures.length}
+                                          onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
                                         >
                                           <input
                                             type="number"
@@ -2432,7 +2496,12 @@ function LPDCalculationPage() {
                                             onChange={(e) =>
                                               updateSpace(group.id, space.id, "areaSqM", e.target.value)
                                             }
+                                            onDoubleClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOpenCalculationPreview(space, group.name);
+                                            }}
                                             placeholder="0.0"
+                                            title="Double-click to view calculation preview"
                                           />
                                         </td>
 
@@ -2480,6 +2549,10 @@ function LPDCalculationPage() {
                                         <td
                                           className="p-0 border-r border-border/40"
                                           rowSpan={space.fixtures.length}
+                                          onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
                                         >
                                           <input
                                             type="number"
@@ -2490,7 +2563,12 @@ function LPDCalculationPage() {
                                             onChange={(e) =>
                                               updateSpace(group.id, space.id, "baselineLpd", e.target.value)
                                             }
+                                            onDoubleClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOpenCalculationPreview(space, group.name);
+                                            }}
                                             placeholder={unitSystem === "ip" ? "0.65" : "7.00"}
+                                            title="Double-click to view calculation preview"
                                           />
                                         </td>
 
@@ -2498,6 +2576,10 @@ function LPDCalculationPage() {
                                         <td
                                           className="p-0 border-r border-border/40"
                                           rowSpan={space.fixtures.length}
+                                          onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
                                         >
                                           <input
                                             type="text"
@@ -2506,7 +2588,12 @@ function LPDCalculationPage() {
                                             onChange={(e) =>
                                               updateSpace(group.id, space.id, "remarks", e.target.value)
                                             }
+                                            onDoubleClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOpenCalculationPreview(space, group.name);
+                                            }}
                                             placeholder="Notes..."
+                                            title="Double-click to view calculation preview"
                                           />
                                         </td>
 
@@ -2522,6 +2609,7 @@ function LPDCalculationPage() {
                                               e.stopPropagation();
                                               addFixture(group.id, space.id);
                                             }}
+                                            onDoubleClick={(e) => e.stopPropagation()}
                                             className="p-1 hover:bg-surface-2 rounded text-muted-foreground hover:text-primary transition-colors cursor-pointer mx-auto flex items-center justify-center"
                                             title="Add another fixture to space"
                                           >
@@ -2540,6 +2628,7 @@ function LPDCalculationPage() {
                                               e.stopPropagation();
                                               toggleFlag(group.id, space.id);
                                             }}
+                                            onDoubleClick={(e) => e.stopPropagation()}
                                             className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
                                             title={
                                               space.flagged
