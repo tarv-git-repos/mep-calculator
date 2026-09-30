@@ -44,6 +44,10 @@ import { exportLpdExcel } from "../lib/exportLpdExcel";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import {
+  CalculationPreviewModal,
+  type CalculationPreviewData,
+} from "@/components/calculator-framework/CalculationPreviewModal";
 
 export const Route = createFileRoute("/lpd-calculation")({
   head: () => ({
@@ -433,6 +437,10 @@ function LPDCalculationPage() {
   const [sortKey, setSortKey] = useState<string>("default");
   const [intelOpen, setIntelOpen] = useState(false);
   const [highlightedSpaceId, setHighlightedSpaceId] = useState<string | null>(null);
+
+  // Calculation Preview Modal State
+  const [previewData, setPreviewData] = useState<CalculationPreviewData | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -1143,6 +1151,164 @@ function LPDCalculationPage() {
     toast.success("Comment saved successfully");
   };
 
+  // Step-by-Step Calculation Preview generator
+  const getLpdCalculationPreview = (space: LpdSpace, groupName?: string): CalculationPreviewData => {
+    const isIp = unitSystem === "ip";
+    const fixtures = space.fixtures || [];
+    const totalWatts = fixtures.reduce((sum, f) => {
+      const w = parseFloat(String(f.watts)) || 0;
+      const q = parseFloat(String(f.qty)) || 0;
+      return sum + w * q;
+    }, 0);
+
+    const rawArea = parseFloat(String(space.areaSqM)) || 0;
+    const sqM = isIp ? rawArea / 10.76391 : rawArea;
+    const sqF = isIp ? rawArea : rawArea * 10.76391;
+    const primaryArea = isIp ? sqF : sqM;
+    const secondaryArea = isIp ? sqM : sqF;
+    const primaryUnit = isIp ? "sq.ft" : "m²";
+    const secondaryUnit = isIp ? "m²" : "sq.ft";
+    const lpdUnit = isIp ? "W/sq.ft" : "W/m²";
+
+    const proposedLpd = primaryArea > 0 ? totalWatts / primaryArea : 0;
+    const baselineLpd = parseFloat(String(space.baselineLpd)) || 0;
+    const isCompliant = primaryArea > 0 && baselineLpd > 0 ? proposedLpd <= baselineLpd : null;
+    const diff = proposedLpd - baselineLpd;
+    const savingsPct =
+      baselineLpd > 0 && proposedLpd <= baselineLpd
+        ? ((baselineLpd - proposedLpd) / baselineLpd) * 100
+        : baselineLpd > 0
+        ? ((proposedLpd - baselineLpd) / baselineLpd) * 100
+        : 0;
+
+    const fixtureSummary =
+      fixtures.length > 0
+        ? fixtures
+            .map(
+              (f, i) =>
+                `${f.type || `Fixture #${i + 1}`} (${f.watts || 0}W × ${f.qty || 1} = ${(parseFloat(String(f.watts)) || 0) * (parseFloat(String(f.qty)) || 1)}W)`
+            )
+            .join(", ")
+        : "No fixtures assigned";
+
+    return {
+      title: "Lighting Power Density (LPD) Calculation",
+      itemName: space.name || "Untitled Space",
+      itemCode: space.areaType || "General Space",
+      standardReference: "ASHRAE 90.1 / IECC Building Energy Code",
+      inputs: [
+        { label: "Floor Group", value: groupName || "Default Floor" },
+        { label: "Space Name", value: space.name || "Untitled Space" },
+        { label: "Area Category / Type", value: space.areaType || "Unassigned" },
+        { label: `Primary Area (${primaryUnit})`, value: primaryArea.toFixed(2), unit: primaryUnit },
+        { label: `Secondary Area (${secondaryUnit})`, value: secondaryArea.toFixed(2), unit: secondaryUnit },
+        { label: "Total Luminaires / Fixtures", value: `${fixtures.length} type(s)` },
+        { label: "Fixtures Schedule", value: fixtureSummary },
+        { label: `Baseline Code Limit (${lpdUnit})`, value: baselineLpd > 0 ? baselineLpd.toFixed(3) : "Not set", unit: lpdUnit },
+      ],
+      steps: [
+        {
+          stepNumber: 1,
+          label: "Total Connected Lighting Load (W_total)",
+          formula: "W_total = Σ (Watts_i × Qty_i)",
+          substitution:
+            fixtures.length > 0
+              ? fixtures
+                  .map((f) => `(${parseFloat(String(f.watts)) || 0}W × ${parseFloat(String(f.qty)) || 1})`)
+                  .join(" + ") + ` = ${totalWatts} W`
+              : "0 W",
+          result: `${totalWatts.toLocaleString()} W (${(totalWatts / 1000).toFixed(3)} kW)`,
+          unit: "W",
+          status: "info",
+          description: `Total connected electrical power drawn by all installed luminaires in ${space.name || "this space"}.`,
+        },
+        {
+          stepNumber: 2,
+          label: `Lit Floor Area (A in ${primaryUnit})`,
+          formula: isIp ? "Area_IP = Area_m² × 10.7639" : "Area_SI = Direct Input (m²)",
+          substitution:
+            primaryArea > 0
+              ? `${primaryArea.toFixed(2)} ${primaryUnit} (${secondaryArea.toFixed(2)} ${secondaryUnit})`
+              : "0.00",
+          result: primaryArea > 0 ? `${primaryArea.toFixed(2)} ${primaryUnit}` : "Missing Area",
+          unit: primaryUnit,
+          status: primaryArea > 0 ? "pass" : "warning",
+          description:
+            primaryArea > 0
+              ? `Net lit floor area used for the density calculation: ${primaryArea.toFixed(2)} ${primaryUnit}.`
+              : "Floor area is required to calculate the proposed Lighting Power Density.",
+        },
+        {
+          stepNumber: 3,
+          label: "Proposed Lighting Power Density (LPD_proposed)",
+          formula: "LPD_proposed = W_total / Area",
+          substitution:
+            primaryArea > 0
+              ? `${totalWatts} W / ${primaryArea.toFixed(2)} ${primaryUnit}`
+              : `${totalWatts} W / 0 ${primaryUnit}`,
+          result: proposedLpd.toFixed(3),
+          unit: lpdUnit,
+          status: isCompliant === true ? "pass" : isCompliant === false ? "warning" : "info",
+          description: `Calculated design lighting power density: ${proposedLpd.toFixed(3)} ${lpdUnit}.`,
+        },
+        {
+          stepNumber: 4,
+          label: "Code Baseline LPD Limit (LPD_baseline)",
+          formula: `ASHRAE 90.1 / Building Energy Code Limit for "${space.areaType || "General Area"}"`,
+          substitution: `Baseline maximum allowable density = ${baselineLpd.toFixed(3)} ${lpdUnit}`,
+          result: baselineLpd > 0 ? baselineLpd.toFixed(3) : "No Baseline",
+          unit: lpdUnit,
+          status: "info",
+          description: "Energy conservation code maximum allowable lighting power density.",
+        },
+        {
+          stepNumber: 5,
+          label: "Compliance & Energy Savings Analysis",
+          formula: "Margin = LPD_baseline - LPD_proposed",
+          substitution:
+            baselineLpd > 0 && primaryArea > 0
+              ? `${baselineLpd.toFixed(3)} - ${proposedLpd.toFixed(3)} = ${(baselineLpd - proposedLpd).toFixed(3)} ${lpdUnit}`
+              : "Baseline or Area missing",
+          result:
+            primaryArea === 0
+              ? "Pending Area"
+              : baselineLpd === 0
+              ? "No Baseline Set"
+              : isCompliant
+              ? `PASS (${savingsPct.toFixed(1)}% savings below code)`
+              : `EXCEEDS CODE (+${diff.toFixed(2)} ${lpdUnit})`,
+          unit: lpdUnit,
+          status: isCompliant === true ? "pass" : isCompliant === false ? "warning" : "info",
+          description:
+            primaryArea === 0
+              ? "Enter space floor area to determine compliance."
+              : isCompliant === true
+              ? `Space meets the energy conservation code with a ${savingsPct.toFixed(1)}% safety margin.`
+              : isCompliant === false
+              ? `Space exceeds baseline allowance by +${diff.toFixed(2)} ${lpdUnit} (+${savingsPct.toFixed(1)}% over limit). Consider high-efficiency LED luminaires or dimming controls.`
+              : "Baseline code limit is not specified for this space.",
+        },
+      ],
+      finalResultLabel: "Proposed LPD",
+      finalResultValue: proposedLpd.toFixed(3),
+      finalResultUnit: lpdUnit,
+      complianceNote:
+        primaryArea === 0
+          ? "Floor area is required to evaluate compliance."
+          : isCompliant === true
+          ? `COMPLIANT: Design LPD (${proposedLpd.toFixed(3)} ${lpdUnit}) is well within the code limit (${baselineLpd.toFixed(3)} ${lpdUnit}).`
+          : isCompliant === false
+          ? `NON-COMPLIANT: Design LPD (${proposedLpd.toFixed(3)} ${lpdUnit}) exceeds code limit (${baselineLpd.toFixed(3)} ${lpdUnit}) by +${diff.toFixed(2)} ${lpdUnit}.`
+          : `Design LPD: ${proposedLpd.toFixed(3)} ${lpdUnit}. Baseline limit not set.`,
+    };
+  };
+
+  const handleOpenCalculationPreview = (space: LpdSpace, groupName?: string) => {
+    const data = getLpdCalculationPreview(space, groupName);
+    setPreviewData(data);
+    setIsPreviewOpen(true);
+  };
+
   // Intelligence action triggers
   const handleScrollToSpace = (spaceId: string, groupId?: string) => {
     if (groupId) {
@@ -1435,72 +1601,6 @@ function LPDCalculationPage() {
                 : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
             }`}
           >
-            {/* Top Project & Floor Toolbar */}
-            <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between px-4 py-2 min-h-[46px] h-auto border-b border-border/70 bg-header-bg/60 backdrop-blur-md shrink-0 select-none gap-y-2 shadow-xs">
-              <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto">
-                {/* Project Selector */}
-                <select
-                  className="h-8 text-[12.5px] font-medium bg-background hover:bg-surface-2 border border-border rounded-xl px-2.5 outline-none cursor-pointer transition-all shadow-xs"
-                  value={currentProjectId}
-                  onChange={(e) => setCurrentProjectId(e.target.value)}
-                >
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <TBtn onClick={createNewProject}>
-                  <FolderKanban className="size-3.5" /> New
-                </TBtn>
-                <TBtn onClick={deleteProject} title="Delete Project">
-                  <Trash className="size-3.5 text-red-500" />
-                </TBtn>
-
-                <div className="w-px h-4 bg-border mx-1" />
-
-                {/* Internal / External Area Switch */}
-                <div className="flex bg-surface-2 p-0.5 rounded-full border border-border">
-                  <button
-                    type="button"
-                    onClick={() => updateProjectField("type", "Internal")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                      currentProject.type === "Internal"
-                        ? "bg-background shadow-xs text-foreground font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Internal Area
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => updateProjectField("type", "External")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                      currentProject.type === "External"
-                        ? "bg-background shadow-xs text-foreground font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    External Area
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    addGroup();
-                  }}
-                  className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11.5px] font-semibold bg-surface-2 hover:bg-surface-3 border border-border text-foreground transition-all cursor-pointer shadow-2xs active:scale-95"
-                >
-                  <Plus className="size-3.5" /> Add Floor Group
-                </button>
-              </div>
-            </div>
-
             {/* Space Action Toolbar Matching Space Management Layout */}
             <div className="relative flex items-center justify-between gap-2 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
               {/* Left Controls: Filter spaces search, Filter Popover, Sort Popover */}
@@ -1756,8 +1856,23 @@ function LPDCalculationPage() {
               {/* Floating Bulk Actions Overlay Bar */}
               {!isEffectiveReadOnly && selected.size > 0 && (
                 <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print backdrop-blur-md animate-in fade-in-50">
-                  <span className="font-semibold">{selected.size} space(s) selected</span>
-                  <span className="text-primary/30">•</span>
+                  {selected.size === 1 && (
+                    <BulkBtn
+                      icon={Sparkles}
+                      onClick={() => {
+                        const sid = Array.from(selected)[0];
+                        for (const g of currentProject.groups || []) {
+                          const sp = g.spaces.find((s) => s.id === sid);
+                          if (sp) {
+                            handleOpenCalculationPreview(sp, g.name);
+                            break;
+                          }
+                        }
+                      }}
+                    >
+                      Calculation Preview
+                    </BulkBtn>
+                  )}
                   <BulkBtn icon={Flag} onClick={toggleFlagSelected}>
                     Toggle Flag
                   </BulkBtn>
@@ -1777,6 +1892,51 @@ function LPDCalculationPage() {
                   </button>
                 </div>
               )}
+            </div>
+
+            {/* Area & Floor Toolbar Below Filter Line */}
+            <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between px-3 py-1.5 min-h-[42px] h-auto border-b border-border/70 bg-header-bg/50 backdrop-blur-md shrink-0 select-none gap-y-2 shadow-2xs">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto">
+                {/* Internal / External Area Switch */}
+                <div className="flex bg-surface-2 p-0.5 rounded-full border border-border">
+                  <button
+                    type="button"
+                    onClick={() => updateProjectField("type", "Internal")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                      currentProject.type === "Internal"
+                        ? "bg-background shadow-xs text-foreground font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Internal Area
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateProjectField("type", "External")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                      currentProject.type === "External"
+                        ? "bg-background shadow-xs text-foreground font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    External Area
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    addGroup();
+                  }}
+                  className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11.5px] font-semibold bg-surface-2 hover:bg-surface-3 border border-border text-foreground transition-all cursor-pointer shadow-2xs active:scale-95"
+                >
+                  <Plus className="size-3.5" /> Add Floor Group
+                </button>
+              </div>
             </div>
 
             {/* Table Area (Clean HTML table DOM without non-tr elements inside tbody) */}
@@ -1833,10 +1993,10 @@ function LPDCalculationPage() {
                       </>
                     )}
                     <th className="px-3 py-2 w-36 border-r border-border/50">Remarks</th>
-                    <th className="px-2 py-2 w-10 text-center border-r border-border/50" title="Flag Space">
+                    <th className="px-2 py-2 w-10 text-center border-r border-border/50" title="Add Fixture to Space"></th>
+                    <th className="px-2 py-2 w-10 text-center" title="Flag Space">
                       <Flag className="size-3.5 mx-auto text-muted-foreground/60" />
                     </th>
-                    <th className="px-2 py-2 w-14 text-center"></th>
                   </tr>
                 </thead>
 
@@ -1990,6 +2150,26 @@ function LPDCalculationPage() {
                                   <tr
                                     key={fixture.id}
                                     id={`space-row-${space.id}`}
+                                    onClick={(e) => {
+                                      const target = e.target as HTMLElement;
+                                      if (
+                                        ["INPUT", "SELECT", "TEXTAREA", "BUTTON", "A"].includes(target.tagName) ||
+                                        target.closest("button")
+                                      ) {
+                                        return;
+                                      }
+                                      toggleSelectRow(space.id);
+                                    }}
+                                    onDoubleClick={(e) => {
+                                      const target = e.target as HTMLElement;
+                                      if (
+                                        ["INPUT", "SELECT", "TEXTAREA", "BUTTON", "A"].includes(target.tagName) ||
+                                        target.closest("button")
+                                      ) {
+                                        return;
+                                      }
+                                      handleOpenCalculationPreview(space, group.name);
+                                    }}
                                     onContextMenu={(e) => {
                                       e.preventDefault();
                                       e.stopPropagation();
@@ -2028,8 +2208,14 @@ function LPDCalculationPage() {
 
                                         {/* Serial Number */}
                                         <td
-                                          className="px-2 py-1.5 text-center font-mono text-muted-foreground border-r border-border/40 text-[11.5px]"
+                                          className="px-2 py-1.5 text-center font-mono text-muted-foreground border-r border-border/40 text-[11.5px] cursor-pointer hover:bg-primary/5 select-none"
                                           rowSpan={space.fixtures.length}
+                                          onClick={() => toggleSelectRow(space.id)}
+                                          onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
+                                          title="Click to select/deselect space. Double-click to view calculation preview."
                                         >
                                           {srNo}
                                         </td>
@@ -2221,8 +2407,13 @@ function LPDCalculationPage() {
                                       <>
                                         {/* Total Watts */}
                                         <td
-                                          className="px-2 py-1.5 border-r border-border/40 text-center font-mono font-semibold text-[13px] text-foreground"
+                                          className="px-2 py-1.5 border-r border-border/40 text-center font-mono font-semibold text-[13px] text-foreground cursor-pointer hover:bg-primary/5 select-none"
                                           rowSpan={space.fixtures.length}
+                                          onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
+                                          title="Double-click to view calculation preview"
                                         >
                                           {totalWatts.toLocaleString()}
                                         </td>
@@ -2247,35 +2438,41 @@ function LPDCalculationPage() {
 
                                         {/* Area (sq.ft) */}
                                         <td
-                                          className="px-2 py-1.5 border-r border-border/40 text-center font-mono text-muted-foreground text-[12px] bg-surface-2/30"
+                                          className="px-2 py-1.5 border-r border-border/40 text-center font-mono text-muted-foreground text-[12px] bg-surface-2/30 cursor-pointer hover:bg-primary/5 select-none"
                                           rowSpan={space.fixtures.length}
+                                          onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
+                                          title="Double-click to view calculation preview"
                                         >
                                           {rawArea > 0 ? secondaryArea.toFixed(1) : "—"}
                                         </td>
 
                                         {/* Proposed LPD (W/m²) */}
                                         <td
-                                          className="px-2 py-1.5 border-r border-border/40 text-center"
+                                          className="px-2 py-1.5 border-r border-border/40 text-center cursor-pointer select-none group/lpd"
                                           rowSpan={space.fixtures.length}
+                                          onDoubleClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
+                                          title="Double-click to view step-by-step calculation preview"
                                         >
                                           {rawArea > 0 ? (
                                             <span
                                               className={cn(
-                                                "inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11.5px] font-mono font-bold border transition-colors",
+                                                "inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11.5px] font-mono font-bold border transition-all hover:scale-105 shadow-2xs",
                                                 isCompliant
                                                   ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
                                                   : "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 animate-pulse"
                                               )}
-                                              title={
-                                                isCompliant
-                                                  ? `Compliant: Proposed LPD <= Baseline LPD (${unitSystem === "si" ? "W/m²" : "W/sq.ft"})`
-                                                  : `Exceeds Baseline by +${(proposedLpd - baselineLpd).toFixed(2)} ${unitSystem === "si" ? "W/m²" : "W/sq.ft"}`
-                                              }
+                                              title="Double-click to view step-by-step calculation preview"
                                             >
                                               {proposedLpd.toFixed(3)}
                                             </span>
                                           ) : (
-                                            <span className="font-mono text-muted-foreground text-[11.5px]">0.000</span>
+                                            <span className="font-mono text-muted-foreground text-[11.5px] hover:text-foreground">0.000</span>
                                           )}
                                         </td>
 
@@ -2313,9 +2510,28 @@ function LPDCalculationPage() {
                                           />
                                         </td>
 
-                                        {/* Flag Button Column */}
+                                        {/* Add Fixture */}
                                         <td
-                                          className="px-2 py-1.5 text-center border-r border-border/40"
+                                          className="px-1 py-1.5 text-center border-r border-border/40 w-10"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              addFixture(group.id, space.id);
+                                            }}
+                                            className="p-1 hover:bg-surface-2 rounded text-muted-foreground hover:text-primary transition-colors cursor-pointer mx-auto flex items-center justify-center"
+                                            title="Add another fixture to space"
+                                          >
+                                            <Plus className="size-3.5" />
+                                          </button>
+                                        </td>
+
+                                        {/* Flag Button Column (At end of row) */}
+                                        <td
+                                          className="px-2 py-1.5 text-center"
                                           rowSpan={space.fixtures.length}
                                         >
                                           <button
@@ -2344,39 +2560,6 @@ function LPDCalculationPage() {
                                               )}
                                             />
                                           </button>
-                                        </td>
-
-                                        {/* Actions */}
-                                        <td
-                                          className="px-2 py-1.5 text-center"
-                                          rowSpan={space.fixtures.length}
-                                        >
-                                          <div className="flex items-center justify-center gap-1">
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                addFixture(group.id, space.id);
-                                              }}
-                                              className="p-1 hover:bg-surface-2 rounded text-muted-foreground hover:text-primary transition-colors cursor-pointer"
-                                              title="Add another fixture to space"
-                                            >
-                                              <Plus className="size-3.5" />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                removeSpace(group.id, space.id);
-                                              }}
-                                              className="p-1 hover:bg-red-500/10 rounded text-muted-foreground hover:text-red-500 transition-colors cursor-pointer"
-                                              title="Delete space"
-                                            >
-                                              <Trash2 className="size-3.5" />
-                                            </button>
-                                          </div>
                                         </td>
                                       </>
                                     )}
@@ -2479,6 +2662,7 @@ function LPDCalculationPage() {
               onAutoFlagNonCompliant={handleAutoFlagNonCompliant}
               onClearAllFlags={handleClearAllFlags}
               onAutoFillBaselines={handleAutoFillBaselines}
+              onOpenPreview={(space, groupName) => handleOpenCalculationPreview(space, groupName)}
             />
           )}
         </div>
@@ -2497,6 +2681,19 @@ function LPDCalculationPage() {
           <div className="px-2.5 py-1 text-[11px] font-bold text-muted-foreground truncate border-b border-border/50 mb-1">
             {activeContextSpace.name || "Unnamed Space"}
           </div>
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-primary/10 text-primary rounded cursor-pointer font-semibold transition-colors"
+            onClick={() => {
+              const gName = currentProject.groups?.find((g) => g.id === spaceContextMenu.groupId)?.name;
+              handleOpenCalculationPreview(activeContextSpace, gName);
+              setSpaceContextMenu(null);
+            }}
+          >
+            <Sparkles className="size-3.5 text-primary" />
+            <span>Calculation Preview</span>
+          </button>
 
           <button
             type="button"
@@ -2538,6 +2735,25 @@ function LPDCalculationPage() {
             <Plus className="size-3.5 text-muted-foreground" />
             <span>Add Light Fixture</span>
           </button>
+
+          {activeContextSpace.fixtures.length > 1 && (
+            <button
+              type="button"
+              className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer transition-colors"
+              onClick={() => {
+                const gid = spaceContextMenu.groupId;
+                const sid = activeContextSpace.id;
+                const lastFid = activeContextSpace.fixtures[activeContextSpace.fixtures.length - 1]?.id;
+                if (lastFid) {
+                  removeFixture(gid, sid, lastFid);
+                }
+                setSpaceContextMenu(null);
+              }}
+            >
+              <Trash2 className="size-3.5" />
+              <span>Remove Extra Fixture</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -2712,6 +2928,12 @@ function LPDCalculationPage() {
           onSave={handleSaveComment}
         />
       )}
+      {/* Step-by-Step Calculation Preview Modal */}
+      <CalculationPreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        data={previewData}
+      />
     </AppShell>
   );
 }
@@ -2729,6 +2951,7 @@ function LpdIntelligenceDrawer({
   onAutoFlagNonCompliant,
   onClearAllFlags,
   onAutoFillBaselines,
+  onOpenPreview,
 }: {
   groups: LpdGroup[];
   unitSystem?: "si" | "ip";
@@ -2738,6 +2961,7 @@ function LpdIntelligenceDrawer({
   onAutoFlagNonCompliant: () => void;
   onClearAllFlags: () => void;
   onAutoFillBaselines: () => void;
+  onOpenPreview?: (space: any, groupName?: string) => void;
 }) {
   const allSpaces = useMemo(() => {
     const isIp = unitSystem === "ip";
@@ -2950,15 +3174,32 @@ function LpdIntelligenceDrawer({
                 <div
                   key={s.id}
                   onClick={() => onScrollToSpace(s.id, s.groupId)}
-                  className="p-2 rounded-lg bg-background hover:bg-surface-2 border border-border/60 transition-colors cursor-pointer text-[12px]"
+                  onDoubleClick={() => onOpenPreview?.(s, s.groupName)}
+                  className="p-2 rounded-lg bg-background hover:bg-surface-2 border border-border/60 transition-colors cursor-pointer text-[12px] group/item"
+                  title="Click to locate. Double-click to preview calculation."
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-foreground truncate max-w-[170px]">
+                    <span className="font-semibold text-foreground truncate max-w-[160px]">
                       {s.name || "Unnamed Space"}
                     </span>
-                    <span className="text-[10px] font-mono text-muted-foreground uppercase">
-                      {s.groupName}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {onOpenPreview && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenPreview(s, s.groupName);
+                          }}
+                          className="opacity-0 group-hover/item:opacity-100 p-0.5 rounded hover:bg-primary/10 text-primary transition-opacity cursor-pointer"
+                          title="Preview calculation"
+                        >
+                          <Sparkles className="size-3" />
+                        </button>
+                      )}
+                      <span className="text-[10px] font-mono text-muted-foreground uppercase">
+                        {s.groupName}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex items-center justify-between mt-1 text-[11px] font-mono">
                     <span className="text-red-500 font-bold">
@@ -2999,13 +3240,30 @@ function LpdIntelligenceDrawer({
                 <div
                   key={s.id}
                   onClick={() => onScrollToSpace(s.id, s.groupId)}
-                  className="p-2 rounded-lg bg-background hover:bg-surface-2 border border-border/60 transition-colors cursor-pointer text-[12px] flex items-center justify-between"
+                  onDoubleClick={() => onOpenPreview?.(s, s.groupName)}
+                  className="p-2 rounded-lg bg-background hover:bg-surface-2 border border-border/60 transition-colors cursor-pointer text-[12px] flex items-center justify-between group/item"
+                  title="Click to locate. Double-click to preview calculation."
                 >
-                  <div className="truncate max-w-[200px]">
+                  <div className="truncate max-w-[190px]">
                     <span className="font-semibold text-foreground">{s.name || "Unnamed Space"}</span>
                     <div className="text-[10.5px] text-muted-foreground">{s.groupName}</div>
                   </div>
-                  <Flag className="size-3.5 fill-red-500 text-red-500 shrink-0" />
+                  <div className="flex items-center gap-1.5">
+                    {onOpenPreview && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenPreview(s, s.groupName);
+                        }}
+                        className="opacity-0 group-hover/item:opacity-100 p-0.5 rounded hover:bg-primary/10 text-primary transition-opacity cursor-pointer"
+                        title="Preview calculation"
+                      >
+                        <Sparkles className="size-3" />
+                      </button>
+                    )}
+                    <Flag className="size-3.5 fill-red-500 text-red-500 shrink-0" />
+                  </div>
                 </div>
               ))}
             </div>

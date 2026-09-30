@@ -946,25 +946,8 @@ function HeatingLoadPage() {
             {/* Action Selector Row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
               <div className="flex items-center gap-2.5 flex-wrap">
-                {/* Preset Profiles Dropdown */}
-                <HeatingProfileSelect
-                  value={preset}
-                  customProfileName={customProfileName}
-                  onChange={handleApplyPreset}
-                  onOpenCustomModal={() => setCustomModalOpen(true)}
-                  unitSystem={unitSystem}
-                  disabled={isEffectiveReadOnly}
-                />
-
-                {/* Formula Breakdown button right after dropdown */}
-                <TBtn
-                  onClick={() => setFormulaModalOpen(true)}
-                  title="View Formula Breakdown & ASHRAE Equations"
-                >
-                  <Info className="size-3.5 text-primary" /> Formula Breakdown
-                </TBtn>
-
-                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80 ml-2">
+                {/* Tab Switcher on the left */}
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                   <button
                     onClick={() => setTab("solver")}
                     className={`px-3 py-1 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
@@ -986,15 +969,20 @@ function HeatingLoadPage() {
                     Report Preview
                   </button>
                 </div>
+
+                {/* Formula Breakdown button */}
+                <TBtn
+                  onClick={() => setFormulaModalOpen(true)}
+                  title="View Formula Breakdown & ASHRAE Equations"
+                >
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
               </div>
 
               {/* Action buttons on the right of tabs */}
               <div className="flex items-center gap-2">
-                <TBtn onClick={exportToExcel} title="Export Excel Spreadsheet">
-                  <FileSpreadsheet className="size-3.5 text-emerald-600" /> Excel
-                </TBtn>
                 <TBtn onClick={exportPdf} title="Export PDF Report">
-                  <FileText className="size-3.5" /> Export PDF
+                  <FileText className="size-3.5" /> Export
                 </TBtn>
               </div>
             </div>
@@ -1014,22 +1002,37 @@ function HeatingLoadPage() {
                     >
                       <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                         <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                          📥 SPACE & ENVELOPE
+                          📥 SIZING PARAMETERS
                         </span>
                         {renderCommentBadge("spaceEnvelopeCard", "SPACE & ENVELOPE")}
+                      </div>
+
+                      {/* Preset Profile Dropdown inside Parameters Table */}
+                      <div className="space-y-1 pb-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                            Building Application Preset
+                          </label>
+                          {renderCommentBadge("preset", "Heating Preset")}
+                        </div>
+                        <HeatingProfileSelect
+                          value={preset}
+                          customProfileName={customProfileName}
+                          onChange={handleApplyPreset}
+                          onOpenCustomModal={() => setCustomModalOpen(true)}
+                          unitSystem={unitSystem}
+                          disabled={isEffectiveReadOnly}
+                        />
                       </div>
 
                       {/* Input 1: Floor area */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-1">
+                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
                             <div className="flex justify-between items-center">
                               <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Floor area
+                                Floor area ({isSI ? "m²" : "sq.ft"})
                               </label>
-                              <span className="text-[10px] font-mono font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40">
-                                {isSI ? "m²" : "ft²"}
-                              </span>
                             </div>
                             <input
                               type="number"
@@ -1060,14 +1063,11 @@ function HeatingLoadPage() {
                       {/* Input 2: Ceiling height */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-1">
+                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
                             <div className="flex justify-between items-center">
                               <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Ceiling height
+                                Ceiling height ({isSI ? "m" : "ft"})
                               </label>
-                              <span className="text-[10px] font-mono font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40">
-                                {isSI ? "m" : "ft"}
-                              </span>
                             </div>
                             <input
                               type="number"
@@ -1098,14 +1098,11 @@ function HeatingLoadPage() {
                       {/* Input 3: Wall + roof U-value */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-1">
+                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
                             <div className="flex justify-between items-center">
                               <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Wall + roof U-value
+                                Wall + roof U-value ({isSI ? "W/m²K" : "BTU/hr·ft²·°F"})
                               </label>
-                              <span className="text-[10px] font-mono font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40">
-                                {isSI ? "W/m²K" : "BTU/hr·ft²·°F"}
-                              </span>
                             </div>
                             <input
                               type="number"
@@ -1137,14 +1134,11 @@ function HeatingLoadPage() {
                       {/* Input 4: Glazing area */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-1">
+                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
                             <div className="flex justify-between items-center">
                               <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Glazing area
+                                Glazing area ({isSI ? "m²" : "sq.ft"})
                               </label>
-                              <span className="text-[10px] font-mono font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40">
-                                {isSI ? "m²" : "ft²"}
-                              </span>
                             </div>
                             <input
                               type="number"
@@ -1175,14 +1169,11 @@ function HeatingLoadPage() {
                       {/* Input 5: Glazing U-value */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-1">
+                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
                             <div className="flex justify-between items-center">
                               <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Glazing U-value
+                                Glazing U-value ({isSI ? "W/m²K" : "BTU/hr·ft²·°F"})
                               </label>
-                              <span className="text-[10px] font-mono font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40">
-                                {isSI ? "W/m²K" : "BTU/hr·ft²·°F"}
-                              </span>
                             </div>
                             <input
                               type="number"
@@ -1214,14 +1205,11 @@ function HeatingLoadPage() {
                       {/* Input 6: Outdoor design temperature */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-1">
+                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
                             <div className="flex justify-between items-center">
                               <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Outdoor design temperature
+                                Outdoor design temperature ({isSI ? "°C" : "°F"})
                               </label>
-                              <span className="text-[10px] font-mono font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40">
-                                {isSI ? "°C" : "°F"}
-                              </span>
                             </div>
                             <input
                               type="number"
@@ -1252,14 +1240,11 @@ function HeatingLoadPage() {
                       {/* Input 7: Indoor setpoint */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-1">
+                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
                             <div className="flex justify-between items-center">
                               <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Indoor setpoint
+                                Indoor setpoint ({isSI ? "°C" : "°F"})
                               </label>
-                              <span className="text-[10px] font-mono font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40">
-                                {isSI ? "°C" : "°F"}
-                              </span>
                             </div>
                             <input
                               type="number"
@@ -1290,14 +1275,11 @@ function HeatingLoadPage() {
                       {/* Input 8: Infiltration (ACH) */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-1">
+                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
                             <div className="flex justify-between items-center">
                               <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                                Infiltration (ACH)
+                                Infiltration Rate (ACH) (air changes/hr)
                               </label>
-                              <span className="text-[10px] font-mono font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40">
-                                air changes/hr
-                              </span>
                             </div>
                             <input
                               type="number"
@@ -1323,11 +1305,43 @@ function HeatingLoadPage() {
                         </ContextMenuContent>
                       </ContextMenu>
 
+                      {/* Input 9: Safety Margin (%) */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                            <div className="flex justify-between items-center">
+                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                                Design Safety Margin (%)
+                              </label>
+                            </div>
+                            <input
+                              type="number"
+                              disabled={isEffectiveReadOnly}
+                              value={safetyMargin}
+                              onChange={(e) => {
+                                setSafetyMargin(e.target.value === "" ? "" : parseFloat(e.target.value));
+                                dirtyStore.set(true);
+                              }}
+                              className={flowInputClass}
+                              placeholder="e.g. 15"
+                            />
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                          <ContextMenuItem onClick={() => { setSafetyMargin(15); toast.success("Reset safety margin to default"); }}>
+                            <RotateCcw className="size-3.5 mr-2" /> Reset to Default
+                          </ContextMenuItem>
+                          <ContextMenuItem onClick={() => handleOpenComment("spaceEnvelopeCard", "Design Safety Margin")}>
+                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Task
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+
                     </div>
                   </div>
 
-                  {/* RIGHT COLUMN: CALCULATION RESULTS - LOCKED / STICKY PANEL (lg:col-span-7) */}
-                  <div className="lg:col-span-7 lg:sticky lg:top-0 h-fit space-y-5">
+                  {/* RIGHT COLUMN: CALCULATION RESULTS - SCROLLABLE PANEL (lg:col-span-7) */}
+                  <div className="lg:col-span-7 h-full max-h-full overflow-y-auto pr-2 custom-scrollbar space-y-4">
                     {/* PRIMARY RESULTS CARD */}
                     <ContextMenu>
                       <ContextMenuTrigger asChild>
@@ -1335,64 +1349,81 @@ function HeatingLoadPage() {
                           id="card-hero-results"
                           data-field-id="card-hero-results"
                           data-comment-target="card-hero-results"
-                          className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6 transition-colors ${isFieldHighlighted("card-hero-results", "HEATING LOAD BREAKDOWN")}`}
+                          onDoubleClick={() => setFormulaModalOpen(true)}
+                          title="Double-click to view ASHRAE formula breakdown"
+                          className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 cursor-pointer transition-colors ${isFieldHighlighted("card-hero-results", "HEATING LOAD BREAKDOWN")}`}
                         >
                           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-                            <div className="flex items-center">
+                            <div className="flex items-center gap-2">
                               <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                                ⚡ HEATING LOAD BREAKDOWN
+                                ⚡ Sizing Results Summary
                               </span>
                               {renderCommentBadge("card-hero-results", "HEATING LOAD BREAKDOWN")}
                             </div>
+                            <span className="text-[10.5px] font-mono font-semibold text-slate-500 bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
+                              ASHRAE Steady-State
+                            </span>
                           </div>
 
-                          {/* DISPLAY STAT CARDS */}
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Heater / boiler capacity</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {calcResults.kwTotal.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">kW</span>
-                              </div>
-                              <div className="text-[11px] font-mono text-amber-700 dark:text-amber-300 font-bold mt-0.5">
-                                ({Math.round(calcResults.qTotal).toLocaleString()} BTU/hr)
+                          {/* DISPLAY STAT CARDS (4 Color-coded cards matching Duct Sizer reference) */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Base Heating Load</div>
+                              <div className="text-xl font-bold font-mono text-foreground tracking-tight text-primary">
+                                {isSI ? `${calcResults.kwBase.toFixed(2)}` : `${Math.round(calcResults.qBase).toLocaleString()}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "kW" : "BTU/h"}</span>
                               </div>
                             </div>
 
-                            <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">{isSI ? "Load per m²" : "Load per ft²"}</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {isSI ? `${calcResults.loadDensityWPerSqm.toFixed(1)}` : `${calcResults.loadDensityBtuPerSqft.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "W/m²" : "BTU/hr/ft²"}</span>
+                            <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Heater / Boiler Duty</div>
+                              <div className="text-xl font-bold font-mono text-foreground">
+                                {isSI ? `${calcResults.kwTotal.toFixed(2)}` : `${Math.round(calcResults.qTotal).toLocaleString()}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "kW" : "BTU/h"}</span>
                               </div>
-                              <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
-                                Base: {isSI ? `${calcResults.kwBase.toFixed(2)} kW` : `${Math.round(calcResults.qBase).toLocaleString()} BTU/h`}
+                            </div>
+
+                            <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Load Density</div>
+                              <div className="text-xl font-bold font-mono text-foreground">
+                                {isSI ? `${calcResults.loadDensityWPerSqm.toFixed(1)}` : `${calcResults.loadDensityBtuPerSqft.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "W/m²" : "BTU/h/ft²"}</span>
+                              </div>
+                            </div>
+
+                            <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Design Delta T (ΔT)</div>
+                              <div className="text-xl font-bold font-mono text-foreground">
+                                {isSI ? `${(((Number(iat) - Number(oat))) / 1.8).toFixed(1)}` : `${Math.round(Number(iat) - Number(oat))}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "°C" : "°F"}</span>
                               </div>
                             </div>
                           </div>
 
-                          {/* DETAILED METRICS TABLE MATCHING SCREENSHOT LABELS */}
-                          <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs">
+                          {/* DETAILED METRICS TABLE */}
+                          <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2 text-xs">
                             <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
-                              <span className="text-slate-600 dark:text-zinc-400">Envelope conduction loss</span>
+                              <span className="text-slate-600 dark:text-zinc-400">Envelope Conduction Loss:</span>
                               <span className="font-mono font-bold">{isSI ? `${totalCondLossKw.toFixed(2)} kW` : `${Math.round(totalCondLossBtu).toLocaleString()} BTU/hr`}</span>
                             </div>
                             <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
-                              <span className="text-slate-600 dark:text-zinc-400">Glazing conduction loss</span>
+                              <span className="text-slate-600 dark:text-zinc-400">Glazing Conduction Loss:</span>
                               <span className="font-mono font-bold">{isSI ? `${calcResults.kwGlaz.toFixed(2)} kW` : `${Math.round(calcResults.qGlaz).toLocaleString()} BTU/hr`}</span>
                             </div>
                             <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
-                              <span className="text-slate-600 dark:text-zinc-400">Infiltration heat loss</span>
+                              <span className="text-slate-600 dark:text-zinc-400">Infiltration Heat Loss:</span>
                               <span className="font-mono font-bold">{isSI ? `${calcResults.kwInfil.toFixed(2)} kW` : `${Math.round(calcResults.qInfil).toLocaleString()} BTU/hr`}</span>
                             </div>
-                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800 font-semibold">
-                              <span className="text-slate-700 dark:text-zinc-300">Total heating load</span>
-                              <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{isSI ? `${calcResults.kwBase.toFixed(2)} kW` : `${Math.round(calcResults.qBase).toLocaleString()} BTU/hr`}</span>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Base Building Heat Load:</span>
+                              <span className="font-mono font-bold">{isSI ? `${calcResults.kwBase.toFixed(2)} kW` : `${Math.round(calcResults.qBase).toLocaleString()} BTU/hr`}</span>
                             </div>
                             <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
-                              <span className="text-slate-600 dark:text-zinc-400">{isSI ? "Load per m²" : "Load per ft²"}</span>
+                              <span className="text-slate-600 dark:text-zinc-400">Specific Heat Load Density:</span>
                               <span className="font-mono font-bold">{isSI ? `${calcResults.loadDensityWPerSqm.toFixed(1)} W/m²` : `${calcResults.loadDensityBtuPerSqft.toFixed(1)} BTU/hr/ft²`}</span>
                             </div>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Equipment Safety Factor:</span>
+                              <span className="font-mono font-bold">{safetyMargin}%</span>
+                            </div>
                             <div className="flex justify-between py-1 font-bold text-foreground">
-                              <span>Heater / boiler capacity</span>
+                              <span>Sized Equipment Capacity:</span>
                               <span className="font-mono text-[#0A7BC7]">{calcResults.kwTotal.toFixed(2)} kW ({Math.round(calcResults.qTotal).toLocaleString()} BTU/hr)</span>
                             </div>
                           </div>
@@ -1424,7 +1455,7 @@ function HeatingLoadPage() {
                 </div>
               ) : (
                 /* REPORT PREVIEW TAB */
-                <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6 h-full overflow-y-auto custom-scrollbar">
+                <div className="h-full max-h-full overflow-y-auto p-4 md:p-8 custom-scrollbar space-y-6 max-w-4xl mx-auto w-full pb-16">
                   <div className="flex justify-between items-start pb-4 border-b border-border">
                     <div>
                       <h2 className="text-xl font-black text-foreground uppercase tracking-wide">

@@ -593,15 +593,159 @@ function LiftwellPressurizationPage() {
                 </div>
               )}
               
-              {tab === "report" && (
-                <div className="absolute inset-0 flex flex-col animate-in fade-in duration-300 p-6 overflow-y-auto">
-                   <h2 className="text-xl font-bold mb-4">Liftwell Pressurization Report</h2>
-                   <p className="text-sm text-muted-foreground mb-6">Generated calculation results for {items.length} liftwells.</p>
-                   <button onClick={handleExportPdf} className="self-start px-4 py-2 bg-primary text-white rounded-xl font-bold shadow-sm inline-flex items-center gap-2 text-sm">
-                     <FileText className="size-4" /> Download PDF Report
-                   </button>
-                </div>
-              )}
+                              {tab === "report" && (
+                  <div className="absolute inset-0 flex flex-col animate-in fade-in duration-300 bg-[#F5F7F9] dark:bg-zinc-950 overflow-y-auto">
+                    
+                    {/* Floating Action Bar */}
+                    <div className="sticky top-0 z-10 flex items-center justify-between p-4 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-border shadow-sm print:hidden">
+                      <div>
+                        <h2 className="text-sm font-bold text-foreground">Liftwell Pressurization Report</h2>
+                        <p className="text-[11px] text-muted-foreground">{items.length} liftwells calculated</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => window.print()} className="h-8 px-4 inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold cursor-pointer shadow-sm transition-transform active:scale-95">
+                          <FileText className="size-3.5" /> Print / Save PDF
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Report Content */}
+                    <div className="flex-1 p-4 md:p-8">
+                      <div id="report-content" className="max-w-[900px] mx-auto bg-white dark:bg-zinc-900 border border-border/50 rounded-2xl shadow-sm overflow-hidden print:shadow-none print:border-none print:max-w-none print:m-0">
+                        
+                        {/* Report Header */}
+                        <div className="p-8 border-b border-border/50 bg-[#F8FAFC] dark:bg-zinc-900/50 print:bg-transparent">
+                          <div className="flex justify-between items-start mb-6">
+                            <div>
+                              <h1 className="text-2xl font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight">Liftwell Pressurization</h1>
+                              <p className="text-sm text-slate-500 font-medium mt-1">Design Calculation Report</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Project</p>
+                              <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{project?.name || "N/A"}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-8 text-sm">
+                            <div>
+                              <span className="text-slate-400 text-xs">Date</span>
+                              <p className="font-semibold">{new Date().toLocaleDateString()}</p>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 text-xs">Unit System</span>
+                              <p className="font-semibold uppercase">{unitSystem}</p>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 text-xs">Liftwells</span>
+                              <p className="font-semibold">{items.length}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Report Body */}
+                        <div className="p-8 space-y-10">
+                          
+                          {/* Schedule Summary */}
+                          <section>
+                            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+                              <div className="w-1.5 h-4 bg-primary rounded-full"></div> Executive Summary
+                            </h3>
+                            <div className="rounded-xl border border-border/60 overflow-hidden">
+                              <table className="w-full text-xs text-left">
+                                <thead className="bg-[#F1F5F9] dark:bg-zinc-800/50 text-slate-600 dark:text-slate-300 font-bold border-b border-border/60">
+                                  <tr>
+                                    <th className="py-2.5 px-3">Name</th>
+                                    <th className="py-2.5 px-3">Door Type</th>
+                                    <th className="py-2.5 px-3 text-right">Airflow</th>
+                                    <th className="py-2.5 px-3 text-right">Pressure (dP)</th>
+                                    <th className="py-2.5 px-3 text-right">Relief Area</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/40">
+                                  {items.map((item) => {
+                                    const calc = calculateLiftwell(item, isIp);
+                                    return (
+                                      <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-white/5">
+                                        <td className="py-2.5 px-3 font-medium text-foreground">{item.name}</td>
+                                        <td className="py-2.5 px-3 text-slate-500">{DOOR_TYPES_CONFIG[item.doorType]?.name}</td>
+                                        <td className="py-2.5 px-3 text-right font-bold text-blue-600 dark:text-blue-400">{isIp ? calc.totalFanCapacityCfm + " CFM" : calc.totalFanCapacityLs + " L/s"}</td>
+                                        <td className="py-2.5 px-3 text-right font-mono">{isIp ? calc.designPressureDropInWg + " in.wg" : calc.designPressureDropPa + " Pa"}</td>
+                                        <td className="py-2.5 px-3 text-right font-mono">{isIp ? calc.reliefAreaSqFt + " sq ft" : calc.reliefAreaM2 + " m²"}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </section>
+
+                          {/* Detailed Breakdown */}
+                          <section>
+                            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
+                              <div className="w-1.5 h-4 bg-primary rounded-full"></div> Calculation Breakdown
+                            </h3>
+                            <div className="space-y-6">
+                              {items.map((item, index) => {
+                                const calc = calculateLiftwell(item, isIp);
+                                return (
+                                  <div key={item.id} className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden print:break-inside-avoid">
+                                    <div className="bg-slate-50 dark:bg-zinc-800/30 px-4 py-2 border-b border-slate-200 dark:border-zinc-800 flex justify-between items-center">
+                                      <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                                        <span className="text-muted-foreground text-xs font-normal">#{index + 1}</span> {item.name}
+                                      </h4>
+                                      <span className="text-[10px] uppercase font-bold text-slate-400 bg-white dark:bg-zinc-800 px-2 py-1 rounded shadow-sm border border-slate-100 dark:border-zinc-700">
+                                        {DOOR_TYPES_CONFIG[item.doorType]?.name}
+                                      </span>
+                                    </div>
+                                    <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                                      <div className="space-y-1">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Input: Door Area</span>
+                                        <p className="font-mono text-foreground font-medium">{item.doorArea || 0} {isIp ? "sq ft" : "m²"}</p>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Input: Doors</span>
+                                        <p className="font-medium text-foreground">{item.openDoorsCount || 0} Open / {item.closedDoorsCount || 0} Closed</p>
+                                      </div>
+                                      <div className="space-y-1 md:col-span-2">
+                                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Result: Total Airflow</span>
+                                        <p className="font-mono font-bold text-blue-600 text-sm">{isIp ? calc.totalFanCapacityCfm + " CFM" : calc.totalFanCapacityLs + " L/s"}</p>
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="px-4 pb-4">
+                                      <div className="bg-slate-50/50 dark:bg-zinc-950/50 rounded-lg p-3 text-[11px] font-mono grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 border border-slate-100 dark:border-zinc-800/60">
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60 dark:border-zinc-800/60">
+                                          <span className="text-slate-500">Open Door Flow:</span>
+                                          <span className="text-foreground">{isIp ? "-" : calc.openFlowLs + " L/s"}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60 dark:border-zinc-800/60">
+                                          <span className="text-slate-500">Closed Door Leakage:</span>
+                                          <span className="text-foreground">{isIp ? "-" : calc.closedFlowLs + " L/s"}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60 dark:border-zinc-800/60">
+                                          <span className="text-slate-500">Safety Margin (25%):</span>
+                                          <span className="text-foreground">{isIp ? "-" : (Number(calc.closedSafetyFlowM3s) * 1000).toFixed(1) + " L/s"}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60 dark:border-zinc-800/60">
+                                          <span className="text-slate-500">Sub-Total Flow:</span>
+                                          <span className="font-bold text-slate-700 dark:text-slate-300">{isIp ? "-" : (Number(calc.subTotalM3s) * 1000).toFixed(1) + " L/s"}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60 dark:border-zinc-800/60">
+                                          <span className="text-slate-500">Final Safety (10%):</span>
+                                          <span className="text-foreground">{isIp ? "-" : (Number(calc.finalSafetyM3s) * 1000).toFixed(1) + " L/s"}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </section>
+
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
             </div>
           </div>
         </div>

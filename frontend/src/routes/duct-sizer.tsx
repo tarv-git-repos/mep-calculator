@@ -15,7 +15,7 @@ import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
 import {
-  Info, Sparkles, AlertTriangle, CheckCircle2, FileText, Printer, X, HelpCircle,
+  Info, Sparkles, AlertTriangle, CheckCircle2, FileText, Printer, X, HelpCircle, Eye,
   MessageSquare, ShieldAlert, Check, Activity, Copy, Clipboard, RotateCcw,
   Trash2, Edit3, Lock, Droplets, Waves, Gauge, Clock, ShieldCheck, Layers,
   ArrowRight, Download, Save, Zap, Cylinder, ArrowUpRight, ChevronDown, ChevronRight,
@@ -1442,246 +1442,117 @@ function DuctSizerPage() {
                   {/* RIGHT COLUMN: RESULTS - SCROLLABLE PANEL (lg:col-span-7) */}
                   <div className="lg:col-span-7 h-full max-h-full overflow-y-auto pr-2 custom-scrollbar space-y-4">
                     
-                    {/* Card 1: RECOMMENDED DUCT SIZING HERO */}
-                    <div
-                      id="card-hero-size"
-                      data-comment-target="hero-size"
-                      onDoubleClick={() => setFormulaModalOpen(true)}
-                      title="Double-click to view SMACNA formula breakdown"
-                      className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm space-y-3 ${
-                        isFieldHighlighted("hero-size", "Recommended Duct Sizing") || isFieldHighlighted("card-hero-size")
-                          ? "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light"
-                          : ""
-                      }`}
-                    >
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                          <Wind className="size-4 text-primary" /> Recommended Duct Sizing
-                        </span>
-                        {renderCommentBadge("hero-size", "Recommended Duct Sizing")}
-                      </div>
-                      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-1">
-                        <div className="space-y-1 text-center sm:text-left">
-                          <div className="text-3xl sm:text-4xl font-black text-foreground font-mono tracking-tight text-primary">
-                            {calcResults.sizeDisplay}
+                    {/* PRIMARY SIZING RESULTS CARD (MATCHING PUMP SIZING REFERENCE) */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          id="card-hero-results"
+                          data-comment-target="hero-results"
+                          onDoubleClick={() => setFormulaModalOpen(true)}
+                          title="Double-click to view SMACNA formula breakdown"
+                          className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 cursor-pointer transition-colors ${
+                            isFieldHighlighted("hero-results", "Recommended Duct Sizing") || isFieldHighlighted("card-hero-results") || isFieldHighlighted("card-aerodynamics")
+                              ? "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light"
+                              : ""
+                          }`}
+                        >
+                          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                                ⚡ Sizing Results Summary
+                              </span>
+                              {renderCommentBadge("hero-results", "Recommended Duct Sizing")}
+                            </div>
+                            <span className="text-[10.5px] font-mono font-semibold text-slate-500 bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
+                              Colebrook Equation
+                            </span>
                           </div>
-                          <p className="text-xs font-medium text-slate-500 dark:text-zinc-400">
-                            {calcResults.sizeFullText}
-                          </p>
-                        </div>
-                        <div className="flex flex-col items-center sm:items-end gap-1 shrink-0 bg-slate-50 dark:bg-zinc-800/80 p-3 rounded-xl border border-slate-100 dark:border-zinc-700/60">
-                          <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Air Velocity</div>
-                          <div className="text-xl font-extrabold text-primary font-mono">
-                            {isSI ? `${calcResults.velocityMs.toFixed(2)} m/s` : `${Math.round(calcResults.velocityFpm)} FPM`}
-                          </div>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                            {calcResults.flowRegime}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
 
-                    {/* Diagnostics Banners */}
-                    {warnings.map((w, idx) => (
-                      <div
-                        key={idx}
-                        className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs font-medium ${
-                          w.type === "warning"
-                            ? "bg-amber-500/10 border-amber-500/20 text-amber-800 dark:text-amber-300"
-                            : w.type === "info"
-                            ? "bg-blue-500/10 border-blue-500/20 text-blue-800 dark:text-blue-300"
-                            : "bg-emerald-500/10 border-emerald-500/20 text-emerald-800 dark:text-emerald-300"
-                        }`}
-                      >
-                        {w.type === "warning" ? (
-                          <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600" />
-                        ) : w.type === "info" ? (
-                          <Info className="size-4 shrink-0 mt-0.5 text-blue-600" />
-                        ) : (
-                          <CheckCircle2 className="size-4 shrink-0 mt-0.5 text-emerald-600" />
-                        )}
-                        <span>{w.text}</span>
-                      </div>
-                    ))}
-
-                    {/* Card 2: AERODYNAMIC & HYDRAULIC PERFORMANCE METRICS */}
-                    <div
-                      id="card-aerodynamics"
-                      data-comment-target="aerodynamics"
-                      className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4 shadow-sm ${
-                        isFieldHighlighted("card-aerodynamics", "Aerodynamic & Hydraulic Performance") || isFieldHighlighted("card-results")
-                          ? "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light"
-                          : ""
-                      }`}
-                    >
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[12.5px] font-bold text-foreground uppercase tracking-wide flex items-center gap-1.5">
-                            ⚡ AERODYNAMIC & HYDRAULIC PERFORMANCE
-                          </span>
-                          {renderCommentBadge("card-aerodynamics", "Aerodynamic & Hydraulic Performance")}
-                        </div>
-                        <span className="text-[10.5px] font-mono font-semibold text-slate-500 bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
-                          Colebrook Equation
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-                        {[
-                          {
-                            id: "metric-velocity",
-                            label: "Air Velocity",
-                            valFormatted: isSI ? `${calcResults.velocityMs.toFixed(2)} m/s` : `${Math.round(calcResults.velocityFpm)} FPM`,
-                            isPrimary: false,
-                          },
-                          {
-                            id: "metric-friction",
-                            label: "Actual Friction Loss",
-                            valFormatted: isSI ? `${calcResults.actualFrPaM.toFixed(3)} Pa/m` : `${calcResults.actualFrInWg.toFixed(4)} in/100ft`,
-                            isPrimary: true,
-                          },
-                          {
-                            id: "metric-velpress",
-                            label: "Velocity Pressure (Pv)",
-                            valFormatted: isSI ? `${calcResults.velPressPa.toFixed(1)} Pa` : `${calcResults.velPressInWg.toFixed(4)} in.wg`,
-                            isPrimary: false,
-                          },
-                          {
-                            id: "metric-deq",
-                            label: "Equivalent Circular Dia",
-                            valFormatted: isSI ? `${Math.round(calcResults.deqMm)} mm` : `${calcResults.deqIn.toFixed(1)}" NPS`,
-                            isPrimary: false,
-                          },
-                          {
-                            id: "metric-dh",
-                            label: "Hydraulic Diameter (Dh)",
-                            valFormatted: isSI ? `${Math.round(calcResults.hydraulicDiaMm)} mm` : `${calcResults.hydraulicDiaIn.toFixed(1)}" NPS`,
-                            isPrimary: false,
-                          },
-                          {
-                            id: "metric-area",
-                            label: "Cross-Section Area",
-                            valFormatted: isSI ? `${calcResults.areaM2.toFixed(3)} m²` : `${calcResults.areaSqFt.toFixed(2)} sq.ft`,
-                            isPrimary: false,
-                          },
-                          {
-                            id: "metric-reynolds",
-                            label: "Reynolds Number",
-                            valFormatted: Math.round(calcResults.reynolds).toLocaleString(),
-                            isPrimary: false,
-                          },
-                          {
-                            id: "metric-darcy",
-                            label: "Darcy Friction Factor (f)",
-                            valFormatted: calcResults.frictionFactor.toFixed(5),
-                            isPrimary: false,
-                          },
-                          {
-                            id: "metric-perimeter",
-                            label: "Duct Girth / Perimeter",
-                            valFormatted: isSI ? `${calcResults.perimeterM.toFixed(2)} m` : `${calcResults.perimeterIn.toFixed(1)} in.`,
-                            isPrimary: false,
-                          },
-                        ].map((item) => (
-                          <ContextMenu key={item.id}>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                id={item.id}
-                                data-comment-target={item.id}
-                                onDoubleClick={() => setFormulaModalOpen(true)}
-                                title="Double-click for formula breakdown, Right-click to copy"
-                                className={`p-3 rounded-xl border flex flex-col gap-0.5 cursor-pointer transition group ${
-                                  isFieldHighlighted(item.id, item.label)
-                                    ? "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light"
-                                    : "bg-slate-50/70 dark:bg-zinc-800/50 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10.5px] font-semibold text-slate-500 dark:text-zinc-400">{item.label}</span>
-                                  {renderCommentBadge(item.id, item.label)}
-                                </div>
-                                <strong className={`font-mono text-sm font-bold ${item.isPrimary ? "text-primary" : "text-foreground group-hover:text-primary transition-colors"}`}>
-                                  {item.valFormatted}
-                                </strong>
+                          {/* DISPLAY STAT CARDS (4 Color-coded cards matching Pump Sizing) */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Recommended Size</div>
+                              <div className="text-xl font-bold font-mono text-foreground tracking-tight text-primary">
+                                {calcResults.sizeDisplay}
                               </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                              <ContextMenuItem onClick={() => handleCopyValue(item.label, item.valFormatted)}>
-                                <Copy className="size-3.5 mr-2 text-muted-foreground" /> Copy {item.label}
-                              </ContextMenuItem>
-                              <ContextMenuItem onClick={() => setFormulaModalOpen(true)}>
-                                <BookOpen className="size-3.5 mr-2 text-primary" /> View Formula Breakdown...
-                              </ContextMenuItem>
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
-                              <ContextMenuItem onClick={() => handleOpenComment(item.id, item.label)} className="text-primary font-medium">
-                                <MessageSquare className="size-3.5 mr-2" /> Add Comment / Assign Task
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        ))}
-                      </div>
-                    </div>
+                            </div>
 
-                    {/* Card 3: ACOUSTIC & FRICTION BREAKDOWN PROGRESS BARS */}
-                    <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl p-5 space-y-4 shadow-sm">
-                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-200 flex items-center gap-1.5">
-                          <Activity className="size-3.5 text-blue-500" /> Airflow & Friction Performance
-                        </span>
-                        <span className="text-[10.5px] font-mono font-semibold text-slate-500">
-                          Target: {isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg`}
-                        </span>
-                      </div>
-
-                      {(() => {
-                        const actualFr = isSI ? calcResults.actualFrPaM : calcResults.actualFrInWg;
-                        const targetFrVal = isSI ? calcResults.targetFrPaM : calcResults.targetFrInWg;
-                        const uFr = isSI ? "Pa/m" : "in.wg";
-
-                        const vel = isSI ? calcResults.velocityMs : calcResults.velocityFpm;
-                        const maxVel = isSI ? 12.7 : 2500;
-                        const uVel = isSI ? "m/s" : "FPM";
-
-                        const bars = [
-                          { label: "Target Friction Rate", val: targetFrVal, max: Math.max(actualFr, targetFrVal) * 1.25, display: `${targetFrVal.toFixed(isSI ? 2 : 3)} ${uFr}`, color: "#3B82F6" },
-                          { label: "Actual Friction Loss", val: actualFr, max: Math.max(actualFr, targetFrVal) * 1.25, display: `${actualFr.toFixed(isSI ? 3 : 4)} ${uFr}`, color: "#10B981" },
-                          { label: "Air Velocity vs SMACNA Limit", val: vel, max: maxVel * 1.2, display: `${isSI ? vel.toFixed(2) : Math.round(vel)} ${uVel} (Max: ${maxVel} ${uVel})`, color: vel > maxVel ? "#EF4444" : "#F59E0B" },
-                        ];
-
-                        return (
-                          <div className="space-y-3">
-                            {bars.map((b, idx) => (
-                              <div key={idx} className="space-y-1">
-                                <div className="flex justify-between text-[11px]">
-                                  <span className="font-semibold text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
-                                    <span className="size-2 rounded-full" style={{ backgroundColor: b.color }} />
-                                    {b.label}
-                                  </span>
-                                  <span className="font-mono text-slate-500">
-                                    {b.display}
-                                  </span>
-                                </div>
-                                <div className="w-full h-2 bg-slate-200/70 dark:bg-zinc-700/60 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full rounded-full transition-all duration-500"
-                                    style={{
-                                      width: `${Math.min(100, Math.max(3, (b.val / (b.max || 1)) * 100))}%`,
-                                      backgroundColor: b.color,
-                                    }}
-                                  />
-                                </div>
+                            <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium flex items-center justify-between">
+                                <span>Air Velocity</span>
+                                <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                                  {calcResults.flowRegime}
+                                </span>
                               </div>
-                            ))}
+                              <div className="text-xl font-bold font-mono text-foreground">
+                                {isSI ? `${calcResults.velocityMs.toFixed(2)}` : `${Math.round(calcResults.velocityFpm)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "m/s" : "FPM"}</span>
+                              </div>
+                            </div>
+
+                            <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Friction Loss</div>
+                              <div className="text-xl font-bold font-mono text-foreground">
+                                {isSI ? `${calcResults.actualFrPaM.toFixed(2)}` : `${calcResults.actualFrInWg.toFixed(3)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "Pa/m" : "in/100ft"}</span>
+                              </div>
+                            </div>
+
+                            <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Equiv. Dia (Deq)</div>
+                              <div className="text-xl font-bold font-mono text-foreground">
+                                {isSI ? `${Math.round(calcResults.deqMm)}` : `${calcResults.deqIn.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "mm" : "in"}</span>
+                              </div>
+                            </div>
                           </div>
-                        );
-                      })()}
-                    </div>
+
+                          {/* DETAILED AERODYNAMIC METRICS TABLE (Matching Pump Sizing) */}
+                          <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2 text-xs">
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Velocity Pressure (Pv):</span>
+                              <span className="font-mono font-bold">{isSI ? `${calcResults.velPressPa.toFixed(1)} Pa` : `${calcResults.velPressInWg.toFixed(4)} in.wg`}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Hydraulic Diameter (Dh):</span>
+                              <span className="font-mono font-bold">{isSI ? `${Math.round(calcResults.hydraulicDiaMm)} mm` : `${calcResults.hydraulicDiaIn.toFixed(1)}" NPS`}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Cross-Section Area:</span>
+                              <span className="font-mono font-bold">{isSI ? `${calcResults.areaM2.toFixed(3)} m²` : `${calcResults.areaSqFt.toFixed(2)} sq.ft`}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Reynolds Number (Re):</span>
+                              <span className="font-mono font-bold">{Math.round(calcResults.reynolds).toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Darcy Friction Factor (f):</span>
+                              <span className="font-mono font-bold">{calcResults.frictionFactor.toFixed(5)}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Duct Girth / Perimeter:</span>
+                              <span className="font-mono font-bold">{isSI ? `${calcResults.perimeterM.toFixed(2)} m` : `${calcResults.perimeterIn.toFixed(1)} in.`}</span>
+                            </div>
+                            <div className="flex justify-between py-1 font-bold text-foreground">
+                              <span>Selected Duct Specification:</span>
+                              <span className="font-mono text-[#0A7BC7]">{calcResults.sizeFullText}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
+                        <ContextMenuItem onClick={() => setFormulaModalOpen(true)} className="text-primary font-medium">
+                          <Eye className="size-3.5 mr-2" /> View Formula Breakdown
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem onClick={() => handleOpenComment("hero-results", "Recommended Duct Sizing")} className="text-primary font-medium">
+                          <MessageSquare className="size-3.5 mr-2" /> Add Comment / Assign Task
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
 
                   </div>
                 </div>
               ) : (
                 /* Report View Tab */
-                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-8 custom-scrollbar space-y-6 max-w-4xl mx-auto w-full pb-12">
+                <div className="h-full max-h-full overflow-y-auto p-4 md:p-8 custom-scrollbar space-y-6 max-w-4xl mx-auto w-full pb-16">
                   <div className="flex items-center justify-between pb-3 border-b border-border gap-2 flex-wrap">
                     <div>
                       <h2 className="text-base font-bold text-foreground">HVAC Duct Sizing Engineering Report</h2>
@@ -1794,8 +1665,94 @@ function DuctSizerPage() {
                     </div>
                   </div>
 
-                  {/* 3-Tier Signature Block */}
-                  <div className="pt-2">
+                  {/* 3. Compliance & Diagnostic Verification */}
+                  {warnings.length > 0 && (
+                    <div className="bg-card border border-border rounded-2xl p-5 space-y-3 shadow-xs">
+                      <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">3. Compliance & Diagnostic Verification</h3>
+                      <div className="space-y-2">
+                        {warnings.map((w, idx) => (
+                          <div
+                            key={idx}
+                            className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs font-medium ${
+                              w.type === "warning"
+                                ? "bg-amber-500/10 border-amber-500/20 text-amber-800 dark:text-amber-300"
+                                : w.type === "info"
+                                ? "bg-blue-500/10 border-blue-500/20 text-blue-800 dark:text-blue-300"
+                                : "bg-emerald-500/10 border-emerald-500/20 text-emerald-800 dark:text-emerald-300"
+                            }`}
+                          >
+                            {w.type === "warning" ? (
+                              <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600" />
+                            ) : w.type === "info" ? (
+                              <Info className="size-4 shrink-0 mt-0.5 text-blue-600" />
+                            ) : (
+                              <CheckCircle2 className="size-4 shrink-0 mt-0.5 text-emerald-600" />
+                            )}
+                            <span>{w.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 4. Airflow & Friction Performance Analysis */}
+                  <div className="bg-card border border-border rounded-2xl p-5 space-y-4 shadow-xs">
+                    <div className="flex items-center justify-between pb-2 border-b border-border">
+                      <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <Activity className="size-3.5 text-blue-500" /> 4. Airflow & Friction Performance Analysis
+                      </h3>
+                      <span className="text-[10.5px] font-mono font-semibold text-muted-foreground">
+                        Target: {isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg`}
+                      </span>
+                    </div>
+
+                    {(() => {
+                      const actualFr = isSI ? calcResults.actualFrPaM : calcResults.actualFrInWg;
+                      const targetFrVal = isSI ? calcResults.targetFrPaM : calcResults.targetFrInWg;
+                      const uFr = isSI ? "Pa/m" : "in.wg";
+
+                      const vel = isSI ? calcResults.velocityMs : calcResults.velocityFpm;
+                      const maxVel = isSI ? 12.7 : 2500;
+                      const uVel = isSI ? "m/s" : "FPM";
+
+                      const bars = [
+                        { label: "Target Friction Rate", val: targetFrVal, max: Math.max(actualFr, targetFrVal) * 1.25, display: `${targetFrVal.toFixed(isSI ? 2 : 3)} ${uFr}`, color: "#3B82F6" },
+                        { label: "Actual Friction Loss", val: actualFr, max: Math.max(actualFr, targetFrVal) * 1.25, display: `${actualFr.toFixed(isSI ? 3 : 4)} ${uFr}`, color: "#10B981" },
+                        { label: "Air Velocity vs SMACNA Limit", val: vel, max: maxVel * 1.2, display: `${isSI ? vel.toFixed(2) : Math.round(vel)} ${uVel} (Max: ${maxVel} ${uVel})`, color: vel > maxVel ? "#EF4444" : "#F59E0B" },
+                      ];
+
+                      return (
+                        <div className="space-y-3 text-xs">
+                          {bars.map((b, idx) => (
+                            <div key={idx} className="space-y-1">
+                              <div className="flex justify-between text-[11px]">
+                                <span className="font-semibold text-foreground flex items-center gap-1.5">
+                                  <span className="size-2 rounded-full" style={{ backgroundColor: b.color }} />
+                                  {b.label}
+                                </span>
+                                <span className="font-mono text-muted-foreground">
+                                  {b.display}
+                                </span>
+                              </div>
+                              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all duration-500"
+                                  style={{
+                                    width: `${Math.min(100, Math.max(3, (b.val / (b.max || 1)) * 100))}%`,
+                                    backgroundColor: b.color,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* 5. Verification & Sign-off */}
+                  <div className="pt-2 space-y-2">
+                    <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">5. Verification & Sign-off</h3>
                     {(() => {
                       const sig = getSignatureBlockDetails(project?.id || "default", "/duct-sizer", currentUserName, calcReviewState);
                       return (

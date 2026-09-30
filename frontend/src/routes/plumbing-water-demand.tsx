@@ -2216,13 +2216,14 @@ function WaterDemandPage() {
                           )}
                         </tbody>
                       </table>
-                      {/* Table Summary Footer Bar (Matching Ventilation Schedule) */}
-                      <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none no-print">
-                        <div>Showing <span className="text-foreground font-medium tabular">{filteredAndSortedWdRows.length}</span> of {wdRows.length} spaces</div>
-                        <div className="flex items-center gap-4 tabular">
-                          <span>Total Occupancy: <strong className="text-foreground font-mono font-bold">{(calculations.totalPeople || 0).toLocaleString()}</strong> People</span>
-                          <span>Total Daily Load: <strong className="text-primary font-mono font-bold text-xs">{calculations.displayDomestic}</strong></span>
-                        </div>
+                    </div>
+
+                    {/* Table Summary Footer Bar (Matching Ventilation Schedule) */}
+                    <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none no-print">
+                      <div>Showing <span className="text-foreground font-medium tabular">{filteredAndSortedWdRows.length}</span> of {wdRows.length} spaces</div>
+                      <div className="flex items-center gap-4 tabular">
+                        <span>Total Occupancy: <strong className="text-foreground font-mono font-bold">{(calculations.totalPeople || 0).toLocaleString()}</strong> People</span>
+                        <span>Total Daily Load: <strong className="text-primary font-mono font-bold text-xs">{calculations.displayDomestic}</strong></span>
                       </div>
                     </div>
                   </div>
@@ -2513,13 +2514,14 @@ function WaterDemandPage() {
                             )}
                           </tbody>
                         </table>
-                        {/* Table Summary Footer Bar */}
-                        <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none no-print">
-                          <div>Showing <span className="text-foreground font-medium tabular">{irrRows.length}</span> of {irrRows.length} vegetation zones</div>
-                          <div className="flex items-center gap-4 tabular">
-                            <span>Total Area: <strong className="text-foreground font-mono font-bold">{irrRows.reduce((a, b) => a + (b.area || 0), 0).toLocaleString()} {ip ? "ft²" : "m²"}</strong></span>
-                            <span>Total Daily Load: <strong className="text-emerald-600 dark:text-emerald-400 font-mono font-bold text-xs">{calculations.displayIrrigation}</strong></span>
-                          </div>
+                      </div>
+
+                      {/* Table Summary Footer Bar */}
+                      <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none no-print">
+                        <div>Showing <span className="text-foreground font-medium tabular">{irrRows.length}</span> of {irrRows.length} vegetation zones</div>
+                        <div className="flex items-center gap-4 tabular">
+                          <span>Total Area: <strong className="text-foreground font-mono font-bold">{irrRows.reduce((a, b) => a + (b.area || 0), 0).toLocaleString()} {ip ? "ft²" : "m²"}</strong></span>
+                          <span>Total Daily Load: <strong className="text-emerald-600 dark:text-emerald-400 font-mono font-bold text-xs">{calculations.displayIrrigation}</strong></span>
                         </div>
                       </div>
                     </div>
