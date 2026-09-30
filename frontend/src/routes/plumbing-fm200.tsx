@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+﻿import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,7 +29,7 @@ import { TBtn } from "@/components/workspace/Button";
 export const Route = createFileRoute("/plumbing-fm200")({
   head: () => ({
     meta: [
-      { title: "FM-200 Clean Agent Sizer — MEP Calc" },
+      { title: "FM-200 Clean Agent Sizer â€” MEP Calc" },
       { name: "description", content: "Calculate FM-200 (HFC-227ea) required agent weight for total flooding clean agent suppression per NFPA 2001." },
     ],
   }),
@@ -497,10 +497,10 @@ function FM200SizerPage() {
     if (useStandardS) {
       // Standard constant
       if (isSI) {
-        S = 0.1473; // m³/kg
+        S = 0.1473; // mÂ³/kg
       } else {
-        // IP equivalent of 0.1473 m³/kg is approx 2.3595 ft³/lb
-        S = 2.3595; // ft³/lb
+        // IP equivalent of 0.1473 mÂ³/kg is approx 2.3595 ftÂ³/lb
+        S = 2.3595; // ftÂ³/lb
       }
     } else {
       // Temperature-dependent Specific Volume per NFPA 2001 formula
@@ -635,13 +635,13 @@ function FM200SizerPage() {
 
       // Table 1: Design Parameters & Enclosure Layout
       const inputTableBody = [
-        ["1", "Protected Enclosure Floor Area", areaVal.toFixed(2), isSI ? "m²" : "ft²", "Architectural Layout"],
+        ["1", "Protected Enclosure Floor Area", areaVal.toFixed(2), isSI ? "mÂ²" : "ftÂ²", "Architectural Layout"],
         ["2", "Protected Enclosure Clear Height", heightVal.toFixed(2), isSI ? "m" : "ft", "Architectural Section"],
-        ["3", "Flooded Gross Enclosure Volume (V)", calcResults.volume.toFixed(2), isSI ? "m³" : "ft³", "V = Floor Area × Height"],
+        ["3", "Flooded Gross Enclosure Volume (V)", calcResults.volume.toFixed(2), isSI ? "mÂ³" : "ftÂ³", "V = Floor Area Ã— Height"],
         ["4", "Hazard Classification", hazardLabel, "-", "NFPA 2001 Chapter 5"],
         ["5", "Minimum Design Concentration (C)", `${calcResults.C.toFixed(3)} %`, "%", "NFPA 2001 Table 5.4.2"],
-        ["6", "Minimum Enclosure Design Temperature (T)", `${typeof temp === "number" ? temp.toFixed(1) : "20.0"} ${isSI ? "°C" : "°F"}`, isSI ? "°C" : "°F", "Project Environmental Data"],
-        ["7", "Specific Vapor Volume (S)", `${calcResults.S.toFixed(4)} ${isSI ? "m³/kg" : "ft³/lb"}`, isSI ? "m³/kg" : "ft³/lb", useStandardS ? "Standard Default (0.1473 m³/kg)" : "S = k1 + k2 × T"],
+        ["6", "Minimum Enclosure Design Temperature (T)", `${typeof temp === "number" ? temp.toFixed(1) : "20.0"} ${isSI ? "Â°C" : "Â°F"}`, isSI ? "Â°C" : "Â°F", "Project Environmental Data"],
+        ["7", "Specific Vapor Volume (S)", `${calcResults.S.toFixed(4)} ${isSI ? "mÂ³/kg" : "ftÂ³/lb"}`, isSI ? "mÂ³/kg" : "ftÂ³/lb", useStandardS ? "Standard Default (0.1473 mÂ³/kg)" : "S = k1 + k2 Ã— T"],
         ["8", "Safety Margin Factor", `${safetyFactorVal.toFixed(2)}x`, "-", safetyFactorVal > 1.0 ? "NFPA Recommended Margin" : "Standard Base Sizing"]
       ];
 
@@ -687,15 +687,15 @@ function FM200SizerPage() {
 
       // Table 2: NFPA 2001 Sizing Results & Agent Weight
       const resultsTableBody = [
-        ["A", "Total Flooding Net Enclosure Volume", `${calcResults.volume.toFixed(2)} ${isSI ? "m³" : "ft³"}`, "V = Area × Height"],
-        ["B", "Specific Vapor Volume of Superheated FM-200 (S)", `${calcResults.S.toFixed(4)} ${isSI ? "m³/kg" : "ft³/lb"}`, isSI ? "k1 = 0.1269, k2 = 0.000513" : "k1 = 1.885, k2 = 0.0046"],
+        ["A", "Total Flooding Net Enclosure Volume", `${calcResults.volume.toFixed(2)} ${isSI ? "mÂ³" : "ftÂ³"}`, "V = Area Ã— Height"],
+        ["B", "Specific Vapor Volume of Superheated FM-200 (S)", `${calcResults.S.toFixed(4)} ${isSI ? "mÂ³/kg" : "ftÂ³/lb"}`, isSI ? "k1 = 0.1269, k2 = 0.000513" : "k1 = 1.885, k2 = 0.0046"],
         ["C", "Volumetric Expansion Term [ C / (100 - C) ]", (calcResults.C / (100 - calcResults.C)).toFixed(5), "NFPA 2001 Equation 5.5.1"],
         ["D", "Safety Margin Multiplier Applied", `${safetyFactorVal.toFixed(2)}x`, "Engineering Safety Factor"],
         [
           "E",
           "REQUIRED FM-200 AGENT NET WEIGHT (W)",
           `${calcResults.weight.toFixed(2)} ${isSI ? "kg" : "lb"}`,
-          "W = (V / S) × [ C / (100 - C) ] × Safety Factor"
+          "W = (V / S) Ã— [ C / (100 - C) ] Ã— Safety Factor"
         ],
         ["F", "Maximum Targeted Discharge Duration", "10.0 Seconds", "NFPA 2001 Clause 5.7.1.2"],
         ["G", "Minimum Enclosure Hold / Retention Time", "10.0 Minutes", "Door Fan Integrity Test Requirement"],
@@ -912,8 +912,8 @@ function FM200SizerPage() {
                   inputDescriptions="Floor Area, Enclosure Height, Minimum Temperature"
                   conversionExample={
                     unitSystem === "si"
-                      ? "Convert 100 m² → 1,076.4 ft², 3 m → 9.84 ft, 20°C → 68°F"
-                      : "Convert 1,000 ft² → 92.9 m², 10 ft → 3.05 m, 68°F → 20°C"
+                      ? "Convert 100 mÂ² â†’ 1,076.4 ftÂ², 3 m â†’ 9.84 ft, 20Â°C â†’ 68Â°F"
+                      : "Convert 1,000 ftÂ² â†’ 92.9 mÂ², 10 ft â†’ 3.05 m, 68Â°F â†’ 20Â°C"
                   }
                 />
             </div>
@@ -998,7 +998,7 @@ function FM200SizerPage() {
                             "Floor Area",
                             area,
                             setArea,
-                            unitSystem === "si" ? "m²" : "ft²",
+                            unitSystem === "si" ? "mÂ²" : "ftÂ²",
                             "any",
                             0,
                             unitSystem === "si" ? "100" : "1000"
@@ -1067,7 +1067,7 @@ function FM200SizerPage() {
                               "Minimum Temperature",
                               temp,
                               setTemp,
-                              unitSystem === "si" ? "°C" : "°F",
+                              unitSystem === "si" ? "Â°C" : "Â°F",
                               "any",
                               0,
                               unitSystem === "si" ? "20" : "68"
@@ -1099,7 +1099,7 @@ function FM200SizerPage() {
                                 {renderCommentBadge("fm200-lock-s", "Specific Volume S Standard")}
                               </div>
                               <span className="text-[11px] text-muted-foreground mt-0.5">
-                                Forces S to {unitSystem === "si" ? "0.1473 m³/kg" : "2.3595 ft³/lb"} (Baseline reference temperature)
+                                Forces S to {unitSystem === "si" ? "0.1473 mÂ³/kg" : "2.3595 ftÂ³/lb"} (Baseline reference temperature)
                               </span>
                             </div>
                             <input
@@ -1115,7 +1115,7 @@ function FM200SizerPage() {
                     </div>
 
                     {/* Right Column: Calculation Results & Sizing Schematics */}
-                    <div className="lg:col-span-5 xl:col-span-5 flex flex-col gap-5 bg-surface/30 p-5 rounded-3xl border border-border shadow-2xs">
+                    <div className="lg:col-span-5 xl:col-span-5 flex flex-col gap-5 bg-surface/30 p-5 rounded-3xl border border-border shadow-2xs sticky top-0 self-start z-10 max-h-[calc(100vh-160px)] overflow-y-auto custom-scrollbar">
                       <div>
                         <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">Calculation Results</h3>
                         <p className="text-[11.5px] text-muted-foreground">Flooding weight outputs (NFPA 2001)</p>
@@ -1138,13 +1138,13 @@ function FM200SizerPage() {
                                 {renderCommentBadge("fm200-volume", "Flooded Enclosure Volume")}
                               </div>
                               <div className="text-[22px] font-bold tracking-tight font-mono text-primary">
-                                {calcResults.volume.toFixed(2)} <span className="text-[13.5px] font-normal">{unitSystem === "si" ? "m³" : "ft³"}</span>
+                                {calcResults.volume.toFixed(2)} <span className="text-[13.5px] font-normal">{unitSystem === "si" ? "mÂ³" : "ftÂ³"}</span>
                               </div>
                             </div>
                           </ContextMenuTrigger>
                           <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
                             <ContextMenuItem
-                              onClick={() => handleCopyValue("Flooded Enclosure Volume", `${calcResults.volume.toFixed(2)} ${unitSystem === "si" ? "m³" : "ft³"}`)}
+                              onClick={() => handleCopyValue("Flooded Enclosure Volume", `${calcResults.volume.toFixed(2)} ${unitSystem === "si" ? "mÂ³" : "ftÂ³"}`)}
                               className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
                             >
                               <Copy className="size-3.5 text-muted-foreground" />
@@ -1278,7 +1278,7 @@ function FM200SizerPage() {
 
                               {/* Center Room Label */}
                               <text x="120" y="68" textAnchor="middle" fontSize="12" fontWeight="bold" fill="#334155">
-                                {calcResults.volume.toFixed(1)} {unitSystem === "si" ? "m³" : "ft³"}
+                                {calcResults.volume.toFixed(1)} {unitSystem === "si" ? "mÂ³" : "ftÂ³"}
                               </text>
                               
                               {/* Specific Volume and Agent label */}
@@ -1324,7 +1324,7 @@ function FM200SizerPage() {
                       <div className="flex justify-between py-1.5 border-b border-border/50">
                         <span className="text-muted-foreground">Design Volume</span>
                         <span className="font-semibold text-foreground">
-                          {calcResults.volume.toFixed(2)} {unitSystem === "si" ? "m³" : "ft³"}
+                          {calcResults.volume.toFixed(2)} {unitSystem === "si" ? "mÂ³" : "ftÂ³"}
                         </span>
                       </div>
                       <div className="flex justify-between py-1.5 border-b border-border/50">
@@ -1340,13 +1340,13 @@ function FM200SizerPage() {
                       <div className="flex justify-between py-1.5 border-b border-border/50">
                         <span className="text-muted-foreground">Specific Volume (S)</span>
                         <span className="font-semibold text-foreground">
-                          {calcResults.S.toFixed(4)} {unitSystem === "si" ? "m³/kg" : "ft³/lb"}
+                          {calcResults.S.toFixed(4)} {unitSystem === "si" ? "mÂ³/kg" : "ftÂ³/lb"}
                         </span>
                       </div>
                       <div className="flex justify-between py-1.5 border-b border-border/50">
                         <span className="text-muted-foreground">Design Temp</span>
                         <span className="font-semibold text-foreground">
-                          {temp} {unitSystem === "si" ? "°C" : "°F"}
+                          {temp} {unitSystem === "si" ? "Â°C" : "Â°F"}
                         </span>
                       </div>
                       <div className="flex justify-between py-1.5 border-b border-border/50">
@@ -1429,24 +1429,24 @@ function FM200SizerPage() {
               </p>
 
               <div className="bg-surface-2 p-3 rounded-2xl font-mono text-xs text-center border border-border font-bold text-primary">
-                W = (V / S) × (C / (100 - C)) × SafetyFactor
+                W = (V / S) Ã— (C / (100 - C)) Ã— SafetyFactor
               </div>
 
               <div className="space-y-1.5 bg-surface/50 p-3.5 rounded-2xl border border-border/60 text-xs">
                 <div className="flex justify-between border-b border-border/40 py-1.5">
                   <span className="font-semibold text-muted-foreground">V (Volume):</span>
                   <span className="font-mono font-medium">
-                    {areaVal.toFixed(2)} × {heightVal.toFixed(2)} = {calcResults.volume.toFixed(2)} {unitSystem === "si" ? "m³" : "ft³"}
+                    {areaVal.toFixed(2)} Ã— {heightVal.toFixed(2)} = {calcResults.volume.toFixed(2)} {unitSystem === "si" ? "mÂ³" : "ftÂ³"}
                   </span>
                 </div>
                 <div className="flex justify-between border-b border-border/40 py-1.5">
                   <span className="font-semibold text-muted-foreground">S (Specific Volume):</span>
                   <span className="font-mono font-medium text-right">
                     {useStandardS 
-                      ? `${calcResults.S.toFixed(4)} ${unitSystem === "si" ? "m³/kg" : "ft³/lb"} (Locked baseline)`
+                      ? `${calcResults.S.toFixed(4)} ${unitSystem === "si" ? "mÂ³/kg" : "ftÂ³/lb"} (Locked baseline)`
                       : unitSystem === "si"
-                        ? `0.1269 + (0.000513 × ${temp}°C) = ${calcResults.S.toFixed(4)} m³/kg`
-                        : `1.885 + (0.0046 × ${temp}°F) = ${calcResults.S.toFixed(4)} ft³/lb`}
+                        ? `0.1269 + (0.000513 Ã— ${temp}Â°C) = ${calcResults.S.toFixed(4)} mÂ³/kg`
+                        : `1.885 + (0.0046 Ã— ${temp}Â°F) = ${calcResults.S.toFixed(4)} ftÂ³/lb`}
                   </span>
                 </div>
                 <div className="flex justify-between border-b border-border/40 py-1.5">
@@ -1462,7 +1462,7 @@ function FM200SizerPage() {
                 <div className="flex justify-between pt-2 text-primary font-bold text-[13px] border-t border-border/80">
                   <span>Total Weight (W):</span>
                   <span className="font-mono text-[13.5px]">
-                    ({calcResults.volume.toFixed(2)} / {calcResults.S.toFixed(4)}) × ({calcResults.C.toFixed(3)} / {(100 - calcResults.C).toFixed(3)}) × {safetyFactorVal.toFixed(2)} = {calcResults.weight.toFixed(2)} {unitSystem === "si" ? "kg" : "lb"}
+                    ({calcResults.volume.toFixed(2)} / {calcResults.S.toFixed(4)}) Ã— ({calcResults.C.toFixed(3)} / {(100 - calcResults.C).toFixed(3)}) Ã— {safetyFactorVal.toFixed(2)} = {calcResults.weight.toFixed(2)} {unitSystem === "si" ? "kg" : "lb"}
                   </span>
                 </div>
               </div>
@@ -1581,7 +1581,7 @@ function FM200IntelligenceDrawer({
               <div className="flex items-center justify-between font-semibold text-[11.5px]">
                 <span>Human Exposure Limit</span>
                 <span className="font-mono font-bold">
-                  {calcResults.C <= 9.0 ? "≤ 9.0% (NOAEL)" : calcResults.C <= 10.5 ? "9.0% - 10.5% (LOAEL)" : "> 10.5% (Restricted)"}
+                  {calcResults.C <= 9.0 ? "â‰¤ 9.0% (NOAEL)" : calcResults.C <= 10.5 ? "9.0% - 10.5% (LOAEL)" : "> 10.5% (Restricted)"}
                 </span>
               </div>
               <p className="text-[11px] text-muted-foreground leading-tight">
@@ -1597,7 +1597,7 @@ function FM200IntelligenceDrawer({
             <div className="flex items-center justify-between p-2 rounded-xl bg-surface-2/60 border border-border/60 text-[11.5px]">
               <span className="text-muted-foreground">Listing Minimum (5.80%):</span>
               <span className={`font-mono font-bold ${calcResults.C >= 5.8 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600"}`}>
-                {calcResults.C >= 5.8 ? "✓ Compliant" : "⚠ Below 5.8%"}
+                {calcResults.C >= 5.8 ? "âœ“ Compliant" : "âš  Below 5.8%"}
               </span>
             </div>
 
@@ -1605,7 +1605,7 @@ function FM200IntelligenceDrawer({
             <div className="flex items-center justify-between p-2 rounded-xl bg-surface-2/60 border border-border/60 text-[11.5px]">
               <span className="text-muted-foreground">Flooding Density:</span>
               <span className="font-mono font-bold text-primary">
-                {(calcResults.weight / (calcResults.volume || 1)).toFixed(3)} {unitSystem === "si" ? "kg/m³" : "lb/ft³"}
+                {(calcResults.weight / (calcResults.volume || 1)).toFixed(3)} {unitSystem === "si" ? "kg/mÂ³" : "lb/ftÂ³"}
               </span>
             </div>
           </div>
@@ -1633,7 +1633,7 @@ function FM200IntelligenceDrawer({
               <div className="flex flex-col">
                 <span className="font-semibold text-foreground text-[11.5px]">10-Minute Minimum Hold Time</span>
                 <span className="text-[11px] text-muted-foreground leading-tight">
-                  Enclosure must retain extinguishing concentration for ≥ 10 minutes. Verified via door fan integrity pressure test.
+                  Enclosure must retain extinguishing concentration for â‰¥ 10 minutes. Verified via door fan integrity pressure test.
                 </span>
               </div>
             </div>
@@ -1643,7 +1643,7 @@ function FM200IntelligenceDrawer({
               <div className="flex flex-col">
                 <span className="font-semibold text-foreground text-[11.5px]">Safety Multiplier Recommendation</span>
                 <span className="text-[11px] text-muted-foreground leading-tight">
-                  Current multiplier: <strong className="text-foreground">{safetyFactorVal.toFixed(2)}x</strong>. For spaces with unsealed cable penetrations, a 1.10x–1.20x factor is recommended.
+                  Current multiplier: <strong className="text-foreground">{safetyFactorVal.toFixed(2)}x</strong>. For spaces with unsealed cable penetrations, a 1.10xâ€“1.20x factor is recommended.
                 </span>
               </div>
             </div>
@@ -1709,7 +1709,7 @@ function FM200IntelligenceDrawer({
             <span className="text-[10px] font-mono text-muted-foreground">Clause 5.5.1</span>
           </div>
           <div className="bg-surface-2 p-2.5 rounded-xl font-mono text-[11.5px] text-center border border-border/80 font-bold text-primary">
-            W = (V / S) × (C / (100 - C)) × {safetyFactorVal.toFixed(2)}
+            W = (V / S) Ã— (C / (100 - C)) Ã— {safetyFactorVal.toFixed(2)}
           </div>
           <button
             type="button"
