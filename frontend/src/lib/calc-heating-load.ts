@@ -17,7 +17,8 @@ export const calculateHeatingLoad = (
   glazArea: number | "",
   oat: number | "",
   iat: number | "",
-  ach: number | ""
+  ach: number | "",
+  safetyMargin: number | "" = 15
 ) => {
   const areaVal = typeof area === "number" ? Math.max(0, area) : 5000;
   const heightVal = typeof height === "number" ? Math.max(0, height) : 10;
@@ -27,6 +28,7 @@ export const calculateHeatingLoad = (
   const oatVal = typeof oat === "number" ? oat : 20;
   const iatVal = typeof iat === "number" ? iat : 70;
   const achVal = typeof ach === "number" ? Math.max(0, ach) : 0.35;
+  const sfVal = typeof safetyMargin === "number" ? Math.max(0, safetyMargin) : 15;
 
   // Design Temperature Difference ΔT (°F)
   const deltaTF = Math.max(0, iatVal - oatVal);
@@ -53,7 +55,9 @@ export const calculateHeatingLoad = (
 
   // Base Total Building Heat Loss
   const qBase = qTotalCond + qTotalAir;
-  const qTotal = qBase;
+  
+  // Total Equipment Sizing Capacity (including Safety Factor %)
+  const qTotal = qBase * (1 + sfVal / 100);
 
   // Kilowatt Equivalents
   const kwBase = qBase * BTU_HR_TO_KW;
@@ -71,8 +75,7 @@ export const calculateHeatingLoad = (
   const pctGlaz = qBase > 0 ? (qGlaz / qBase) * 100 : 0;
   const pctInfil = qBase > 0 ? (qInfil / qBase) * 100 : 0;
 
-  // To prevent errors when mapping results in UI, we export zero for unused values 
-  // that might still be conditionally mapped in the UI (although we'll clean UI too)
+  // Export zero placeholders for unrendered fields
   const qRoof = 0, kwRoof = 0, pctRoof = 0;
   const qSlab = 0, kwSlab = 0, pctSlab = 0;
   const qVent = 0, kwVent = 0, pctVent = 0;

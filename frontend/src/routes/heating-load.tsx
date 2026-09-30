@@ -609,17 +609,15 @@ function HeatingLoadPage() {
     const areaVal = typeof area === "number" ? area : 5000;
     const heightVal = typeof height === "number" ? height : 10;
     const uWallVal = typeof uWall === "number" ? uWall : 0.065;
-    const uRoofVal = uWallVal; // Wall + roof U-value
     const uGlazVal = typeof uGlaz === "number" ? uGlaz : 0.32;
     const glazAreaVal = typeof glazArea === "number" ? glazArea : 600;
     const oatVal = typeof oat === "number" ? oat : 20;
     const iatVal = typeof iat === "number" ? iat : 70;
     const achVal = typeof ach === "number" ? ach : 0.35;
-    const ventCfmVal = typeof ventCfm === "number" ? ventCfm : 450;
     const sfVal = typeof safetyMargin === "number" ? safetyMargin : 15;
 
-    return calculateHeatingLoad(areaVal, heightVal, uWallVal, uRoofVal, uGlazVal, glazAreaVal, oatVal, iatVal, achVal, ventCfmVal, sfVal);
-  }, [area, height, uWall, uGlaz, glazArea, oat, iat, ach, ventCfm, safetyMargin]);
+    return calculateHeatingLoad(areaVal, heightVal, uWallVal, uGlazVal, glazAreaVal, oatVal, iatVal, achVal, sfVal);
+  }, [area, height, uWall, uGlaz, glazArea, oat, iat, ach, safetyMargin]);
 
   // Export PDF
   const exportPdf = () => {
@@ -988,12 +986,12 @@ function HeatingLoadPage() {
             </div>
 
             {/* Main Content Area */}
-            <div className="flex-1 overflow-hidden p-6 bg-slate-50/50 dark:bg-zinc-950/20">
+            <div className="flex-1 overflow-y-auto p-6 pr-3 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
               {tab === "solver" ? (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start h-full">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   
-                  {/* LEFT COLUMN: PARAMETER INPUTS - SCROLLABLE PANEL (lg:col-span-5) */}
-                  <div className="lg:col-span-5 h-full max-h-full overflow-y-auto pr-2 custom-scrollbar">
+                  {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
+                  <div className="lg:col-span-5">
                     <div 
                       id="card-spaceEnvelopeCard"
                       data-field-id="spaceEnvelopeCard"
@@ -1343,8 +1341,8 @@ function HeatingLoadPage() {
                     </div>
                   </div>
 
-                  {/* RIGHT COLUMN: CALCULATION RESULTS - SCROLLABLE PANEL (lg:col-span-7) */}
-                  <div className="lg:col-span-7 h-full max-h-full overflow-y-auto pr-2 custom-scrollbar space-y-4">
+                  {/* RIGHT COLUMN: CALCULATION RESULTS - STICKY PANEL (lg:col-span-7) */}
+                  <div className="lg:col-span-7 lg:sticky lg:top-0 space-y-4">
                     {/* PRIMARY RESULTS CARD */}
                     <ContextMenu>
                       <ContextMenuTrigger asChild>
@@ -1368,32 +1366,32 @@ function HeatingLoadPage() {
                             </span>
                           </div>
 
-                          {/* DISPLAY STAT CARDS (4 Color-coded cards matching Duct Sizer reference) */}
+                          {/* DISPLAY STAT CARDS (Single Unified Clean Color Design) */}
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 space-y-1">
-                              <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Base Heating Load</div>
-                              <div className="text-xl font-bold font-mono text-foreground tracking-tight text-primary">
+                            <div className="bg-slate-50 dark:bg-zinc-800/50 border border-slate-200/80 dark:border-zinc-700/60 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 uppercase tracking-wider">Base Heating Load</div>
+                              <div className="text-xl font-bold font-mono text-primary tracking-tight">
                                 {isSI ? `${calcResults.kwBase.toFixed(2)}` : `${Math.round(calcResults.qBase).toLocaleString()}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "kW" : "BTU/h"}</span>
                               </div>
                             </div>
 
-                            <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 space-y-1">
-                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Heater / Boiler Duty</div>
-                              <div className="text-xl font-bold font-mono text-foreground">
+                            <div className="bg-slate-50 dark:bg-zinc-800/50 border border-slate-200/80 dark:border-zinc-700/60 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 uppercase tracking-wider">Heater / Boiler Duty</div>
+                              <div className="text-xl font-bold font-mono text-foreground tracking-tight">
                                 {isSI ? `${calcResults.kwTotal.toFixed(2)}` : `${Math.round(calcResults.qTotal).toLocaleString()}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "kW" : "BTU/h"}</span>
                               </div>
                             </div>
 
-                            <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 space-y-1">
-                              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Load Density</div>
-                              <div className="text-xl font-bold font-mono text-foreground">
+                            <div className="bg-slate-50 dark:bg-zinc-800/50 border border-slate-200/80 dark:border-zinc-700/60 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 uppercase tracking-wider">Load Density</div>
+                              <div className="text-xl font-bold font-mono text-foreground tracking-tight">
                                 {isSI ? `${calcResults.loadDensityWPerSqm.toFixed(1)}` : `${calcResults.loadDensityBtuPerSqft.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "W/m²" : "BTU/h/ft²"}</span>
                               </div>
                             </div>
 
-                            <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 space-y-1">
-                              <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Design Delta T (ΔT)</div>
-                              <div className="text-xl font-bold font-mono text-foreground">
+                            <div className="bg-slate-50 dark:bg-zinc-800/50 border border-slate-200/80 dark:border-zinc-700/60 rounded-xl p-3.5 space-y-1">
+                              <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 uppercase tracking-wider">Design Delta T (ΔT)</div>
+                              <div className="text-xl font-bold font-mono text-foreground tracking-tight">
                                 {isSI ? `${(((Number(iat) - Number(oat))) / 1.8).toFixed(1)}` : `${Math.round(Number(iat) - Number(oat))}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "°C" : "°F"}</span>
                               </div>
                             </div>

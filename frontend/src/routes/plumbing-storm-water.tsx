@@ -1002,7 +1002,7 @@ function StormWaterPage() {
                     </div>
 
                     {/* Right Column: Sizing Results Summary Card */}
-                    <div className="lg:col-span-5 flex flex-col gap-5 lg:sticky lg:top-0">
+                    <div className="lg:col-span-5 flex flex-col gap-5 lg:sticky lg:top-0 self-start">
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
                           <div

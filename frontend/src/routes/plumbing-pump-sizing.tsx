@@ -1188,7 +1188,7 @@ function PumpSizingPage() {
                 </div>
 
                 {/* RIGHT COLUMN: CALCULATION RESULTS (lg:col-span-7) */}
-                <div className="lg:col-span-7 space-y-5">
+                <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
                   {/* PRIMARY RESULTS CARD */}
                   <ContextMenu>
                     <ContextMenuTrigger asChild>

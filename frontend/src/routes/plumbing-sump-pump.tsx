@@ -1068,7 +1068,7 @@ function SumpPumpPage() {
                     </div>
 
                     {/* RIGHT COLUMN: CALCULATION RESULTS SUMMARY (lg:col-span-7) */}
-                    <div className="lg:col-span-7 space-y-5">
+                    <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
                           <div

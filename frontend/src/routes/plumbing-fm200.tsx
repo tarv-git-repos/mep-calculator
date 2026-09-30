@@ -977,10 +977,9 @@ function FM200SizerPage() {
         {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               {tab === "solver" && (
-                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full items-start">
-                    {/* Inputs & Parameters Section */}
-                    <div className="lg:col-span-7 xl:col-span-7 flex flex-col gap-6 w-full">
+                <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 p-4 md:p-6 overflow-hidden">
+                  {/* Inputs & Parameters Section */}
+                  <div className="w-full lg:w-[58%] xl:w-[60%] flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-1 pb-4">
                       {/* Room Enclosure Dimensions Card */}
                       <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
                         <div className="flex items-center justify-between pb-2 border-b border-border/60">
@@ -1115,7 +1114,7 @@ function FM200SizerPage() {
                     </div>
 
                     {/* Right Column: Calculation Results & Sizing Schematics */}
-                    <div className="lg:col-span-5 xl:col-span-5 flex flex-col gap-5 bg-surface/30 p-5 rounded-3xl border border-border shadow-2xs sticky top-0 self-start z-10 max-h-[calc(100vh-160px)] overflow-y-auto custom-scrollbar">
+                    <div className="w-full lg:w-[42%] xl:w-[40%] flex flex-col gap-5 bg-surface/30 p-5 rounded-3xl border border-border shadow-2xs shrink-0 h-fit">
                       <div>
                         <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">Calculation Results</h3>
                         <p className="text-[11.5px] text-muted-foreground">Flooding weight outputs (NFPA 2001)</p>
@@ -1297,7 +1296,6 @@ function FM200SizerPage() {
                       </div>
                     </div>
                   </div>
-                </div>
               )}
 
             {/* Tab: Design Summary */}

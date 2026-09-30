@@ -18,7 +18,7 @@ export function checkIfSpaceMissingData(s: Space): boolean {
 
   if (s.category === "Rest Room / Changing Room") {
     const sub = s.restroomSubCategories || {};
-    const sumSub = 
+    const sumSub =
       (sub.toiletPrivateContinuous || 0) +
       (sub.toiletPublicContinuous || 0) +
       (sub.toiletPrivateDiscontinuous || 0) +
@@ -187,16 +187,16 @@ function executeWorkspaceSave() {
       lsState[key] = localStorage.getItem(key) || "";
     }
   }
-  
+
   const nowIso = new Date().toISOString();
   const existingWdata = currentProject ? (currentProject.workspace_data || {}) : {};
-  
+
   const payload = {
     ...existingWdata,
     ...currentWorkspaceState,
     localStorageCache: lsState
   };
-  
+
   if (currentProject) {
     currentProject.workspace_data = payload;
     (currentProject as any).updated_at = nowIso;
@@ -210,7 +210,7 @@ function executeWorkspaceSave() {
     (targetProj as any).last_modified = nowIso;
     targetProj.lastModified = nowIso;
   }
-  
+
   api.saveWorkspace(activeProjectId, payload);
   saveCachedProjects(projects);
   notify();
@@ -220,7 +220,7 @@ let saveTimeout: any = null;
 function saveState(immediate = false) {
   if (IS_SERVER) return;
   currentWorkspaceState = sanitizeWorkspaceState(currentWorkspaceState);
-  
+
   if (typeof localStorage !== "undefined" && activeProjectId) {
     localStorage.setItem("mep_active_project_id", activeProjectId);
     localStorage.setItem("mep_last_worked_project_id", activeProjectId);
@@ -256,10 +256,10 @@ function injectLocalStorageCache(wdata: any) {
     }
   }
   keysToRemove.forEach(k => localStorage.removeItem(k));
-  
+
   if (wdata && wdata.localStorageCache) {
     Object.entries(wdata.localStorageCache).forEach(([key, val]) => {
-       localStorage.setItem(key, val as string);
+      localStorage.setItem(key, val as string);
     });
   }
 }
@@ -301,7 +301,7 @@ export const workspaceStore = {
         projects = projects.map(p => p.id === target.id ? target : p);
         saveCachedProjects(projects);
       }
-    } catch(e) {}
+    } catch (e) { }
     activeProjectId = target.id;
     currentProject = target;
     if (typeof localStorage !== "undefined") {
@@ -388,44 +388,44 @@ export const workspaceStore = {
         projects = cloudProjects;
         saveCachedProjects(projects);
       }
-      
-      if (projects.length > 0) {
-         let lastActive = typeof localStorage !== "undefined"
-           ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id"))
-           : null;
-         let target = projects[0];
-         if (lastActive) {
-           const found = projects.find(p => p.id === lastActive || p.code === lastActive);
-           if (found) target = found;
-         }
-         try {
-           const fullActive = await api.getProject(target.id);
-           if (fullActive && fullActive.workspace_data) {
-             target = { ...target, ...fullActive };
-             projects = projects.map(p => p.id === target.id ? target : p);
-             saveCachedProjects(projects);
-           }
-         } catch (e) {}
 
-         activeProjectId = target.id;
-         currentProject = target;
-         if (typeof localStorage !== "undefined") {
-           localStorage.setItem("mep_active_project_id", target.id);
-           localStorage.setItem("mep_last_worked_project_id", target.id);
-         }
-         const wdata = currentProject.workspace_data || {};
-         injectLocalStorageCache(wdata);
-         currentWorkspaceState = sanitizeWorkspaceState({
-            spaces: wdata.spaces || [],
-            zones: wdata.zones || [],
-            equipment: wdata.equipment || [],
-            roundOffPreset: wdata.roundOffPreset ?? 5,
-            isReadOnly: false
-         });
+      if (projects.length > 0) {
+        let lastActive = typeof localStorage !== "undefined"
+          ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id"))
+          : null;
+        let target = projects[0];
+        if (lastActive) {
+          const found = projects.find(p => p.id === lastActive || p.code === lastActive);
+          if (found) target = found;
+        }
+        try {
+          const fullActive = await api.getProject(target.id);
+          if (fullActive && fullActive.workspace_data) {
+            target = { ...target, ...fullActive };
+            projects = projects.map(p => p.id === target.id ? target : p);
+            saveCachedProjects(projects);
+          }
+        } catch (e) { }
+
+        activeProjectId = target.id;
+        currentProject = target;
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("mep_active_project_id", target.id);
+          localStorage.setItem("mep_last_worked_project_id", target.id);
+        }
+        const wdata = currentProject.workspace_data || {};
+        injectLocalStorageCache(wdata);
+        currentWorkspaceState = sanitizeWorkspaceState({
+          spaces: wdata.spaces || [],
+          zones: wdata.zones || [],
+          equipment: wdata.equipment || [],
+          roundOffPreset: wdata.roundOffPreset ?? 5,
+          isReadOnly: false
+        });
       } else {
-         activeProjectId = "";
-         currentProject = undefined;
-         currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
+        activeProjectId = "";
+        currentProject = undefined;
+        currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
       }
       setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
     } catch (err) {
@@ -508,7 +508,7 @@ export const workspaceStore = {
 
     const wdata = target.workspace_data || {};
     injectLocalStorageCache(wdata);
-    
+
     let nextState = sanitizeWorkspaceState({
       spaces: wdata.spaces || [],
       zones: wdata.zones || [],
@@ -524,13 +524,13 @@ export const workspaceStore = {
 
   async createNewProject(projData: Omit<Project, "id">, assigned_users: string[] = [], assigned_teams: string[] = []) {
     const res = await api.createProject({
-       ...projData,
-       workspace_data: { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
+      ...projData,
+      workspace_data: { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
     }, assigned_users, assigned_teams);
-    
+
     if (res.success) {
       const newProj = res.project;
-      
+
       try {
         const cloudProjects = await api.getProjects();
         if (cloudProjects && cloudProjects.length > 0) {
@@ -541,10 +541,10 @@ export const workspaceStore = {
       } catch (e) {
         projects = [newProj, ...projects];
       }
-      
+
       saveState();
       clearHistory();
-      
+
       const targetProj = projects.find(p => p.id === newProj.id) || newProj;
       currentProject = targetProj;
       activeProjectId = targetProj.id;
@@ -553,7 +553,7 @@ export const workspaceStore = {
         localStorage.setItem("mep_last_worked_project_id", targetProj.id);
       }
       currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
-      
+
       notify();
     }
     return res;
@@ -563,7 +563,7 @@ export const workspaceStore = {
     // Currently disabled for cloud MVP, will just fetch the target and create a new project
     const target = projects.find((p) => p.id === id);
     if (!target) return null;
-    
+
     const res = await api.createProject({
       ...target,
       name: `${target.name} (Copy)`,
@@ -589,13 +589,13 @@ export const workspaceStore = {
       createdDate: new Date().toISOString(),
       lastModified: new Date().toISOString(),
     };
-    
+
     projects.unshift(newProj);
-    
+
     if (!IS_SERVER) {
       localStorage.setItem(`mep_project_workspace_${newId}`, JSON.stringify({ ...currentWorkspaceState, isReadOnly: true }));
     }
-    
+
     saveState();
     notify();
     return newProj;
@@ -1042,7 +1042,7 @@ export const workspaceStore = {
       return;
     }
     pushHistory();
-    
+
     // Find the names/ids of the zones assigned to the spaces we are deleting
     const spacesToDelete = currentWorkspaceState.spaces.filter((s) => idsToDelete.includes(s.id));
     const zonesToCheck = new Set<string>();
@@ -1101,7 +1101,7 @@ export const workspaceStore = {
         // If the name is being updated, perform automatic classification!
         if (updates.name !== undefined) {
           const nameVal = updates.name.trim();
-          
+
           if (!s.category || s.aiDetected) {
             const pred = predictOccupancyCategory(nameVal);
 
@@ -1316,7 +1316,7 @@ export const workspaceStore = {
         if (stream === "FA") {
           const currentFA = { ...(g.faAssignments || {}) };
           currentFA[equipId] = qty;
-          
+
           if (qty <= 0) {
             delete currentFA[equipId];
           }
@@ -1549,7 +1549,7 @@ export const workspaceStore = {
     });
 
     const nextSpaces = [...currentWorkspaceState.spaces, ...pasted];
-    
+
     // Auto-create zones if they don't exist
     const existingZoneNames = new Set(
       currentWorkspaceState.zones.map((z) => z.name.toLowerCase())
@@ -1558,7 +1558,7 @@ export const workspaceStore = {
       currentWorkspaceState.zones.map((z) => z.id.toLowerCase())
     );
     const zonesToAdd: Zone[] = [];
-    
+
     pasted.forEach((s) => {
       if (s.zone) {
         const zoneLower = s.zone.toLowerCase();
@@ -1590,7 +1590,7 @@ export const workspaceStore = {
       nextZones,
       currentWorkspaceState.equipment
     );
-    
+
     currentWorkspaceState = balanced;
     saveState();
     notify();
@@ -1605,7 +1605,7 @@ export const workspaceStore = {
     pushHistory();
     setGlobalRoundOffPreset(value);
     currentWorkspaceState.roundOffPreset = value;
-    
+
     // Recalculate based on new rounding preset
     const balanced = calculateVentilation(
       currentWorkspaceState.spaces,
