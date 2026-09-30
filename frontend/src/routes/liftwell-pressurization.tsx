@@ -1,4 +1,4 @@
-import { calculateLiftwell, DOOR_TYPES_CONFIG, CALCULATION_CONSTANTS, type LiftwellItem, type DoorTypeKey, type DoorTypeDefinition } from "@/lib/calc-liftwell";
+﻿import { calculateLiftwell, DOOR_TYPES_CONFIG, CALCULATION_CONSTANTS, type LiftwellItem, type DoorTypeKey, type DoorTypeDefinition } from "@/lib/calc-liftwell";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { useAuth } from "@/contexts/AuthContext";
@@ -46,7 +46,7 @@ function LiftwellPressurizationPage() {
   
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
-  const [showFormulaModal, setShowFormulaModal] = useState(false);
+  const [previewRow, setPreviewRow] = useState<LiftwellItem | null>(null);
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const isIp = unitSystem === "ip";
@@ -243,7 +243,7 @@ function LiftwellPressurizationPage() {
 
       autoTable(doc, {
         startY: 32,
-        head: [["#", "Liftwell Name", "Door Type", `Door Area (${isIp ? "sq ft" : "m²"})`, "Open Doors", "Closed Doors", `Fan Airflow (${isIp ? "CFM" : "L/s"})`, `dP (${isIp ? "in. wg" : "Pa"})`, `Relief Area (${isIp ? "sq ft" : "m²"})`]],
+        head: [["#", "Liftwell Name", "Door Type", `Door Area (${isIp ? "sq ft" : "mÂ²"})`, "Open Doors", "Closed Doors", `Fan Airflow (${isIp ? "CFM" : "L/s"})`, `dP (${isIp ? "in. wg" : "Pa"})`, `Relief Area (${isIp ? "sq ft" : "mÂ²"})`]],
         body: tableData,
         theme: "grid",
         styles: { fontSize: 8, halign: "center", valign: "middle" }
@@ -299,7 +299,7 @@ function LiftwellPressurizationPage() {
     },
     {
       key: "doorArea",
-      header: `DOOR AREA (${unitSystem === "ip" ? "sq ft" : "m²"})`,
+      header: `DOOR AREA (${unitSystem === "ip" ? "sq ft" : "mÂ²"})`,
       width: 130,
       render: (row) => (
         <input 
@@ -348,7 +348,7 @@ function LiftwellPressurizationPage() {
       width: 140,
       render: (row) => {
         const calc = calculateLiftwell(row, unitSystem === "ip");
-        return <span className="text-blue-600 font-semibold cursor-pointer" onDoubleClick={() => setShowFormulaModal(true)}>{unitSystem === "ip" ? calc.totalFanCapacityCfm : calc.totalFanCapacityLs}</span>;
+        return <span className="text-blue-600 font-semibold cursor-pointer" onDoubleClick={() => setPreviewRow(row)}>{unitSystem === "ip" ? calc.totalFanCapacityCfm : calc.totalFanCapacityLs}</span>;
       }
     },
     {
@@ -357,16 +357,16 @@ function LiftwellPressurizationPage() {
       width: 100,
       render: (row) => {
         const calc = calculateLiftwell(row, unitSystem === "ip");
-        return <span className="cursor-pointer" onDoubleClick={() => setShowFormulaModal(true)}>{unitSystem === "ip" ? calc.designPressureDropInWg : calc.designPressureDropPa}</span>;
+        return <span className="cursor-pointer" onDoubleClick={() => setPreviewRow(row)}>{unitSystem === "ip" ? calc.designPressureDropInWg : calc.designPressureDropPa}</span>;
       }
     },
     {
       key: "reliefArea",
-      header: `RELIEF AREA (${unitSystem === "ip" ? "sq ft" : "m²"})`,
+      header: `RELIEF AREA (${unitSystem === "ip" ? "sq ft" : "mÂ²"})`,
       width: 130,
       render: (row) => {
         const calc = calculateLiftwell(row, unitSystem === "ip");
-        return <span className="cursor-pointer" onDoubleClick={() => setShowFormulaModal(true)}>{unitSystem === "ip" ? calc.reliefAreaSqFt : calc.reliefAreaM2}</span>;
+        return <span className="cursor-pointer" onDoubleClick={() => setPreviewRow(row)}>{unitSystem === "ip" ? calc.reliefAreaSqFt : calc.reliefAreaM2}</span>;
       }
     },
     {
@@ -412,6 +412,13 @@ function LiftwellPressurizationPage() {
       >
         <MessageSquare className="size-3.5" />
         <span>Add Comment</span>
+      </ContextMenuItem>
+      <ContextMenuItem
+        onClick={() => setPreviewRow(row)}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted text-foreground rounded cursor-pointer"
+      >
+        <Sparkles className="size-3.5" />
+        <span>Calculation Preview</span>
       </ContextMenuItem>
       <ContextMenuSeparator className="h-px bg-border my-1" />
       <ContextMenuItem
@@ -630,13 +637,13 @@ function LiftwellPressurizationPage() {
                     <div className="bg-slate-50 rounded-lg p-3 border border-border">
                       <h4 className="font-bold text-slate-700 mb-2 border-b border-border pb-1 uppercase text-[10px]">1. Airflow Breakdown</h4>
                       <div className="space-y-1.5 text-slate-600">
-                        <div className="flex justify-between"><span>Open Door Flow:</span><span className="font-mono">{calc.openFlowM3s} m³/s</span></div>
-                        <div className="flex justify-between"><span>Closed Door Flow:</span><span className="font-mono">{calc.closedFlowM3s} m³/s</span></div>
-                        <div className="flex justify-between text-slate-400"><span>Closed Safety (25%):</span><span className="font-mono">{calc.closedSafetyFlowM3s} m³/s</span></div>
+                        <div className="flex justify-between"><span>Open Door Flow:</span><span className="font-mono">{calc.openFlowM3s} mÂ³/s</span></div>
+                        <div className="flex justify-between"><span>Closed Door Flow:</span><span className="font-mono">{calc.closedFlowM3s} mÂ³/s</span></div>
+                        <div className="flex justify-between text-slate-400"><span>Closed Safety (25%):</span><span className="font-mono">{calc.closedSafetyFlowM3s} mÂ³/s</span></div>
                         <div className="flex justify-between pt-1 border-t border-border font-medium text-slate-800">
-                          <span>Subtotal Flow:</span><span className="font-mono">{calc.subTotalM3s} m³/s</span>
+                          <span>Subtotal Flow:</span><span className="font-mono">{calc.subTotalM3s} mÂ³/s</span>
                         </div>
-                        <div className="flex justify-between text-slate-400"><span>Final Safety (10%):</span><span className="font-mono">{calc.finalSafetyM3s} m³/s</span></div>
+                        <div className="flex justify-between text-slate-400"><span>Final Safety (10%):</span><span className="font-mono">{calc.finalSafetyM3s} mÂ³/s</span></div>
                       </div>
                     </div>
                     
@@ -647,7 +654,7 @@ function LiftwellPressurizationPage() {
                           <span>Total Flow:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.totalFanCapacityCfm} CFM` : `${calc.totalFanCapacityLs} L/s`}</span>
                         </div>
                         <div className="flex justify-between text-[11px] opacity-80">
-                          <span>In m³/s:</span><span className="font-mono">{calc.totalFanCapacityM3s} m³/s</span>
+                          <span>In mÂ³/s:</span><span className="font-mono">{calc.totalFanCapacityM3s} mÂ³/s</span>
                         </div>
                       </div>
                     </div>
@@ -663,7 +670,7 @@ function LiftwellPressurizationPage() {
                           <span>Design dP:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.designPressureDropInWg} in. w.g.` : `${calc.designPressureDropPa} Pa`}</span>
                         </div>
                         <div className="flex justify-between pt-1 font-bold text-slate-800">
-                          <span>Relief Area:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.reliefAreaSqFt} sq ft` : `${calc.reliefAreaM2} m²`}</span>
+                          <span>Relief Area:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.reliefAreaSqFt} sq ft` : `${calc.reliefAreaM2} mÂ²`}</span>
                         </div>
                       </div>
                     </div>
@@ -681,21 +688,87 @@ function LiftwellPressurizationPage() {
         </div>
       </div>
 
-      {showFormulaModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-card border border-border rounded-2xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-4 font-sans">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <h2 className="text-base font-bold text-foreground">Liftwell Pressurization Formulas</h2>
-              <button onClick={() => setShowFormulaModal(false)} className="p-1 rounded-lg hover:bg-muted cursor-pointer"><X className="size-4" /></button>
+            {/* Calculation Breakdown & Preview Modal */}
+      {previewRow && typeof document !== "undefined" && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 font-sans animate-fade-in">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-xl p-6 flex flex-col gap-5 shadow-2xl animate-scale-in select-none max-h-[90vh] overflow-y-auto">
+            
+            {/* Header */}
+            <div className="flex justify-between items-center pb-3 border-b border-border/60">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-primary/10 rounded-xl text-primary">
+                  <Sparkles className="size-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-foreground">Calculation Preview</h3>
+                  <p className="text-xs text-muted-foreground">{previewRow.name} - Pressurization Breakdown</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewRow(null)}
+                className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg cursor-pointer transition hover:bg-accent"
+              >
+                <X className="size-5" />
+              </button>
             </div>
-            <div className="space-y-3 text-xs text-muted-foreground">
-              <div className="p-3 rounded-xl bg-muted/60"><span className="font-bold">1. Open Door Flow</span> <br/><code className="text-blue-600">Q = Area × Vel × OpenDoors</code></div>
-              <div className="p-3 rounded-xl bg-muted/60"><span className="font-bold">2. Closed Door Flow</span> <br/><code className="text-blue-600">Q = Leakage × ClosedDoors × 1.25</code></div>
-              <div className="p-3 rounded-xl bg-muted/60"><span className="font-bold">3. Total Fan Capacity</span> <br/><code className="text-blue-600">Q = (Open + Closed) × 1.10</code></div>
-            </div>
-            <div className="flex justify-end pt-2 border-t border-border">
-              <button onClick={() => setShowFormulaModal(false)} className="px-4 py-1.5 rounded-xl bg-primary text-primary-foreground font-semibold text-xs cursor-pointer">Done</button>
-            </div>
+
+            {(() => {
+              const calc = calculateLiftwell(previewRow, isIp);
+              return (
+                <div className="space-y-4">
+                  {/* Results Overview */}
+                  <div className="grid grid-cols-3 gap-3 text-xs mb-2">
+                    <div className="bg-surface-2 p-3 rounded-xl border border-border/50 flex flex-col gap-1">
+                      <span className="text-muted-foreground font-semibold">Fan Airflow</span>
+                      <span className="text-base font-bold font-mono text-primary">{isIp ? calc.totalFanCapacityCfm : calc.totalFanCapacityLs} <span className="text-[10px] text-foreground">{isIp ? "CFM" : "L/s"}</span></span>
+                    </div>
+                    <div className="bg-surface-2 p-3 rounded-xl border border-border/50 flex flex-col gap-1">
+                      <span className="text-muted-foreground font-semibold">Design dP</span>
+                      <span className="text-base font-bold font-mono text-primary">{isIp ? calc.designPressureDropInWg : calc.designPressureDropPa} <span className="text-[10px] text-foreground">{isIp ? "in.wg" : "Pa"}</span></span>
+                    </div>
+                    <div className="bg-surface-2 p-3 rounded-xl border border-border/50 flex flex-col gap-1">
+                      <span className="text-muted-foreground font-semibold">Relief Area</span>
+                      <span className="text-base font-bold font-mono text-primary">{isIp ? calc.reliefAreaSqFt : calc.reliefAreaM2} <span className="text-[10px] text-foreground">{isIp ? "sq ft" : "m²"}</span></span>
+                    </div>
+                  </div>
+
+                                    {/* Calculation Breakdown & Formulas */}
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold text-foreground">Calculation Breakdown & Formulas</h4>
+                    <div className="space-y-3 text-xs text-muted-foreground">
+                      <div className="p-3 rounded-xl bg-muted/30 border border-border/50">
+                        <span className="font-bold text-foreground">1. Open Door Flow</span><br/>
+                        <code className="text-blue-600 dark:text-blue-400 block my-1">Q = Door Area × Velocity × Open Doors</code>
+                        <span className="font-mono">
+                          {isIp ? (previewRow.doorArea || 0) + " sq ft" : (previewRow.doorArea || 0) + " m²"} × {isIp ? "196.85 ft/min" : "1.0 m/s"} × {previewRow.openDoorsCount || 0} doors = <strong className="text-foreground">{isIp ? "-" : calc.openFlowLs + " L/s"}</strong>
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-muted/30 border border-border/50">
+                        <span className="font-bold text-foreground">2. Closed Door Flow</span><br/>
+                        <code className="text-blue-600 dark:text-blue-400 block my-1">Q = Leakage Rate × Closed Doors</code>
+                        <span className="font-mono">
+                          Leakage Rate × {previewRow.closedDoorsCount || 0} doors = <strong className="text-foreground">{isIp ? "-" : calc.closedFlowLs + " L/s"}</strong>
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-muted/30 border border-border/50">
+                        <span className="font-bold text-foreground">3. Safety Margins</span><br/>
+                        <span className="font-mono">Closed Doors Safety (25%): <strong className="text-foreground">{isIp ? "-" : (Number(calc.closedSafetyFlowM3s) * 1000).toFixed(1)} L/s</strong></span><br/>
+                        <span className="font-mono mt-1 block">Final Fan Safety (10%): <strong className="text-foreground">{isIp ? "-" : (Number(calc.finalSafetyM3s) * 1000).toFixed(1)} L/s</strong></span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-blue-50/50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                        <span className="font-bold text-blue-700 dark:text-blue-300">4. Total Fan Capacity</span><br/>
+                        <code className="text-blue-600 dark:text-blue-400 block my-1">Q = (Open + Closed + 25% Safety) × 1.10</code>
+                        <span className="font-mono font-bold text-blue-700 dark:text-blue-300 text-sm mt-1 block">
+                          Total = {isIp ? calc.totalFanCapacityCfm : calc.totalFanCapacityLs} {isIp ? "CFM" : "L/s"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
           </div>
         </div>
       )}

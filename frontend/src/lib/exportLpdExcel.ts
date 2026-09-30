@@ -25,7 +25,7 @@ const getBorder = (r: number, c: number, lastR: number, lastC: number): Partial<
   };
 };
 
-export const exportLpdExcel = async (project: LpdProject) => {
+export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip" = "si") => {
   let currentUserName = "System Admin";
   let activeProjectId = "default";
   if (typeof window !== "undefined") {
@@ -136,14 +136,25 @@ export const exportLpdExcel = async (project: LpdProject) => {
   for (let i = 1; i <= maxFixtures; i++) {
     headers.push('LIGHT TYPE', 'WATTS', 'NO. OF LIGHTS');
   }
-  headers.push(
-    ' TOTAL WATTAGE',
-    'SQ. M AREA',
-    'SQ. F AREA',
-    'DENSITY W/SQ.M',
-    'LPD AS PER AUTHORITY UNDER JURISDICTION',
-    'REMARKS'
-  );
+  if (unitSystem === "ip") {
+    headers.push(
+      ' TOTAL WATTAGE',
+      'SQ. F AREA',
+      'SQ. M AREA',
+      'DENSITY W/SQ.FT',
+      'LPD AS PER AUTHORITY UNDER JURISDICTION (W/SQ.FT)',
+      'REMARKS'
+    );
+  } else {
+    headers.push(
+      ' TOTAL WATTAGE',
+      'SQ. M AREA',
+      'SQ. F AREA',
+      'DENSITY W/SQ.M',
+      'LPD AS PER AUTHORITY UNDER JURISDICTION (W/SQ.M)',
+      'REMARKS'
+    );
+  }
 
   const headerRow = sheet.getRow(4);
   headers.forEach((h, idx) => {
@@ -206,15 +217,23 @@ export const exportLpdExcel = async (project: LpdProject) => {
           calculatedTotalWatts += (parseFloat(String(fixture.watts)) || 0) * (parseFloat(String(fixture.qty)) || 0);
         }
       }
-      const calculatedSqM = space.areaSqM ? parseFloat(String(space.areaSqM)) : 0;
-      const calculatedSqF = calculatedSqM * 10.764;
-      const calculatedDensity = calculatedSqM > 0 ? calculatedTotalWatts / calculatedSqM : 0;
+      const rawArea = space.areaSqM ? parseFloat(String(space.areaSqM)) : 0;
+      const isIp = unitSystem === "ip";
+      const calculatedSqM = isIp ? rawArea / 10.76391 : rawArea;
+      const calculatedSqF = isIp ? rawArea : rawArea * 10.76391;
+      const primaryArea = isIp ? calculatedSqF : calculatedSqM;
+      const calculatedDensity = primaryArea > 0 ? calculatedTotalWatts / primaryArea : 0;
       const baselineLpd = space.baselineLpd ? parseFloat(String(space.baselineLpd)) : 0;
 
       // Assign calculated values directly to cells to ensure they are visible in all Excel viewers
       row.getCell(cIdx).value = calculatedTotalWatts;
-      row.getCell(cIdx + 1).value = calculatedSqM;
-      row.getCell(cIdx + 2).value = calculatedSqF;
+      if (isIp) {
+        row.getCell(cIdx + 1).value = calculatedSqF;
+        row.getCell(cIdx + 2).value = calculatedSqM;
+      } else {
+        row.getCell(cIdx + 1).value = calculatedSqM;
+        row.getCell(cIdx + 2).value = calculatedSqF;
+      }
       row.getCell(cIdx + 3).value = calculatedDensity;
       row.getCell(cIdx + 4).value = baselineLpd;
       row.getCell(cIdx + 5).value = space.remarks || "";
@@ -243,5 +262,5 @@ export const exportLpdExcel = async (project: LpdProject) => {
   watermarkCell.alignment = { horizontal: 'left', vertical: 'middle' };
 
   const buffer = await workbook.xlsx.writeBuffer();
-  saveAs(new Blob([buffer]), `LPD Calculation - ${project.type} Area.xlsx`);
+  saveAs(new Blob([buffer]), `LPD Calculation - ${project.type} Area (${unitSystem.toUpperCase()}).xlsx`);
 };

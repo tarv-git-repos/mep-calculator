@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
+﻿import { CalculationReviewBar, useCalculationLock, type CalculationReviewState, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditBuildingModal } from "@/components/workspace/EditBuildingModal";
@@ -56,7 +56,7 @@ import {
 export const Route = createFileRoute("/plumbing-fire-water-demand")({
   head: () => ({
     meta: [
-      { title: "UAE Civil Defense Fire Water Demand Calculator — MEP Calc" },
+      { title: "UAE Civil Defense Fire Water Demand Calculator â€” MEP Calc" },
       { name: "description", content: "Determine fire pump flow, pressure, storage tanks, and intermediate staging per UAE Civil Defense Code Tables 9.18 to 9.21.e." },
     ],
   }),
@@ -123,7 +123,7 @@ const INITIAL_BUILDINGS: CivilDefenseBuilding[] = [
     hasInfraHydrants60m: false,
     isSingleExitStair: false,
     basementCount: 1,
-    notes: "Large plot (>20,000 m²) without 60m infra hydrants: 1000 GPM @ 6.9 bar combined pump for yard hydrants."
+    notes: "Large plot (>20,000 mÂ²) without 60m infra hydrants: 1000 GPM @ 6.9 bar combined pump for yard hydrants."
   },
   {
     id: "bld-staff-d",
@@ -137,7 +137,7 @@ const INITIAL_BUILDINGS: CivilDefenseBuilding[] = [
     hasInfraHydrants60m: true,
     isSingleExitStair: false,
     basementCount: 0,
-    notes: "Midrise residential with GFA <= 900 m²: 50 GPM @ 4.5 bar dry riser + hose reel system."
+    notes: "Midrise residential with GFA <= 900 mÂ²: 50 GPM @ 4.5 bar dry riser + hose reel system."
   }
 ];
 
@@ -173,7 +173,7 @@ export function FireWaterDemandPage() {
   const [intelOpen, setIntelOpen] = useState(false);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
 
-  // Unit System: SI (LPM, bar, m³, m) vs IP (GPM, psi, gal, ft)
+  // Unit System: SI (LPM, bar, mÂ³, m) vs IP (GPM, psi, gal, ft)
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
   // Multi-Building Schedule State
@@ -1497,11 +1497,11 @@ export function FireWaterDemandPage() {
                   unitSystem={unitSystem}
                   onChange={handleUnitSystemChange}
                   disabled={isEffectiveReadOnly}
-                  inputDescriptions="Fire Water Demand (GPM / LPM), Residual Pressure (psi / bar), Water Tank Capacity (gal / m³)"
+                  inputDescriptions="Fire Water Demand (GPM / LPM), Residual Pressure (psi / bar), Water Tank Capacity (gal / mÂ³)"
                   conversionExample={
                     unitSystem === "ip"
-                      ? "Convert 1000 GPM → 3785 LPM, 100 psi → 6.9 bar, 60,000 Gal → 227.1 m³"
-                      : "Convert 3785 LPM → 1000 GPM, 6.9 bar → 100 psi, 227.1 m³ → 60,000 Gal"
+                      ? "Convert 1000 GPM â†’ 3785 LPM, 100 psi â†’ 6.9 bar, 60,000 Gal â†’ 227.1 mÂ³"
+                      : "Convert 3785 LPM â†’ 1000 GPM, 6.9 bar â†’ 100 psi, 227.1 mÂ³ â†’ 60,000 Gal"
                   }
                 />
             </div>
@@ -1517,12 +1517,12 @@ export function FireWaterDemandPage() {
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             
-            {/* Tabs Selector row - VENTILATION & SEWAGE PUMP STANDARD */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+            {/* Unified Toolbar (Tabs, Search, Filter, Actions) */}
+            <div className="relative flex items-center justify-between px-4 py-2.5 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
               
               {/* Left Side: Tabs + Formula + Presets */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80 shrink-0">
                   <button
                     onClick={() => setTab("schedule")}
                     className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
@@ -1546,25 +1546,8 @@ export function FireWaterDemandPage() {
                   </button>
                 </div>
 
-
-              </div>
-
-              {/* Right Side Controls: Export & Unit System Toggle (EXACT SEWAGE PUMP FORMAT) */}
-              <div className="flex items-center gap-2 select-none shrink-0">
-                <TBtn onClick={handleExportPDF}>
-                  <FileText className="size-3.5" /> Export
-                </TBtn>
-
-                </div>
-            </div>
-
-            {/* TAB 1: SCHEDULE (FULL-HEIGHT SPACIOUS DATAGRID WITH DOUBLE-CLICK EDITING) */}
-            {tab === "schedule" && (
-              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                
-                {/* Search & Action Bar (Matching Ventilation / Sewage Grid Toolbar) */}
-                <div className="relative flex items-center justify-between gap-3 px-4 py-2.5 bg-card border-b border-border/60 shrink-0 flex-wrap">
-                  <div className="flex items-center gap-2">
+                {tab === "schedule" && (
+                  <div className="flex items-center gap-2 ml-2">
                     <div className="relative w-64">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                       <input
@@ -1638,38 +1621,51 @@ export function FireWaterDemandPage() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
+                )}
+              </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      disabled={isEffectiveReadOnly}
-                      onClick={handleAddNewBuilding}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      <Plus className="size-3.5" />
-                      Add Building
-                    </button>
-                  </div>
+              {/* Right Side Controls: Export & Add Building */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={handleExportPDF}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
+                
+                {tab === "schedule" && (
+                  <button
+                    disabled={isEffectiveReadOnly}
+                    onClick={handleAddNewBuilding}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Plus className="size-3.5" />
+                    Add Building
+                  </button>
+                )}
+              </div>
 
-                  {/* Bulk actions bar overlay (Ventilation standard) */}
-                  {!isEffectiveReadOnly && selectedRowIds.size > 0 && (
-                    <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
-                      <span className="font-semibold">{selectedRowIds.size} selected</span>
-                      <span className="text-primary/30">·</span>
-                      <BulkBtn icon={Edit3} onClick={handleOpenBulkEdit}>Bulk edit</BulkBtn>
-                      <BulkBtn icon={Copy} onClick={handleDuplicateSelected}>Duplicate</BulkBtn>
-                      <BulkBtn icon={MessageSquare} onClick={handleAssignTaskForSelected}>Assign task</BulkBtn>
-                      <BulkBtn icon={Trash2} onClick={handleDeleteSelected}>Delete</BulkBtn>
-                      <button
-                        onClick={() => setSelectedRowIds(new Set())}
-                        className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
-                      >
-                        <X className="size-3" /> Clear
-                      </button>
-                    </div>
-                  )}
+              {/* Bulk actions bar overlay (Ventilation standard) */}
+              {!isEffectiveReadOnly && tab === "schedule" && selectedRowIds.size > 0 && (
+                <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg rounded-t-2xl">
+                  <span className="font-semibold">{selectedRowIds.size} selected</span>
+                  <span className="text-primary/30">�</span>
+                  <BulkBtn icon={Edit3} onClick={handleOpenBulkEdit}>Bulk edit</BulkBtn>
+                  <BulkBtn icon={Copy} onClick={handleDuplicateSelected}>Duplicate</BulkBtn>
+                  <BulkBtn icon={MessageSquare} onClick={handleAssignTaskForSelected}>Assign task</BulkBtn>
+                  <BulkBtn icon={Trash2} onClick={handleDeleteSelected}>Delete</BulkBtn>
+                  <button
+                    onClick={() => setSelectedRowIds(new Set())}
+                    className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+                  >
+                    <X className="size-3" /> Clear
+                  </button>
                 </div>
+              )}
+            </div>
 
-                {/* Building Schedule DataGrid Table - Takes Full Container Height */}
+            {/* TAB 1: SCHEDULE (FULL-HEIGHT SPACIOUS DATAGRID WITH DOUBLE-CLICK EDITING) */}
+            {tab === "schedule" && (
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                
+{/* Building Schedule DataGrid Table - Takes Full Container Height */}
                 <div className="flex-1 overflow-x-auto overflow-y-auto">
                   <table className="w-full text-xs border-collapse">
                       <thead className="bg-surface-2 text-muted-foreground font-semibold uppercase text-[10.5px] sticky top-0 z-10 border-b border-border shadow-xs">
@@ -1698,11 +1694,11 @@ export function FireWaterDemandPage() {
                           </th>
                           <th className="py-2 px-1 text-center">
                             <div>GFA</div>
-                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">(M²)</div>
+                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">(MÂ²)</div>
                           </th>
                           <th className="py-2 px-1 text-center">
                             <div>PLOT AREA</div>
-                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">(M²)</div>
+                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">(MÂ²)</div>
                           </th>
                           <th className="py-2 px-1 text-center">
                             <div>STANDPIPES</div>
@@ -1720,7 +1716,7 @@ export function FireWaterDemandPage() {
                           <th className="py-2 px-1.5 text-center">
                             <div>NET STORAGE</div>
                             <div className="text-[9.5px] text-muted-foreground/75 font-normal">
-                              {unitSystem === "si" ? "(M³)" : "(GAL)"}
+                              {unitSystem === "si" ? "(MÂ³)" : "(GAL)"}
                             </div>
                           </th>
                           <th className="py-2 px-2 text-center pr-3">
@@ -1787,7 +1783,7 @@ export function FireWaterDemandPage() {
                                       ? "bg-primary/10 hover:bg-primary/15 font-medium"
                                       : "hover:bg-surface-2"
                                   }`}
-                                  title="Right-click for options • Double-click to view calculations & rules • Ctrl+Click to select"
+                                  title="Right-click for options â€¢ Double-click to view calculations & rules â€¢ Ctrl+Click to select"
                                 >
                               {/* 1. Selection Checkbox */}
                               <td className="py-1.5 px-2 text-center" onClick={(e) => toggleSelectRow(b.id, e)}>
@@ -1824,7 +1820,7 @@ export function FireWaterDemandPage() {
                                     </span>
                                   )}
                                   {ev.isYardHydrantRequired && (
-                                    <span className="text-[9.5px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono font-semibold shrink-0" title="Plot Area > 20,000 m²: Mandates site yard hydrants spaced at 60m (UAE Code Section 3.11)">
+                                    <span className="text-[9.5px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono font-semibold shrink-0" title="Plot Area > 20,000 mÂ²: Mandates site yard hydrants spaced at 60m (UAE Code Section 3.11)">
                                       Yard
                                     </span>
                                   )}
@@ -1852,7 +1848,7 @@ export function FireWaterDemandPage() {
 
                               {/* 4. Height (Editable Input) */}
                               <td className="py-1 px-1 text-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-center min-w-[50px] mx-auto" title="Height (meters). Governs Super Highrise (>90m), Highrise (23-90m), Midrise (15-23m), Lowrise (≤15m)">
+                                <div className="flex items-center justify-center min-w-[50px] mx-auto" title="Height (meters). Governs Super Highrise (>90m), Highrise (23-90m), Midrise (15-23m), Lowrise (â‰¤15m)">
                                   <input
                                     type="number"
                                     min="1"
@@ -1890,9 +1886,9 @@ export function FireWaterDemandPage() {
                                 </div>
                               </td>
 
-                              {/* 6. GFA (m²) (Editable Input) */}
+                              {/* 6. GFA (mÂ²) (Editable Input) */}
                               <td className="py-1 px-1 text-muted-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="min-w-[60px] max-w-[80px] mx-auto" title="Ground Floor Area (m²). Governs code system thresholds (≤500m², 501-3600m², >3600m²)">
+                                <div className="min-w-[60px] max-w-[80px] mx-auto" title="Ground Floor Area (mÂ²). Governs code system thresholds (â‰¤500mÂ², 501-3600mÂ², >3600mÂ²)">
                                   <input
                                     type="number"
                                     min="0"
@@ -1908,9 +1904,9 @@ export function FireWaterDemandPage() {
                                 </div>
                               </td>
 
-                              {/* 7. Plot Area (m²) (Editable Input) */}
+                              {/* 7. Plot Area (mÂ²) (Editable Input) */}
                               <td className="py-1 px-1 text-muted-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="min-w-[60px] max-w-[80px] mx-auto" title="Plot Area (m²). If >20,000 m², triggers Section 3.11 mandatory Yard Hydrants">
+                                <div className="min-w-[60px] max-w-[80px] mx-auto" title="Plot Area (mÂ²). If >20,000 mÂ², triggers Section 3.11 mandatory Yard Hydrants">
                                   <input
                                     type="number"
                                     min="0"
@@ -1928,7 +1924,7 @@ export function FireWaterDemandPage() {
 
                               {/* 8. Standpipes (Editable Input) */}
                               <td className="py-1 px-1 text-center text-foreground font-mono" onClick={(e) => e.stopPropagation()}>
-                                <div className="w-10 mx-auto" title="Number of Standpipes/Stairs. In Highrise, ≤2 standpipes = 750 GPM (2839 LPM); >2 standpipes = 1000 GPM (3785 LPM)">
+                                <div className="w-10 mx-auto" title="Number of Standpipes/Stairs. In Highrise, â‰¤2 standpipes = 750 GPM (2839 LPM); >2 standpipes = 1000 GPM (3785 LPM)">
                                   <input
                                     type="number"
                                     min="1"
@@ -1972,11 +1968,11 @@ export function FireWaterDemandPage() {
                               {/* 11. Net Water Volume (OUTPUT) */}
                               <td className="py-1 px-1.5 font-semibold text-foreground font-mono text-center text-xs whitespace-nowrap">
                                 {unitSystem === "si" ? (
-                                  <span title={`Calculated Net Volume: ${ev.lowestFirePumpFlowGpm} GPM × ${ev.mainTankDurationMin} min = ${ev.mainTankNetVolumeM3} m³`}>
+                                  <span title={`Calculated Net Volume: ${ev.lowestFirePumpFlowGpm} GPM Ã— ${ev.mainTankDurationMin} min = ${ev.mainTankNetVolumeM3} mÂ³`}>
                                     {ev.mainTankNetVolumeM3}
                                   </span>
                                 ) : (
-                                  <span title={`Calculated Net Volume: ${ev.lowestFirePumpFlowGpm} GPM × ${ev.mainTankDurationMin} min = ${ev.mainTankNetVolumeGal.toLocaleString()} US gal`}>
+                                  <span title={`Calculated Net Volume: ${ev.lowestFirePumpFlowGpm} GPM Ã— ${ev.mainTankDurationMin} min = ${ev.mainTankNetVolumeGal.toLocaleString()} US gal`}>
                                     {ev.mainTankNetVolumeGal.toLocaleString()}
                                   </span>
                                 )}
@@ -2097,7 +2093,7 @@ export function FireWaterDemandPage() {
                                     <div className="flex flex-col gap-1.5 h-[80px] overflow-y-auto pr-2 custom-scrollbar">
                                       {ev.clauses.map((clause, idx) => (
                                         <div key={idx} className="flex gap-1.5 text-[10px] text-muted-foreground leading-tight">
-                                          <span className="text-primary font-bold shrink-0">•</span>
+                                          <span className="text-primary font-bold shrink-0">â€¢</span>
                                           <span>{clause}</span>
                                         </div>
                                       ))}
@@ -2122,14 +2118,14 @@ export function FireWaterDemandPage() {
                 </div>
                 <div className="flex items-center gap-3 tabular">
                   <span>
-                    Σ Demand: <span className="font-mono text-foreground">{unitSystem === "si" ? `${(projectSummary.maxPumpFlowLpm ?? 0).toLocaleString()} LPM` : `${(projectSummary.maxPumpFlowGpm ?? 0).toLocaleString()} GPM`}</span>
+                    Î£ Demand: <span className="font-mono text-foreground">{unitSystem === "si" ? `${(projectSummary.maxPumpFlowLpm ?? 0).toLocaleString()} LPM` : `${(projectSummary.maxPumpFlowGpm ?? 0).toLocaleString()} GPM`}</span>
                   </span>
                   <span>
-                    Σ Net Storage: <span className="font-mono text-foreground">{unitSystem === "si" ? `${(projectSummary.totalNetStorageM3 ?? 0).toLocaleString()} m³` : `${(projectSummary.totalNetStorageGal ?? 0).toLocaleString()} Gal`}</span>
+                    Î£ Net Storage: <span className="font-mono text-foreground">{unitSystem === "si" ? `${(projectSummary.totalNetStorageM3 ?? 0).toLocaleString()} mÂ³` : `${(projectSummary.totalNetStorageGal ?? 0).toLocaleString()} Gal`}</span>
                   </span>
                   {activeItem && (
                     <span>
-                      Selected: <span className="font-semibold text-foreground">{activeItem.building.name}</span> <span className="text-muted-foreground/70">({OCCUPANCY_OPTIONS.find((o) => o.value === activeItem.building.occupancy)?.label.split(" (")[0] || activeItem.building.occupancy} • {activeItem.building.height}m)</span>
+                      Selected: <span className="font-semibold text-foreground">{activeItem.building.name}</span> <span className="text-muted-foreground/70">({OCCUPANCY_OPTIONS.find((o) => o.value === activeItem.building.occupancy)?.label.split(" (")[0] || activeItem.building.occupancy} â€¢ {activeItem.building.height}m)</span>
                     </span>
                   )}
                 </div>
@@ -2176,7 +2172,7 @@ export function FireWaterDemandPage() {
                         <div className="p-4 bg-green-500/10 rounded-full mb-4">
                           <CheckCircle2 className="size-8 text-green-500" />
                         </div>
-                        <h2 className="text-xl font-bold text-foreground mb-2">Single Stage Network (≤90m)</h2>
+                        <h2 className="text-xl font-bold text-foreground mb-2">Single Stage Network (â‰¤90m)</h2>
                         <p className="text-sm text-muted-foreground max-w-md mb-6">
                           Tower <strong>{activeTower.name}</strong> has an elevation of {activeTower.height}m. 
                           UAE Civil Defense mandates vertical staging pumps and transfer tanks only for Super Highrise buildings exceeding 90 meters in height.
@@ -2260,7 +2256,7 @@ export function FireWaterDemandPage() {
                                   </div>
                                   <div className="bg-surface-2 p-1.5 rounded">
                                     <span className="block text-[9px] text-muted-foreground uppercase">Net Vol</span>
-                                    <span className="font-mono text-xs font-bold text-foreground">{ev.stagingTankNetVolumeM3} m³</span>
+                                    <span className="font-mono text-xs font-bold text-foreground">{ev.stagingTankNetVolumeM3} mÂ³</span>
                                   </div>
                                 </div>
                               </div>
@@ -2316,7 +2312,7 @@ export function FireWaterDemandPage() {
                                   </div>
                                   <div className="bg-surface-2 p-1.5 rounded">
                                     <span className="block text-[9px] text-muted-foreground uppercase">Net Vol</span>
-                                    <span className="font-mono text-xs font-bold text-foreground">{ev.mainTankNetVolumeM3} m³</span>
+                                    <span className="font-mono text-xs font-bold text-foreground">{ev.mainTankNetVolumeM3} mÂ³</span>
                                   </div>
                                 </div>
                               </div>
@@ -2375,7 +2371,7 @@ export function FireWaterDemandPage() {
                           </h3>
                         </div>
                         <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600">
-                          {activeItem.evaluation.mainTankNetVolumeM3} m³ Net
+                          {activeItem.evaluation.mainTankNetVolumeM3} mÂ³ Net
                         </span>
                       </div>
 
@@ -2386,7 +2382,7 @@ export function FireWaterDemandPage() {
                             <span className="text-muted-foreground text-[11px]">Required Net Fire Reserve:</span>
                             <div className="text-base font-bold text-foreground font-mono">
                               {unitSystem === "si"
-                                ? `${activeItem.evaluation.mainTankNetVolumeM3} m³`
+                                ? `${activeItem.evaluation.mainTankNetVolumeM3} mÂ³`
                                 : `${activeItem.evaluation.mainTankNetVolumeGal.toLocaleString()} US gal`}
                             </div>
                           </div>
@@ -2495,11 +2491,11 @@ export function FireWaterDemandPage() {
                           </div>
                           <div className="p-2 rounded bg-surface-2">
                             <span className="text-muted-foreground text-[10px] uppercase">Footprint Area:</span>
-                            <div className="font-bold font-mono text-foreground">{activeTankSizing.floorArea} m²</div>
+                            <div className="font-bold font-mono text-foreground">{activeTankSizing.floorArea} mÂ²</div>
                           </div>
                           <div className="p-2 rounded bg-surface-2">
                             <span className="text-muted-foreground text-[10px] uppercase">Gross Tank Volume:</span>
-                            <div className="font-bold font-mono text-foreground">{activeTankSizing.grossVolumeM3} m³</div>
+                            <div className="font-bold font-mono text-foreground">{activeTankSizing.grossVolumeM3} mÂ³</div>
                           </div>
                         </div>
                       </div>
@@ -2516,7 +2512,7 @@ export function FireWaterDemandPage() {
                             Civil Defense Dedicated Tank Elevation Diagram (Section 3.1)
                           </span>
                           <span className="text-xs text-muted-foreground font-mono">
-                            {tankLength}m × {tankWidth}m × {activeTankSizing.totalHeight}m (H)
+                            {tankLength}m Ã— {tankWidth}m Ã— {activeTankSizing.totalHeight}m (H)
                           </span>
                         </div>
 
@@ -2535,7 +2531,7 @@ export function FireWaterDemandPage() {
                             </div>
                             <div className="text-lg font-black text-white font-mono">
                               {unitSystem === "si"
-                                ? `${activeItem.evaluation.mainTankNetVolumeM3} m³`
+                                ? `${activeItem.evaluation.mainTankNetVolumeM3} mÂ³`
                                 : `${activeItem.evaluation.mainTankNetVolumeGal.toLocaleString()} US Gallons`}
                             </div>
                             <div className="text-[10px] text-blue-200/80 font-mono">
@@ -2559,16 +2555,16 @@ export function FireWaterDemandPage() {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-muted-foreground">
                           <div className="p-2 rounded bg-card border border-border/50">
-                            <strong>• Dedicated Direct Breeching Inlet:</strong> Installed externally on building facade for fire brigade direct refilling.
+                            <strong>â€¢ Dedicated Direct Breeching Inlet:</strong> Installed externally on building facade for fire brigade direct refilling.
                           </div>
                           <div className="p-2 rounded bg-card border border-border/50">
-                            <strong>• Low Water Level Detection:</strong> Connected to fire alarm panel with audio-visual supervisory fault signaling.
+                            <strong>â€¢ Low Water Level Detection:</strong> Connected to fire alarm panel with audio-visual supervisory fault signaling.
                           </div>
                           <div className="p-2 rounded bg-card border border-border/50">
-                            <strong>• Anti-Vortex Plate:</strong> Fitted over every suction outlet to prevent air entrainment into fire pump impellers.
+                            <strong>â€¢ Anti-Vortex Plate:</strong> Fitted over every suction outlet to prevent air entrainment into fire pump impellers.
                           </div>
                           <div className="p-2 rounded bg-card border border-border/50">
-                            <strong>• Dual Chamber Tank:</strong> 2 interconnected compartments to allow maintenance without shutting down protection.
+                            <strong>â€¢ Dual Chamber Tank:</strong> 2 interconnected compartments to allow maintenance without shutting down protection.
                           </div>
                         </div>
                       </div>
@@ -2663,11 +2659,11 @@ export function FireWaterDemandPage() {
                             </th>
                             <th className="py-2 px-2 text-center">
                               <div>GFA</div>
-                              <div className="text-[10px] font-semibold">(m²)</div>
+                              <div className="text-[10px] font-semibold">(mÂ²)</div>
                             </th>
                             <th className="py-2 px-2 text-center">
                               <div>Plot</div>
-                              <div className="text-[10px] font-semibold">(m²)</div>
+                              <div className="text-[10px] font-semibold">(mÂ²)</div>
                             </th>
                             <th className="py-2 px-1.5 text-center">
                               <div>Risers</div>
@@ -2691,7 +2687,7 @@ export function FireWaterDemandPage() {
                             </th>
                             <th className="py-2 px-3 text-center">
                               <div>Net Storage</div>
-                              <div className="text-[10px] font-semibold">{unitSystem === "si" ? "(m³ / gal)" : "(gal / m³)"}</div>
+                              <div className="text-[10px] font-semibold">{unitSystem === "si" ? "(mÂ³ / gal)" : "(gal / mÂ³)"}</div>
                             </th>
                             <th className="py-2 px-2.5 text-center">
                               <div>Staging</div>
@@ -2713,8 +2709,8 @@ export function FireWaterDemandPage() {
                               : `${ev.lowestFirePumpPressurePsi} psi (${ev.lowestFirePumpPressureBar} bar)`;
 
                             const volVal = unitSystem === "si"
-                              ? `${ev.mainTankNetVolumeM3} m³ (${ev.mainTankNetVolumeGal.toLocaleString()} gal)`
-                              : `${ev.mainTankNetVolumeGal.toLocaleString()} gal (${ev.mainTankNetVolumeM3} m³)`;
+                              ? `${ev.mainTankNetVolumeM3} mÂ³ (${ev.mainTankNetVolumeGal.toLocaleString()} gal)`
+                              : `${ev.mainTankNetVolumeGal.toLocaleString()} gal (${ev.mainTankNetVolumeM3} mÂ³)`;
 
                             return (
                               <tr key={b.id} className="hover:bg-muted/30">
@@ -2766,8 +2762,8 @@ export function FireWaterDemandPage() {
                             <td className="py-2 px-2 text-center">-</td>
                             <td className="py-2 px-3 text-center text-primary font-mono text-[11.5px]">
                               {unitSystem === "si"
-                                ? `${projectSummary.totalNetStorageM3} m³ (${projectSummary.totalNetStorageGal.toLocaleString()} gal)`
-                                : `${projectSummary.totalNetStorageGal.toLocaleString()} gal (${projectSummary.totalNetStorageM3} m³)`}
+                                ? `${projectSummary.totalNetStorageM3} mÂ³ (${projectSummary.totalNetStorageGal.toLocaleString()} gal)`
+                                : `${projectSummary.totalNetStorageGal.toLocaleString()} gal (${projectSummary.totalNetStorageM3} mÂ³)`}
                             </td>
                             <td className="py-2 px-2.5 text-center font-sans text-[10.5px]">
                               {projectSummary.superHighriseCount > 0 ? `${projectSummary.superHighriseCount} Tower(s)` : "Single"}
@@ -2814,10 +2810,10 @@ export function FireWaterDemandPage() {
                             <td className="py-2 px-3">Chapter 9 Tables</td>
                             <td className="py-2 px-3 text-right font-mono text-primary text-[12px]">
                               {unitSystem === "si"
-                                ? `${projectSummary.totalNetStorageM3} m³ (${projectSummary.totalNetStorageGal.toLocaleString()} US gal)`
-                                : `${projectSummary.totalNetStorageGal.toLocaleString()} US gal (${projectSummary.totalNetStorageM3} m³)`}
+                                ? `${projectSummary.totalNetStorageM3} mÂ³ (${projectSummary.totalNetStorageGal.toLocaleString()} US gal)`
+                                : `${projectSummary.totalNetStorageGal.toLocaleString()} US gal (${projectSummary.totalNetStorageM3} mÂ³)`}
                             </td>
-                            <td className="py-2 px-2.5 text-center font-mono">{unitSystem === "si" ? "m³" : "US gal"}</td>
+                            <td className="py-2 px-2.5 text-center font-mono">{unitSystem === "si" ? "mÂ³" : "US gal"}</td>
                             <td className="py-2 px-3 text-[10.5px]">Dedicated separate fire storage reserve for all scheduled buildings</td>
                           </tr>
 
@@ -2828,10 +2824,10 @@ export function FireWaterDemandPage() {
                             <td className="py-2 px-3 text-muted-foreground">+10% Ullage &amp; Sump</td>
                             <td className="py-2 px-3 text-right font-mono font-bold">
                               {unitSystem === "si"
-                                ? `${projectSummary.totalGrossStorageM3} m³ (${projectSummary.totalGrossStorageGal.toLocaleString()} US gal)`
-                                : `${projectSummary.totalGrossStorageGal.toLocaleString()} US gal (${projectSummary.totalGrossStorageM3} m³)`}
+                                ? `${projectSummary.totalGrossStorageM3} mÂ³ (${projectSummary.totalGrossStorageGal.toLocaleString()} US gal)`
+                                : `${projectSummary.totalGrossStorageGal.toLocaleString()} US gal (${projectSummary.totalGrossStorageM3} mÂ³)`}
                             </td>
-                            <td className="py-2 px-2.5 text-center text-muted-foreground">{unitSystem === "si" ? "m³" : "US gal"}</td>
+                            <td className="py-2 px-2.5 text-center text-muted-foreground">{unitSystem === "si" ? "mÂ³" : "US gal"}</td>
                             <td className="py-2 px-3 text-muted-foreground text-[10.5px]">Includes min 0.30m freeboard air gap &amp; anti-vortex dead suction zone</td>
                           </tr>
 
@@ -2876,8 +2872,8 @@ export function FireWaterDemandPage() {
                             <td className="py-2 px-2.5 text-center text-muted-foreground">status</td>
                             <td className="py-2 px-3 text-muted-foreground text-[10.5px]">
                               {projectSummary.yardHydrantRequiredCount > 0
-                                ? "Plot area > 20,000 m² without existing municipal hydrants within 60m: requires 1000 GPM ring main"
-                                : "Municipal infrastructure hydrants available within 60m radius or plot <= 20,000 m²"}
+                                ? "Plot area > 20,000 mÂ² without existing municipal hydrants within 60m: requires 1000 GPM ring main"
+                                : "Municipal infrastructure hydrants available within 60m radius or plot <= 20,000 mÂ²"}
                             </td>
                           </tr>
                         </tbody>
@@ -3087,7 +3083,7 @@ export function FireWaterDemandPage() {
                       className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
                     />
                     <label htmlFor="bulk-opt-gfa" className="text-xs font-semibold text-foreground cursor-pointer">
-                      GFA (m²)
+                      GFA (mÂ²)
                     </label>
                   </div>
                   <input
@@ -3110,7 +3106,7 @@ export function FireWaterDemandPage() {
                       className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
                     />
                     <label htmlFor="bulk-opt-plot" className="text-xs font-semibold text-foreground cursor-pointer">
-                      Plot Area (m²)
+                      Plot Area (mÂ²)
                     </label>
                   </div>
                   <input
@@ -3354,7 +3350,7 @@ function FireWaterDemandIntelligenceDrawer({
       return {
         id: b.id,
         name: b.name,
-        detail: `${b.height}m · ${isSI ? `${ev.lowestFirePumpFlowLpm} LPM` : `${ev.lowestFirePumpFlowGpm} GPM`}`
+        detail: `${b.height}m Â· ${isSI ? `${ev.lowestFirePumpFlowLpm} LPM` : `${ev.lowestFirePumpFlowGpm} GPM`}`
       };
     });
   }, [evaluatedBuildings, isSI]);
@@ -3434,11 +3430,11 @@ function FireWaterDemandIntelligenceDrawer({
           />
           <KV
             k="Net Water Storage"
-            v={isSI ? `${projectSummary.totalNetStorageM3} m³` : `${projectSummary.totalNetStorageGal.toLocaleString()} gal`}
+            v={isSI ? `${projectSummary.totalNetStorageM3} mÂ³` : `${projectSummary.totalNetStorageGal.toLocaleString()} gal`}
           />
           <KV
             k="Gross Ullage (+10%)"
-            v={isSI ? `${projectSummary.totalGrossStorageM3} m³` : `${projectSummary.totalGrossStorageGal.toLocaleString()} gal`}
+            v={isSI ? `${projectSummary.totalGrossStorageM3} mÂ³` : `${projectSummary.totalGrossStorageGal.toLocaleString()} gal`}
           />
         </IntelSection>
 
@@ -3506,7 +3502,7 @@ function FireWaterDemandIntelligenceDrawer({
 
         <IntelSection icon={Info} tone="muted" title="Engineering Notes">
           <div className="text-[12px] text-muted-foreground">
-            Civil Defense Fire Demand calculated per UAE Fire &amp; Life Safety Code (Tables 9.18–9.21.e) and NFPA 20.
+            Civil Defense Fire Demand calculated per UAE Fire &amp; Life Safety Code (Tables 9.18â€“9.21.e) and NFPA 20.
           </div>
         </IntelSection>
       </div>

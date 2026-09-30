@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+﻿import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadFile } from "@/lib/download";
@@ -126,7 +126,7 @@ function StaircasePressurizationPage() {
   
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
-  const [showFormulaModal, setShowFormulaModal] = useState(false);
+  const [previewRow, setPreviewRow] = useState<StaircaseItem | null>(null);
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const isIp = unitSystem === "ip";
@@ -323,7 +323,7 @@ function StaircasePressurizationPage() {
 
       autoTable(doc, {
         startY: 32,
-        head: [["#", "Staircase Name", "Door Type", `Door Area (${isIp ? "sq ft" : "m²"})`, "Open Doors", "Closed Doors", `Fan Airflow (${isIp ? "CFM" : "L/s"})`, `dP (${isIp ? "in. wg" : "Pa"})`, `Relief Area (${isIp ? "sq ft" : "m²"})`]],
+        head: [["#", "Staircase Name", "Door Type", `Door Area (${isIp ? "sq ft" : "mÂ²"})`, "Open Doors", "Closed Doors", `Fan Airflow (${isIp ? "CFM" : "L/s"})`, `dP (${isIp ? "in. wg" : "Pa"})`, `Relief Area (${isIp ? "sq ft" : "mÂ²"})`]],
         body: tableData,
         theme: "grid",
         styles: { fontSize: 8, halign: "center", valign: "middle" }
@@ -379,7 +379,7 @@ function StaircasePressurizationPage() {
     },
     {
       key: "doorArea",
-      header: `DOOR AREA (${unitSystem === "ip" ? "sq ft" : "m²"})`,
+      header: `DOOR AREA (${unitSystem === "ip" ? "sq ft" : "mÂ²"})`,
       width: 130,
       render: (row) => (
         <input 
@@ -428,7 +428,7 @@ function StaircasePressurizationPage() {
       width: 140,
       render: (row) => {
         const calc = calculateStaircase(row, unitSystem === "ip");
-        return <span className="text-blue-600 font-semibold cursor-pointer" onDoubleClick={() => setShowFormulaModal(true)}>{unitSystem === "ip" ? calc.totalFanCapacityCfm : calc.totalFanCapacityLs}</span>;
+        return <span className="text-blue-600 font-semibold cursor-pointer" onDoubleClick={() => setPreviewRow(row)}>{unitSystem === "ip" ? calc.totalFanCapacityCfm : calc.totalFanCapacityLs}</span>;
       }
     },
     {
@@ -437,16 +437,16 @@ function StaircasePressurizationPage() {
       width: 100,
       render: (row) => {
         const calc = calculateStaircase(row, unitSystem === "ip");
-        return <span className="cursor-pointer" onDoubleClick={() => setShowFormulaModal(true)}>{unitSystem === "ip" ? calc.designPressureDropInWg : calc.designPressureDropPa}</span>;
+        return <span className="cursor-pointer" onDoubleClick={() => setPreviewRow(row)}>{unitSystem === "ip" ? calc.designPressureDropInWg : calc.designPressureDropPa}</span>;
       }
     },
     {
       key: "reliefArea",
-      header: `RELIEF AREA (${unitSystem === "ip" ? "sq ft" : "m²"})`,
+      header: `RELIEF AREA (${unitSystem === "ip" ? "sq ft" : "mÂ²"})`,
       width: 130,
       render: (row) => {
         const calc = calculateStaircase(row, unitSystem === "ip");
-        return <span className="cursor-pointer" onDoubleClick={() => setShowFormulaModal(true)}>{unitSystem === "ip" ? calc.reliefAreaSqFt : calc.reliefAreaM2}</span>;
+        return <span className="cursor-pointer" onDoubleClick={() => setPreviewRow(row)}>{unitSystem === "ip" ? calc.reliefAreaSqFt : calc.reliefAreaM2}</span>;
       }
     },
     {
@@ -492,6 +492,13 @@ function StaircasePressurizationPage() {
       >
         <MessageSquare className="size-3.5" />
         <span>Add Comment</span>
+      </ContextMenuItem>
+      <ContextMenuItem
+        onClick={() => setPreviewRow(row)}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted text-foreground rounded cursor-pointer"
+      >
+        <Sparkles className="size-3.5" />
+        <span>Calculation Preview</span>
       </ContextMenuItem>
       <ContextMenuSeparator className="h-px bg-border my-1" />
       <ContextMenuItem
@@ -666,15 +673,159 @@ function StaircasePressurizationPage() {
                 </div>
               )}
               
-              {tab === "report" && (
-                <div className="absolute inset-0 flex flex-col animate-in fade-in duration-300 p-6 overflow-y-auto">
-                   <h2 className="text-xl font-bold mb-4">Staircase Pressurization Report</h2>
-                   <p className="text-sm text-muted-foreground mb-6">Generated calculation results for {items.length} staircases.</p>
-                   <button onClick={handleExportPdf} className="self-start px-4 py-2 bg-primary text-white rounded-xl font-bold shadow-sm inline-flex items-center gap-2 text-sm">
-                     <FileText className="size-4" /> Download PDF Report
-                   </button>
-                </div>
-              )}
+                              {tab === "report" && (
+                  <div className="absolute inset-0 flex flex-col animate-in fade-in duration-300 bg-[#F5F7F9] dark:bg-zinc-950 overflow-y-auto">
+                    
+                    {/* Floating Action Bar */}
+                    <div className="sticky top-0 z-10 flex items-center justify-between p-4 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-border shadow-sm print:hidden">
+                      <div>
+                        <h2 className="text-sm font-bold text-foreground">Staircase Pressurization Report</h2>
+                        <p className="text-[11px] text-muted-foreground">{items.length} staircases calculated</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => window.print()} className="h-8 px-4 inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold cursor-pointer shadow-sm transition-transform active:scale-95">
+                          <FileText className="size-3.5" /> Print / Save PDF
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Report Content */}
+                    <div className="flex-1 p-4 md:p-8">
+                      <div id="report-content" className="max-w-[900px] mx-auto bg-white dark:bg-zinc-900 border border-border/50 rounded-2xl shadow-sm overflow-hidden print:shadow-none print:border-none print:max-w-none print:m-0">
+                        
+                        {/* Report Header */}
+                        <div className="p-8 border-b border-border/50 bg-[#F8FAFC] dark:bg-zinc-900/50 print:bg-transparent">
+                          <div className="flex justify-between items-start mb-6">
+                            <div>
+                              <h1 className="text-2xl font-black text-slate-800 dark:text-slate-100 uppercase tracking-tight">Staircase Pressurization</h1>
+                              <p className="text-sm text-slate-500 font-medium mt-1">Design Calculation Report</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Project</p>
+                              <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{project?.name || "N/A"}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-8 text-sm">
+                            <div>
+                              <span className="text-slate-400 text-xs">Date</span>
+                              <p className="font-semibold">{new Date().toLocaleDateString()}</p>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 text-xs">Unit System</span>
+                              <p className="font-semibold uppercase">{unitSystem}</p>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 text-xs">Staircases</span>
+                              <p className="font-semibold">{items.length}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Report Body */}
+                        <div className="p-8 space-y-10">
+                          
+                          {/* Schedule Summary */}
+                          <section>
+                            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+                              <div className="w-1.5 h-4 bg-primary rounded-full"></div> Executive Summary
+                            </h3>
+                            <div className="rounded-xl border border-border/60 overflow-hidden">
+                              <table className="w-full text-xs text-left">
+                                <thead className="bg-[#F1F5F9] dark:bg-zinc-800/50 text-slate-600 dark:text-slate-300 font-bold border-b border-border/60">
+                                  <tr>
+                                    <th className="py-2.5 px-3">Name</th>
+                                    <th className="py-2.5 px-3">Door Type</th>
+                                    <th className="py-2.5 px-3 text-right">Airflow</th>
+                                    <th className="py-2.5 px-3 text-right">Pressure (dP)</th>
+                                    <th className="py-2.5 px-3 text-right">Relief Area</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/40">
+                                  {items.map((item) => {
+                                    const calc = calculateStaircase(item, isIp);
+                                    return (
+                                      <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-white/5">
+                                        <td className="py-2.5 px-3 font-medium text-foreground">{item.name}</td>
+                                        <td className="py-2.5 px-3 text-slate-500">{DOOR_TYPES_CONFIG[item.doorType]?.name}</td>
+                                        <td className="py-2.5 px-3 text-right font-bold text-blue-600 dark:text-blue-400">{isIp ? calc.totalFanCapacityCfm + " CFM" : calc.totalFanCapacityLs + " L/s"}</td>
+                                        <td className="py-2.5 px-3 text-right font-mono">{isIp ? calc.designPressureDropInWg + " in.wg" : calc.designPressureDropPa + " Pa"}</td>
+                                        <td className="py-2.5 px-3 text-right font-mono">{isIp ? calc.reliefAreaSqFt + " sq ft" : calc.reliefAreaM2 + " m²"}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </section>
+
+                          {/* Detailed Breakdown */}
+                          <section>
+                            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
+                              <div className="w-1.5 h-4 bg-primary rounded-full"></div> Calculation Breakdown
+                            </h3>
+                            <div className="space-y-6">
+                              {items.map((item, index) => {
+                                const calc = calculateStaircase(item, isIp);
+                                return (
+                                  <div key={item.id} className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden print:break-inside-avoid">
+                                    <div className="bg-slate-50 dark:bg-zinc-800/30 px-4 py-2 border-b border-slate-200 dark:border-zinc-800 flex justify-between items-center">
+                                      <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                                        <span className="text-muted-foreground text-xs font-normal">#{index + 1}</span> {item.name}
+                                      </h4>
+                                      <span className="text-[10px] uppercase font-bold text-slate-400 bg-white dark:bg-zinc-800 px-2 py-1 rounded shadow-sm border border-slate-100 dark:border-zinc-700">
+                                        {DOOR_TYPES_CONFIG[item.doorType]?.name}
+                                      </span>
+                                    </div>
+                                    <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                                      <div className="space-y-1">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Input: Door Area</span>
+                                        <p className="font-mono text-foreground font-medium">{item.doorArea || 0} {isIp ? "sq ft" : "m²"}</p>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Input: Doors</span>
+                                        <p className="font-medium text-foreground">{item.openDoorsCount || 0} Open / {item.closedDoorsCount || 0} Closed</p>
+                                      </div>
+                                      <div className="space-y-1 md:col-span-2">
+                                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Result: Total Airflow</span>
+                                        <p className="font-mono font-bold text-blue-600 text-sm">{isIp ? calc.totalFanCapacityCfm + " CFM" : calc.totalFanCapacityLs + " L/s"}</p>
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="px-4 pb-4">
+                                      <div className="bg-slate-50/50 dark:bg-zinc-950/50 rounded-lg p-3 text-[11px] font-mono grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 border border-slate-100 dark:border-zinc-800/60">
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60 dark:border-zinc-800/60">
+                                          <span className="text-slate-500">Open Door Flow:</span>
+                                          <span className="text-foreground">{isIp ? "-" : calc.openFlowLs + " L/s"}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60 dark:border-zinc-800/60">
+                                          <span className="text-slate-500">Closed Door Leakage:</span>
+                                          <span className="text-foreground">{isIp ? "-" : calc.closedFlowLs + " L/s"}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60 dark:border-zinc-800/60">
+                                          <span className="text-slate-500">Safety Margin (25%):</span>
+                                          <span className="text-foreground">{isIp ? "-" : (Number(calc.closedSafetyFlowM3s) * 1000).toFixed(1) + " L/s"}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60 dark:border-zinc-800/60">
+                                          <span className="text-slate-500">Sub-Total Flow:</span>
+                                          <span className="font-bold text-slate-700 dark:text-slate-300">{isIp ? "-" : (Number(calc.subTotalM3s) * 1000).toFixed(1) + " L/s"}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-200/60 dark:border-zinc-800/60">
+                                          <span className="text-slate-500">Final Safety (10%):</span>
+                                          <span className="text-foreground">{isIp ? "-" : (Number(calc.finalSafetyM3s) * 1000).toFixed(1) + " L/s"}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </section>
+
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
             </div>
           </div>
         </div>
@@ -710,13 +861,13 @@ function StaircasePressurizationPage() {
                     <div className="bg-slate-50 rounded-lg p-3 border border-border">
                       <h4 className="font-bold text-slate-700 mb-2 border-b border-border pb-1 uppercase text-[10px]">1. Airflow Breakdown</h4>
                       <div className="space-y-1.5 text-slate-600">
-                        <div className="flex justify-between"><span>Open Door Flow:</span><span className="font-mono">{calc.openFlowM3s} m³/s</span></div>
-                        <div className="flex justify-between"><span>Closed Door Flow:</span><span className="font-mono">{calc.closedFlowM3s} m³/s</span></div>
-                        <div className="flex justify-between text-slate-400"><span>Closed Safety (25%):</span><span className="font-mono">{calc.closedSafetyFlowM3s} m³/s</span></div>
+                        <div className="flex justify-between"><span>Open Door Flow:</span><span className="font-mono">{calc.openFlowM3s} mÂ³/s</span></div>
+                        <div className="flex justify-between"><span>Closed Door Flow:</span><span className="font-mono">{calc.closedFlowM3s} mÂ³/s</span></div>
+                        <div className="flex justify-between text-slate-400"><span>Closed Safety (25%):</span><span className="font-mono">{calc.closedSafetyFlowM3s} mÂ³/s</span></div>
                         <div className="flex justify-between pt-1 border-t border-border font-medium text-slate-800">
-                          <span>Subtotal Flow:</span><span className="font-mono">{calc.subTotalM3s} m³/s</span>
+                          <span>Subtotal Flow:</span><span className="font-mono">{calc.subTotalM3s} mÂ³/s</span>
                         </div>
-                        <div className="flex justify-between text-slate-400"><span>Final Safety (10%):</span><span className="font-mono">{calc.finalSafetyM3s} m³/s</span></div>
+                        <div className="flex justify-between text-slate-400"><span>Final Safety (10%):</span><span className="font-mono">{calc.finalSafetyM3s} mÂ³/s</span></div>
                       </div>
                     </div>
                     
@@ -727,7 +878,7 @@ function StaircasePressurizationPage() {
                           <span>Total Flow:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.totalFanCapacityCfm} CFM` : `${calc.totalFanCapacityLs} L/s`}</span>
                         </div>
                         <div className="flex justify-between text-[11px] opacity-80">
-                          <span>In m³/s:</span><span className="font-mono">{calc.totalFanCapacityM3s} m³/s</span>
+                          <span>In mÂ³/s:</span><span className="font-mono">{calc.totalFanCapacityM3s} mÂ³/s</span>
                         </div>
                       </div>
                     </div>
@@ -743,7 +894,7 @@ function StaircasePressurizationPage() {
                           <span>Design dP:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.designPressureDropInWg} in. w.g.` : `${calc.designPressureDropPa} Pa`}</span>
                         </div>
                         <div className="flex justify-between pt-1 font-bold text-slate-800">
-                          <span>Relief Area:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.reliefAreaSqFt} sq ft` : `${calc.reliefAreaM2} m²`}</span>
+                          <span>Relief Area:</span><span className="font-mono">{unitSystem === "ip" ? `${calc.reliefAreaSqFt} sq ft` : `${calc.reliefAreaM2} mÂ²`}</span>
                         </div>
                       </div>
                     </div>
@@ -761,21 +912,87 @@ function StaircasePressurizationPage() {
         </div>
       </div>
 
-      {showFormulaModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-card border border-border rounded-2xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-4 font-sans">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <h2 className="text-base font-bold text-foreground">Staircase Pressurization Formulas</h2>
-              <button onClick={() => setShowFormulaModal(false)} className="p-1 rounded-lg hover:bg-muted cursor-pointer"><X className="size-4" /></button>
+            {/* Calculation Breakdown & Preview Modal */}
+      {previewRow && typeof document !== "undefined" && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 font-sans animate-fade-in">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-xl p-6 flex flex-col gap-5 shadow-2xl animate-scale-in select-none max-h-[90vh] overflow-y-auto">
+            
+            {/* Header */}
+            <div className="flex justify-between items-center pb-3 border-b border-border/60">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-primary/10 rounded-xl text-primary">
+                  <Sparkles className="size-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-foreground">Calculation Preview</h3>
+                  <p className="text-xs text-muted-foreground">{previewRow.name} - Pressurization Breakdown</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewRow(null)}
+                className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg cursor-pointer transition hover:bg-accent"
+              >
+                <X className="size-5" />
+              </button>
             </div>
-            <div className="space-y-3 text-xs text-muted-foreground">
-              <div className="p-3 rounded-xl bg-muted/60"><span className="font-bold">1. Open Door Flow</span> <br/><code className="text-blue-600">Q = Area × Vel × OpenDoors</code></div>
-              <div className="p-3 rounded-xl bg-muted/60"><span className="font-bold">2. Closed Door Flow</span> <br/><code className="text-blue-600">Q = Leakage × ClosedDoors × 1.25</code></div>
-              <div className="p-3 rounded-xl bg-muted/60"><span className="font-bold">3. Total Fan Capacity</span> <br/><code className="text-blue-600">Q = (Open + Closed) × 1.10</code></div>
-            </div>
-            <div className="flex justify-end pt-2 border-t border-border">
-              <button onClick={() => setShowFormulaModal(false)} className="px-4 py-1.5 rounded-xl bg-primary text-primary-foreground font-semibold text-xs cursor-pointer">Done</button>
-            </div>
+
+            {(() => {
+              const calc = calculateStaircase(previewRow, isIp);
+              return (
+                <div className="space-y-4">
+                  {/* Results Overview */}
+                  <div className="grid grid-cols-3 gap-3 text-xs mb-2">
+                    <div className="bg-surface-2 p-3 rounded-xl border border-border/50 flex flex-col gap-1">
+                      <span className="text-muted-foreground font-semibold">Fan Airflow</span>
+                      <span className="text-base font-bold font-mono text-primary">{isIp ? calc.totalFanCapacityCfm : calc.totalFanCapacityLs} <span className="text-[10px] text-foreground">{isIp ? "CFM" : "L/s"}</span></span>
+                    </div>
+                    <div className="bg-surface-2 p-3 rounded-xl border border-border/50 flex flex-col gap-1">
+                      <span className="text-muted-foreground font-semibold">Design dP</span>
+                      <span className="text-base font-bold font-mono text-primary">{isIp ? calc.designPressureDropInWg : calc.designPressureDropPa} <span className="text-[10px] text-foreground">{isIp ? "in.wg" : "Pa"}</span></span>
+                    </div>
+                    <div className="bg-surface-2 p-3 rounded-xl border border-border/50 flex flex-col gap-1">
+                      <span className="text-muted-foreground font-semibold">Relief Area</span>
+                      <span className="text-base font-bold font-mono text-primary">{isIp ? calc.reliefAreaSqFt : calc.reliefAreaM2} <span className="text-[10px] text-foreground">{isIp ? "sq ft" : "m²"}</span></span>
+                    </div>
+                  </div>
+
+                                    {/* Calculation Breakdown & Formulas */}
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold text-foreground">Calculation Breakdown & Formulas</h4>
+                    <div className="space-y-3 text-xs text-muted-foreground">
+                      <div className="p-3 rounded-xl bg-muted/30 border border-border/50">
+                        <span className="font-bold text-foreground">1. Open Door Flow</span><br/>
+                        <code className="text-blue-600 dark:text-blue-400 block my-1">Q = Door Area × Velocity × Open Doors</code>
+                        <span className="font-mono">
+                          {isIp ? (previewRow.doorArea || 0) + " sq ft" : (previewRow.doorArea || 0) + " m²"} × {isIp ? "196.85 ft/min" : "1.0 m/s"} × {previewRow.openDoorsCount || 0} doors = <strong className="text-foreground">{isIp ? "-" : calc.openFlowLs + " L/s"}</strong>
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-muted/30 border border-border/50">
+                        <span className="font-bold text-foreground">2. Closed Door Flow</span><br/>
+                        <code className="text-blue-600 dark:text-blue-400 block my-1">Q = Leakage Rate × Closed Doors</code>
+                        <span className="font-mono">
+                          Leakage Rate × {previewRow.closedDoorsCount || 0} doors = <strong className="text-foreground">{isIp ? "-" : calc.closedFlowLs + " L/s"}</strong>
+                        </span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-muted/30 border border-border/50">
+                        <span className="font-bold text-foreground">3. Safety Margins</span><br/>
+                        <span className="font-mono">Closed Doors Safety (25%): <strong className="text-foreground">{isIp ? "-" : (Number(calc.closedSafetyFlowM3s) * 1000).toFixed(1)} L/s</strong></span><br/>
+                        <span className="font-mono mt-1 block">Final Fan Safety (10%): <strong className="text-foreground">{isIp ? "-" : (Number(calc.finalSafetyM3s) * 1000).toFixed(1)} L/s</strong></span>
+                      </div>
+                      <div className="p-3 rounded-xl bg-blue-50/50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                        <span className="font-bold text-blue-700 dark:text-blue-300">4. Total Fan Capacity</span><br/>
+                        <code className="text-blue-600 dark:text-blue-400 block my-1">Q = (Open + Closed + 25% Safety) × 1.10</code>
+                        <span className="font-mono font-bold text-blue-700 dark:text-blue-300 text-sm mt-1 block">
+                          Total = {isIp ? calc.totalFanCapacityCfm : calc.totalFanCapacityLs} {isIp ? "CFM" : "L/s"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
           </div>
         </div>
       )}

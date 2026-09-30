@@ -8,7 +8,9 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "node node_modules/vite/bin/vite.js",
+    "dev": "concurrently -n \"backend,frontend\" -c \"blue,green\" \"node ../backend/authServer.js\" \"node node_modules/vite/bin/vite.js\"",
+    "dev:frontend": "node node_modules/vite/bin/vite.js",
+    "server": "node ../backend/authServer.js",
     "build": "node node_modules/vite/bin/vite.js build",
     "build:dev": "node node_modules/vite/bin/vite.js build --mode development",
     "build:exe": "node node_modules/vite/bin/vite.js build && node node_modules/electron-builder/out/cli/cli.js --win",

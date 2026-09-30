@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+﻿import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -33,7 +33,7 @@ import { dirtyStore } from "@/lib/dirty-store";
 export const Route = createFileRoute("/plumbing-fire-tank-duration")({
   head: () => ({
     meta: [
-      { title: "Fire Tank Duration & Refill — MEP Calc" },
+      { title: "Fire Tank Duration & Refill â€” MEP Calc" },
       { name: "description", content: "Verify fire water tank autonomy duration, net storage requirement, and municipal refill replenishment times per NFPA 22, NFPA 13 & NFPA 14." },
     ],
   }),
@@ -55,7 +55,7 @@ const DEFAULT_PARAMS_SI: FireTankDurationParams = {
   demandRate: 1892.7, // ~500 GPM
   hazardPreset: "60",
   targetDurationMin: 60,
-  tankCapacity: 125000, // 125 m³ (33,021 gal)
+  tankCapacity: 125000, // 125 mÂ³ (33,021 gal)
   refillRate: 250, // 250 L/min (~66 GPM)
   reserveMarginPct: 10,
   allowInflowCredit: false,
@@ -236,7 +236,7 @@ export function FireTankDurationPage() {
     const volumeSurplusDeficit = tankCap - actualReqVol;
     const compliancePct = actualReqVol > 0 ? Number(((tankCap / actualReqVol) * 100).toFixed(1)) : 100;
 
-    // Volume in m³ and ft³
+    // Volume in mÂ³ and ftÂ³
     const tankCapM3 = isIp ? Number((tankCap * 0.00378541).toFixed(2)) : Number((tankCap / 1000).toFixed(2));
     const actualReqVolM3 = isIp ? Number((actualReqVol * 0.00378541).toFixed(2)) : Number((actualReqVol / 1000).toFixed(2));
 
@@ -601,7 +601,7 @@ export function FireTankDurationPage() {
         ],
         [
           { content: "Available Tank Capacity:", styles: { fontStyle: "bold", fillColor: headerFill } },
-          { content: `${calc.tankCap.toLocaleString()} ${calc.volUnit} (${calc.tankCapM3} m³)` },
+          { content: `${calc.tankCap.toLocaleString()} ${calc.volUnit} (${calc.tankCapM3} mÂ³)` },
           { content: "Dedicated Refill Inflow:", styles: { fontStyle: "bold", fillColor: headerFill } },
           { content: `${calc.refill} ${calc.flowUnit} (Inflow Credit: ${sizingParams.allowInflowCredit ? "YES" : "NO"})` },
         ],
@@ -625,12 +625,12 @@ export function FireTankDurationPage() {
       nextY += 3;
 
       const resultsBody = [
-        ["A", "AVAILABLE TANK STORAGE CAPACITY", `${calc.tankCap.toLocaleString()} ${calc.volUnit} (${calc.tankCapM3} m³ / ${calc.tankCapGal.toLocaleString()} gal)`, "Physical dedicated effective fire water volume"],
-        ["B", "REQUIRED EFFECTIVE FIRE STORAGE", `${calc.actualReqVol.toLocaleString()} ${calc.volUnit} (${calc.actualReqVolM3} m³ / ${calc.actualReqVolGal.toLocaleString()} gal)`, `Q_demand (${calc.demand} ${calc.flowUnit}) × ${calc.targetDur} min + ${calc.marginPct}% safety reserve`],
+        ["A", "AVAILABLE TANK STORAGE CAPACITY", `${calc.tankCap.toLocaleString()} ${calc.volUnit} (${calc.tankCapM3} mÂ³ / ${calc.tankCapGal.toLocaleString()} gal)`, "Physical dedicated effective fire water volume"],
+        ["B", "REQUIRED EFFECTIVE FIRE STORAGE", `${calc.actualReqVol.toLocaleString()} ${calc.volUnit} (${calc.actualReqVolM3} mÂ³ / ${calc.actualReqVolGal.toLocaleString()} gal)`, `Q_demand (${calc.demand} ${calc.flowUnit}) Ã— ${calc.targetDur} min + ${calc.marginPct}% safety reserve`],
         ["C", "ACTUAL AUTONOMY FIRE DURATION", `${calc.actualDurMin} minutes (${calc.actualDurHrs} hours)`, `Actual duration tank can supply fire flow before depletion`],
-        ["D", "STORAGE SURPLUS / DEFICIT", `${calc.volumeSurplusDeficit >= 0 ? "+" : ""}${calc.volumeSurplusDeficit.toLocaleString()} ${calc.volUnit}`, calc.isAdequate ? "ADEQUATE STORAGE COMPLIANT" : "UNDERSIZED — EXPANSION REQUIRED"],
+        ["D", "STORAGE SURPLUS / DEFICIT", `${calc.volumeSurplusDeficit >= 0 ? "+" : ""}${calc.volumeSurplusDeficit.toLocaleString()} ${calc.volUnit}`, calc.isAdequate ? "ADEQUATE STORAGE COMPLIANT" : "UNDERSIZED â€” EXPANSION REQUIRED"],
         ["E", "TANK REPLENISHMENT REFILL TIME", calc.refillTimeHrs === Infinity ? "No Dedicated Refill Supply" : `${calc.refillTimeHrs} hours (${calc.refillTimeMin} min)`, `NFPA 22 Maximum: ${sizingParams.maxRefillHours} hours limit (${calc.isRefillCompliant ? "COMPLIANT" : "SLOW REFILL"})`],
-        ["F", "OVERALL NFPA 22 STATUS", calc.isAdequate ? "ADEQUATE — FULLY COMPLIANT" : "UNDERSIZED TANK — NON-COMPLIANT", `Capacity provides ${calc.compliancePct}% of required design autonomy`],
+        ["F", "OVERALL NFPA 22 STATUS", calc.isAdequate ? "ADEQUATE â€” FULLY COMPLIANT" : "UNDERSIZED TANK â€” NON-COMPLIANT", `Capacity provides ${calc.compliancePct}% of required design autonomy`],
       ];
 
       callAutoTable(doc, {
@@ -692,7 +692,7 @@ export function FireTankDurationPage() {
         ["Total Fire Demand Flowrate", calc.demand, calc.flowUnit],
         ["Target Duration", calc.targetDur, "minutes"],
         ["Available Tank Capacity", calc.tankCap, calc.volUnit],
-        ["Tank Capacity (Cubic Meters)", calc.tankCapM3, "m³"],
+        ["Tank Capacity (Cubic Meters)", calc.tankCapM3, "mÂ³"],
         ["Dedicated Refill Rate", calc.refill, calc.flowUnit],
         ["Safety Reserve Margin", sizingParams.reserveMarginPct, "%"],
         ["Inflow Credit Allowed", sizingParams.allowInflowCredit ? "Yes" : "No", "-"],
@@ -700,7 +700,7 @@ export function FireTankDurationPage() {
         [],
         ["SIZING & AUTONOMY RESULTS", "VALUE", "UNIT", "STATUS / CRITERIA"],
         ["Required Effective Volume", calc.actualReqVol, calc.volUnit, "Gross required storage + safety margin"],
-        ["Required Volume (Cubic Meters)", calc.actualReqVolM3, "m³", "Metric volume requirement"],
+        ["Required Volume (Cubic Meters)", calc.actualReqVolM3, "mÂ³", "Metric volume requirement"],
         ["Actual Autonomy Duration", calc.actualDurMin, "minutes", `${calc.actualDurHrs} hours continuous supply`],
         ["Net Storage Surplus / Deficit", calc.volumeSurplusDeficit, calc.volUnit, calc.isAdequate ? "ADEQUATE" : "UNDERSIZED"],
         ["Replenishment Refill Time", calc.refillTimeHrs === Infinity ? "N/A" : calc.refillTimeHrs, "hours", calc.isRefillCompliant ? "COMPLIANT (<8h)" : "SLOW REFILL"],
@@ -722,57 +722,46 @@ export function FireTankDurationPage() {
       <div className="flex flex-col h-full min-h-0 bg-transparent font-sans">
 
         {/* Header Bar */}
-        <div className="flex justify-between items-start shrink-0 select-none pt-4 pb-2 border-b border-border/60 no-print">
-          <div className="flex flex-col gap-1 w-full">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3">
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                    Fire Tank Duration Calculation
-                  </h1>
-                </div>
-                <CalculationReviewBar
-                  projectId={project?.id || "default"}
-                  calculatorPath="/plumbing-fire-tank-duration"
-                  calculatorTitle="Fire Water Tank Duration"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                
-
-                <button
-                  type="button"
-                  onClick={() => setShowFormulaModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-card hover:bg-muted/70 transition cursor-pointer text-foreground shadow-2xs"
-                  title="View Calculation Formulas & Step-by-Step Breakdown"
-                >
-                  <Info className="size-3.5 text-[#0A7BC7]" />
-                  <span>Calculations (i)</span>
-                </button>
-
-                {/* Export PDF Button */}
-                <TBtn onClick={handleExportPdf}><FileText className="size-3.5" /> Export</TBtn>
-
-                {/* Export Excel Button */}
-                <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
-              </div>
-            </div>
-          </div>
-        
-            <div className="flex items-center gap-2 shrink-0">
-              <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  ipLabel="IP"
-                  siLabel="SI"
-                  inputDescriptions="Demand flows, tank volumes, and refill rates"
-                  conversionExample={unitSystem === "si" ? "Convert 1,000 L → 264 gal" : "Convert 264 gal → 1,000 L"}
-                />
-            </div>
+        <div className="flex justify-between items-start shrink-0 select-none pt-4 pb-2 border-b border-border/60 no-print flex-wrap gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+              Fire Tank Duration Calculation
+            </h1>
+            <CalculationReviewBar
+              projectId={project?.id || "default"}
+              calculatorPath="/plumbing-fire-tank-duration"
+              calculatorTitle="Fire Water Tank Duration"
+            />
           </div>
 
-        {/* Main 2-Column Layout (Left: Inputs (50%) | Right: Results (50%)) */}
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowFormulaModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-card hover:bg-muted/70 transition cursor-pointer text-foreground shadow-2xs"
+              title="View Calculation Formulas & Step-by-Step Breakdown"
+            >
+              <Info className="size-3.5 text-[#0A7BC7]" />
+              <span>Calculations (i)</span>
+            </button>
+
+            {/* Export PDF Button */}
+            <TBtn onClick={handleExportPdf}><FileText className="size-3.5" /> Export</TBtn>
+
+            {/* Export Excel Button */}
+            <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
+
+            <UnitToggle
+              unitSystem={unitSystem}
+              onChange={handleUnitSystemChange}
+              ipLabel="IP"
+              siLabel="SI"
+              inputDescriptions="Demand flows, tank volumes, and refill rates"
+              conversionExample={unitSystem === "si" ? "Convert 1,000 L to 264 gal" : "Convert 264 gal to 1,000 L"}
+            />
+          </div>
+        </div>
+{/* Main 2-Column Layout (Left: Inputs (50%) | Right: Results (50%)) */}
         <div className={`flex-1 min-h-0 p-4 rounded-2xl transition-all duration-300 overflow-hidden ${calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
             : calcReviewState?.status === "REJECTED"
@@ -974,7 +963,7 @@ export function FireTankDurationPage() {
                             <span>8. Continuous Inflow Credit</span>
                             {renderCommentBadge("allowInflowCredit", "8. Continuous Inflow Credit")}
                           </span>
-                          <span className="text-[11px] font-mono font-normal text-muted-foreground">NFPA 22 §14.4</span>
+                          <span className="text-[11px] font-mono font-normal text-muted-foreground">NFPA 22 Â§14.4</span>
                         </label>
                         <button
                           type="button"
@@ -1052,7 +1041,7 @@ export function FireTankDurationPage() {
                     <div className="p-2 rounded-lg bg-card border border-border/60">
                       <span className="text-[10px] text-muted-foreground block">Refill Benchmark</span>
                       <strong className="font-mono text-[#0A7BC7]">{sizingParams.maxRefillHours || 8} hrs</strong>
-                      <span className="text-[9.5px] text-muted-foreground block">NFPA 22 §14.4</span>
+                      <span className="text-[9.5px] text-muted-foreground block">NFPA 22 Â§14.4</span>
                     </div>
                     <div className="p-2 rounded-lg bg-card border border-border/60">
                       <span className="text-[10px] text-muted-foreground block">Inflow Credit</span>
@@ -1128,7 +1117,7 @@ export function FireTankDurationPage() {
                             {calc.actualDurHrs} hours continuous
                           </span>
                           <span className="text-xs text-muted-foreground block font-mono">
-                            (Target: {calc.targetDur} min · {calc.compliancePct}% autonomy)
+                            (Target: {calc.targetDur} min Â· {calc.compliancePct}% autonomy)
                           </span>
                         </div>
                       </div>
@@ -1197,13 +1186,13 @@ export function FireTankDurationPage() {
                     modalKey: true,
                     rowClassName: "border-b border-border/50",
                   })}
-                  {renderResultRowWithContext("net-storage", "Required Effective Storage:", `${calc.actualReqVol.toLocaleString()} ${calc.volUnit} (${calc.actualReqVolM3} m³)`, {
+                  {renderResultRowWithContext("net-storage", "Required Effective Storage:", `${calc.actualReqVol.toLocaleString()} ${calc.volUnit} (${calc.actualReqVolM3} mÂ³)`, {
                     modalKey: true,
                     rowClassName: "bg-blue-50/60 dark:bg-blue-950/40 px-2 py-1.5 rounded-lg border-b border-border/50",
                     labelClassName: "text-[#0A7BC7] font-semibold text-xs sm:text-sm",
                     valueClassName: "text-[#0A7BC7] text-xs sm:text-sm font-bold",
                   })}
-                  {renderResultRowWithContext("tank-capacity", "Available Tank Capacity:", `${calc.tankCap.toLocaleString()} ${calc.volUnit} (${calc.tankCapM3} m³)`, {
+                  {renderResultRowWithContext("tank-capacity", "Available Tank Capacity:", `${calc.tankCap.toLocaleString()} ${calc.volUnit} (${calc.tankCapM3} mÂ³)`, {
                     modalKey: true,
                     rowClassName: "border-b border-border/50",
                   })}
@@ -1225,7 +1214,7 @@ export function FireTankDurationPage() {
 
                 {/* Additional Derived Engineering Results */}
                 <div className="flex flex-col gap-1 p-2.5 rounded-xl bg-slate-50/60 dark:bg-slate-900/40 border border-border/70 text-xs sm:text-sm">
-                  {renderResultRowWithContext("refill-benchmark", "NFPA 22 Refill Benchmark:", `≤ ${sizingParams.maxRefillHours || 8} Hours (${calc.isRefillCompliant ? "Compliant" : "Exceeded"})`, {
+                  {renderResultRowWithContext("refill-benchmark", "NFPA 22 Refill Benchmark:", `â‰¤ ${sizingParams.maxRefillHours || 8} Hours (${calc.isRefillCompliant ? "Compliant" : "Exceeded"})`, {
                     modalKey: true,
                     valueClassName: `${calc.isRefillCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"} font-bold text-xs sm:text-sm font-mono`,
                   })}
@@ -1249,7 +1238,7 @@ export function FireTankDurationPage() {
                   <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 flex items-start gap-2.5 text-xs text-muted-foreground leading-relaxed">
                     <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
                     <span>
-                      <strong>Storage Deficit:</strong> Current tank capacity {calc.tankCap.toLocaleString()} {calc.volUnit} is short of the required {calc.actualReqVol.toLocaleString()} {calc.volUnit} by <strong>{Math.abs(calc.volumeSurplusDeficit).toLocaleString()} {calc.volUnit}</strong> ({calc.isIp ? `${(Math.abs(calc.volumeSurplusDeficit)*0.00378541).toFixed(1)} m³` : `${(Math.abs(calc.volumeSurplusDeficit)/1000).toFixed(1)} m³`}). Increase tank volume or connect certified continuous replenishment.
+                      <strong>Storage Deficit:</strong> Current tank capacity {calc.tankCap.toLocaleString()} {calc.volUnit} is short of the required {calc.actualReqVol.toLocaleString()} {calc.volUnit} by <strong>{Math.abs(calc.volumeSurplusDeficit).toLocaleString()} {calc.volUnit}</strong> ({calc.isIp ? `${(Math.abs(calc.volumeSurplusDeficit)*0.00378541).toFixed(1)} mÂ³` : `${(Math.abs(calc.volumeSurplusDeficit)/1000).toFixed(1)} mÂ³`}). Increase tank volume or connect certified continuous replenishment.
                     </span>
                   </div>
                 )}
@@ -1292,10 +1281,10 @@ export function FireTankDurationPage() {
                       <div>
                         <div className="font-bold text-foreground">Step 1: Gross Fire Water Volume Requirement</div>
                         <div className="font-mono text-[#0A7BC7] dark:text-[#38bdf8] my-0.5">
-                          V_gross = Q_demand × T_required
+                          V_gross = Q_demand Ã— T_required
                         </div>
                         <div className="font-mono text-[10.5px] text-muted-foreground">
-                          {calc.demand} {calc.flowUnit} × {calc.targetDur} min = <strong>{calc.grossReqVol.toLocaleString()} {calc.volUnit}</strong>
+                          {calc.demand} {calc.flowUnit} Ã— {calc.targetDur} min = <strong>{calc.grossReqVol.toLocaleString()} {calc.volUnit}</strong>
                         </div>
                       </div>
                     </div>
@@ -1305,10 +1294,10 @@ export function FireTankDurationPage() {
                       <div>
                         <div className="font-bold text-foreground">Step 2: Safety & Dead Water Reserve Allowance</div>
                         <div className="font-mono text-[#0A7BC7] dark:text-[#38bdf8] my-0.5">
-                          V_req = V_gross × (1 + Safety Margin %)
+                          V_req = V_gross Ã— (1 + Safety Margin %)
                         </div>
                         <div className="font-mono text-[10.5px] text-muted-foreground">
-                          {calc.grossReqVol.toLocaleString()} {calc.volUnit} × (1 + {calc.marginPct}%) = <strong>{calc.actualReqVol.toLocaleString()} {calc.volUnit} ({calc.actualReqVolM3} m³)</strong>
+                          {calc.grossReqVol.toLocaleString()} {calc.volUnit} Ã— (1 + {calc.marginPct}%) = <strong>{calc.actualReqVol.toLocaleString()} {calc.volUnit} ({calc.actualReqVolM3} mÂ³)</strong>
                         </div>
                       </div>
                     </div>
@@ -1351,17 +1340,17 @@ export function FireTankDurationPage() {
                       <div>
                         <h4 className="font-bold text-foreground text-xs">1. NFPA 13 Hazard Duration Mandates</h4>
                         <p className="text-[11.5px]">
-                          • <strong>Light Hazard (LH):</strong> 30 minutes minimum duration.<br />
-                          • <strong>Ordinary Hazard Group 1 (OH-1):</strong> 60 to 90 minutes minimum.<br />
-                          • <strong>Ordinary Hazard Group 2 (OH-2):</strong> 90 minutes minimum.<br />
-                          • <strong>Extra Hazard (EH-1 / EH-2):</strong> 120 minutes minimum.
+                          â€¢ <strong>Light Hazard (LH):</strong> 30 minutes minimum duration.<br />
+                          â€¢ <strong>Ordinary Hazard Group 1 (OH-1):</strong> 60 to 90 minutes minimum.<br />
+                          â€¢ <strong>Ordinary Hazard Group 2 (OH-2):</strong> 90 minutes minimum.<br />
+                          â€¢ <strong>Extra Hazard (EH-1 / EH-2):</strong> 120 minutes minimum.
                         </p>
                       </div>
 
                       <div>
                         <h4 className="font-bold text-foreground text-xs">2. NFPA 22 Refill Replenishment Benchmark</h4>
                         <p className="font-mono text-[#0A7BC7] dark:text-[#38bdf8] font-semibold my-0.5">
-                          T_refill = V_tank / Q_refill ≤ 8.0 hours
+                          T_refill = V_tank / Q_refill â‰¤ 8.0 hours
                         </p>
                         <p className="text-[11.5px]">
                           NFPA 22 Section 14 mandates that automatic water supply sources must be capable of filling the fire storage tank within 8 hours (or 24 hours if approved by the AHJ).
@@ -1371,7 +1360,7 @@ export function FireTankDurationPage() {
                       <div>
                         <h4 className="font-bold text-foreground text-xs">3. Continuous Inflow Credit Rules (NFPA 22)</h4>
                         <p className="font-mono text-[#0A7BC7] dark:text-[#38bdf8] font-semibold my-0.5">
-                          V_required = (Q_demand - Q_inflow) × T_duration × (1 + Safety Margin)
+                          V_required = (Q_demand - Q_inflow) Ã— T_duration Ã— (1 + Safety Margin)
                         </p>
                         <p className="text-[11.5px]">
                           Inflow credit is only permitted when the municipal or well supply is automatic, uninterruptible, and certified reliable under emergency seismic and electrical failure conditions.

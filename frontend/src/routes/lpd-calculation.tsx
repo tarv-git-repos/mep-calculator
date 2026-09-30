@@ -1,18 +1,49 @@
 import { useWorkspace } from "@/lib/workspace-store";
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import {
+  CalculationReviewBar,
+  useCalculationEffectiveReadOnly,
+  useCalculationReviewState,
+} from "@/components/workspace/CalculationReviewBar";
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
-import { TBtn } from "@/components/workspace/Button";
-import { Plus, Trash2, Search, Download, Trash, Upload, FolderKanban, ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { TBtn, BulkBtn } from "@/components/workspace/Button";
+import {
+  Plus,
+  Trash2,
+  Search,
+  Download,
+  Trash,
+  Upload,
+  FolderKanban,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  MessageSquare,
+  Flag,
+  Sparkles,
+  X,
+  CheckCircle2,
+  AlertTriangle,
+  AlertCircle,
+  Edit3,
+  Zap,
+  Lightbulb,
+  Check,
+  Filter,
+  ArrowUpDown,
+  FileText,
+} from "lucide-react";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { cn } from "@/lib/utils";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
-import { notifyCommentAssigned } from "@/utils/notificationHelpers";
-import { MessageSquare } from "lucide-react";
 import { exportLpdExcel } from "../lib/exportLpdExcel";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { dirtyStore } from "@/lib/dirty-store";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/lpd-calculation")({
   head: () => ({
@@ -30,6 +61,46 @@ export interface LightFixture {
   watts: string;
   qty: string;
 }
+
+export interface LpdSpace {
+  id: string;
+  name: string;
+  areaType?: string;
+  areaSqM: string;
+  baselineLpd: string;
+  remarks: string;
+  fixtures: LightFixture[];
+  comments?: any[];
+  flagged?: boolean;
+}
+
+export interface LpdGroup {
+  id: string;
+  name: string;
+  isExpanded: boolean;
+  spaces: LpdSpace[];
+}
+
+export interface LpdProject {
+  id: string;
+  name: string;
+  type: "Internal" | "External";
+  projectNo: string;
+  client: string;
+  endUser: string;
+  calculationNo: string;
+  revNo: string;
+  date: string;
+  internalGroups: LpdGroup[];
+  externalGroups: LpdGroup[];
+}
+
+const generateId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).substring(2, 9);
+};
 
 const LPD_AUTHORITY_MAPPING: Record<string, number> = {
   "drive way": 0.15,
@@ -224,57 +295,48 @@ const LPD_AUTHORITY_MAPPING: Record<string, number> = {
   "Smaller items, picking areas (Space Method)": 0.69,
 };
 
-
 const LIGHT_TYPE_MAPPING: Record<string, number> = {
-  "W3": 40,
+  W3: 40,
   "TR-3": 10.5,
-  "D1": 10,
-  "L2": 26,
-  "L3": 26,
-  "D10": 35,
-  "TR-3, COVE": 20.5
+  D1: 10,
+  L2: 26,
+  L3: 26,
+  D10: 35,
+  "TR-3, COVE": 20.5,
 };
 
 const DEFAULT_AUTHORITY_MAPPING_SQM: Record<string, number> = Object.fromEntries(
   Object.entries(LPD_AUTHORITY_MAPPING).map(([k, v]) => [k, v * 10.76391])
 );
 
-export interface LpdSpace {
-  id: string;
-  name: string;
-  areaType?: string;
-  areaSqM: string;
-  baselineLpd: string;
-  remarks: string;
-  fixtures: LightFixture[];
-}
+const defaultFixture = (): LightFixture => ({
+  id: generateId(),
+  type: "W3",
+  watts: "40",
+  qty: "1",
+});
 
-export interface LpdGroup {
-  id: string;
-  name: string;
-  isExpanded: boolean;
-  spaces: LpdSpace[];
-}
+const defaultSpace = (name = ""): LpdSpace => ({
+  id: generateId(),
+  name,
+  areaType: "",
+  areaSqM: "",
+  baselineLpd: "0.43",
+  remarks: "",
+  fixtures: [defaultFixture()],
+  comments: [],
+  flagged: false,
+});
 
-export interface LpdProject {
-  id: string;
-  name: string;
-  type: "Internal" | "External";
-  projectNo: string;
-  client: string;
-  endUser: string;
-  calculationNo: string;
-  revNo: string;
-  date: string;
-  internalGroups: LpdGroup[];
-  externalGroups: LpdGroup[];
-}
+const defaultGroup = (name = "GROUND FLOOR"): LpdGroup => ({
+  id: generateId(),
+  name,
+  isExpanded: true,
+  spaces: [defaultSpace()],
+});
 
-const defaultFixture = (): LightFixture => ({ id: crypto.randomUUID(), type: "W3", watts: "40", qty: "1" });
-const defaultSpace = (): LpdSpace => ({ id: crypto.randomUUID(), name: "", areaType: "", areaSqM: "", baselineLpd: "0.43", remarks: "", fixtures: [defaultFixture()] });
-const defaultGroup = (name = "GROUND FLOOR"): LpdGroup => ({ id: crypto.randomUUID(), name, isExpanded: true, spaces: [defaultSpace()] });
 const defaultProject = (): LpdProject => ({
-  id: crypto.randomUUID(),
+  id: generateId(),
   name: "New LPD Project",
   type: "Internal",
   projectNo: "",
@@ -282,9 +344,9 @@ const defaultProject = (): LpdProject => ({
   endUser: "",
   calculationNo: "",
   revNo: "00",
-  date: new Date().toISOString().split('T')[0],
-  internalGroups: [defaultGroup("INTERNAL AREA")],
-  externalGroups: [defaultGroup("EXTERNAL AREA")]
+  date: new Date().toISOString().split("T")[0],
+  internalGroups: [defaultGroup("GROUND FLOOR"), defaultGroup("FIRST FLOOR")],
+  externalGroups: [defaultGroup("EXTERNAL AREA")],
 });
 
 function LPDCalculationPage() {
@@ -294,8 +356,123 @@ function LPDCalculationPage() {
   const [projects, setProjects] = useState<LpdProject[]>([defaultProject()]);
   const [currentProjectId, setCurrentProjectId] = useState<string>(projects[0].id);
   const [authorityMapping, setAuthorityMapping] = useState<Record<string, number>>(DEFAULT_AUTHORITY_MAPPING_SQM);
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("mep-lpd-unit-system");
+      if (saved === "ip" || saved === "si") return saved;
+    }
+    return "si";
+  });
+
+  const handleUnitToggle = (newSystem: "si" | "ip", shouldConvert: boolean = true) => {
+    if (newSystem === unitSystem) return;
+    setUnitSystem(newSystem);
+    localStorage.setItem("mep-lpd-unit-system", newSystem);
+
+    if (shouldConvert) {
+      const isToIp = newSystem === "ip";
+      const areaFactor = isToIp ? 10.76391 : 1 / 10.76391;
+      const lpdFactor = isToIp ? 1 / 10.76391 : 10.76391;
+
+      setProjects((prevProjects) =>
+        prevProjects.map((proj) => {
+          const convertGroups = (groups: LpdGroup[]) =>
+            groups.map((g) => ({
+              ...g,
+              spaces: (g.spaces || []).map((s) => {
+                const currentArea = parseFloat(s.areaSqM);
+                const currentBaseline = parseFloat(s.baselineLpd);
+                return {
+                  ...s,
+                  areaSqM:
+                    !isNaN(currentArea) && currentArea > 0
+                      ? (currentArea * areaFactor).toFixed(1)
+                      : s.areaSqM,
+                  baselineLpd:
+                    !isNaN(currentBaseline) && currentBaseline > 0
+                      ? (currentBaseline * lpdFactor).toFixed(2)
+                      : s.baselineLpd,
+                };
+              }),
+            }));
+
+          return {
+            ...proj,
+            internalGroups: convertGroups(proj.internalGroups || []),
+            externalGroups: convertGroups(proj.externalGroups || []),
+          };
+        })
+      );
+      toast.success(`Converted values to ${newSystem.toUpperCase()}`);
+    } else {
+      toast.info(`Switched to ${newSystem.toUpperCase()} mode (numbers preserved)`);
+    }
+  };
+
+  const getBaselineLpdForType = (type: string, system: "si" | "ip" = unitSystem): number | undefined => {
+    const norm = type.toLowerCase().trim();
+    if (system === "ip") {
+      if (LPD_AUTHORITY_MAPPING[norm] !== undefined) return LPD_AUTHORITY_MAPPING[norm];
+      const sqmVal = authorityMapping[norm] ?? authorityMapping[type];
+      if (sqmVal !== undefined) return Number((sqmVal / 10.76391).toFixed(2));
+      return undefined;
+    } else {
+      const sqmVal = authorityMapping[norm] ?? authorityMapping[type];
+      if (sqmVal !== undefined) return Number(sqmVal.toFixed(2));
+      if (LPD_AUTHORITY_MAPPING[norm] !== undefined) return Number((LPD_AUTHORITY_MAPPING[norm] * 10.76391).toFixed(2));
+      return undefined;
+    }
+  };
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState<"all" | "compliant" | "non-compliant" | "flagged" | "missing">("all");
+  const [filterAreaType, setFilterAreaType] = useState<string>("all");
+  const [filterFlaggedOnly, setFilterFlaggedOnly] = useState<boolean>(false);
+  const [filterMinArea, setFilterMinArea] = useState<number | null>(null);
+  const [sortKey, setSortKey] = useState<string>("default");
+  const [intelOpen, setIntelOpen] = useState(false);
+  const [highlightedSpaceId, setHighlightedSpaceId] = useState<string | null>(null);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterStatus !== "all") count++;
+    if (filterAreaType !== "all") count++;
+    if (filterFlaggedOnly) count++;
+    if (filterMinArea !== null && filterMinArea > 0) count++;
+    return count;
+  }, [filterStatus, filterAreaType, filterFlaggedOnly, filterMinArea]);
+
+  // Floating Context Menu state (avoids DOM table nesting errors with Radix inside tbody)
+  const [spaceContextMenu, setSpaceContextMenu] = useState<{
+    x: number;
+    y: number;
+    spaceId: string;
+    groupId: string;
+  } | null>(null);
+
+  const [groupContextMenu, setGroupContextMenu] = useState<{
+    x: number;
+    y: number;
+    groupId: string;
+  } | null>(null);
+
   const confirm = useConfirm();
   const prompt = usePrompt();
+
+  // Close context menu on outside click or scroll
+  useEffect(() => {
+    const handleCloseMenu = () => {
+      setSpaceContextMenu(null);
+      setGroupContextMenu(null);
+    };
+    window.addEventListener("click", handleCloseMenu);
+    window.addEventListener("scroll", handleCloseMenu, true);
+    return () => {
+      window.removeEventListener("click", handleCloseMenu);
+      window.removeEventListener("scroll", handleCloseMenu, true);
+    };
+  }, []);
 
   // Load from local storage
   useEffect(() => {
@@ -312,20 +489,38 @@ function LPDCalculationPage() {
             }
             if (!p.internalGroups) p.internalGroups = [defaultGroup("INTERNAL AREA")];
             if (!p.externalGroups) p.externalGroups = [defaultGroup("EXTERNAL AREA")];
+
+            const sanitizeGroups = (groups: any[]) =>
+              groups.forEach((g: any) => {
+                if (g.spaces) {
+                  g.spaces.forEach((s: any) => {
+                    if (s.flagged === undefined) s.flagged = false;
+                    if (!Array.isArray(s.comments)) s.comments = [];
+                    if (!Array.isArray(s.fixtures) || s.fixtures.length === 0) s.fixtures = [defaultFixture()];
+                  });
+                }
+              });
+
+            sanitizeGroups(p.internalGroups);
+            sanitizeGroups(p.externalGroups);
             return p;
           });
           setProjects(migratedProjects);
-          setCurrentProjectId(parsed.currentProjectId || migratedProjects[0].id);
+          const validCurrentId =
+            parsed.currentProjectId && migratedProjects.some((p: any) => p.id === parsed.currentProjectId)
+              ? parsed.currentProjectId
+              : migratedProjects[0].id;
+          setCurrentProjectId(validCurrentId);
         }
-      } catch(e) {}
+      } catch (e) {}
     }
 
     const savedMapping = localStorage.getItem("mep-lpd-custom-mapping-sqm");
     if (savedMapping) {
       try {
         const parsed = JSON.parse(savedMapping);
-        setAuthorityMapping(prev => ({ ...prev, ...parsed }));
-      } catch(e) {}
+        setAuthorityMapping((prev) => ({ ...prev, ...parsed }));
+      } catch (e) {}
     }
   }, []);
 
@@ -336,79 +531,450 @@ function LPDCalculationPage() {
     dirtyStore.set(true);
   }, [projects, currentProjectId, authorityMapping]);
 
-  const currentProject = projects.find(p => p.id === currentProjectId) || projects[0];
+  const currentProject = projects.find((p) => p.id === currentProjectId) || projects[0];
 
   const updateProject = (fn: (p: LpdProject) => LpdProject) => {
-    setProjects(prev => prev.map(p => p.id === currentProjectId ? fn(p) : p));
+    setProjects((prev) => {
+      const targetId = currentProject ? currentProject.id : null;
+      const index = targetId ? prev.findIndex((p) => p.id === targetId) : 0;
+      if (index === -1) {
+        if (prev.length === 0) return [fn(defaultProject())];
+        return [fn(prev[0]), ...prev.slice(1)];
+      }
+      return prev.map((p, idx) => (idx === index ? fn(p) : p));
+    });
   };
 
   const updateProjectField = (field: keyof LpdProject, value: any) => {
-    updateProject(p => ({ ...p, [field]: value }));
+    updateProject((p) => ({ ...p, [field]: value }));
   };
 
   const isInt = currentProject.type === "Internal";
   const activeGroups = isInt ? currentProject.internalGroups : currentProject.externalGroups;
 
   const updateActiveGroups = (fn: (groups: LpdGroup[]) => LpdGroup[]) => {
-    updateProject(p => isInt 
-      ? { ...p, internalGroups: fn(p.internalGroups) }
-      : { ...p, externalGroups: fn(p.externalGroups) }
+    updateProject((p) => {
+      const isInternal = p.type === "Internal";
+      const targetGroups = isInternal
+        ? Array.isArray(p.internalGroups) ? p.internalGroups : []
+        : Array.isArray(p.externalGroups) ? p.externalGroups : [];
+      const updated = fn(targetGroups);
+      return isInternal
+        ? { ...p, internalGroups: updated }
+        : { ...p, externalGroups: updated };
+    });
+  };
+
+  const addGroup = () => {
+    if (searchQuery) setSearchQuery("");
+    if (filterStatus !== "all") setFilterStatus("all");
+    if (filterAreaType !== "all") setFilterAreaType("all");
+    if (filterFlaggedOnly) setFilterFlaggedOnly(false);
+    if (filterMinArea !== null) setFilterMinArea(null);
+
+    const floorPresets = [
+      "GROUND FLOOR",
+      "FIRST FLOOR",
+      "SECOND FLOOR",
+      "THIRD FLOOR",
+      "FOURTH FLOOR",
+      "FIFTH FLOOR",
+      "SIXTH FLOOR",
+      "SEVENTH FLOOR",
+      "ROOF FLOOR",
+      "BASEMENT 1",
+      "BASEMENT 2",
+    ];
+    const existingNames = new Set(activeGroups.map((g) => g.name.trim().toUpperCase()));
+    let nextName = floorPresets.find((n) => !existingNames.has(n));
+    if (!nextName) {
+      nextName = isInt ? `FLOOR ${activeGroups.length + 1}` : `EXTERNAL AREA ${activeGroups.length + 1}`;
+    }
+
+    const newGroup = defaultGroup(nextName);
+    updateActiveGroups((groups) => [...groups, newGroup]);
+    toast.success(`Floor group "${nextName}" added`);
+  };
+
+  const removeGroup = (gid: string) => {
+    updateActiveGroups((groups) => groups.filter((g) => g.id !== gid));
+    toast.success("Floor group removed");
+  };
+
+  const duplicateGroup = (gid: string) => {
+    updateActiveGroups((groups) => {
+      const idx = groups.findIndex((g) => g.id === gid);
+      if (idx === -1) return groups;
+      const target = groups[idx];
+      const clone: LpdGroup = {
+        ...target,
+        id: generateId(),
+        name: `${target.name} (COPY)`,
+        spaces: target.spaces.map((s) => ({
+          ...s,
+          id: generateId(),
+          fixtures: s.fixtures.map((f) => ({ ...f, id: generateId() })),
+          comments: [],
+        })),
+      };
+      const next = [...groups];
+      next.splice(idx + 1, 0, clone);
+      return next;
+    });
+    toast.success("Floor group duplicated");
+  };
+
+  const addSpace = (gid: string) => {
+    // If search or filter is hiding empty spaces, reset filter so user sees the newly added space immediately
+    if (searchQuery) setSearchQuery("");
+    if (filterStatus !== "all") setFilterStatus("all");
+    if (filterAreaType !== "all") setFilterAreaType("all");
+    if (filterFlaggedOnly) setFilterFlaggedOnly(false);
+    if (filterMinArea !== null) setFilterMinArea(null);
+
+    updateActiveGroups((groups) =>
+      groups.map((g) =>
+        g.id === gid
+          ? {
+              ...g,
+              isExpanded: true,
+              spaces: [...(g.spaces || []), defaultSpace()],
+            }
+          : g
+      )
+    );
+    toast.success("New space added");
+  };
+
+  const handleAddNewSpace = () => {
+    if (searchQuery) setSearchQuery("");
+    if (filterStatus !== "all") setFilterStatus("all");
+    if (filterAreaType !== "all") setFilterAreaType("all");
+    if (filterFlaggedOnly) setFilterFlaggedOnly(false);
+    if (filterMinArea !== null) setFilterMinArea(null);
+
+    if (!activeGroups || activeGroups.length === 0) {
+      const newGroup = defaultGroup(isInt ? "FLOOR 1" : "EXTERNAL AREA 1");
+      const space = defaultSpace();
+      newGroup.spaces = [space];
+      newGroup.isExpanded = true;
+      updateActiveGroups(() => [newGroup]);
+      toast.success("Created floor group and added new space");
+      return;
+    }
+
+    const targetGroup = activeGroups.find((g) => g.isExpanded) || activeGroups[0];
+    addSpace(targetGroup.id);
+  };
+
+  const removeSpace = (gid: string, sid: string) => {
+    updateActiveGroups((groups) =>
+      groups.map((g) =>
+        g.id === gid ? { ...g, spaces: g.spaces.filter((s) => s.id !== sid) } : g
+      )
+    );
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(sid);
+      return next;
+    });
+    toast.success("Space removed");
+  };
+
+  const duplicateSpace = (gid: string, sid: string) => {
+    updateActiveGroups((groups) =>
+      groups.map((g) => {
+        if (g.id !== gid) return g;
+        const targetIdx = g.spaces.findIndex((s) => s.id === sid);
+        if (targetIdx === -1) return g;
+        const target = g.spaces[targetIdx];
+        const clone: LpdSpace = {
+          ...target,
+          id: generateId(),
+          name: target.name ? `${target.name} (Copy)` : "Space (Copy)",
+          fixtures: target.fixtures.map((f) => ({ ...f, id: generateId() })),
+          comments: [],
+          flagged: target.flagged || false,
+        };
+        const next = [...g.spaces];
+        next.splice(targetIdx + 1, 0, clone);
+        return { ...g, spaces: next };
+      })
+    );
+    toast.success("Space duplicated");
+  };
+
+  const toggleFlag = (gid: string, sid: string) => {
+    updateActiveGroups((groups) =>
+      groups.map((g) =>
+        g.id === gid
+          ? {
+              ...g,
+              spaces: g.spaces.map((s) =>
+                s.id === sid ? { ...s, flagged: !s.flagged } : s
+              ),
+            }
+          : g
+      )
     );
   };
 
-  const addGroup = () => updateActiveGroups(groups => [...groups, defaultGroup(isInt ? "INTERNAL AREA" : "EXTERNAL AREA")]);
-  const removeGroup = (gid: string) => updateActiveGroups(groups => groups.filter(g => g.id !== gid));
-  const addSpace = (gid: string) => updateActiveGroups(groups => groups.map(g => g.id === gid ? { ...g, spaces: [...g.spaces, defaultSpace()] } : g));
-  const removeSpace = (gid: string, sid: string) => updateActiveGroups(groups => groups.map(g => g.id === gid ? { ...g, spaces: g.spaces.filter(s => s.id !== sid) } : g));
-  const addFixture = (gid: string, sid: string) => updateActiveGroups(groups => groups.map(g => g.id === gid ? { ...g, spaces: g.spaces.map(s => s.id === sid ? { ...s, fixtures: [...s.fixtures, defaultFixture()] } : s) } : g));
-  const removeFixture = (gid: string, sid: string, fid: string) => updateActiveGroups(groups => groups.map(g => g.id === gid ? { ...g, spaces: g.spaces.map(s => s.id === sid ? { ...s, fixtures: s.fixtures.filter(f => f.id !== fid) } : s) } : g));
-  const updateFixture = (gid: string, sid: string, fid: string, field: keyof LightFixture, val: any) => updateActiveGroups(groups => groups.map(g => g.id === gid ? { ...g, spaces: g.spaces.map(s => s.id === sid ? { ...s, fixtures: s.fixtures.map(f => {
-    if (f.id === fid) {
-      const newF = { ...f, [field]: val };
-      if (field === "type" && val !== "custom") {
-        if (LIGHT_TYPE_MAPPING[val] !== undefined) {
-          newF.watts = LIGHT_TYPE_MAPPING[val].toString();
-        } else if (val === "") {
-          newF.watts = "";
+  const addFixture = (gid: string, sid: string) => {
+    updateActiveGroups((groups) =>
+      groups.map((g) =>
+        g.id === gid
+          ? {
+              ...g,
+              spaces: (g.spaces || []).map((s) =>
+                s.id === sid
+                  ? { ...s, fixtures: [...(s.fixtures || []), defaultFixture()] }
+                  : s
+              ),
+            }
+          : g
+      )
+    );
+    toast.success("Light fixture added");
+  };
+
+  const removeFixture = (gid: string, sid: string, fid: string) => {
+    updateActiveGroups((groups) =>
+      groups.map((g) =>
+        g.id === gid
+          ? {
+              ...g,
+              spaces: (g.spaces || []).map((s) =>
+                s.id === sid
+                  ? {
+                      ...s,
+                      fixtures:
+                        s.fixtures && s.fixtures.length > 1
+                          ? s.fixtures.filter((f) => f.id !== fid)
+                          : s.fixtures,
+                    }
+                  : s
+              ),
+            }
+          : g
+      )
+    );
+  };
+
+  const updateFixture = (
+    gid: string,
+    sid: string,
+    fid: string,
+    field: keyof LightFixture,
+    val: any
+  ) =>
+    updateActiveGroups((groups) =>
+      groups.map((g) =>
+        g.id === gid
+          ? {
+              ...g,
+              spaces: (g.spaces || []).map((s) =>
+                s.id === sid
+                  ? {
+                      ...s,
+                      fixtures: (s.fixtures || []).map((f) => {
+                        if (f.id === fid) {
+                          const newF = { ...f, [field]: val };
+                          if (field === "type" && val !== "custom") {
+                            if (LIGHT_TYPE_MAPPING[val] !== undefined) {
+                              newF.watts = LIGHT_TYPE_MAPPING[val].toString();
+                            } else if (val === "") {
+                              newF.watts = "";
+                            }
+                          }
+                          return newF;
+                        }
+                        return f;
+                      }),
+                    }
+                  : s
+              ),
+            }
+          : g
+      )
+    );
+
+  const updateSpace = (
+    gid: string,
+    sid: string,
+    field: keyof LpdSpace,
+    val: any
+  ) =>
+    updateActiveGroups((groups) =>
+      groups.map((g) =>
+        g.id === gid
+          ? {
+              ...g,
+              spaces: (g.spaces || []).map((s) => {
+                if (s.id === sid) {
+                  const newS = { ...s, [field]: val };
+                  if (field === "areaType" && val !== "") {
+                    const lpdVal = getBaselineLpdForType(val, unitSystem);
+                    if (lpdVal !== undefined) {
+                      newS.baselineLpd = Number(lpdVal).toFixed(2);
+                    }
+                  }
+                  return newS;
+                }
+                return s;
+              }),
+            }
+          : g
+      )
+    );
+
+  const updateGroup = (gid: string, field: keyof LpdGroup, val: any) =>
+    updateActiveGroups((groups) =>
+      groups.map((g) => (g.id === gid ? { ...g, [field]: val } : g))
+    );
+
+  // Multi-selection helpers
+  const allActiveSpaceIds = useMemo(() => {
+    return activeGroups.flatMap((g) => (g.spaces || []).map((s) => s.id));
+  }, [activeGroups]);
+
+  const allSelected = allActiveSpaceIds.length > 0 && allActiveSpaceIds.every((id) => selected.has(id));
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(allActiveSpaceIds));
+    }
+  };
+
+  const toggleSelectRow = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectGroup = (groupId: string, select: boolean) => {
+    const group = activeGroups.find((g) => g.id === groupId);
+    if (!group) return;
+    const spaceIds = (group.spaces || []).map((s) => s.id);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (select) {
+        spaceIds.forEach((id) => next.add(id));
+      } else {
+        spaceIds.forEach((id) => next.delete(id));
+      }
+      return next;
+    });
+  };
+
+  const toggleFlagSelected = () => {
+    if (selected.size === 0) return;
+    updateActiveGroups((groups) =>
+      groups.map((g) => ({
+        ...g,
+        spaces: (g.spaces || []).map((s) =>
+          selected.has(s.id) ? { ...s, flagged: !s.flagged } : s
+        ),
+      }))
+    );
+    toast.success(`Toggled flag for ${selected.size} space(s)`);
+  };
+
+  const duplicateSelectedSpaces = () => {
+    if (selected.size === 0) return;
+    const newSelected = new Set<string>();
+    updateActiveGroups((groups) =>
+      groups.map((g) => {
+        const nextSpaces: LpdSpace[] = [];
+        (g.spaces || []).forEach((s) => {
+          nextSpaces.push(s);
+          if (selected.has(s.id)) {
+            const cloneId = generateId();
+            newSelected.add(cloneId);
+            nextSpaces.push({
+              ...s,
+              id: cloneId,
+              name: s.name ? `${s.name} (Copy)` : "Space (Copy)",
+              fixtures: s.fixtures.map((f) => ({ ...f, id: generateId() })),
+              comments: [],
+            });
+          }
+        });
+        return { ...g, spaces: nextSpaces };
+      })
+    );
+    setSelected(newSelected);
+    toast.success(`Duplicated ${selected.size} space(s)`);
+  };
+
+  const deleteSelectedSpaces = async () => {
+    if (selected.size === 0) return;
+    const count = selected.size;
+    if (
+      await confirm(`Are you sure you want to delete the ${count} selected space(s)?`, {
+        title: "Delete Spaces",
+        confirmText: "Delete",
+        danger: true,
+      })
+    ) {
+      updateActiveGroups((groups) =>
+        groups.map((g) => ({
+          ...g,
+          spaces: (g.spaces || []).filter((s) => !selected.has(s.id)),
+        }))
+      );
+      setSelected(new Set());
+      toast.success(`Deleted ${count} space(s)`);
+    }
+  };
+
+  // Keyboard shortcut for delete
+  useEffect(() => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const activeTag = document.activeElement?.tagName?.toLowerCase();
+        if (activeTag === "input" || activeTag === "textarea" || activeTag === "select") return;
+
+        if (selected.size > 0) {
+          e.preventDefault();
+          deleteSelectedSpaces();
         }
       }
-      return newF;
-    }
-    return f;
-  }) } : s) } : g));
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selected]);
 
-  const updateSpace = (gid: string, sid: string, field: keyof LpdSpace, val: any) => updateActiveGroups(groups => groups.map(g => g.id === gid ? { ...g, spaces: g.spaces.map(s => {
-    if (s.id === sid) {
-      const newS = { ...s, [field]: val };
-      if (field === "areaType" && val !== "") {
-        const lpdSqm = authorityMapping[val.toLowerCase()] || authorityMapping[val];
-        if (lpdSqm !== undefined) {
-          newS.baselineLpd = Number(lpdSqm).toFixed(2);
-        }
-      }
-      return newS;
-    }
-    return s;
-  }) } : g));
-  const updateGroup = (gid: string, field: keyof LpdGroup, val: any) => updateActiveGroups(groups => groups.map(g => g.id === gid ? { ...g, [field]: val } : g));
-
+  // Project management
   const createNewProject = () => {
     const p = defaultProject();
-    setProjects([...projects, p]);
+    setProjects((prev) => [...prev, p]);
     setCurrentProjectId(p.id);
+    setSelected(new Set());
+    toast.success("New project created");
   };
 
   const deleteProject = async () => {
     if (projects.length <= 1) return alert("Cannot delete the last project.");
     if (await confirm("Are you sure you want to delete this project?")) {
-      const newProjects = projects.filter(p => p.id !== currentProjectId);
+      const newProjects = projects.filter((p) => p.id !== currentProjectId);
       setProjects(newProjects);
       setCurrentProjectId(newProjects[0].id);
+      setSelected(new Set());
+      toast.success("Project deleted");
     }
   };
 
   const handleExport = () => {
-    exportLpdExcel(currentProject);
+    exportLpdExcel(currentProject, unitSystem);
+    toast.success("Exporting LPD Calculation to Excel...");
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -420,11 +986,10 @@ function LPDCalculationPage() {
       const workbook = read(data);
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
       const json: any[][] = utils.sheet_to_json(firstSheet, { header: 1 });
-      
+
       const newMap = { ...authorityMapping };
       let added = 0;
-      // Assume column A is Area Name, Column B is Baseline LPD
-      for (let i = 1; i < json.length; i++) { // Skip header
+      for (let i = 1; i < json.length; i++) {
         const row = json[i];
         if (row && row[0] && row[1] !== undefined) {
           const areaName = String(row[0]).trim();
@@ -435,32 +1000,123 @@ function LPDCalculationPage() {
           }
         }
       }
-      
+
       if (added > 0) {
         setAuthorityMapping(newMap);
         localStorage.setItem("mep-lpd-custom-mapping-sqm", JSON.stringify(newMap));
-        alert(`Successfully imported ${added} area types!`);
+        toast.success(`Successfully imported ${added} area types!`);
       } else {
-        alert("No valid rows found. Please ensure Column A has Area Names and Column B has Baseline LPD values.");
+        toast.error("No valid rows found. Ensure Column A has Area Names and Column B has Baseline LPD.");
       }
     } catch (err) {
       console.error(err);
-      alert("Error importing Excel file.");
+      toast.error("Error importing Excel file.");
     }
-    e.target.value = ""; // reset
+    e.target.value = "";
   };
 
-  const actions = (
-    <div className="flex gap-2">
-      <label className="flex items-center gap-2 cursor-pointer bg-surface-2 hover:bg-surface-3 border border-border rounded-xl px-3 py-1.5 text-[12.5px] font-medium transition-colors">
-        <Download className="size-3.5" />
-        <span>Import Catalog</span>
-        <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportExcel} />
-      </label>
-    </div>
-  );
+  const handleImportExcelRows = (mappedRows: any[]) => {
+    if (!mappedRows || mappedRows.length === 0) return;
 
-  
+    // Check if the rows are catalog mappings (areaName, lpd) or space rows
+    const first = mappedRows[0];
+    const isCatalog =
+      (first.areaName || first["Area Name"]) &&
+      (first.lpd !== undefined || first["Baseline LPD"] !== undefined || first.baselineLpd !== undefined);
+
+    if (isCatalog) {
+      const newMap = { ...authorityMapping };
+      let count = 0;
+      mappedRows.forEach((r) => {
+        const name = String(r.areaName || r["Area Name"] || "").trim();
+        const lpd = Number(r.lpd ?? r["Baseline LPD"] ?? r.baselineLpd);
+        if (name && !isNaN(lpd)) {
+          newMap[name] = lpd;
+          count++;
+        }
+      });
+      if (count > 0) {
+        setAuthorityMapping(newMap);
+        localStorage.setItem("mep-lpd-custom-mapping-sqm", JSON.stringify(newMap));
+        toast.success(`Successfully imported ${count} catalog baseline entries!`);
+        return;
+      }
+    }
+
+    // Otherwise, import as spaces into active/first group!
+    const newSpaces: LpdSpace[] = mappedRows.map((r) => {
+      const name = String(
+        r.name ||
+          r.spaceName ||
+          r.location ||
+          r["Space Name"] ||
+          r["Space"] ||
+          r["Room"] ||
+          `Space ${generateId().slice(0, 4)}`
+      ).trim();
+      const area = String(r.area || r.areaSqM || r["Area"] || "0").trim();
+      const areaType = String(r.areaType || r["Area Type"] || r.type || "").trim();
+      const baseline = String(
+        r.baselineLpd ||
+          r["Baseline LPD"] ||
+          (areaType ? getBaselineLpdForType(areaType, unitSystem) ?? "" : "")
+      ).trim();
+      const remarks = String(r.remarks || r.notes || r["Remarks"] || "").trim();
+
+      const fixType = String(
+        r.fixtureType || r["Fixture Type"] || r.lightType || "LED Panel 600x600"
+      ).trim();
+      const watts = String(r.watts || r["Watts"] || "36").trim();
+      const qty = String(r.qty || r["Qty"] || r.quantity || "1").trim();
+
+      return {
+        id: generateId(),
+        name,
+        areaType,
+        areaSqM: area,
+        baselineLpd: baseline,
+        remarks,
+        fixtures: [
+          {
+            id: generateId(),
+            type: fixType,
+            watts,
+            qty,
+          },
+        ],
+        comments: [],
+        flagged: false,
+      };
+    });
+
+    if (newSpaces.length === 0) {
+      toast.error("No valid space rows found in Excel");
+      return;
+    }
+
+    updateActiveGroups((groups) => {
+      if (!groups || groups.length === 0) {
+        const newGroup = defaultGroup(isInt ? "FLOOR 1" : "EXTERNAL AREA 1");
+        newGroup.spaces = newSpaces;
+        newGroup.isExpanded = true;
+        return [newGroup];
+      }
+      const target = groups.find((g) => g.isExpanded) || groups[0];
+      return groups.map((g) =>
+        g.id === target.id
+          ? {
+              ...g,
+              isExpanded: true,
+              spaces: [...(g.spaces || []), ...newSpaces],
+            }
+          : g
+      );
+    });
+
+    toast.success(`Imported ${newSpaces.length} space(s) from Excel!`);
+  };
+
+  // Comment Modal
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
 
@@ -470,349 +1126,1569 @@ function LPDCalculationPage() {
   };
 
   const handleSaveComment = (comment: any) => {
-    updateActiveGroups(groups => groups.map(g => ({
-      ...g,
-      spaces: g.spaces.map(s => s.id === commentTargetItem?.id ? {
-        ...s,
-        comments: [...((s as any).comments || []), comment]
-      } : s)
-    })));
+    updateActiveGroups((groups) =>
+      groups.map((g) => ({
+        ...g,
+        spaces: (g.spaces || []).map((s) =>
+          s.id === commentTargetItem?.id
+            ? {
+                ...s,
+                comments: [...((s as any).comments || []), comment],
+              }
+            : s
+        ),
+      }))
+    );
     setCommentModalOpen(false);
-    toast.success("Comment saved");
+    toast.success("Comment saved successfully");
   };
+
+  // Intelligence action triggers
+  const handleScrollToSpace = (spaceId: string, groupId?: string) => {
+    if (groupId) {
+      updateGroup(groupId, "isExpanded", true);
+    }
+    setHighlightedSpaceId(spaceId);
+    setTimeout(() => {
+      const el = document.getElementById(`space-row-${spaceId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 120);
+    setTimeout(() => {
+      setHighlightedSpaceId((prev) => (prev === spaceId ? null : prev));
+    }, 3500);
+  };
+
+  const handleAutoFlagNonCompliant = () => {
+    let count = 0;
+    updateActiveGroups((groups) =>
+      groups.map((g) => ({
+        ...g,
+        spaces: (g.spaces || []).map((s) => {
+          const totalWatts = (s.fixtures || []).reduce(
+            (sum, f) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0),
+            0
+          );
+          const rawArea = parseFloat(s.areaSqM) || 0;
+          const proposedLpd = rawArea > 0 ? totalWatts / rawArea : 0;
+          const baselineLpd = parseFloat(s.baselineLpd) || 0;
+          if (rawArea > 0 && baselineLpd > 0 && proposedLpd > baselineLpd) {
+            count++;
+            return { ...s, flagged: true };
+          }
+          return s;
+        }),
+      }))
+    );
+    toast.success(`Flagged ${count} non-compliant space(s) for review`);
+  };
+
+  const handleClearAllFlags = () => {
+    updateActiveGroups((groups) =>
+      groups.map((g) => ({
+        ...g,
+        spaces: (g.spaces || []).map((s) => ({ ...s, flagged: false })),
+      }))
+    );
+    toast.success("All space flags cleared");
+  };
+
+  const handleAutoFillBaselines = () => {
+    let count = 0;
+    updateActiveGroups((groups) =>
+      groups.map((g) => ({
+        ...g,
+        spaces: (g.spaces || []).map((s) => {
+          if ((!s.baselineLpd || parseFloat(s.baselineLpd) === 0) && s.areaType) {
+            const lpdVal = getBaselineLpdForType(s.areaType, unitSystem);
+            if (lpdVal !== undefined) {
+              count++;
+              return { ...s, baselineLpd: Number(lpdVal).toFixed(2) };
+            }
+          }
+          return s;
+        }),
+      }))
+    );
+    toast.success(`Auto-filled baseline LPD for ${count} space(s) in ${unitSystem.toUpperCase()} units`);
+  };
+
+  const distinctAreaTypes = useMemo(() => {
+    const types = new Set<string>();
+    activeGroups.forEach((g) => {
+      (g.spaces || []).forEach((s) => {
+        if (s.areaType && s.areaType.trim()) {
+          types.add(s.areaType.trim());
+        }
+      });
+    });
+    return Array.from(types).sort();
+  }, [activeGroups]);
+
+  // Filtered groups & spaces calculation
+  const filteredGroups = useMemo(() => {
+    return activeGroups.map((group) => {
+      const filteredSpaces = (group.spaces || []).filter((space) => {
+        // Query search
+        if (searchQuery.trim() !== "") {
+          const q = searchQuery.toLowerCase();
+          const matchName = (space.name || "").toLowerCase().includes(q);
+          const matchType = (space.areaType || "").toLowerCase().includes(q);
+          const matchRemarks = (space.remarks || "").toLowerCase().includes(q);
+          if (!matchName && !matchType && !matchRemarks) return false;
+        }
+
+        // Flagged only filter
+        if (filterFlaggedOnly && !space.flagged) {
+          return false;
+        }
+
+        // Area Type filter
+        if (filterAreaType !== "all" && space.areaType !== filterAreaType) {
+          return false;
+        }
+
+        const rawArea = parseFloat(space.areaSqM) || 0;
+        // Min Area filter
+        if (filterMinArea !== null && filterMinArea > 0) {
+          if (rawArea < filterMinArea) return false;
+        }
+
+        // Status filters
+        const totalWatts = (space.fixtures || []).reduce(
+          (sum, f) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0),
+          0
+        );
+        const proposedLpd = rawArea > 0 ? totalWatts / rawArea : 0;
+        const baselineLpd = parseFloat(space.baselineLpd) || 0;
+
+        if (filterStatus === "compliant") {
+          return rawArea > 0 && baselineLpd > 0 && proposedLpd <= baselineLpd;
+        }
+        if (filterStatus === "non-compliant") {
+          return rawArea > 0 && baselineLpd > 0 && proposedLpd > baselineLpd;
+        }
+        if (filterStatus === "flagged") {
+          return Boolean(space.flagged);
+        }
+        if (filterStatus === "missing") {
+          return rawArea <= 0 || !space.areaType || space.areaType.trim() === "" || totalWatts <= 0;
+        }
+
+        return true;
+      });
+
+      // Sort spaces within the group if sortKey is set
+      const sortedSpaces = [...filteredSpaces];
+      if (sortKey === "name-asc") {
+        sortedSpaces.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      } else if (sortKey === "name-desc") {
+        sortedSpaces.sort((a, b) => (b.name || "").localeCompare(a.name || ""));
+      } else if (sortKey === "area-desc") {
+        sortedSpaces.sort((a, b) => (parseFloat(b.areaSqM) || 0) - (parseFloat(a.areaSqM) || 0));
+      } else if (sortKey === "proposed-desc") {
+        sortedSpaces.sort((a, b) => {
+          const wA = (a.fixtures || []).reduce((sum, f) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0), 0);
+          const areaA = parseFloat(a.areaSqM) || 0;
+          const pA = areaA > 0 ? wA / areaA : 0;
+          const wB = (b.fixtures || []).reduce((sum, f) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0), 0);
+          const areaB = parseFloat(b.areaSqM) || 0;
+          const pB = areaB > 0 ? wB / areaB : 0;
+          return pB - pA;
+        });
+      } else if (sortKey === "watts-desc") {
+        sortedSpaces.sort((a, b) => {
+          const wA = (a.fixtures || []).reduce((sum, f) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0), 0);
+          const wB = (b.fixtures || []).reduce((sum, f) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0), 0);
+          return wB - wA;
+        });
+      } else if (sortKey === "baseline-desc") {
+        sortedSpaces.sort((a, b) => (parseFloat(b.baselineLpd) || 0) - (parseFloat(a.baselineLpd) || 0));
+      }
+
+      return {
+        ...group,
+        filteredSpaces: sortedSpaces,
+      };
+    });
+  }, [activeGroups, searchQuery, filterStatus, filterAreaType, filterFlaggedOnly, filterMinArea, sortKey, unitSystem]);
+
+  // Overall totals across filtered groups
+  const allFilteredSpaces = useMemo(() => {
+    return filteredGroups.flatMap((g) => g.filteredSpaces);
+  }, [filteredGroups]);
+
+  const totalFilteredWatts = useMemo(() => {
+    return allFilteredSpaces.reduce((sum, s) => {
+      return (
+        sum +
+        (s.fixtures || []).reduce(
+          (fSum, f) => fSum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0),
+          0
+        )
+      );
+    }, 0);
+  }, [allFilteredSpaces]);
+
+  const totalFilteredArea = useMemo(() => {
+    return allFilteredSpaces.reduce((sum, s) => sum + (parseFloat(s.areaSqM) || 0), 0);
+  }, [allFilteredSpaces]);
+
+  const avgOverallProposedLpd = totalFilteredArea > 0 ? totalFilteredWatts / totalFilteredArea : 0;
+
+  const totalCompliantSpaces = useMemo(() => {
+    return allFilteredSpaces.filter((s) => {
+      const tw = (s.fixtures || []).reduce(
+        (sum, f) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0),
+        0
+      );
+      const a = parseFloat(s.areaSqM) || 0;
+      const b = parseFloat(s.baselineLpd) || 0;
+      const p = a > 0 ? tw / a : 0;
+      return a > 0 && b > 0 && p <= b;
+    }).length;
+  }, [allFilteredSpaces]);
+
+  const evaluatedCount = useMemo(() => {
+    return allFilteredSpaces.filter((s) => (parseFloat(s.areaSqM) || 0) > 0 && (parseFloat(s.baselineLpd) || 0) > 0).length;
+  }, [allFilteredSpaces]);
+
+  const overallComplianceRate = evaluatedCount > 0 ? Math.round((totalCompliantSpaces / evaluatedCount) * 100) : 100;
 
   let globalSrNo = 1;
 
+  // Active space for context menu
+  const activeContextSpace = useMemo(() => {
+    if (!spaceContextMenu) return null;
+    const group = activeGroups.find((g) => g.id === spaceContextMenu.groupId);
+    return group?.spaces.find((s) => s.id === spaceContextMenu.spaceId) || null;
+  }, [spaceContextMenu, activeGroups]);
 
+  const activeContextGroup = useMemo(() => {
+    if (!groupContextMenu) return null;
+    return activeGroups.find((g) => g.id === groupContextMenu.groupId) || null;
+  }, [groupContextMenu, activeGroups]);
 
   return (
-    <AppShell title="LPD Calculation" hideSubHeader={true}>
-      <div className="flex flex-col h-full overflow-hidden pt-4 gap-4 bg-slate-50/30 dark:bg-slate-950/30 relative">
-        {/* Subtle Grid Background */}
-        <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
-        
-        {/* Breadcrumbs & Page Header */}
-        <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg z-10">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-3 mt-0.5">
-              <div className="flex items-center gap-3 flex-wrap">
+    <AppShell
+      title="LPD Calculation"
+      hideSubHeader={true}
+      onIntelClick={() => setIntelOpen((v) => !v)}
+      intelOpen={intelOpen}
+    >
+      <div className="flex h-full min-h-0 bg-transparent">
+        {/* Main Content Area */}
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
+          {/* Breadcrumbs & Page Header */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">LPD Calculation</h1>
-              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/lpd-calculation" calculatorTitle="LPD Calculation" />
               </div>
-            </div>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              Calculate Lighting Power Density using Space-by-Space Method
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {actions}
-          </div>
-        </div>
 
-        <div className={`relative z-10 flex flex-col w-full h-full min-h-0 rounded-2xl overflow-hidden transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
-            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-            : calcReviewState?.status === "REJECTED"
-            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-            : calcReviewState?.status === "REVIEWED"
-            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between px-4 py-3 min-h-[56px] h-auto border-b border-white/40 dark:border-white/10 bg-white/40 dark:bg-black/20 backdrop-blur-md shrink-0 select-none gap-y-3 overflow-x-auto shadow-sm">
-            <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto">
-              <select className="h-8 text-[12.5px] font-medium bg-white/50 dark:bg-black/40 hover:bg-white/80 dark:hover:bg-white/10 border border-white/50 dark:border-white/10 rounded-xl px-2 outline-none cursor-pointer transition-all backdrop-blur-sm shadow-sm" value={currentProjectId} onChange={e => setCurrentProjectId(e.target.value)}>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <TBtn onClick={createNewProject}><FolderKanban className="size-3.5" /> New</TBtn>
-              <TBtn onClick={deleteProject}><Trash className="size-3.5 text-red-500" /></TBtn>
-              <div className="w-px h-4 bg-black/10 dark:bg-white/10 mx-1" />
-              
-              <div className="flex bg-surface-2 p-0.5 rounded-full border border-border">
-                <button
-                  onClick={() => updateProjectField("type", "Internal")}
-                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                    currentProject.type === "Internal" ? "bg-background shadow-sm text-foreground font-bold" : "text-muted-foreground hover:text-foreground"
-                  }`}
+              {/* Intelligence Button */}
+              <button
+                type="button"
+                onClick={() => setIntelOpen((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
+
+              <CalculationReviewBar
+                projectId={project?.id || "default"}
+                calculatorPath="/lpd-calculation"
+                calculatorTitle="LPD Calculation"
+              />
+            </div>
+
+            {/* Header Actions */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitToggle}
+                ipLabel="IP"
+                siLabel="SI"
+                ipDescription="Imperial (IP) [Area in sq.ft, LPD in W/sq.ft]"
+                siDescription="Metric (SI) [Area in m², LPD in W/m²]"
+                inputDescriptions="Space Areas and Baseline LPD values"
+                conversionExample="Convert existing metric values (m², W/m²) to imperial units (sq.ft, W/sq.ft). Output calculations recalculate accordingly."
+              />
+            </div>
+          </div>
+
+          {/* White Card Container for Grid */}
+          <div
+            className={`flex-1 flex flex-col min-h-0 rounded-2xl overflow-hidden transition-all duration-300 relative ${
+              calcReviewState?.status === "APPROVED"
+                ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
+                : calcReviewState?.status === "REJECTED"
+                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+                : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            }`}
+          >
+            {/* Top Project & Floor Toolbar */}
+            <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between px-4 py-2 min-h-[46px] h-auto border-b border-border/70 bg-header-bg/60 backdrop-blur-md shrink-0 select-none gap-y-2 shadow-xs">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto">
+                {/* Project Selector */}
+                <select
+                  className="h-8 text-[12.5px] font-medium bg-background hover:bg-surface-2 border border-border rounded-xl px-2.5 outline-none cursor-pointer transition-all shadow-xs"
+                  value={currentProjectId}
+                  onChange={(e) => setCurrentProjectId(e.target.value)}
                 >
-                  Internal Area
-                </button>
-                <button
-                  onClick={() => updateProjectField("type", "External")}
-                  className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                    currentProject.type === "External" ? "bg-background shadow-sm text-foreground font-bold" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  External Area
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
-              <TBtn primary onClick={addGroup}><Plus className="size-3.5" /> Add Group</TBtn>
-            </div>
-          </div>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <TBtn onClick={createNewProject}>
+                  <FolderKanban className="size-3.5" /> New
+                </TBtn>
+                <TBtn onClick={deleteProject} title="Delete Project">
+                  <Trash className="size-3.5 text-red-500" />
+                </TBtn>
 
-        <div className="flex-1 overflow-auto p-4 space-y-6">
-          
+                <div className="w-px h-4 bg-border mx-1" />
 
-          {/* Groups */}
-          {activeGroups.map(group => (
-            <div key={group.id} className="bg-white/60 dark:bg-black/40 backdrop-blur-xl rounded-3xl border border-white/50 dark:border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.1)] overflow-hidden transition-all duration-300">
-              <div className="flex items-center px-4 py-3 bg-white/40 dark:bg-white/5 border-b border-white/40 dark:border-white/10 group">
-                <button onClick={() => updateGroup(group.id, "isExpanded", !group.isExpanded)} className="p-1 hover:bg-black/5 dark:hover:bg-white/10 rounded-md mr-2 text-foreground/70 transition-colors">
-                  {group.isExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-                </button>
-                <input 
-                  className="bg-transparent font-bold text-[14px] text-primary outline-none focus:bg-white/50 dark:focus:bg-black/50 px-2 py-1 rounded-md w-64 uppercase transition-colors"
-                  value={group.name}
-                  onChange={e => updateGroup(group.id, "name", e.target.value)}
-                  placeholder="e.g. GROUND FLOOR"
-                />
-                <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                  <TBtn onClick={() => addSpace(group.id)}><Plus className="size-3.5" /> Space</TBtn>
-                  <TBtn onClick={() => removeGroup(group.id)}><Trash2 className="size-3.5 text-red-500" /></TBtn>
+                {/* Internal / External Area Switch */}
+                <div className="flex bg-surface-2 p-0.5 rounded-full border border-border">
+                  <button
+                    type="button"
+                    onClick={() => updateProjectField("type", "Internal")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                      currentProject.type === "Internal"
+                        ? "bg-background shadow-xs text-foreground font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Internal Area
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateProjectField("type", "External")}
+                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                      currentProject.type === "External"
+                        ? "bg-background shadow-xs text-foreground font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    External Area
+                  </button>
                 </div>
               </div>
 
-              {group.isExpanded && (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse min-w-[800px]">
-                    <thead>
-                      <tr className="bg-white/30 dark:bg-white/5 border-b border-white/40 dark:border-white/10 text-[11px] font-bold text-foreground/70 uppercase tracking-wider">
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-12 text-center">S.No</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-48">Area / Space</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-48">Type of Area</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-40">Light Type</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-24 text-center">Watts</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-24 text-center">Qty</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-24 text-center">Total Watts</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-24 text-center">Sq.M Area</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-24 text-center">Sq.F Area</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-28 text-center text-primary drop-shadow-sm">Proposed LPD<br/>(W/SQ.M)</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-24 text-center">Baseline LPD<br/>(W/SQ.M)</th>
-                        <th className="px-3 py-2 border-r border-white/40 dark:border-white/10 w-32 text-center">Remarks</th>
-                        <th className="px-2 py-2 w-10 text-center"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-[13px]">
-                      {group.spaces.map((space, sIndex) => {
-                        const totalWatts = space.fixtures.reduce((sum, f) => {
-                          const w = parseFloat(String(f.watts)) || 0;
-                          const q = parseFloat(String(f.qty)) || 0;
-                          return sum + (w * q);
-                        }, 0);
-                        const sqM = parseFloat(String(space.areaSqM)) || 0;
-                        const sqF = sqM * 10.764;
-                        const proposedLpd = sqM > 0 ? totalWatts / sqM : 0;
-                        const baselineLpd = parseFloat(String(space.baselineLpd)) || 0;
-                        
-                        const isPass = proposedLpd <= baselineLpd;
-                        const srNo = globalSrNo++;
-                        
-                        return (
-                          <React.Fragment key={space.id}>
-                            {space.fixtures.map((fixture, fIndex) => (
-                              <tr key={fixture.id} className="border-b border-white/20 dark:border-white/5 group/row hover:bg-white/40 dark:hover:bg-white/10 transition-colors">
-                                {/* Only show S.No and Space details on the first fixture row */}
-                                {fIndex === 0 && (
-                                  <>
-                                    <td className="px-3 py-1.5 border-r border-white/20 dark:border-white/10 text-center font-mono text-foreground/70" rowSpan={space.fixtures.length}>
-                                      {srNo}
-                                    </td>
-                                    <td className="p-0 border-r border-white/20 dark:border-white/10" rowSpan={space.fixtures.length}>
-                                      <div className="flex items-center gap-1.5 w-full h-full px-2">
-                                        {(() => {
-                                          const itemComments = getMergedItemComments(space.id, space.name, (space as any).comments, "/lpd-calculation", project?.id);
-                                          return itemComments.length > 0 ? (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleOpenComment(space.id, space.name);
-                                              }}
-                                              title={`${itemComments.length} comment(s)/task(s) assigned`}
-                                              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                                            >
-                                              <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                              <span className="text-[10px] font-bold">{itemComments.length}</span>
-                                            </button>
-                                          ) : null;
-                                        })()}
-                                        <input 
-                                          className="w-full h-full min-h-[32px] bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 transition-colors"
-                                          value={space.name}
-                                          onChange={e => updateSpace(group.id, space.id, "name", e.target.value)}
-                                          placeholder="e.g. Electrical Room"
-                                        />
-                                      </div>
-                                    </td>
-                                    <td className="p-0 border-r border-white/20 dark:border-white/10" rowSpan={space.fixtures.length}>
-                                      <select
-                                        className="w-full h-full min-h-[32px] px-3 bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 cursor-pointer font-medium text-[12.5px] transition-colors"
-                                        value={space.areaType || ""}
-                                        onChange={async e => {
-                                          const val = e.target.value;
-                                          if (val === "ADD_NEW") {
-                                            const newArea = await prompt("Enter new Area Name:", "", { title: "New Area Name" });
-                                            if (newArea) {
-                                              const newLpdStr = await prompt(`Enter Baseline LPD for '${newArea}' (W/Sq.M):`, "", { title: "Baseline LPD" });
-                                              if (newLpdStr && !isNaN(Number(newLpdStr))) {
-                                                const newLpd = Number(newLpdStr);
-                                                const newMap = { ...authorityMapping, [newArea]: newLpd };
-                                                setAuthorityMapping(newMap);
-                                                localStorage.setItem("mep-lpd-custom-mapping-sqm", JSON.stringify(newMap));
-                                                updateActiveGroups(groups => groups.map(g => g.id === group.id ? { ...g, spaces: g.spaces.map(s => {
-                                                  if (s.id === space.id) {
-                                                    return { ...s, areaType: newArea, baselineLpd: newLpd.toFixed(2) };
-                                                  }
-                                                  return s;
-                                                }) } : g));
-                                              }
-                                            }
-                                          } else {
-                                            updateSpace(group.id, space.id, "areaType", val);
-                                          }
-                                        }}
-                                      >
-                                        <option value="">Select Type...</option>
-                                        {Object.keys(authorityMapping).sort().map(k => (
-                                          <option key={k} value={k}>{k.replace(/\b\w/g, l => l.toUpperCase())}</option>
-                                        ))}
-                                        <option disabled>──────────</option>
-                                        <option value="ADD_NEW">+ Add New Area Type...</option>
-                                      </select>
-                                    </td>
-                                  </>
-                                )}
-                                
-                                <td className="p-0 border-r border-white/20 dark:border-white/10 relative">
-                                  {(!Object.keys(LIGHT_TYPE_MAPPING).includes(fixture.type) && fixture.type !== "") ? (
-                                    <div className="flex w-full h-full items-center">
-                                      <input 
-                                        className="w-full h-full min-h-[32px] px-3 bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 font-medium text-[12.5px] transition-colors"
-                                        value={fixture.type === "custom" ? "" : fixture.type}
-                                        onChange={e => updateFixture(group.id, space.id, fixture.id, "type", e.target.value || "custom")}
-                                        placeholder="Type Light Name..."
-                                        autoFocus={fixture.type === "custom"}
-                                      />
-                                      <button 
-                                        onClick={() => updateFixture(group.id, space.id, fixture.id, "type", "")}
-                                        className="px-2 text-foreground/50 hover:text-red-500 font-bold transition-colors"
-                                        title="Reset to Dropdown"
-                                      >
-                                        ×
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <select 
-                                      className="w-full h-full min-h-[32px] px-3 bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 cursor-pointer font-medium text-[12.5px] transition-colors"
-                                      value={fixture.type}
-                                      onChange={e => updateFixture(group.id, space.id, fixture.id, "type", e.target.value)}
-                                    >
-                                      <option value="">Select...</option>
-                                      {Object.keys(LIGHT_TYPE_MAPPING).map(k => (
-                                        <option key={k} value={k}>{k} ({LIGHT_TYPE_MAPPING[k]}W)</option>
-                                      ))}
-                                      <option value="custom">Custom Input</option>
-                                    </select>
-                                  )}
-                                </td>
-                                <td className="p-0 border-r border-white/20 dark:border-white/10">
-                                  <input 
-                                    type="number"
-                                    min="0"
-                                    className="w-full h-full min-h-[32px] px-3 bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 text-center font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
-                                    value={fixture.watts}
-                                    onChange={e => updateFixture(group.id, space.id, fixture.id, "watts", e.target.value)}
-                                    placeholder="0"
-                                    disabled={Object.keys(LIGHT_TYPE_MAPPING).includes(fixture.type)}
-                                  />
-                                </td>
-                                <td className="p-0 border-r border-white/20 dark:border-white/10">
-                                  <input 
-                                    type="number"
-                                    min="1"
-                                    className="w-full h-full min-h-[32px] px-3 bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
-                                    value={fixture.qty}
-                                    onChange={e => updateFixture(group.id, space.id, fixture.id, "qty", e.target.value)}
-                                    placeholder="1"
-                                  />
-                                </td>
-                                
-                                {fIndex === 0 && (
-                                  <>
-                                    <td className="px-3 py-1.5 border-r border-white/20 dark:border-white/10 text-center font-mono font-medium" rowSpan={space.fixtures.length}>
-                                      {totalWatts}
-                                    </td>
-                                    <td className="p-0 border-r border-white/20 dark:border-white/10" rowSpan={space.fixtures.length}>
-                                      <input 
-                                        type="number"
-                                        min="0"
-                                        className="w-full h-full min-h-[32px] px-3 bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
-                                        value={space.areaSqM}
-                                        onChange={e => updateSpace(group.id, space.id, "areaSqM", e.target.value)}
-                                        placeholder="0.0"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-1.5 border-r border-white/20 dark:border-white/10 text-center font-mono text-foreground/70 bg-white/10 dark:bg-white/5" rowSpan={space.fixtures.length}>
-                                      {sqF.toFixed(2)}
-                                    </td>
-                                    <td className={cn("px-3 py-1.5 border-r border-white/20 dark:border-white/10 text-center font-mono font-bold drop-shadow-sm", isPass ? "text-green-600 dark:text-green-400 bg-green-500/20" : "text-red-600 dark:text-red-400 bg-red-500/20")} rowSpan={space.fixtures.length}>
-                                      {proposedLpd.toFixed(4)}
-                                    </td>
-                                    <td className="p-0 border-r border-white/20 dark:border-white/10" rowSpan={space.fixtures.length}>
-                                      <input 
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        className="w-full h-full min-h-[32px] px-3 bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
-                                        value={space.baselineLpd}
-                                        onChange={e => updateSpace(group.id, space.id, "baselineLpd", e.target.value)}
-                                        placeholder="0.43"
-                                      />
-                                    </td>
-                                    <td className="p-0 border-r border-white/20 dark:border-white/10" rowSpan={space.fixtures.length}>
-                                      <input 
-                                        type="text"
-                                        className="w-full h-full min-h-[32px] px-3 bg-transparent outline-none focus:bg-white/30 dark:focus:bg-white/10 text-center transition-colors"
-                                        value={space.remarks || ""}
-                                        onChange={e => updateSpace(group.id, space.id, "remarks", e.target.value)}
-                                        placeholder=""
-                                      />
-                                    </td>
-                                    <td className="px-2 py-1.5 text-center flex flex-col gap-1 items-center" rowSpan={space.fixtures.length}>
-                                      <button onClick={() => addFixture(group.id, space.id)} className="p-1 hover:bg-white/20 rounded-md text-foreground/50 hover:text-primary transition-colors" title="Add Fixture">
-                                        <Plus className="size-3.5" />
-                                      </button>
-                                      <button onClick={() => removeSpace(group.id, space.id)} className="p-1 hover:bg-red-500/20 rounded-md text-foreground/50 hover:text-red-500 transition-colors" title="Remove Space">
-                                        <Trash2 className="size-3.5" />
-                                      </button>
-                                    </td>
-                                  </>
-                                )}
-                              </tr>
-                            ))}
-                          </React.Fragment>
-                        );
-                      })}
-                      <tr>
-                        <td colSpan={13} className="p-2 border-t border-white/40 dark:border-white/10">
-                          <button
-                            onClick={() => addSpace(group.id)}
-                            className="w-full flex items-center justify-center py-2 border-2 border-dashed border-border/60 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-all font-medium text-sm"
-                          >
-                            <Plus className="size-4 mr-2" /> Add Row (Space)
-                          </button>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    addGroup();
+                  }}
+                  className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11.5px] font-semibold bg-surface-2 hover:bg-surface-3 border border-border text-foreground transition-all cursor-pointer shadow-2xs active:scale-95"
+                >
+                  <Plus className="size-3.5" /> Add Floor Group
+                </button>
+              </div>
+            </div>
+
+            {/* Space Action Toolbar Matching Space Management Layout */}
+            <div className="relative flex items-center justify-between gap-2 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
+              {/* Left Controls: Filter spaces search, Filter Popover, Sort Popover */}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Filter spaces..."
+                    className="h-7 w-56 pl-8 pr-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none text-foreground transition-all"
+                  />
+                  <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Button & Popover */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer ${
+                        activeFiltersCount > 0
+                          ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                          : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                      }`}
+                      title="Filter Spaces"
+                    >
+                      <Filter className="size-3.5 shrink-0" />
+                      {activeFiltersCount > 0 && (
+                        <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                          {activeFiltersCount}
+                        </span>
+                      )}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50 text-xs">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                      <span className="text-[12px] font-semibold text-foreground">Filter Spaces</span>
+                      {activeFiltersCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterStatus("all");
+                            setFilterAreaType("all");
+                            setFilterMinArea(null);
+                            setFilterFlaggedOnly(false);
+                          }}
+                          className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Compliance Status</span>
+                      <select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value as any)}
+                        className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer text-foreground"
+                      >
+                        <option value="all">All Statuses</option>
+                        <option value="compliant">Compliant Only</option>
+                        <option value="non-compliant">Non-Compliant Only</option>
+                        <option value="missing">Missing Data Only</option>
+                      </select>
+                    </div>
+
+                    {distinctAreaTypes.length > 0 && (
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Area / Space Type</span>
+                        <select
+                          value={filterAreaType}
+                          onChange={(e) => setFilterAreaType(e.target.value)}
+                          className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer text-foreground"
+                        >
+                          <option value="all">All Space Types</option>
+                          {distinctAreaTypes.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Min Area ({unitSystem === "ip" ? "sq.ft" : "m²"})
+                      </span>
+                      <input
+                        type="number"
+                        placeholder="e.g. 50"
+                        value={filterMinArea ?? ""}
+                        onChange={(e) => setFilterMinArea(e.target.value ? Number(e.target.value) : null)}
+                        className="h-8 w-full px-2.5 bg-surface-2 border border-border rounded-lg text-xs text-foreground outline-none"
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1 pt-1.5 border-t border-border/60">
+                      <label className="flex items-center gap-2 text-[11.5px] font-semibold text-foreground cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={filterFlaggedOnly}
+                          onChange={(e) => setFilterFlaggedOnly(e.target.checked)}
+                          className="rounded border-gray-300 text-red-600 size-3.5 focus:ring-red-500"
+                        />
+                        <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                          <Flag className="size-3 fill-red-500 text-red-500" />
+                          Flagged / Warnings Only
+                        </span>
+                      </label>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {/* Sort Button & Popover */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer ${
+                        sortKey !== "default"
+                          ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                          : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                      }`}
+                      title="Sort Spaces"
+                    >
+                      <ArrowUpDown className="size-3.5 shrink-0" />
+                      {sortKey !== "default" && (
+                        <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                          ✓
+                        </span>
+                      )}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans z-50 text-xs">
+                    <div className="flex items-center justify-between mb-2 pb-1 border-b border-border">
+                      <span className="text-[11.5px] font-semibold text-foreground">Sort Spaces</span>
+                      {sortKey !== "default" && (
+                        <button
+                          type="button"
+                          onClick={() => setSortKey("default")}
+                          className="text-[10px] text-primary hover:underline font-medium cursor-pointer"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setSortKey(sortKey === "name-asc" ? "default" : "name-asc")}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
+                          sortKey === "name-asc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
+                        }`}
+                      >
+                        <span>Space Name (A to Z)</span>
+                        {sortKey === "name-asc" && <Check className="size-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSortKey(sortKey === "area-desc" ? "default" : "area-desc")}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
+                          sortKey === "area-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
+                        }`}
+                      >
+                        <span>Area (Largest First)</span>
+                        {sortKey === "area-desc" && <Check className="size-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSortKey(sortKey === "proposed-desc" ? "default" : "proposed-desc")}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
+                          sortKey === "proposed-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
+                        }`}
+                      >
+                        <span>Proposed LPD (Highest First)</span>
+                        {sortKey === "proposed-desc" && <Check className="size-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSortKey(sortKey === "watts-desc" ? "default" : "watts-desc")}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
+                          sortKey === "watts-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
+                        }`}
+                      >
+                        <span>Total Watts (Highest First)</span>
+                        {sortKey === "watts-desc" && <Check className="size-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSortKey(sortKey === "baseline-desc" ? "default" : "baseline-desc")}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
+                          sortKey === "baseline-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
+                        }`}
+                      >
+                        <span>Baseline LPD (Highest First)</span>
+                        {sortKey === "baseline-desc" && <Check className="size-3.5" />}
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Right Controls: Import, Export, + New Space */}
+              <div className="flex items-center gap-2">
+                <ImportExcelBtn
+                  columnMapping={{
+                    "Space Name": ["Space Name", "Space", "Room", "Location", "Area Description"],
+                    "Area Type": ["Area Type", "Space Type", "Category", "Type"],
+                    "Area": ["Area", "Area (m²)", "Area (sq.ft)", "Area (sqm)", "Area (sqft)", "Floor Area"],
+                    "Baseline LPD": ["Baseline LPD", "Target LPD", "Max LPD", "Code LPD", "LPD Limit"],
+                    "Fixture Type": ["Fixture Type", "Light Type", "Fitting Type", "Luminaire"],
+                    "Watts": ["Watts", "Wattage", "Power (W)", "W/Fixture", "Lamp Watts"],
+                    "Qty": ["Qty", "Quantity", "Count", "Number of Fixtures", "No. of Fittings"],
+                    "Remarks": ["Remarks", "Notes", "Comments"],
+                  }}
+                  onImport={handleImportExcelRows}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-border bg-background hover:bg-surface-2 text-foreground transition-all cursor-pointer shadow-2xs"
+                >
+                  <Upload className="size-3.5 text-muted-foreground" />
+                  <span>Import</span>
+                </ImportExcelBtn>
+
+                <button
+                  type="button"
+                  onClick={handleExport}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-border bg-background hover:bg-surface-2 text-foreground transition-all cursor-pointer shadow-2xs"
+                >
+                  <FileText className="size-3.5 text-muted-foreground" />
+                  <span>Export</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAddNewSpace}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1 text-xs font-semibold rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-all cursor-pointer shadow-xs active:scale-95"
+                >
+                  <Plus className="size-3.5" />
+                  <span>New Space</span>
+                </button>
+              </div>
+
+              {/* Floating Bulk Actions Overlay Bar */}
+              {!isEffectiveReadOnly && selected.size > 0 && (
+                <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print backdrop-blur-md animate-in fade-in-50">
+                  <span className="font-semibold">{selected.size} space(s) selected</span>
+                  <span className="text-primary/30">•</span>
+                  <BulkBtn icon={Flag} onClick={toggleFlagSelected}>
+                    Toggle Flag
+                  </BulkBtn>
+                  <BulkBtn icon={Copy} onClick={duplicateSelectedSpaces}>
+                    Duplicate
+                  </BulkBtn>
+                  <BulkBtn icon={Trash2} onClick={deleteSelectedSpaces}>
+                    Delete
+                  </BulkBtn>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set())}
+                    className="ml-auto flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+                  >
+                    <X className="size-3.5" />
+                    <span>Deselect All</span>
+                  </button>
                 </div>
               )}
             </div>
-          ))}
+
+            {/* Table Area (Clean HTML table DOM without non-tr elements inside tbody) */}
+            <div className="flex-1 overflow-auto bg-background">
+              <table className="w-full text-left border-collapse min-w-[1240px]">
+                {/* Master Table Header */}
+                <thead className="sticky top-0 z-20 bg-background/95 backdrop-blur-md border-b border-border shadow-2xs">
+                  <tr className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider h-10 select-none">
+                    <th className="px-2 py-2 w-10 text-center border-r border-border/50">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleSelectAll}
+                        className="size-3.5 accent-primary cursor-pointer align-middle"
+                        title={allSelected ? "Deselect All" : "Select All Spaces"}
+                      />
+                    </th>
+                    <th className="px-2 py-2 w-12 text-center border-r border-border/50">S.No</th>
+                    <th className="px-3 py-2 w-56 border-r border-border/50">Space Name</th>
+                    <th className="px-3 py-2 w-56 border-r border-border/50">Category / Type of Area</th>
+                    <th className="px-3 py-2 w-44 border-r border-border/50">Light Type</th>
+                    <th className="px-2 py-2 w-20 text-center border-r border-border/50">Watts</th>
+                    <th className="px-2 py-2 w-16 text-center border-r border-border/50">Qty</th>
+                    <th className="px-2 py-2 w-24 text-center border-r border-border/50">Total Watts</th>
+                    {unitSystem === "si" ? (
+                      <>
+                        <th className="px-2 py-2 w-24 text-center border-r border-border/50">Area (m²)</th>
+                        <th className="px-2 py-2 w-24 text-center border-r border-border/50">Area (sq.ft)</th>
+                        <th className="px-3 py-2 w-32 text-center border-r border-border/50 text-primary">
+                          Proposed LPD
+                          <br />
+                          <span className="text-[9.5px] font-normal text-muted-foreground">(W/m²)</span>
+                        </th>
+                        <th className="px-3 py-2 w-28 text-center border-r border-border/50">
+                          Baseline LPD
+                          <br />
+                          <span className="text-[9.5px] font-normal text-muted-foreground">(W/m²)</span>
+                        </th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="px-2 py-2 w-24 text-center border-r border-border/50">Area (sq.ft)</th>
+                        <th className="px-2 py-2 w-24 text-center border-r border-border/50">Area (m²)</th>
+                        <th className="px-3 py-2 w-32 text-center border-r border-border/50 text-primary">
+                          Proposed LPD
+                          <br />
+                          <span className="text-[9.5px] font-normal text-muted-foreground">(W/sq.ft)</span>
+                        </th>
+                        <th className="px-3 py-2 w-28 text-center border-r border-border/50">
+                          Baseline LPD
+                          <br />
+                          <span className="text-[9.5px] font-normal text-muted-foreground">(W/sq.ft)</span>
+                        </th>
+                      </>
+                    )}
+                    <th className="px-3 py-2 w-36 border-r border-border/50">Remarks</th>
+                    <th className="px-2 py-2 w-10 text-center border-r border-border/50" title="Flag Space">
+                      <Flag className="size-3.5 mx-auto text-muted-foreground/60" />
+                    </th>
+                    <th className="px-2 py-2 w-14 text-center"></th>
+                  </tr>
+                </thead>
+
+                <tbody className="text-[12.5px] divide-y divide-border/40">
+                  {filteredGroups.map((group) => {
+                    const groupSpaces = group.filteredSpaces || [];
+                    const groupSpaceIds = (group.spaces || []).map((s) => s.id);
+                    const allGroupSelected =
+                      groupSpaceIds.length > 0 && groupSpaceIds.every((id) => selected.has(id));
+
+                    const groupTotalWatts = (group.spaces || []).reduce((sum, s) => {
+                      return (
+                        sum +
+                        (s.fixtures || []).reduce(
+                          (fSum, f) => fSum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0),
+                          0
+                        )
+                      );
+                    }, 0);
+
+                    const groupTotalArea = (group.spaces || []).reduce(
+                      (sum, s) => sum + (parseFloat(s.areaSqM) || 0),
+                      0
+                    );
+
+                    return (
+                      <React.Fragment key={group.id}>
+                        {/* Floor Group Header Row */}
+                        <tr
+                          className="bg-slate-100/90 dark:bg-zinc-800/70 border-y border-border select-none"
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setSpaceContextMenu(null);
+                            setGroupContextMenu({
+                              x: e.clientX,
+                              y: e.clientY,
+                              groupId: group.id,
+                            });
+                          }}
+                        >
+                          <td colSpan={15} className="p-0">
+                            <div className="flex items-center px-3 py-2 hover:bg-slate-200/60 dark:hover:bg-zinc-700/60 transition-colors cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={allGroupSelected}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  toggleSelectGroup(group.id, !allGroupSelected);
+                                }}
+                                className="size-3.5 accent-primary cursor-pointer mr-2.5"
+                                title="Select all spaces on this floor"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => updateGroup(group.id, "isExpanded", !group.isExpanded)}
+                                className="p-1 hover:bg-black/5 dark:hover:bg-white/10 rounded mr-1.5 text-foreground/80 transition-colors"
+                              >
+                                {group.isExpanded ? (
+                                  <ChevronDown className="size-4" />
+                                ) : (
+                                  <ChevronRight className="size-4" />
+                                )}
+                              </button>
+                              <span className="flex items-center gap-1.5 font-medium">
+                                <input
+                                  type="text"
+                                  className="bg-transparent font-bold text-primary tracking-wide uppercase text-[13px] outline-none focus:bg-background/80 px-1 py-0.5 rounded border border-transparent hover:border-border/60 focus:border-primary transition-colors cursor-text min-w-[120px] max-w-[240px]"
+                                  value={group.name}
+                                  onChange={(e) => updateGroup(group.id, "name", e.target.value.toUpperCase())}
+                                  onClick={(e) => e.stopPropagation()}
+                                  title="Click to edit floor name"
+                                />
+                                <span className="text-[10px] text-muted-foreground font-normal">
+                                  (Right-click or press Delete to remove)
+                                </span>
+                              </span>
+
+                              <div className="ml-auto flex items-center gap-2">
+                                <span className="text-[11px] font-mono text-muted-foreground bg-background/80 px-2 py-0.5 rounded-full border border-border/60">
+                                  {group.spaces.length} space{group.spaces.length === 1 ? "" : "s"} ·{" "}
+                                  {groupTotalWatts.toLocaleString()} W · {groupTotalArea.toFixed(1)} {unitSystem === "si" ? "m²" : "sq.ft"}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    addSpace(group.id);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-primary hover:text-primary/80 bg-background/70 hover:bg-background border border-border/60 px-2.5 py-1 rounded-md transition-all cursor-pointer shadow-2xs"
+                                >
+                                  <Plus className="size-3" /> Space
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (
+                                      await confirm(
+                                        `Are you sure you want to delete floor "${group.name}" and all its spaces?`,
+                                        { title: "Delete Floor Group", danger: true }
+                                      )
+                                    ) {
+                                      removeGroup(group.id);
+                                    }
+                                  }}
+                                  className="p-1 text-muted-foreground/60 hover:text-red-500 rounded transition-colors cursor-pointer"
+                                  title="Delete floor group"
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Space Rows inside Floor Group */}
+                        {group.isExpanded &&
+                          groupSpaces.map((space) => {
+                            const totalWatts = (space.fixtures || []).reduce((sum, f) => {
+                              const w = parseFloat(String(f.watts)) || 0;
+                              const q = parseFloat(String(f.qty)) || 0;
+                              return sum + w * q;
+                            }, 0);
+                            const isIp = unitSystem === "ip";
+                            const rawArea = parseFloat(String(space.areaSqM)) || 0;
+                            const sqM = isIp ? rawArea / 10.76391 : rawArea;
+                            const sqF = isIp ? rawArea : rawArea * 10.76391;
+                            const primaryArea = isIp ? sqF : sqM;
+                            const secondaryArea = isIp ? sqM : sqF;
+                            const proposedLpd = primaryArea > 0 ? totalWatts / primaryArea : 0;
+                            const baselineLpd = parseFloat(String(space.baselineLpd)) || 0;
+                            const isCompliant = primaryArea > 0 && baselineLpd > 0 ? proposedLpd <= baselineLpd : null;
+                            const srNo = globalSrNo++;
+                            const isSelected = selected.has(space.id);
+                            const isHighlighted = highlightedSpaceId === space.id;
+
+                            const itemComments = getMergedItemComments(
+                              space.id,
+                              space.name,
+                              space.comments,
+                              "/lpd-calculation",
+                              project?.id
+                            );
+
+                            return (
+                              <React.Fragment key={space.id}>
+                                {(space.fixtures || []).map((fixture, fIndex) => (
+                                  <tr
+                                    key={fixture.id}
+                                    id={`space-row-${space.id}`}
+                                    onContextMenu={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setGroupContextMenu(null);
+                                      setSpaceContextMenu({
+                                        x: e.clientX,
+                                        y: e.clientY,
+                                        spaceId: space.id,
+                                        groupId: group.id,
+                                      });
+                                    }}
+                                    className={cn(
+                                      "border-b border-border/40 transition-colors group/row",
+                                      isSelected
+                                        ? "bg-primary/10 dark:bg-primary/15"
+                                        : "hover:bg-muted/40",
+                                      isHighlighted &&
+                                        "ring-2 ring-primary ring-inset bg-primary/20 animate-pulse duration-700"
+                                    )}
+                                  >
+                                    {/* Space Details (Spans all fixture rows) */}
+                                    {fIndex === 0 && (
+                                      <>
+                                        {/* Row Selection Checkbox */}
+                                        <td
+                                          className="px-2 py-1.5 text-center border-r border-border/40"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onChange={() => toggleSelectRow(space.id)}
+                                            className="size-3.5 accent-primary cursor-pointer align-middle"
+                                          />
+                                        </td>
+
+                                        {/* Serial Number */}
+                                        <td
+                                          className="px-2 py-1.5 text-center font-mono text-muted-foreground border-r border-border/40 text-[11.5px]"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          {srNo}
+                                        </td>
+
+                                        {/* Space Name */}
+                                        <td
+                                          className="p-0 border-r border-border/40"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          <div className="flex items-center gap-1.5 w-full h-full px-2.5">
+                                            {itemComments.length > 0 && (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleOpenComment(space.id, space.name);
+                                                }}
+                                                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                                                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+                                              >
+                                                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                                                <span className="text-[10px] font-bold">{itemComments.length}</span>
+                                              </button>
+                                            )}
+                                            <input
+                                              className="w-full h-full min-h-[34px] bg-transparent outline-none font-medium text-[13px] text-foreground focus:bg-primary/5 px-1 rounded transition-colors"
+                                              value={space.name}
+                                              onChange={(e) =>
+                                                updateSpace(group.id, space.id, "name", e.target.value)
+                                              }
+                                              placeholder="e.g. Electrical Room"
+                                            />
+                                          </div>
+                                        </td>
+
+                                        {/* Category / Type of Area */}
+                                        <td
+                                          className="p-0 border-r border-border/40"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          <div className="flex items-center gap-2 px-2.5 w-full h-full">
+                                            <span
+                                              className={`size-2 rounded-full shrink-0 ${
+                                                space.areaType ? "bg-primary" : "bg-muted-foreground/30"
+                                              }`}
+                                            />
+                                            <select
+                                              className="w-full h-full min-h-[34px] bg-transparent outline-none cursor-pointer font-medium text-[12.5px] text-foreground transition-colors"
+                                              value={space.areaType || ""}
+                                              onChange={async (e) => {
+                                                const val = e.target.value;
+                                                if (val === "ADD_NEW") {
+                                                  const newArea = await prompt(
+                                                    "Enter new Area Name:",
+                                                    "",
+                                                    { title: "New Area Name" }
+                                                  );
+                                                  if (newArea && newArea.trim()) {
+                                                    const cleanArea = newArea.trim();
+                                                    const newLpdStr = await prompt(
+                                                      `Enter Baseline LPD for '${cleanArea}' (${unitSystem === "si" ? "W/m²" : "W/sq.ft"}):`,
+                                                      "",
+                                                      { title: "Baseline LPD" }
+                                                    );
+                                                    if (newLpdStr && !isNaN(Number(newLpdStr))) {
+                                                      const enteredLpd = Number(newLpdStr);
+                                                      const lpdSqm = unitSystem === "ip" ? enteredLpd * 10.76391 : enteredLpd;
+                                                      const newMap = {
+                                                        ...authorityMapping,
+                                                        [cleanArea]: lpdSqm,
+                                                      };
+                                                      setAuthorityMapping(newMap);
+                                                      localStorage.setItem(
+                                                        "mep-lpd-custom-mapping-sqm",
+                                                        JSON.stringify(newMap)
+                                                      );
+                                                      updateSpace(group.id, space.id, "areaType", cleanArea);
+                                                      updateSpace(
+                                                        group.id,
+                                                        space.id,
+                                                        "baselineLpd",
+                                                        enteredLpd.toFixed(2)
+                                                      );
+                                                    }
+                                                  }
+                                                } else {
+                                                  updateSpace(group.id, space.id, "areaType", val);
+                                                }
+                                              }}
+                                            >
+                                              <option value="">Select Category / Type...</option>
+                                              {Object.keys(authorityMapping)
+                                                .sort()
+                                                .map((k) => (
+                                                  <option key={k} value={k}>
+                                                    {k.replace(/\b\w/g, (l) => l.toUpperCase())}
+                                                  </option>
+                                                ))}
+                                              <option disabled>──────────</option>
+                                              <option value="ADD_NEW">+ Add Custom Area Type...</option>
+                                            </select>
+                                          </div>
+                                        </td>
+                                      </>
+                                    )}
+
+                                    {/* Fixture Light Type */}
+                                    <td className="p-0 border-r border-border/40 relative">
+                                      {!Object.keys(LIGHT_TYPE_MAPPING).includes(fixture.type) &&
+                                      fixture.type !== "" ? (
+                                        <div className="flex w-full h-full items-center px-2">
+                                          <input
+                                            className="w-full h-full min-h-[34px] bg-transparent outline-none font-medium text-[12.5px] transition-colors"
+                                            value={fixture.type === "custom" ? "" : fixture.type}
+                                            onChange={(e) =>
+                                              updateFixture(
+                                                group.id,
+                                                space.id,
+                                                fixture.id,
+                                                "type",
+                                                e.target.value || "custom"
+                                              )
+                                            }
+                                            placeholder="Type Light Name..."
+                                            autoFocus={fixture.type === "custom"}
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              updateFixture(group.id, space.id, fixture.id, "type", "")
+                                            }
+                                            className="px-1 text-muted-foreground hover:text-red-500 font-bold transition-colors"
+                                            title="Reset to Dropdown"
+                                          >
+                                            ×
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <select
+                                          className="w-full h-full min-h-[34px] px-3 bg-transparent outline-none cursor-pointer font-medium text-[12.5px] text-foreground transition-colors"
+                                          value={fixture.type}
+                                          onChange={(e) =>
+                                            updateFixture(group.id, space.id, fixture.id, "type", e.target.value)
+                                          }
+                                        >
+                                          <option value="">Select Light...</option>
+                                          {Object.keys(LIGHT_TYPE_MAPPING).map((k) => (
+                                            <option key={k} value={k}>
+                                              {k} ({LIGHT_TYPE_MAPPING[k]}W)
+                                            </option>
+                                          ))}
+                                          <option value="custom">Custom Input...</option>
+                                        </select>
+                                      )}
+                                    </td>
+
+                                    {/* Fixture Watts */}
+                                    <td className="p-0 border-r border-border/40">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.5"
+                                        className="w-full h-full min-h-[34px] px-2 text-center font-mono text-[12.5px] bg-transparent outline-none focus:bg-primary/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
+                                        value={fixture.watts}
+                                        onChange={(e) =>
+                                          updateFixture(group.id, space.id, fixture.id, "watts", e.target.value)
+                                        }
+                                        placeholder="0"
+                                        disabled={Object.keys(LIGHT_TYPE_MAPPING).includes(fixture.type)}
+                                      />
+                                    </td>
+
+                                    {/* Fixture Qty */}
+                                    <td className="p-0 border-r border-border/40">
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        className="w-full h-full min-h-[34px] px-2 text-center font-mono text-[12.5px] bg-transparent outline-none focus:bg-primary/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
+                                        value={fixture.qty}
+                                        onChange={(e) =>
+                                          updateFixture(group.id, space.id, fixture.id, "qty", e.target.value)
+                                        }
+                                        placeholder="1"
+                                      />
+                                    </td>
+
+                                    {/* Space Metrics (Spans all fixture rows) */}
+                                    {fIndex === 0 && (
+                                      <>
+                                        {/* Total Watts */}
+                                        <td
+                                          className="px-2 py-1.5 border-r border-border/40 text-center font-mono font-semibold text-[13px] text-foreground"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          {totalWatts.toLocaleString()}
+                                        </td>
+
+                                        {/* Area (m²) */}
+                                        <td
+                                          className="p-0 border-r border-border/40"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            step="0.1"
+                                            className="w-full h-full min-h-[34px] px-2 text-center font-mono text-[13px] bg-transparent outline-none focus:bg-primary/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
+                                            value={space.areaSqM}
+                                            onChange={(e) =>
+                                              updateSpace(group.id, space.id, "areaSqM", e.target.value)
+                                            }
+                                            placeholder="0.0"
+                                          />
+                                        </td>
+
+                                        {/* Area (sq.ft) */}
+                                        <td
+                                          className="px-2 py-1.5 border-r border-border/40 text-center font-mono text-muted-foreground text-[12px] bg-surface-2/30"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          {rawArea > 0 ? secondaryArea.toFixed(1) : "—"}
+                                        </td>
+
+                                        {/* Proposed LPD (W/m²) */}
+                                        <td
+                                          className="px-2 py-1.5 border-r border-border/40 text-center"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          {rawArea > 0 ? (
+                                            <span
+                                              className={cn(
+                                                "inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11.5px] font-mono font-bold border transition-colors",
+                                                isCompliant
+                                                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                                                  : "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 animate-pulse"
+                                              )}
+                                              title={
+                                                isCompliant
+                                                  ? `Compliant: Proposed LPD <= Baseline LPD (${unitSystem === "si" ? "W/m²" : "W/sq.ft"})`
+                                                  : `Exceeds Baseline by +${(proposedLpd - baselineLpd).toFixed(2)} ${unitSystem === "si" ? "W/m²" : "W/sq.ft"}`
+                                              }
+                                            >
+                                              {proposedLpd.toFixed(3)}
+                                            </span>
+                                          ) : (
+                                            <span className="font-mono text-muted-foreground text-[11.5px]">0.000</span>
+                                          )}
+                                        </td>
+
+                                        {/* Baseline LPD (W/m²) */}
+                                        <td
+                                          className="p-0 border-r border-border/40"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            className="w-full h-full min-h-[34px] px-2 text-center font-mono text-[13px] bg-transparent outline-none focus:bg-primary/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
+                                            value={space.baselineLpd}
+                                            onChange={(e) =>
+                                              updateSpace(group.id, space.id, "baselineLpd", e.target.value)
+                                            }
+                                            placeholder={unitSystem === "ip" ? "0.65" : "7.00"}
+                                          />
+                                        </td>
+
+                                        {/* Remarks */}
+                                        <td
+                                          className="p-0 border-r border-border/40"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          <input
+                                            type="text"
+                                            className="w-full h-full min-h-[34px] px-2.5 text-left text-[12px] bg-transparent outline-none focus:bg-primary/5 transition-colors"
+                                            value={space.remarks || ""}
+                                            onChange={(e) =>
+                                              updateSpace(group.id, space.id, "remarks", e.target.value)
+                                            }
+                                            placeholder="Notes..."
+                                          />
+                                        </td>
+
+                                        {/* Flag Button Column */}
+                                        <td
+                                          className="px-2 py-1.5 text-center border-r border-border/40"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleFlag(group.id, space.id);
+                                            }}
+                                            className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+                                            title={
+                                              space.flagged
+                                                ? "Flagged for review (Click to unflag)"
+                                                : !isCompliant && sqM > 0
+                                                ? `Warning: Exceeds baseline LPD by +${(proposedLpd - baselineLpd).toFixed(2)} W/m² (Click to flag)`
+                                                : "Click to flag this space"
+                                            }
+                                          >
+                                            <Flag
+                                              className={cn(
+                                                "size-3.5 transition-all duration-200",
+                                                space.flagged
+                                                  ? "fill-red-500 text-red-500 scale-110 drop-shadow-xs"
+                                                  : !isCompliant && sqM > 0
+                                                  ? "text-red-400/80 hover:text-red-500 group-hover:scale-110"
+                                                  : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+                                              )}
+                                            />
+                                          </button>
+                                        </td>
+
+                                        {/* Actions */}
+                                        <td
+                                          className="px-2 py-1.5 text-center"
+                                          rowSpan={space.fixtures.length}
+                                        >
+                                          <div className="flex items-center justify-center gap-1">
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                addFixture(group.id, space.id);
+                                              }}
+                                              className="p-1 hover:bg-surface-2 rounded text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                                              title="Add another fixture to space"
+                                            >
+                                              <Plus className="size-3.5" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                removeSpace(group.id, space.id);
+                                              }}
+                                              className="p-1 hover:bg-red-500/10 rounded text-muted-foreground hover:text-red-500 transition-colors cursor-pointer"
+                                              title="Delete space"
+                                            >
+                                              <Trash2 className="size-3.5" />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </>
+                                    )}
+                                  </tr>
+                                ))}
+                              </React.Fragment>
+                            );
+                          })}
+
+                        {/* Add Row Button at bottom of group */}
+                        {group.isExpanded && (
+                          <tr>
+                            <td colSpan={15} className="p-2 bg-background/50 border-t border-border/40">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  addSpace(group.id);
+                                }}
+                                className="w-full flex items-center justify-center py-2.5 border-2 border-dashed border-border/60 hover:border-primary/60 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/5 transition-all font-medium text-[12.5px] cursor-pointer"
+                              >
+                                <Plus className="size-3.5 mr-1.5" /> Add Space to {group.name}
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table Footer Summary Bar */}
+            <div className="flex items-center justify-between px-4 h-8 border-t border-border bg-header-bg/80 text-[11.5px] text-muted-foreground shrink-0 select-none no-print modal-blur-bg">
+              <div>
+                Showing <span className="text-foreground font-semibold tabular">{allFilteredSpaces.length}</span> spaces
+                across {filteredGroups.length} floor(s)
+              </div>
+              <div className="flex items-center gap-4 tabular">
+                <span>
+                  Σ Total Watts:{" "}
+                  <strong className="font-mono text-foreground font-bold">
+                    {totalFilteredWatts.toLocaleString()} W ({(totalFilteredWatts / 1000).toFixed(2)} kW)
+                  </strong>
+                </span>
+                <span>
+                  Σ Lit Area:{" "}
+                  <strong className="font-mono text-foreground font-bold">
+                    {totalFilteredArea.toFixed(1)} {unitSystem === "si" ? "m²" : "sq.ft"}
+                  </strong>
+                </span>
+                <span>
+                  Average Proposed LPD:{" "}
+                  <strong
+                    className={cn(
+                      "font-mono font-bold",
+                      avgOverallProposedLpd > 0 ? "text-primary" : "text-foreground"
+                    )}
+                  >
+                    {avgOverallProposedLpd.toFixed(3)} {unitSystem === "si" ? "W/m²" : "W/sq.ft"}
+                  </strong>
+                </span>
+                <span>
+                  Compliance:{" "}
+                  <strong
+                    className={cn(
+                      "font-mono font-bold",
+                      overallComplianceRate >= 100
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : overallComplianceRate >= 80
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-red-600 dark:text-red-400"
+                    )}
+                  >
+                    {overallComplianceRate}%
+                  </strong>
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Intelligence Side Drawer */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen
+              ? "w-[360px] mt-2 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-card shadow-lg"
+              : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <LpdIntelligenceDrawer
+              groups={activeGroups}
+              unitSystem={unitSystem}
+              authorityMapping={authorityMapping}
+              onClose={() => setIntelOpen(false)}
+              onScrollToSpace={handleScrollToSpace}
+              onAutoFlagNonCompliant={handleAutoFlagNonCompliant}
+              onClearAllFlags={handleClearAllFlags}
+              onAutoFillBaselines={handleAutoFillBaselines}
+            />
+          )}
         </div>
       </div>
-    
+
+      {/* Floating Space Context Menu */}
+      {spaceContextMenu && activeContextSpace && (
+        <div
+          className="fixed z-50 bg-popover text-popover-foreground border border-border rounded-xl shadow-2xl p-1.5 w-56 text-[12.5px] animate-in fade-in zoom-in-95 duration-100"
+          style={{
+            top: `${Math.min(spaceContextMenu.y, window.innerHeight - 260)}px`,
+            left: `${Math.min(spaceContextMenu.x, window.innerWidth - 240)}px`,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-2.5 py-1 text-[11px] font-bold text-muted-foreground truncate border-b border-border/50 mb-1">
+            {activeContextSpace.name || "Unnamed Space"}
+          </div>
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded cursor-pointer font-medium transition-colors"
+            onClick={() => {
+              handleOpenComment(activeContextSpace.id, activeContextSpace.name);
+              setSpaceContextMenu(null);
+            }}
+          >
+            <MessageSquare className="size-3.5" />
+            <span>Add Comment / Task</span>
+          </button>
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            onClick={() => {
+              toggleFlag(spaceContextMenu.groupId, activeContextSpace.id);
+              setSpaceContextMenu(null);
+            }}
+          >
+            <Flag
+              className={cn(
+                "size-3.5",
+                activeContextSpace.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"
+              )}
+            />
+            <span>{activeContextSpace.flagged ? "Unflag Space" : "Flag Space"}</span>
+          </button>
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            onClick={() => {
+              addFixture(spaceContextMenu.groupId, activeContextSpace.id);
+              setSpaceContextMenu(null);
+            }}
+          >
+            <Plus className="size-3.5 text-muted-foreground" />
+            <span>Add Light Fixture</span>
+          </button>
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            onClick={() => {
+              duplicateSpace(spaceContextMenu.groupId, activeContextSpace.id);
+              setSpaceContextMenu(null);
+            }}
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Duplicate Space</span>
+          </button>
+
+          {selected.size > 1 && selected.has(activeContextSpace.id) && (
+            <>
+              <div className="h-px bg-border my-1" />
+              <button
+                type="button"
+                className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+                onClick={() => {
+                  duplicateSelectedSpaces();
+                  setSpaceContextMenu(null);
+                }}
+              >
+                <Copy className="size-3.5 text-muted-foreground" />
+                <span>Duplicate Selected ({selected.size})</span>
+              </button>
+              <button
+                type="button"
+                className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+                onClick={() => {
+                  toggleFlagSelected();
+                  setSpaceContextMenu(null);
+                }}
+              >
+                <Flag className="size-3.5 text-red-500" />
+                <span>Toggle Flag Selected ({selected.size})</span>
+              </button>
+            </>
+          )}
+
+          <div className="h-px bg-border my-1" />
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer transition-colors"
+            onClick={async () => {
+              const sid = activeContextSpace.id;
+              const gid = spaceContextMenu.groupId;
+              setSpaceContextMenu(null);
+              if (selected.size > 1 && selected.has(sid)) {
+                deleteSelectedSpaces();
+              } else {
+                removeSpace(gid, sid);
+              }
+            }}
+          >
+            <Trash2 className="size-3.5" />
+            <span>
+              {selected.size > 1 && selected.has(activeContextSpace.id)
+                ? `Delete Selected (${selected.size})`
+                : "Delete Space"}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* Floating Floor Group Context Menu */}
+      {groupContextMenu && activeContextGroup && (
+        <div
+          className="fixed z-50 bg-popover text-popover-foreground border border-border rounded-xl shadow-2xl p-1.5 w-56 text-[12.5px] animate-in fade-in zoom-in-95 duration-100"
+          style={{
+            top: `${Math.min(groupContextMenu.y, window.innerHeight - 200)}px`,
+            left: `${Math.min(groupContextMenu.x, window.innerWidth - 240)}px`,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-2.5 py-1 text-[11px] font-bold text-muted-foreground truncate border-b border-border/50 mb-1">
+            {activeContextGroup.name}
+          </div>
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            onClick={async () => {
+              const gid = activeContextGroup.id;
+              setGroupContextMenu(null);
+              const newName = await prompt("Enter new floor/group name:", activeContextGroup.name, {
+                title: "Rename Floor",
+              });
+              if (newName && newName.trim() !== "") {
+                updateGroup(gid, "name", newName.trim().toUpperCase());
+              }
+            }}
+          >
+            <Edit3 className="size-3.5 text-muted-foreground" />
+            <span>Rename Floor</span>
+          </button>
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            onClick={() => {
+              const gid = activeContextGroup.id;
+              setGroupContextMenu(null);
+              addSpace(gid);
+            }}
+          >
+            <Plus className="size-3.5 text-muted-foreground" />
+            <span>Add Space to Floor</span>
+          </button>
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            onClick={() => {
+              const gid = activeContextGroup.id;
+              setGroupContextMenu(null);
+              duplicateGroup(gid);
+            }}
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Duplicate Floor</span>
+          </button>
+
+          <div className="h-px bg-border my-1" />
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer transition-colors"
+            onClick={async () => {
+              const gid = activeContextGroup.id;
+              const gName = activeContextGroup.name;
+              const count = activeContextGroup.spaces.length;
+              setGroupContextMenu(null);
+              if (
+                await confirm(`Are you sure you want to delete floor "${gName}" with ${count} spaces?`, {
+                  title: "Delete Floor",
+                  danger: true,
+                })
+              ) {
+                removeGroup(gid);
+              }
+            }}
+          >
+            <Trash2 className="size-3.5" />
+            <span>Delete Floor</span>
+          </button>
+        </div>
+      )}
+
       {/* Assign Comment Modal */}
       {commentTargetItem && (
         <AssignCommentModal
@@ -826,10 +2702,374 @@ function LPDCalculationPage() {
           targetType="space"
           calculatorTitle="LPD Calculation"
           calculatorPath="/lpd-calculation"
-          existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, [], "/lpd-calculation", project?.id)}
+          existingComments={getMergedItemComments(
+            commentTargetItem.id,
+            commentTargetItem.name,
+            [],
+            "/lpd-calculation",
+            project?.id
+          )}
           onSave={handleSaveComment}
         />
       )}
     </AppShell>
+  );
+}
+
+// ---------------------------------------------------------
+// Intelligence Drawer Component
+// ---------------------------------------------------------
+
+function LpdIntelligenceDrawer({
+  groups,
+  unitSystem = "si",
+  authorityMapping,
+  onClose,
+  onScrollToSpace,
+  onAutoFlagNonCompliant,
+  onClearAllFlags,
+  onAutoFillBaselines,
+}: {
+  groups: LpdGroup[];
+  unitSystem?: "si" | "ip";
+  authorityMapping: Record<string, number>;
+  onClose: () => void;
+  onScrollToSpace: (spaceId: string, groupId?: string) => void;
+  onAutoFlagNonCompliant: () => void;
+  onClearAllFlags: () => void;
+  onAutoFillBaselines: () => void;
+}) {
+  const allSpaces = useMemo(() => {
+    const isIp = unitSystem === "ip";
+    return groups.flatMap((g) =>
+      (g.spaces || []).map((s) => {
+        const totalWatts = (s.fixtures || []).reduce(
+          (sum, f) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0),
+          0
+        );
+        const rawArea = parseFloat(s.areaSqM) || 0;
+        const sqM = isIp ? rawArea / 10.76391 : rawArea;
+        const sqF = isIp ? rawArea : rawArea * 10.76391;
+        const primaryArea = isIp ? sqF : sqM;
+        const proposedLpd = primaryArea > 0 ? totalWatts / primaryArea : 0;
+        const baselineLpd = parseFloat(s.baselineLpd) || 0;
+        const isCompliant = primaryArea > 0 && baselineLpd > 0 ? proposedLpd <= baselineLpd : null;
+        const isExceeding = primaryArea > 0 && baselineLpd > 0 && proposedLpd > baselineLpd;
+        const diffLpd = proposedLpd - baselineLpd;
+
+        return {
+          ...s,
+          groupId: g.id,
+          groupName: g.name,
+          totalWatts,
+          rawArea,
+          sqM,
+          sqF,
+          primaryArea,
+          proposedLpd,
+          baselineLpd,
+          isCompliant,
+          isExceeding,
+          diffLpd,
+        };
+      })
+    );
+  }, [groups, unitSystem]);
+
+  const isIp = unitSystem === "ip";
+  const totalSpaces = allSpaces.length;
+  const evaluatedSpaces = allSpaces.filter((s) => s.primaryArea > 0 && s.baselineLpd > 0);
+  const compliantSpaces = evaluatedSpaces.filter((s) => s.isCompliant);
+  const nonCompliantSpaces = allSpaces.filter((s) => s.isExceeding);
+  const flaggedSpaces = allSpaces.filter((s) => s.flagged);
+
+  const missingAreaSpaces = allSpaces.filter((s) => s.primaryArea <= 0);
+  const missingTypeSpaces = allSpaces.filter((s) => !s.areaType || s.areaType.trim() === "");
+  const missingBaselineSpaces = allSpaces.filter((s) => s.baselineLpd <= 0);
+  const missingWattsSpaces = allSpaces.filter((s) => s.totalWatts <= 0);
+
+  const complianceRate =
+    evaluatedSpaces.length > 0
+      ? Math.round((compliantSpaces.length / evaluatedSpaces.length) * 100)
+      : 100;
+
+  const totalWattsAll = allSpaces.reduce((a, s) => a + s.totalWatts, 0);
+  const totalAreaAll = allSpaces.reduce((a, s) => a + s.primaryArea, 0);
+  const allowedWattsAll = allSpaces.reduce((a, s) => a + s.primaryArea * s.baselineLpd, 0);
+  const avgProposedLpd = totalAreaAll > 0 ? totalWattsAll / totalAreaAll : 0;
+  const avgBaselineLpd = totalAreaAll > 0 ? allowedWattsAll / totalAreaAll : 0;
+  const wattsDiff = totalWattsAll - allowedWattsAll;
+  const pctSavings =
+    allowedWattsAll > 0 ? ((allowedWattsAll - totalWattsAll) / allowedWattsAll) * 100 : 0;
+
+  return (
+    <div className="h-full w-[360px] flex flex-col animate-fade-in bg-card text-foreground select-none">
+      {/* Drawer Header */}
+      <header className="h-11 px-3.5 flex items-center justify-between border-b border-border shrink-0">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-4 text-primary" />
+          <span className="text-[13.5px] font-bold tracking-tight">LPD Intelligence</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+        >
+          <X className="size-4" />
+        </button>
+      </header>
+
+      {/* Drawer Body */}
+      <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
+        {/* Compliance Status Card */}
+        <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <CheckCircle2 className="size-3.5 text-emerald-500" />
+              Compliance Status
+            </span>
+            <span
+              className={cn(
+                "px-2 py-0.5 rounded-full text-[11px] font-mono font-bold",
+                complianceRate >= 100
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                  : complianceRate >= 80
+                  ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                  : "bg-red-500/15 text-red-600 dark:text-red-400"
+              )}
+            >
+              {complianceRate}%
+            </span>
+          </div>
+
+          <div className="text-[12px] text-muted-foreground">
+            ASHRAE 90.1 & Local Authority LPD verification across {totalSpaces} spaces.
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-2 bg-surface-2 rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  "h-full transition-all duration-500",
+                  complianceRate >= 100
+                    ? "bg-emerald-500"
+                    : complianceRate >= 80
+                    ? "bg-amber-500"
+                    : "bg-red-500"
+                )}
+                style={{ width: `${complianceRate}%` }}
+              />
+            </div>
+            <span className="font-mono text-[11.5px] font-bold text-foreground">
+              {compliantSpaces.length}/{evaluatedSpaces.length}
+            </span>
+          </div>
+
+          <div className="text-[11.5px] text-muted-foreground border-t border-border/50 pt-2 flex justify-between">
+            <span>Non-Compliant:</span>
+            <span className="font-mono font-bold text-red-500">{nonCompliantSpaces.length} space(s)</span>
+          </div>
+        </div>
+
+        {/* Project Energy & Load Summary */}
+        <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2">
+          <div className="flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wider text-muted-foreground">
+            <Zap className="size-3.5 text-primary" />
+            Energy Balance
+          </div>
+          <div className="space-y-1.5 text-[12px]">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Connected Load:</span>
+              <span className="font-mono font-semibold">
+                {(totalWattsAll / 1000).toFixed(2)} kW ({totalWattsAll.toLocaleString()} W)
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Total Lit Area:</span>
+              <span className="font-mono font-semibold">
+                {isIp
+                  ? `${totalAreaAll.toFixed(1)} sq.ft (${(totalAreaAll / 10.76391).toFixed(1)} m²)`
+                  : `${totalAreaAll.toFixed(1)} m² (${(totalAreaAll * 10.764).toFixed(0)} ft²)`}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Area-Weighted LPD:</span>
+              <span className="font-mono font-semibold">
+                {avgProposedLpd.toFixed(2)} {isIp ? "W/sq.ft" : "W/m²"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Baseline Allowance:</span>
+              <span className="font-mono font-semibold">
+                {avgBaselineLpd.toFixed(2)} {isIp ? "W/sq.ft" : "W/m²"}
+              </span>
+            </div>
+            <div className="flex justify-between border-t border-border/50 pt-1.5">
+              <span className="text-muted-foreground">Power Margin:</span>
+              <span
+                className={cn(
+                  "font-mono font-bold",
+                  pctSavings >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                )}
+              >
+                {pctSavings >= 0
+                  ? `+${pctSavings.toFixed(1)}% Saving (${(Math.abs(wattsDiff) / 1000).toFixed(2)} kW)`
+                  : `${pctSavings.toFixed(1)}% Excess (+${(Math.abs(wattsDiff) / 1000).toFixed(2)} kW)`}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Non-Compliant Spaces List */}
+        <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <AlertTriangle className="size-3.5 text-red-500" />
+              Exceeding Baseline ({nonCompliantSpaces.length})
+            </span>
+            {nonCompliantSpaces.length > 0 && (
+              <button
+                type="button"
+                onClick={onAutoFlagNonCompliant}
+                className="text-[10.5px] font-semibold text-primary hover:underline cursor-pointer"
+              >
+                Flag All
+              </button>
+            )}
+          </div>
+
+          {nonCompliantSpaces.length === 0 ? (
+            <div className="text-[12px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 py-1">
+              <Check className="size-3.5" /> All evaluated spaces meet LPD baseline limits!
+            </div>
+          ) : (
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {nonCompliantSpaces.map((s) => (
+                <div
+                  key={s.id}
+                  onClick={() => onScrollToSpace(s.id, s.groupId)}
+                  className="p-2 rounded-lg bg-background hover:bg-surface-2 border border-border/60 transition-colors cursor-pointer text-[12px]"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-foreground truncate max-w-[170px]">
+                      {s.name || "Unnamed Space"}
+                    </span>
+                    <span className="text-[10px] font-mono text-muted-foreground uppercase">
+                      {s.groupName}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between mt-1 text-[11px] font-mono">
+                    <span className="text-red-500 font-bold">
+                      {s.proposedLpd.toFixed(2)} {isIp ? "W/sq.ft" : "W/m²"}
+                    </span>
+                    <span className="text-muted-foreground">Baseline: {s.baselineLpd.toFixed(2)}</span>
+                    <span className="text-red-500 font-bold">+{s.diffLpd.toFixed(2)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Flagged Spaces List */}
+        <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Flag className="size-3.5 text-amber-500" />
+              Flagged Spaces ({flaggedSpaces.length})
+            </span>
+            {flaggedSpaces.length > 0 && (
+              <button
+                type="button"
+                onClick={onClearAllFlags}
+                className="text-[10.5px] font-semibold text-muted-foreground hover:text-red-500 cursor-pointer"
+              >
+                Clear All
+              </button>
+            )}
+          </div>
+
+          {flaggedSpaces.length === 0 ? (
+            <div className="text-[12px] text-muted-foreground py-1">No spaces currently flagged.</div>
+          ) : (
+            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              {flaggedSpaces.map((s) => (
+                <div
+                  key={s.id}
+                  onClick={() => onScrollToSpace(s.id, s.groupId)}
+                  className="p-2 rounded-lg bg-background hover:bg-surface-2 border border-border/60 transition-colors cursor-pointer text-[12px] flex items-center justify-between"
+                >
+                  <div className="truncate max-w-[200px]">
+                    <span className="font-semibold text-foreground">{s.name || "Unnamed Space"}</span>
+                    <div className="text-[10.5px] text-muted-foreground">{s.groupName}</div>
+                  </div>
+                  <Flag className="size-3.5 fill-red-500 text-red-500 shrink-0" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Data Integrity / Incomplete Inputs */}
+        <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <AlertCircle className="size-3.5 text-amber-500" />
+              Audit Checks
+            </span>
+            {missingBaselineSpaces.length > 0 && (
+              <button
+                type="button"
+                onClick={onAutoFillBaselines}
+                className="text-[10.5px] font-semibold text-primary hover:underline cursor-pointer"
+              >
+                Auto-Fill
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="p-2 rounded-lg bg-background border border-border/60 flex flex-col">
+              <span className="text-muted-foreground">Missing Area:</span>
+              <span className="font-mono font-bold text-foreground text-[13px]">
+                {missingAreaSpaces.length}
+              </span>
+            </div>
+            <div className="p-2 rounded-lg bg-background border border-border/60 flex flex-col">
+              <span className="text-muted-foreground">Missing Type:</span>
+              <span className="font-mono font-bold text-foreground text-[13px]">
+                {missingTypeSpaces.length}
+              </span>
+            </div>
+            <div className="p-2 rounded-lg bg-background border border-border/60 flex flex-col">
+              <span className="text-muted-foreground">Zero Wattage:</span>
+              <span className="font-mono font-bold text-foreground text-[13px]">
+                {missingWattsSpaces.length}
+              </span>
+            </div>
+            <div className="p-2 rounded-lg bg-background border border-border/60 flex flex-col">
+              <span className="text-muted-foreground">No Baseline:</span>
+              <span className="font-mono font-bold text-foreground text-[13px]">
+                {missingBaselineSpaces.length}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Smart Tips */}
+        <div className="p-3 rounded-xl border border-primary/20 bg-primary/5 space-y-1.5 text-[11.5px] text-muted-foreground">
+          <div className="flex items-center gap-1.5 font-bold text-primary text-[12px]">
+            <Lightbulb className="size-3.5" />
+            Engineering Optimization Tip
+          </div>
+          <p className="leading-relaxed">
+            Spaces exceeding baseline LPD by &gt;15% can achieve full compliance by retrofitting to 10W–15W LED downlights
+            or implementing occupancy-sensing daylight harvesting.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
