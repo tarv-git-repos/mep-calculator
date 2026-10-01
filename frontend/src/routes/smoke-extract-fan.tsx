@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import {
-  AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
+  AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle, X,
   Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, Clipboard,
   RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, Sparkles
 } from "lucide-react";
@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/context-menu";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { useAppStore } from "@/store/useAppStore";
 
 export const Route = createFileRoute("/smoke-extract-fan")({
   head: () => ({
@@ -43,6 +45,9 @@ interface SavedCalculation {
 }
 
 function SmokeExtractFanPage() {
+  const { unitSystem, setUnitSystem } = useAppStore();
+  const [intelOpen, setIntelOpen] = useState(false);
+  const [tab, setTab] = useState<"calculator" | "report">("calculator");
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/smoke-extract-fan", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/smoke-extract-fan", activeProjectId || project?.id);
@@ -617,6 +622,17 @@ function SmokeExtractFanPage() {
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Corridor Smoke Extract Fan</h1>
+                <button 
+                  onClick={() => setIntelOpen(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                    intelOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" />
+                  Intelligence
+                </button>
                 <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/smoke-extract-fan" calculatorTitle="Corridor Smoke Extract Fan" />
                 {commentsList.length > 0 && (
                   <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
@@ -625,10 +641,16 @@ function SmokeExtractFanPage() {
                   </div>
                 )}
               </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={setUnitSystem}
+                  ipLabel="IP"
+                  siLabel="SI"
+                  inputDescriptions="System Units"
+                />
+              </div>
             </div>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              Calculate corridor air volume smoke extract rates and duct static pressure drops for extract fan systems.
-            </p>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

@@ -1476,7 +1476,7 @@ function LoadSummaryPage() {
               </ImportExcelBtn>
 
               <TBtn onClick={exportPDF}>
-                <FileText className="size-3.5" /> Export PDF
+                <FileText className="size-3.5" /> Export
               </TBtn>
 
               <TBtn primary onClick={addRow}>
