@@ -13,8 +13,9 @@ import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { TBtn } from "@/components/workspace/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
-import { Plus, Download, Trash, Copy, Trash2, X, Settings, FolderPlus, HelpCircle, Database, Search, Filter, SlidersHorizontal, FileText, FileSpreadsheet, Flag, Edit3, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle, AlertCircle } from "lucide-react";
+import { Plus, Download, Trash, Copy, Trash2, X, Settings, FolderPlus, HelpCircle, Database, Search, Filter, SlidersHorizontal, FileText, FileSpreadsheet, Flag, Edit3, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle, AlertCircle, Sparkles } from "lucide-react";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent, ContextMenuShortcut } from "@/components/ui/context-menu";
+import { CalculationPreviewModal, type CalculationPreviewData, type CalculationStep } from "@/components/calculator-framework/CalculationPreviewModal";
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
@@ -61,9 +62,10 @@ interface InlineInputProps {
   placeholder?: string;
   disabled?: boolean;
   onFocus?: (e: any) => void;
+  onDoubleClick?: (e: any) => void;
 }
 
-function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled, onFocus }: InlineInputProps) {
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled, onFocus, onDoubleClick }: InlineInputProps) {
   const isGlobalReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly);
   const isInputDisabled = Boolean(disabled || isGlobalReadOnly);
   const [localVal, setLocalVal] = useState(String(value ?? ""));
@@ -104,7 +106,11 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       onFocus={onFocus}
       onKeyDown={handleKeyDown}
       onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => {
+        if (onDoubleClick) {
+          onDoubleClick(e);
+        }
+      }}
       className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
     />
   );
@@ -388,6 +394,112 @@ function CableVoltageDropPage() {
   const [history, setHistory] = useState<CableVDRow[][]>([]);
   const [redoStack, setRedoStack] = useState<CableVDRow[][]>([]);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [previewRow, setPreviewRow] = useState<CableVDRow | null>(null);
+
+  const getCalculationPreview = (row: CableVDRow): CalculationPreviewData => {
+    const isIP = unitSystem === "ip";
+    const V = row.voltage || 400;
+    const PF = row.pf || 0.8;
+    const runs = row.runs || 1;
+    const lengthMeters = isIP ? (Number(row.length) || 0) * 0.3048 : (Number(row.length) || 0);
+    const lengthDisplay = `${row.length} ${isIP ? "ft" : "m"}`;
+    const parentVd = groupParentVdMap[row.groupName || "Main Feeders"] || 0;
+    const vdPercent = row.vdPercent || 0;
+    const cumulativeVd = row.cumulativeVd || Number((parentVd + vdPercent).toFixed(2));
+
+    const isSafe = vdPercent <= 2.5;
+    const isWarn = vdPercent > 2.5 && vdPercent <= 5.0;
+    const isCumulativeSafe = cumulativeVd <= 5.0;
+
+    const steps: CalculationStep[] = [
+      {
+        stepNumber: 1,
+        label: "Continuous Design Line Current (Ib)",
+        formula: "Ib = (Load (kW) × 1000) / (√3 × Voltage (V) × Power Factor)",
+        substitution: `(${row.load} × 1000) / (1.732 × ${V} × ${PF})`,
+        result: row.lineCurrent.toFixed(2),
+        unit: "A",
+        status: "info",
+        description: "Balanced 3-phase full-load continuous line current.",
+      },
+      {
+        stepNumber: 2,
+        label: "Current Per Parallel Cable Run (I_cable)",
+        formula: "I_cable = Ib / Number of Parallel Cable Runs",
+        substitution: `${row.lineCurrent.toFixed(2)} A / ${runs}`,
+        result: row.currentPerCable.toFixed(2),
+        unit: "A",
+        status: "info",
+        description: `Current carried per cable conductor with ${runs} parallel run${runs > 1 ? "s" : ""}.`,
+      },
+      {
+        stepNumber: 3,
+        label: "Cable Route Length & Conversion",
+        formula: isIP ? "Length (m) = Length (ft) × 0.3048" : "Length (m) = Metric Route Length",
+        substitution: isIP ? `${row.length} ft × 0.3048` : `${row.length} m`,
+        result: lengthMeters.toFixed(2),
+        unit: "m",
+        status: "info",
+        description: `Conductor length utilized for voltage drop calculation (${lengthDisplay}).`,
+      },
+      {
+        stepNumber: 4,
+        label: "Voltage Drop in Volts (ΔV)",
+        formula: "ΔV (V) = (mV/A/m × I_cable × Length (m)) / 1000",
+        substitution: `(${row.mvAm} × ${row.currentPerCable.toFixed(2)} × ${lengthMeters.toFixed(2)}) / 1000`,
+        result: row.vd.toFixed(2),
+        unit: "V",
+        status: "info",
+        description: `Line-to-line voltage loss across the cable run using catalogue impedance (${row.mvAm} mV/A/m for ${row.size || "selected cable"}).`,
+      },
+      {
+        stepNumber: 5,
+        label: "Branch Circuit Voltage Drop Percentage (ΔV%)",
+        formula: "ΔV (%) = (ΔV / Voltage) × 100",
+        substitution: `(${row.vd.toFixed(2)} V / ${V} V) × 100`,
+        result: `${vdPercent.toFixed(2)}%`,
+        unit: "%",
+        status: isSafe ? "pass" : isWarn ? "warning" : "warning",
+        description: `Permissible branch drop: recommended ≤ 2.5% for sub-feeders (Status: ${isSafe ? "Safe / Compliant" : isWarn ? "Acceptable / Warning" : "Critical / High"}).`,
+      },
+      {
+        stepNumber: 6,
+        label: "Cumulative Voltage Drop Upto DB (Cumulative %V)",
+        formula: "Cumulative %V = Parent / Source VD% + Branch Cable VD%",
+        substitution: `${parentVd.toFixed(2)}% (Source: ${row.groupName}) + ${vdPercent.toFixed(2)}%`,
+        result: `${cumulativeVd.toFixed(2)}%`,
+        unit: "%",
+        status: isCumulativeSafe ? "pass" : "warning",
+        description: `Overall voltage drop from upstream source to final board (Allowable limit: ≤ 5.0% per IEC 60364-5-52 / BS 7671 / DEWA).`,
+      },
+    ];
+
+    return {
+      title: "Cable Voltage Drop Calculation",
+      itemName: row.description || `Feeder from ${row.from || "Source"}`,
+      itemCode: `${row.groupName} • ${row.size || "Selected Cable"} • ${runs > 1 ? `${runs}x ` : ""}${row.size}`,
+      standardReference: "IEC 60364-5-52 / BS 7671 / DEWA Regulations",
+      inputs: [
+        { label: "Feeder Group", value: row.groupName || "Main Feeders" },
+        { label: "Fed From", value: row.from || "Main Switchboard" },
+        { label: "Connected Load", value: row.load, unit: "kW" },
+        { label: "System Voltage", value: V, unit: "V" },
+        { label: "Power Factor (cos φ)", value: PF },
+        { label: "Number of Runs", value: runs },
+        { label: "Cable Size", value: row.size || "Standard Core" },
+        { label: "Route Length", value: row.length, unit: isIP ? "ft" : "m" },
+        { label: "Unit Drop (mV/A/m)", value: row.mvAm, unit: "mV/A/m" },
+        { label: "Source Parent VD%", value: parentVd.toFixed(2), unit: "%" },
+      ],
+      steps,
+      finalResultLabel: "Cumulative Voltage Drop",
+      finalResultValue: `${cumulativeVd.toFixed(2)}%`,
+      finalResultUnit: isCumulativeSafe ? "(COMPLIANT ≤ 5%)" : "(LIMIT EXCEEDED > 5%)",
+      complianceNote: isCumulativeSafe
+        ? `Voltage drop complies with IEC 60364-5-52 and BS 7671 maximum 5% cumulative threshold.`
+        : `Voltage drop exceeds the recommended 5.0% threshold. Consider increasing cable size or adding parallel runs.`,
+    };
+  };
 
   // Save to localStorage
   useEffect(() => {
@@ -1115,6 +1227,7 @@ function CableVoltageDropPage() {
           placeholder="e.g. MDB-1"
           onCommit={(val) => updateRow(row.id, { from: val })}
           onFocus={() => { if (!selected.has(row.id)) setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+          onDoubleClick={() => setPreviewRow(row)}
         />
       ),
     },
@@ -1124,7 +1237,7 @@ function CableVoltageDropPage() {
       width: 230,
       editable: true,
       render: (row) => (
-        <div className="flex items-center gap-1.5 w-full">
+        <div className="flex items-center gap-1.5 w-full cursor-pointer" onDoubleClick={() => setPreviewRow(row)}>
           <span className="size-1.5 rounded-full bg-blue-500 shrink-0 ml-1" />
           <InlineInput
             disabled={isEffectiveReadOnly}
@@ -1133,6 +1246,7 @@ function CableVoltageDropPage() {
             placeholder="e.g. SMDB-1"
             onCommit={(val) => updateRow(row.id, { description: val })}
             onFocus={() => { if (!selected.has(row.id)) setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+            onDoubleClick={() => setPreviewRow(row)}
           />
           {row.isLinked && (
             <div className="shrink-0 mr-1 text-emerald-500" title="Linked to Load Schedule">
@@ -1159,6 +1273,7 @@ function CableVoltageDropPage() {
           value={row.load}
           onCommit={(val) => updateRow(row.id, { load: parseFloat(val) || 0 })}
           onFocus={() => { if (!selected.has(row.id)) setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+          onDoubleClick={() => setPreviewRow(row)}
         />
       ),
     },
@@ -1178,6 +1293,7 @@ function CableVoltageDropPage() {
           value={row.voltage}
           onCommit={(val) => updateRow(row.id, { voltage: parseFloat(val) || 400 })}
           onFocus={() => { if (!selected.has(row.id)) setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+          onDoubleClick={() => setPreviewRow(row)}
         />
       ),
     },
@@ -1199,6 +1315,7 @@ function CableVoltageDropPage() {
           value={row.pf}
           onCommit={(val) => updateRow(row.id, { pf: parseFloat(val) || 0.8 })}
           onFocus={() => { if (!selected.has(row.id)) setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+          onDoubleClick={() => setPreviewRow(row)}
         />
       ),
     },
@@ -1209,7 +1326,13 @@ function CableVoltageDropPage() {
       align: "center",
       mono: true,
       render: (row) => (
-        <span className="font-mono tabular text-[13px] text-muted-foreground">{row.lineCurrent}</span>
+        <span 
+          onDoubleClick={() => setPreviewRow(row)}
+          className="font-mono tabular text-[13px] text-muted-foreground w-full block text-center cursor-pointer hover:text-foreground"
+          title="Double-click to view calculation preview"
+        >
+          {row.lineCurrent}
+        </span>
       ),
     },
     {
@@ -1228,6 +1351,7 @@ function CableVoltageDropPage() {
           value={row.runs}
           onCommit={(val) => updateRow(row.id, { runs: parseInt(val) || 1 })}
           onFocus={() => { if (!selected.has(row.id)) setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+          onDoubleClick={() => setPreviewRow(row)}
         />
       ),
     },
@@ -1245,6 +1369,7 @@ function CableVoltageDropPage() {
           placeholder="e.g. 4c 35"
           onCommit={(val) => updateRow(row.id, { size: val })}
           onFocus={() => { if (!selected.has(row.id)) setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+          onDoubleClick={() => setPreviewRow(row)}
         />
       ),
     },
@@ -1255,7 +1380,13 @@ function CableVoltageDropPage() {
       align: "center",
       mono: true,
       render: (row) => (
-        <span className="font-mono tabular text-[13px] text-muted-foreground">{row.currentPerCable}</span>
+        <span 
+          onDoubleClick={() => setPreviewRow(row)}
+          className="font-mono tabular text-[13px] text-muted-foreground w-full block text-center cursor-pointer hover:text-foreground"
+          title="Double-click to view calculation preview"
+        >
+          {row.currentPerCable}
+        </span>
       ),
     },
     {
@@ -1275,6 +1406,7 @@ function CableVoltageDropPage() {
           value={row.length}
           onCommit={(val) => updateRow(row.id, { length: parseFloat(val) || 0 })}
           onFocus={() => { if (!selected.has(row.id)) setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+          onDoubleClick={() => setPreviewRow(row)}
         />
       ),
     },
@@ -1295,6 +1427,7 @@ function CableVoltageDropPage() {
           value={row.mvAm}
           onCommit={(val) => updateRow(row.id, { mvAm: parseFloat(val) || 0 })}
           onFocus={() => { if (!selected.has(row.id)) setSelected(new Set([row.id])); setActiveRowId(row.id); }}
+          onDoubleClick={() => setPreviewRow(row)}
         />
       ),
     },
@@ -1305,7 +1438,13 @@ function CableVoltageDropPage() {
       align: "center",
       mono: true,
       render: (row) => (
-        <span className="font-mono tabular text-[13px] font-semibold text-foreground">{row.vd}</span>
+        <span 
+          onDoubleClick={() => setPreviewRow(row)}
+          className="font-mono tabular text-[13px] font-semibold text-foreground w-full block text-center cursor-pointer hover:text-primary"
+          title="Double-click to view calculation preview"
+        >
+          {row.vd}
+        </span>
       ),
     },
     {
@@ -1331,9 +1470,13 @@ function CableVoltageDropPage() {
           : "bg-red-500";
 
         return (
-          <span className="inline-flex items-center justify-center gap-1.5 w-full">
+          <span 
+            onDoubleClick={() => setPreviewRow(row)}
+            className="inline-flex items-center justify-center gap-1.5 w-full cursor-pointer group"
+            title="Double-click to view calculation preview"
+          >
             <span className={`size-1.5 rounded-full shrink-0 ${dotClass}`} />
-            <span className={`font-bold rounded-full text-[11px] leading-none py-1 px-2 text-center font-mono border ${badgeClass}`}>
+            <span className={`font-bold rounded-full text-[11px] leading-none py-1 px-2 text-center font-mono border group-hover:scale-105 transition-transform ${badgeClass}`}>
               {pct.toFixed(2)}%
             </span>
           </span>
@@ -1350,7 +1493,11 @@ function CableVoltageDropPage() {
         const cum = row.cumulativeVd || 0;
         const isOver = cum > 5.0;
         return (
-          <span className={`font-mono font-bold text-[12.5px] tabular ${isOver ? "text-destructive" : "text-primary"}`}>
+          <span 
+            onDoubleClick={() => setPreviewRow(row)}
+            className={`font-mono font-bold text-[12.5px] tabular w-full block text-center cursor-pointer hover:underline ${isOver ? "text-destructive" : "text-primary"}`}
+            title="Double-click to view calculation preview"
+          >
             {cum.toFixed(2)}%
           </span>
         );
@@ -1684,9 +1831,15 @@ function CableVoltageDropPage() {
                     renderGroupHeader={renderFeederGroupHeader}
                     renderGroupContextMenu={renderFeederGroupContextMenu}
                     onToggleGroup={handleToggleGroup}
+                    onRowDoubleClick={(row) => setPreviewRow(row)}
+                    activeRowId={previewRow?.id || activeRowId}
                     rowClassName={(r) => r.flagged ? "bg-red-500/5 hover:bg-red-500/10" : ""}
                     renderContextMenu={(row) => (
-                      <ContextMenuContent className="w-52">
+                      <ContextMenuContent className="w-56">
+                        <ContextMenuItem onClick={() => setPreviewRow(row)} className="font-semibold text-primary">
+                          <Sparkles className="size-4 mr-2 text-primary" /> View Calculation Preview
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
                         <ContextMenuItem onClick={() => addRowToGroup(row.groupName)}>
                           <Plus className="size-4 mr-2" /> Add Cable to this Group
                         </ContextMenuItem>
@@ -1783,6 +1936,13 @@ function CableVoltageDropPage() {
           </div>
         </div>
       </div>
+
+      {/* Calculation Preview Modal (Triggered on Double-Click) */}
+      <CalculationPreviewModal
+        isOpen={Boolean(previewRow)}
+        onClose={() => setPreviewRow(null)}
+        data={previewRow ? getCalculationPreview(previewRow) : null}
+      />
     </AppShell>
   );
 }
