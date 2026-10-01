@@ -1123,19 +1123,6 @@ export function CondensateDrainPage() {
       onIntelClick={() => setIntelOpen((v) => !v)}
       intelOpen={intelOpen}
       intelLabel="Intelligence"
-      actions={
-        <UnitToggle
-          unitSystem={unitSystem}
-          onChange={handleUnitSystemChange}
-          disabled={isLocked}
-          inputDescriptions="Cooling Capacity (TR / kW), Latent Load (BTU/hr / kW), Drain Run Length (ft / m)"
-          conversionExample={
-            unitSystem === "ip"
-              ? "Convert 10 TR → 35.17 kW, 12,000 BTU/hr → 3.52 kW, 10 ft → 3.05 m"
-              : "Convert 35 kW → 9.95 TR, 3.5 kW → 11,942 BTU/hr, 3 m → 9.84 ft"
-          }
-        />
-      }
     >
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
@@ -1171,6 +1158,19 @@ export function CondensateDrainPage() {
                   <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"} / Comment{commentsList.length === 1 ? "" : "s"}</span>
                 </div>
               )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitSystemChange}
+                disabled={isLocked}
+                inputDescriptions="Cooling Capacity (TR / kW), Latent Load (BTU/hr / kW), Drain Run Length (ft / m)"
+                conversionExample={
+                  unitSystem === "ip"
+                    ? "Convert 10 TR → 35.17 kW, 12,000 BTU/hr → 3.52 kW, 10 ft → 3.05 m"
+                    : "Convert 35 kW → 9.95 TR, 3.5 kW → 11,942 BTU/hr, 3 m → 9.84 ft"
+                }
+              />
             </div>
           </div>
 
@@ -1214,15 +1214,9 @@ export function CondensateDrainPage() {
                   </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setFormulaModalOpen(true)}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer bg-surface-2 hover:bg-surface border border-border/80 text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 shadow-2xs"
-                  title="View IPC & ASHRAE Formula Breakdown"
-                >
-                  <Info className="size-3.5 text-primary" />
-                  <span>Formula Breakdown</span>
-                </button>
+                <TBtn onClick={() => setFormulaModalOpen(true)} title="View IPC & ASHRAE Formula Breakdown">
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
               </div>
 
               {/* Right Side Controls: Export */}

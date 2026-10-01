@@ -8,6 +8,7 @@ import { api } from "@/services/api";
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
+import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import {
   AlertTriangle, Info, Printer, FileSpreadsheet, Plus, Trash2,
   ChevronDown, ChevronUp, Edit3, Settings, HelpCircle, Sparkles,
@@ -1151,7 +1152,12 @@ function BasementSmokeCalcPage() {
     const sizedCap = Math.max(lowCap, highCap);
     const governingMode = lowCap > highCap ? "Normal Mode" : "Fire Mode";
 
+    const totalGrossArea = calculatedRows.reduce((a, b) => a + b.area, 0);
+    const totalEffArea = calculatedRows.reduce((a, b) => a + b.effArea, 0);
+
     return {
+      totalGrossArea,
+      totalEffArea,
       total3,
       total6,
       normalScenarioSum,
@@ -1166,6 +1172,326 @@ function BasementSmokeCalcPage() {
       governingMode
     };
   }, [calculatedRows, totalFans]);
+
+  const groupOrder = useMemo(() => {
+    return calculatedGroups.map(g => g.basementLevel);
+  }, [calculatedGroups]);
+
+  const toggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
+    setSelectedRowIds((prev) => {
+      const list = filteredRows;
+      const clickedIndex = list.findIndex((r) => r.id === id);
+      if (clickedIndex === -1) return prev;
+
+      const next = new Set(prev);
+      if (isShift) {
+        for (let i = 0; i <= clickedIndex; i++) {
+          if (list[i]) next.add(list[i].id);
+        }
+      } else if (isCtrl) {
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+      } else {
+        if (prev.has(id) && prev.size === 1) next.delete(id);
+        else {
+          next.clear();
+          next.add(id);
+        }
+      }
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelectedRowIds((prev) => (prev.size === filteredRows.length ? new Set() : new Set(filteredRows.map((r) => r.id))));
+  };
+
+  const handleToggleGroup = (ids: string[], select: boolean) => {
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => {
+        if (select) next.add(id);
+        else next.delete(id);
+      });
+      return next;
+    });
+  };
+
+  const renderGroupHeader = (groupValue: string) => {
+    const grpComments = getMergedItemComments(groupValue, groupValue, commentsList, "/basement-smoke-calc", project?.id);
+    const grp = calculatedGroups.find(g => g.basementLevel === groupValue);
+    const count = grp ? grp.rows.length : calculatedRows.filter(r => (r.basementLevel || "Basement 1") === groupValue).length;
+    const sub3 = grp ? grp.subtotal3 : 0;
+    const sub6 = grp ? grp.subtotal6 : 0;
+    const max10 = grp ? grp.max10Fire : 0;
+
+    return (
+      <div className="flex items-center justify-between w-full pr-4 text-xs">
+        <div className="flex items-center gap-1.5 font-medium">
+          <strong className="font-bold text-primary">{groupValue}</strong>
+          <span className="text-[10.5px] text-muted-foreground font-normal">({count} {count === 1 ? "zone" : "zones"})</span>
+          {grpComments.length > 0 && (
+            <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[9.5px]">
+              <MessageSquare className="size-2.5 fill-blue-500/20" />
+              <span>{grpComments.length}</span>
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 font-mono text-[11px] text-muted-foreground">
+          <span>Σ 3 ACH: <strong className="text-foreground">{sub3.toLocaleString()} {ip ? "CFM" : "L/s"}</strong></span>
+          <span>Σ 6 ACH: <strong className="text-foreground">{sub6.toLocaleString()} {ip ? "CFM" : "L/s"}</strong></span>
+          <span className="text-rose-600 dark:text-rose-400 font-bold">Max 10 ACH: {max10.toLocaleString()} {ip ? "CFM" : "L/s"}</span>
+        </div>
+      </div>
+    );
+  };
+
+  const renderGroupContextMenu = (groupValue: string) => {
+    const matching = calculatedRows.filter(r => (r.basementLevel || "Basement 1") === groupValue);
+    const matchingIds = matching.map(r => r.id);
+    const grp = calculatedGroups.find(g => g.basementLevel === groupValue);
+
+    return (
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+        <ContextMenuItem
+          onClick={() => handleOpenComment(groupValue, groupValue, "level")}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <MessageSquare className="size-3.5 text-blue-600" />
+          <span>Add Comment to {groupValue}</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        <ContextMenuItem
+          onClick={() => handleOpenBulkEdit(matchingIds)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <Edit3 className="size-3.5 text-primary" />
+          <span>Bulk Edit {matchingIds.length} Spaces</span>
+        </ContextMenuItem>
+        {grp && (
+          <ContextMenuItem
+            onClick={() => handleOpenEditLevelModal(grp)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Edit3 className="size-3.5 text-primary" />
+            <span>Edit Level Parameters</span>
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        <ContextMenuItem
+          onClick={() => handleAddZoneToLevel(groupValue)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <Plus className="size-3.5 text-emerald-600" />
+          <span>Add Zone to {groupValue}</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        <ContextMenuItem
+          onClick={() => handleDeleteLevel(groupValue, matchingIds)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+        >
+          <Trash2 className="size-3.5" />
+          <span>Delete Entire {groupValue}</span>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
+  };
+
+  const renderRowContextMenu = (row: typeof calculatedRows[0]) => {
+    return (
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row.id, row.name || row.zoneName, "zone")}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <MessageSquare className="size-3.5 text-blue-600" />
+          <span>Add Comment to {row.name || row.zoneName}</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        <ContextMenuItem
+          onClick={() => handleOpenBulkEdit([row.id])}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <Edit3 className="size-3.5 text-primary" />
+          <span>Bulk Edit Space</span>
+        </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => handleDuplicateZone(row)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <Copy className="size-3.5 text-muted-foreground" />
+          <span>Duplicate Space</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        <ContextMenuItem
+          onClick={() => handleDeleteFloor(row.id)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+        >
+          <Trash2 className="size-3.5" />
+          <span>Delete Space</span>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
+  };
+
+  const columns: Column<typeof calculatedRows[0]>[] = [
+    {
+      key: "name",
+      header: "LEVEL / ZONE NAME",
+      width: 170,
+      editable: true,
+      render: (r) => {
+        const itemComments = getMergedItemComments(r.id, r.name, commentsList, "/basement-smoke-calc", project?.id);
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            {itemComments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(r.id, r.name, "zone");
+                }}
+                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                <span className="text-[10px] font-bold">{itemComments.length}</span>
+              </button>
+            )}
+            <input
+              disabled={isApprovedLocked}
+              type="text"
+              value={r.name}
+              onChange={(e) => handleUpdateFloorCell(r.id, "name", e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              className="h-6 px-1.5 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-medium text-foreground outline-none w-full"
+              placeholder="Basement 1 - Zone 1"
+            />
+          </div>
+        );
+      },
+    },
+    {
+      key: "area",
+      header: `GROSS AREA (${ip ? "FT²" : "M²"})`,
+      width: 100,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (r) => (
+        <input
+          disabled={isApprovedLocked}
+          type="number"
+          value={r.area || ""}
+          onChange={(e) => handleUpdateFloorCell(r.id, "area", parseFloat(e.target.value) || 0)}
+          onClick={(e) => e.stopPropagation()}
+          className="h-6 w-full text-center px-1 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-mono font-semibold text-foreground outline-none"
+          placeholder="0"
+        />
+      ),
+    },
+    {
+      key: "effArea",
+      header: `EFF. AREA (${ip ? "FT²" : "M²"})`,
+      width: 100,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (r) => (
+        <input
+          disabled={isApprovedLocked}
+          type="number"
+          value={r.effArea || ""}
+          onChange={(e) => handleUpdateFloorCell(r.id, "effArea", parseFloat(e.target.value) || 0)}
+          onClick={(e) => e.stopPropagation()}
+          className="h-6 w-full text-center px-1 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-mono font-semibold text-foreground outline-none"
+          placeholder="0"
+        />
+      ),
+    },
+    {
+      key: "height",
+      header: `HEIGHT (${ip ? "FT" : "M"})`,
+      width: 90,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (r) => (
+        <input
+          disabled={isApprovedLocked}
+          type="number"
+          step="0.1"
+          value={r.height || ""}
+          onChange={(e) => handleUpdateFloorCell(r.id, "height", parseFloat(e.target.value) || 0)}
+          onClick={(e) => e.stopPropagation()}
+          className="h-6 w-full text-center px-1 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-mono font-semibold text-foreground outline-none"
+          placeholder="0"
+        />
+      ),
+    },
+    {
+      key: "flow3ach",
+      header: `3 ACH (${ip ? "CFM" : "L/S"})`,
+      width: 100,
+      align: "center",
+      mono: true,
+      render: (r) => (
+        <span className="font-mono text-xs text-muted-foreground font-medium">
+          {r.flow3ach.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: "flow6ach",
+      header: `6 ACH (${ip ? "CFM" : "L/S"})`,
+      width: 100,
+      align: "center",
+      mono: true,
+      render: (r) => (
+        <span className="font-mono text-xs text-slate-800 dark:text-slate-200 font-semibold">
+          {r.flow6ach.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: "flow10ach",
+      header: `10 ACH (${ip ? "CFM" : "L/S"})`,
+      width: 110,
+      align: "center",
+      mono: true,
+      render: (r) => (
+        <span className="font-mono text-xs font-bold text-rose-600 dark:text-rose-400">
+          {r.flow10ach.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: "flagged",
+      header: "",
+      width: 36,
+      align: "center",
+      render: (r) => (
+        <button
+          disabled={isApprovedLocked}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleUpdateFloorCell(r.id, "flagged", !r.flagged);
+          }}
+          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto disabled:cursor-default"
+          title={r.flagged ? "Flagged for engineering review (click to unflag)" : "Click to flag zone"}
+        >
+          <Flag
+            className={`size-3.5 transition-all duration-200 ${
+              r.flagged
+                ? "fill-red-500 text-red-500 scale-110"
+                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+            }`}
+          />
+        </button>
+      ),
+    },
+  ];
 
   const handleAddFloor = () => {
     if (!newFloor.name) return;
@@ -1638,7 +1964,6 @@ function BasementSmokeCalcPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Basement Smoke Extract Schedule</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">{floors.length} {floors.length === 1 ? "space" : "spaces"}</span>
               </div>
               
               <button 
@@ -1719,12 +2044,6 @@ function BasementSmokeCalcPage() {
                   title="Calculation Formulas & Methodology"
                 >
                   <Info className="size-3.5 text-primary" /> Formula Breakdown
-                </TBtn>
-              </div>
-
-              <div className="flex items-center gap-2.5 select-none shrink-0">
-                <TBtn onClick={handleExportExcel} title="Export schedule to Excel (.xlsx)">
-                  <FileSpreadsheet className="size-3.5 text-emerald-600 dark:text-emerald-400" /> Export Excel
                 </TBtn>
               </div>
             </div>
@@ -1907,11 +2226,12 @@ function BasementSmokeCalcPage() {
                     <Upload className="size-3.5" /> Import
                   </TBtn>
 
-                  {/* Export PDF */}
+                  {/* Export Button */}
                   <TBtn
                     onClick={handleExportPDF}
+                    title="Generate and Export PDF Calculation Report"
                   >
-                    <FileText className="size-3.5" /> Export PDF
+                    <FileText className="size-3.5" /> Export
                   </TBtn>
 
                   {/* Add Level (EXTREME RIGHT) */}
@@ -1931,409 +2251,135 @@ function BasementSmokeCalcPage() {
               </div>
             )}
 
-            {/* Inner Content Area */}
-            <div className={`flex-1 flex flex-col min-h-0 overflow-y-auto ${activeSection === "schedule" ? "p-0" : "p-5"}`}>
-              {/* Basement Level Schedule Section */}
-              {activeSection === "schedule" && (
-                <div className="w-full flex-1 flex flex-col min-h-0">
-                  {/* Floating Row Selection Toolbar */}
-                  {selectedRowIds.size > 0 && (
-                    <div className="m-3 flex items-center justify-between bg-primary/10 border border-primary/30 rounded-xl px-4 py-2 text-xs font-semibold text-primary animate-fade-in">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold">{selectedRowIds.size} row(s) selected</span>
-                        <span className="text-muted-foreground text-[11px]">(Shortcuts: Ctrl+C, Ctrl+X, Ctrl+V, Del, Esc)</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => handleOpenBulkEdit(Array.from(selectedRowIds))}
-                          className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
-                          title="Bulk Edit selected spaces"
-                        >
-                          <Edit3 className="size-3" /> Bulk Edit ({selectedRowIds.size})
-                        </button>
-                        <button
-                          onClick={() => {
-                            const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
-                            setClipboard(selectedItems);
-                          }}
-                          className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
-                          title="Copy (Ctrl+C)"
-                        >
-                          <Copy className="size-3" /> Copy
-                        </button>
-                        <button
-                          onClick={() => {
-                            const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
-                            setClipboard(selectedItems);
-                            updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
-                            setSelectedRowIds(new Set());
-                          }}
-                          className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
-                          title="Cut (Ctrl+X)"
-                        >
-                          <Scissors className="size-3" /> Cut
-                        </button>
-                        <button
-                          onClick={() => {
-                            updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
-                            setSelectedRowIds(new Set());
-                          }}
-                          className="flex items-center gap-1 hover:underline font-bold text-red-500 cursor-pointer"
-                          title="Delete selected (Del)"
-                        >
-                          <Trash2 className="size-3" /> Delete
-                        </button>
-                        <button
-                          onClick={() => setSelectedRowIds(new Set())}
-                          className="text-muted-foreground hover:text-foreground font-semibold ml-2 cursor-pointer"
-                        >
-                          Clear (Esc)
-                        </button>
+                        {/* Inner Content Area */}
+            {activeSection === "schedule" ? (
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+                {/* Floating Bulk Action Overlay Bar when rows selected */}
+                {!isApprovedLocked && selectedRowIds.size > 0 && (
+                  <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 h-10 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg border-b border-primary/20">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{selectedRowIds.size} row(s) selected</span>
+                      <span className="text-primary/30">·</span>
+                      <button
+                        onClick={() => handleOpenBulkEdit(Array.from(selectedRowIds))}
+                        className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                        title="Bulk Edit selected spaces"
+                      >
+                        <Edit3 className="size-3" /> Bulk Edit ({selectedRowIds.size})
+                      </button>
+                      <button
+                        onClick={() => {
+                          const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
+                          setClipboard(selectedItems);
+                          toast.info(`${selectedItems.length} space(s) copied`);
+                        }}
+                        className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                        title="Copy (Ctrl+C)"
+                      >
+                        <Copy className="size-3" /> Copy
+                      </button>
+                      <button
+                        onClick={() => {
+                          const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
+                          setClipboard(selectedItems);
+                          updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
+                          setSelectedRowIds(new Set());
+                          toast.info(`${selectedItems.length} space(s) cut`);
+                        }}
+                        className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                        title="Cut (Ctrl+X)"
+                      >
+                        <Scissors className="size-3" /> Cut
+                      </button>
+                      <button
+                        onClick={() => {
+                          updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
+                          setSelectedRowIds(new Set());
+                          toast.info(`Deleted ${selectedRowIds.size} space(s)`);
+                        }}
+                        className="flex items-center gap-1 hover:underline font-bold text-red-500 cursor-pointer"
+                        title="Delete selected (Del)"
+                      >
+                        <Trash2 className="size-3" /> Delete
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setSelectedRowIds(new Set())}
+                      className="text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 px-2 py-0.5 rounded cursor-pointer"
+                    >
+                      <X className="size-3" /> Clear (Esc)
+                    </button>
+                  </div>
+                )}
+
+                {/* Grid Container */}
+                <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
+                  {calculatedRows.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
+                      <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center animate-scale-in">
+                        <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 animate-bounce">
+                          <Layers className="size-6" />
+                        </div>
+                        <h3 className="text-[15px] font-semibold tracking-tight">No Basement Spaces Defined</h3>
+                        <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
+                          Start by adding basement levels or importing space geometry from 3D Studio or Excel schedule. The system will automatically compute 3, 6, and 10 ACH flow rates and size the extract fan systems.
+                        </p>
+                        <div className="flex items-center gap-3 w-full">
+                          <button
+                            onClick={() => {
+                              setNewFloor({ name: "B1", area: 600, effArea: 500, height: 3, numZones: 1 });
+                              setShowAddLevelModal(true);
+                            }}
+                            className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded-full hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
+                          >
+                            <Plus className="size-3.5" /> Add Level
+                          </button>
+                          <button
+                            onClick={() => setShowImportSourceModal(true)}
+                            className="flex-1 border border-border hover:bg-surface-2 font-semibold h-9 rounded-full transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            <Upload className="size-3.5" /> Import
+                          </button>
+                        </div>
                       </div>
                     </div>
+                  ) : (
+                    <DataGrid
+                      rows={calculatedRows}
+                      columns={columns}
+                      selected={selectedRowIds}
+                      onToggle={toggle}
+                      onToggleAll={toggleAll}
+                      renderContextMenu={renderRowContextMenu}
+                      groupBy={(r) => (r.basementLevel && r.basementLevel !== "undefined" ? r.basementLevel : (r.name && r.name.includes(" - ") ? r.name.split(" - ")[0] : "Basement 1"))}
+                      groupOrder={groupOrder}
+                      renderGroupHeader={renderGroupHeader}
+                      renderGroupContextMenu={renderGroupContextMenu}
+                      onToggleGroup={handleToggleGroup}
+                      onRowDoubleClick={(r) => handleOpenBulkEdit([r.id])}
+                      isReadOnly={isApprovedLocked}
+                      gridId="basement_smoke_schedule"
+                    />
                   )}
+                </div>
 
-                  {/* Grouped Table View */}
-                  <div className="overflow-x-auto w-full">
-                    <table className="w-full text-xs text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-border/70 text-muted-foreground font-semibold bg-slate-100/50 dark:bg-slate-900/30">
-                          <th className="py-2.5 px-2 text-center w-8">
-                            <input
-                              type="checkbox"
-                              checked={floors.length > 0 && selectedRowIds.size === floors.length}
-                              onChange={e => setSelectedRowIds(e.target.checked ? new Set(floors.map(f => f.id)) : new Set())}
-                              className="rounded border-border cursor-pointer"
-                              title="Select / Deselect all rows (Ctrl+A)"
-                            />
-                          </th>
-                          <th className="py-2.5 px-3">Level / Zone Name</th>
-                          <th className="py-2.5">Gross Area ({ip ? "ft²" : "m²"})</th>
-                          <th className="py-2.5">Eff. Area ({ip ? "ft²" : "m²"})</th>
-                          <th className="py-2.5">Height ({ip ? "ft" : "m"})</th>
-                          <th className="py-2.5">3 ACH ({ip ? "CFM" : "L/s"})</th>
-                          <th className="py-2.5">6 ACH ({ip ? "CFM" : "L/s"})</th>
-                          <th className="py-2.5 text-primary">10 ACH ({ip ? "CFM" : "L/s"})</th>
-                          <th className="py-2.5 text-center w-12">Flag</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/40 font-mono">
-                        {calculatedGroups.map((grp, grpIdx) => (
-                          <Fragment key={`lvl-grp-${grpIdx}`}>
-                            {/* Basement Level Group Header */}
-                            <ContextMenu key={`lvl-ctx-${grpIdx}`}>
-                              <ContextMenuTrigger asChild>
-                                <tr className={`font-sans group/header ${
-                                  grpIdx > 0
-                                    ? "border-t-2 border-slate-200 dark:border-slate-800"
-                                    : ""
-                                }`}>
-                                  <td colSpan={9} className="py-2 px-3 font-bold text-foreground text-[12px] bg-slate-100/70 dark:bg-slate-800/60 border-y border-border/80">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <div className="w-1 h-4 bg-[#0A7BC7] rounded-full shrink-0"></div>
-                                        <LevelNameInput
-                                          level={grp.basementLevel}
-                                          onRename={handleRenameLevel}
-                                        />
-                                        <span className="text-[10.5px] px-2 py-0.5 bg-slate-200/60 dark:bg-slate-700/50 text-muted-foreground font-semibold rounded-full">
-                                          {grp.rows.length} {grp.rows.length === 1 ? "Zone" : "Zones"}
-                                        </span>
-                                        {(() => {
-                                          const grpComments = getMergedItemComments(grp.basementLevel, grp.basementLevel, commentsList, "/basement-smoke-calc", project?.id);
-                                          if (grpComments.length === 0) return null;
-                                          return (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleOpenComment(grp.basementLevel, grp.basementLevel, "level")}
-                                              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10.5px] hover:bg-blue-200 transition cursor-pointer"
-                                              title={`${grpComments.length} comment(s)/task(s) assigned`}
-                                            >
-                                              <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                              <span>{grpComments.length}</span>
-                                            </button>
-                                          );
-                                        })()}
-                                      </div>
-                                      <div className="flex items-center gap-1.5">
-                                        <button
-                                          onClick={() => handleOpenEditLevelModal(grp)}
-                                          className="p-1 px-2 bg-white dark:bg-slate-900 border border-border/80 rounded-lg text-primary hover:bg-primary/10 transition cursor-pointer shadow-2xs text-xs font-semibold flex items-center gap-1"
-                                          title="Edit level parameters & zones"
-                                        >
-                                          <Edit3 className="size-3.5" />
-                                        </button>
-                                        <button
-                                          onClick={() => handleAddZoneToLevel(grp.basementLevel)}
-                                          className="p-1 px-2 bg-white dark:bg-slate-900 border border-border/80 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition cursor-pointer shadow-2xs text-xs font-semibold flex items-center gap-1"
-                                          title="Add new zone to this level"
-                                        >
-                                          <Plus className="size-3.5" />
-                                        </button>
-                                        <button
-                                          onClick={() => handleDeleteLevel(grp.basementLevel, grp.rows.map(r => r.id))}
-                                          className="p-1 px-2 bg-white dark:bg-slate-900 border border-border/80 rounded-lg text-red-500 hover:bg-red-500/10 transition cursor-pointer shadow-2xs text-xs font-semibold flex items-center gap-1"
-                                          title="Delete entire level"
-                                        >
-                                          <Trash2 className="size-3.5" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </td>
-                                </tr>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
-                                <ContextMenuItem
-                                  onClick={() => handleOpenComment(grp.basementLevel, grp.basementLevel, "level")}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <MessageSquare className="size-3.5 text-blue-600" />
-                                  <span>Add Comment / Task to {grp.basementLevel}</span>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  onClick={() => handleOpenBulkEdit(grp.rows.map(r => r.id))}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Edit3 className="size-3.5 text-primary" />
-                                  <span>Bulk Edit All {grp.rows.length} Spaces in {grp.basementLevel}</span>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  onClick={() => handleOpenEditLevelModal(grp)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Edit3 className="size-3.5 text-primary" />
-                                  <span>Edit {grp.basementLevel} Parameters</span>
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() => handleAddZoneToLevel(grp.basementLevel)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Plus className="size-3.5 text-emerald-600" />
-                                  <span>Add Zone to {grp.basementLevel}</span>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  onClick={() => handleDeleteLevel(grp.basementLevel)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Trash2 className="size-3.5" />
-                                  <span>Delete Entire {grp.basementLevel}</span>
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
-
-                            {/* Zone Rows */}
-                            {grp.rows.map(r => (
-                              <ContextMenu key={r.id}>
-                                <ContextMenuTrigger asChild>
-                                  <tr
-                                    className={`transition-colors group ${
-                                      selectedRowIds.has(r.id)
-                                        ? "bg-primary/10 dark:bg-primary/20 border-l-2 border-l-primary"
-                                        : "hover:bg-slate-50/50 dark:hover:bg-slate-900/10"
-                                    }`}
-                                  >
-                                    <td className="py-1 px-2 text-center w-8 select-none">
-                                      <input
-                                        type="checkbox"
-                                        checked={selectedRowIds.has(r.id)}
-                                        onChange={e => {
-                                          e.stopPropagation();
-                                          const next = new Set(selectedRowIds);
-                                          if (next.has(r.id)) next.delete(r.id);
-                                          else next.add(r.id);
-                                          setSelectedRowIds(next);
-                                        }}
-                                        className="rounded border-border cursor-pointer"
-                                      />
-                                    </td>
-                                    <td className="py-1 px-3 font-sans font-semibold pl-4">
-                                      <input
-                                        type="text"
-                                        value={r.name}
-                                        onChange={e => handleUpdateFloorCell(r.id, "name", e.target.value)}
-                                        className="w-full bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-2 py-1 font-semibold text-xs text-foreground outline-none transition-colors"
-                                      />
-                                    </td>
-                                    <td className="py-1 px-1">
-                                      <input
-                                        type="number"
-                                        value={r.area === 0 ? "" : r.area}
-                                        onChange={e => handleUpdateFloorCell(r.id, "area", e.target.value === "" ? 0 : Number(e.target.value))}
-                                        className="w-24 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-1.5 py-1 font-mono font-semibold text-xs text-foreground outline-none transition-colors"
-                                      />
-                                    </td>
-                                    <td className="py-1 px-1">
-                                      <input
-                                        type="number"
-                                        value={r.effArea === 0 ? "" : r.effArea}
-                                        onChange={e => handleUpdateFloorCell(r.id, "effArea", e.target.value === "" ? 0 : Number(e.target.value))}
-                                        className="w-24 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-1.5 py-1 font-mono font-semibold text-xs text-foreground outline-none transition-colors"
-                                      />
-                                    </td>
-                                    <td className="py-1 px-1">
-                                      <input
-                                        type="number"
-                                        step="0.1"
-                                        value={r.height === 0 ? "" : r.height}
-                                        onChange={e => handleUpdateFloorCell(r.id, "height", e.target.value === "" ? 0 : Number(e.target.value))}
-                                        className="w-20 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800/60 focus:bg-background border border-transparent focus:border-[#0A7BC7] rounded px-1.5 py-1 font-mono font-semibold text-xs text-foreground outline-none transition-colors"
-                                      />
-                                    </td>
-                                    <td className="py-2.5 font-semibold text-slate-700 dark:text-slate-300">{r.flow3ach.toLocaleString()}</td>
-                                    <td className="py-2.5">{r.flow6ach.toLocaleString()}</td>
-                                    <td className="py-2.5 font-bold text-primary">{r.flow10ach.toLocaleString()}</td>
-                                    <td className="py-1.5 text-center">
-                                      <div className="flex items-center justify-center gap-1">
-                                        {(() => {
-                                          const rowComments = getMergedItemComments(r.id, r.areaName || r.name, commentsList, "/basement-smoke-calc", project?.id);
-                                          if (rowComments.length === 0) return null;
-                                          return (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleOpenComment(r.id, r.name, "zone")}
-                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer shrink-0"
-                                              title={`${rowComments.length} comment(s)/task(s) assigned`}
-                                            >
-                                              <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                              <span>{rowComments.length}</span>
-                                            </button>
-                                          );
-                                        })()}
-                                        <button
-                                          type="button"
-                                          onClick={() => handleUpdateFloorCell(r.id, "flagged", !r.flagged)}
-                                          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer group/flag flex items-center justify-center"
-                                          title={r.flagged ? "Unflag zone" : "Flag zone"}
-                                        >
-                                          <Flag
-                                            className={`size-3.5 transition-all duration-200 ${
-                                              r.flagged
-                                                ? "fill-red-500 text-red-500 scale-110"
-                                                : "text-muted-foreground/30 hover:text-red-500/60 group-hover/flag:scale-110"
-                                            }`}
-                                          />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDeleteFloor(r.id)}
-                                          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground/40 hover:text-red-500 transition cursor-pointer"
-                                          title="Delete zone"
-                                        >
-                                          <Trash2 className="size-3" />
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                </ContextMenuTrigger>
-                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
-                                  <ContextMenuItem
-                                    onClick={() => handleOpenComment(r.id, r.name, "zone")}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                  >
-                                    <MessageSquare className="size-3.5 text-blue-600" />
-                                    <span>Add Comment / Task to {r.name}</span>
-                                  </ContextMenuItem>
-                                  <ContextMenuSeparator className="h-px bg-border my-1" />
-                                  <ContextMenuItem
-                                    onClick={() => handleOpenBulkEdit(Array.from(selectedRowIds.has(r.id) && selectedRowIds.size > 0 ? selectedRowIds : new Set([r.id])))}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                  >
-                                    <Edit3 className="size-3.5 text-primary" />
-                                    <span>Bulk Edit ({selectedRowIds.has(r.id) && selectedRowIds.size > 1 ? selectedRowIds.size : 1} space{selectedRowIds.has(r.id) && selectedRowIds.size > 1 ? "s" : ""})</span>
-                                  </ContextMenuItem>
-                                  <ContextMenuSeparator className="h-px bg-border my-1" />
-                                  <ContextMenuItem
-                                    onClick={() => handleDuplicateZone(r)}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                  >
-                                    <Copy className="size-3.5 text-muted-foreground" />
-                                    <span>Duplicate Zone</span>
-                                  </ContextMenuItem>
-                                  <ContextMenuItem
-                                    onClick={() => handleAddZoneToLevel(r.basementLevel)}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                  >
-                                    <Plus className="size-3.5 text-emerald-600" />
-                                    <span>Add Zone to {r.basementLevel}</span>
-                                  </ContextMenuItem>
-                                  <ContextMenuSeparator className="h-px bg-border my-1" />
-                                  <ContextMenuItem
-                                    onClick={() => handleUpdateFloorCell(r.id, "flagged", !r.flagged)}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                  >
-                                    <Flag className="size-3.5 text-red-500" />
-                                    <span>{r.flagged ? "Unflag Zone" : "Flag Zone"}</span>
-                                  </ContextMenuItem>
-                                  <ContextMenuSeparator className="h-px bg-border my-1" />
-                                  <ContextMenuItem
-                                    onClick={() => handleDeleteFloor(r.id)}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
-                                  >
-                                    <Trash2 className="size-3.5" />
-                                    <span>Delete Zone</span>
-                                  </ContextMenuItem>
-                                </ContextMenuContent>
-                              </ContextMenu>
-                            ))}
-                            {/* Basement Subtotal Row */}
-                            <tr className="bg-slate-100/50 dark:bg-slate-900/50 font-bold border-b border-border/70 text-[11.5px]">
-                              <td className="py-2.5 px-3 font-sans text-muted-foreground uppercase text-[10.5px] tracking-wider" colSpan={2}>{grp.basementLevel} Subtotal</td>
-                              <td className="py-2.5 font-mono">{grp.totalArea.toLocaleString()}</td>
-                              <td className="py-2.5 font-mono">{grp.totalEffArea.toLocaleString()}</td>
-                              <td className="py-2.5 font-mono text-muted-foreground">-</td>
-                              <td className="py-2.5 font-mono text-slate-800 dark:text-slate-200">{grp.subtotal3.toLocaleString()}</td>
-                              <td className="py-2.5 font-mono text-slate-800 dark:text-slate-200">{grp.subtotal6.toLocaleString()}</td>
-                              <td className="py-2.5 font-mono text-rose-600 dark:text-rose-400">
-                                {grp.max10Fire.toLocaleString()}
-                                <span className="ml-2 text-[9px] px-2 py-0.5 bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 rounded-full font-bold uppercase tracking-tight">1 Zone Fire Rate</span>
-                              </td>
-                              <td className="py-2.5"></td>
-                            </tr>
-                          </Fragment>
-                        ))}
-                        {calculatedGroups.length === 0 && (
-                          <tr>
-                            <td colSpan={9} className="py-20 px-4 text-center text-muted-foreground font-sans align-middle">
-                              <div className="flex flex-col items-center justify-center gap-2 min-h-[260px]">
-                                <Layers className="size-8 text-muted-foreground/40" />
-                                <p className="font-bold text-sm text-foreground">No basement levels defined</p>
-                                <p className="text-xs text-muted-foreground">Click "Add Level" or import directly from 3D Studio / Excel.</p>
-                                <div className="mt-2 flex items-center gap-2 flex-wrap justify-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setNewFloor({ name: "B1", area: 600, effArea: 500, height: 3, numZones: 1 });
-                                      setShowAddLevelModal(true);
-                                    }}
-                                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0A7BC7] text-white rounded-xl text-xs font-semibold hover:bg-[#06456F] transition cursor-pointer shadow-xs"
-                                  >
-                                    <Plus className="size-3.5" />
-                                    Add Level
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowImportSourceModal(true)}
-                                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary/10 text-primary border border-primary/30 rounded-xl text-xs font-semibold hover:bg-primary/20 transition cursor-pointer shadow-xs"
-                                  >
-                                    <Box className="size-3.5 text-primary" />
-                                    Import from 3D Studio
-                                  </button>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                {/* Bottom Statistics Summary Status Bar */}
+                <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 no-print modal-blur-bg">
+                  <div>
+                    Showing <span className="text-foreground font-medium tabular">{filteredRows.length}</span> of {floors.length} spaces/zones
+                  </div>
+                  <div className="flex items-center gap-3.5 tabular">
+                    <span>Σ Gross Area: <span className="font-mono text-foreground font-semibold">{totals.totalGrossArea.toLocaleString()} {ip ? "ft²" : "m²"}</span></span>
+                    <span>Σ Eff. Area: <span className="font-mono text-foreground font-semibold">{totals.totalEffArea.toLocaleString()} {ip ? "ft²" : "m²"}</span></span>
+                    <span>Σ 3-3-6 Normal: <span className="font-mono text-primary font-bold">{totals.normalScenarioSum.toLocaleString()} {ip ? "CFM" : "L/s"}</span></span>
+                    <span>Max 10 ACH Fire: <span className="font-mono text-rose-600 dark:text-rose-400 font-bold">{totals.max10.toLocaleString()} {ip ? "CFM" : "L/s"}</span></span>
                   </div>
                 </div>
-              )}
-
-              {/* Fan Systems Head Loss Section (Full 2-Column Responsive Dashboard) */}
-              {activeSection === "fan-systems" && (
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+{/* Fan Systems Head Loss Section (Full 2-Column Responsive Dashboard) */}
+              
                 <div className="flex flex-col gap-5">
                   {/* Fan Systems Header Bar */}
                   <div className="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-border/60">
@@ -2785,12 +2831,12 @@ function BasementSmokeCalcPage() {
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Intelligence Drawer (Collapsible Right Side) */}
+{/* Intelligence Drawer (Collapsible Right Side) */}
         {intelOpen && (
           <BasementIntelligenceDrawer
             onClose={() => setIntelOpen(false)}

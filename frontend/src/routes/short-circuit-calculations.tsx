@@ -7,15 +7,18 @@ import { downloadFile } from "@/lib/download";
 import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
-import { MessageSquare } from "lucide-react";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import { api } from "@/services/api";
+import { CalculationPreviewModal, type CalculationPreviewData } from "@/components/calculator-framework";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import {
   Plus, Trash2, Download, Upload, X, AlertTriangle, CheckCircle2,
-  FileText, Printer, FileSpreadsheet, Copy, RefreshCw, Filter, ArrowUpDown, Search
+  FileText, Printer, FileSpreadsheet, Copy, RefreshCw, Filter, ArrowUpDown, Search,
+  Sparkles, MessageSquare, Flag
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
@@ -37,7 +40,7 @@ import { UnitToggle } from "@/components/workspace/UnitToggle";
 export const Route = createFileRoute("/short-circuit-calculations")({
   head: () => ({
     meta: [
-      { title: "Short Circuit Current Calculation â€” MEP Calc" },
+      { title: "Short Circuit Current Calculation — MEP Calc" },
       { name: "description", content: "IEC 60909 prospective short circuit current analysis for electrical power networks." },
     ],
   }),
@@ -49,10 +52,12 @@ interface CableRow {
   description: string;
   length: number;
   runs: number;
-  size: number; // mmÂ²
+  size: number; // mm²
   voltage: number; // V
   material: "Copper" | "Aluminium";
   remarks: string;
+  flagged?: boolean;
+  comments?: any[];
 }
 
 interface RowDetail {
@@ -73,9 +78,11 @@ interface InlineInputProps {
   type?: "text" | "number";
   step?: string;
   min?: number;
+  disabled?: boolean;
+  onDoubleClick?: () => void;
 }
 
-function InlineInput({ value, onCommit, className = "", type = "text", step, min }: InlineInputProps) {
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, disabled = false, onDoubleClick }: InlineInputProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" || e.key === "Escape") {
       e.currentTarget.blur();
@@ -87,11 +94,12 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       type={type}
       step={step}
       min={min}
+      disabled={disabled}
       value={value}
       onChange={(e) => onCommit(e.target.value)}
       onKeyDown={handleKeyDown}
       onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
+      onDoubleClick={onDoubleClick}
       className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text ${className}`}
     />
   );
@@ -123,6 +131,11 @@ function ShortCircuitCalculationsPage() {
 
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<any>(null);
+  const [previewRow, setPreviewRow] = useState<CableRow | null>(null);
+  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
+
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const handleOpenComment = (id: string, name: string) => {
     setCommentTargetItem({ id, name });
@@ -131,16 +144,61 @@ function ShortCircuitCalculationsPage() {
 
   const handleSaveComment = (newComment: any) => {
     if (!commentTargetItem) return;
+    const updatedComment = {
+      ...newComment,
+      targetId: commentTargetItem.id,
+      targetName: commentTargetItem.name,
+      targetType: "cable-segment",
+      calculatorTitle: "Short Circuit Calculator",
+      calculatorPath: "/short-circuit-calculations",
+      projectId: project?.id || "default",
+      projectName: project?.name || "Short Circuit Analysis",
+    };
+
     const nextRows = rows.map((r: any) => {
       if (r.id === commentTargetItem.id) {
-        return { ...r, comments: [...(r.comments || []), newComment] };
+        return { ...r, comments: [...(r.comments || []), updatedComment] };
       }
       return r;
     });
     setRows(nextRows);
+
+    // Sync to localStorage
+    if (project?.id) {
+      try {
+        localStorage.setItem(`short_circuit_rows_${project.id}`, JSON.stringify({
+          rows: nextRows,
+          sourceFaultLevel,
+          nominalVoltage,
+          sourceXrRatio,
+          unitSystem,
+          updatedAt: new Date().toISOString()
+        }));
+      } catch (e) {}
+    }
+
+    // Dispatch real-time events for notification center
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: updatedComment }));
+      window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: updatedComment }));
+      window.dispatchEvent(new Event("storage"));
+    }
+
+    notifyCommentAssigned({
+      comment: updatedComment,
+      targetId: commentTargetItem.id,
+      targetName: commentTargetItem.name,
+      targetType: "cable-segment",
+      calculatorTitle: "Short Circuit Calculator",
+      calculatorPath: "/short-circuit-calculations",
+      project,
+      currentUserName,
+      currentUserId: userData?.id || profile?.id
+    }).catch(console.error);
+
+    toast.success(`Comment / task assigned on "${commentTargetItem.name}"`);
+    setCommentModalOpen(false);
   };
-  const { userData, profile } = useAuth();
-  const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
   const [tab, setTab] = useState<Tab>("schedule");
@@ -168,14 +226,40 @@ function ShortCircuitCalculationsPage() {
 
   // Sizing default rows
   const initialRows: CableRow[] = useMemo(() => [
-    { id: "1", description: "Main Feeder Cable", length: 45, runs: 2, size: 240, voltage: 400, material: "Copper", remarks: "Incomer from Transformer" },
+    { id: "1", description: "Main Feeder Cable", length: 45, runs: 2, size: 240, voltage: 400, material: "Copper", remarks: "Incomer from Transformer", flagged: true },
     { id: "2", description: "Submain Feeder to DB-1", length: 65, runs: 1, size: 95, voltage: 400, material: "Copper", remarks: "L1 DB supply" },
     { id: "3", description: "DB-1 final submain link", length: 30, runs: 1, size: 16, voltage: 400, material: "Copper", remarks: "Critical load supply" }
   ], []);
 
-  // Grid Engine Hooks
-  const { currentState, pushState: setRows, undo, redo } = useHistory<CableRow>(initialRows);
-  const rows = currentState || initialRows || [];
+  // Grid Engine Hooks & Rows State
+  const [rows, setRowsState] = useState<CableRow[]>(initialRows);
+  const historyRef = useRef<CableRow[][]>([initialRows]);
+  const historyIndexRef = useRef(0);
+
+  const setRows = useCallback((action: CableRow[] | ((prev: CableRow[]) => CableRow[])) => {
+    setRowsState((prev) => {
+      const next = typeof action === "function" ? action(prev) : action;
+      historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
+      historyRef.current.push(next);
+      historyIndexRef.current = historyRef.current.length - 1;
+      return next;
+    });
+  }, []);
+
+  const undo = useCallback(() => {
+    if (historyIndexRef.current > 0) {
+      historyIndexRef.current--;
+      setRowsState(historyRef.current[historyIndexRef.current]);
+    }
+  }, []);
+
+  const redo = useCallback(() => {
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      historyIndexRef.current++;
+      setRowsState(historyRef.current[historyIndexRef.current]);
+    }
+  }, []);
+
   const { selectedIds: selected, toggleSelection, selectAll, clearSelection } = useSelection(rows);
   const { copy, cut, paste } = useClipboard<CableRow>(rows, selected, setRows);
 
@@ -263,6 +347,195 @@ function ShortCircuitCalculationsPage() {
     };
   }, [rows, sourceFaultLevel, nominalVoltage, sourceXrRatio, unitSystem]);
 
+  // State persistence per project
+  useEffect(() => {
+    if (project?.id) {
+      try {
+        const stored = localStorage.getItem(`short_circuit_rows_${project.id}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed.rows) && parsed.rows.length > 0) {
+            setRows(parsed.rows);
+          }
+          if (parsed.sourceFaultLevel) setSourceFaultLevel(parsed.sourceFaultLevel);
+          if (parsed.nominalVoltage) setNominalVoltage(parsed.nominalVoltage);
+          if (parsed.sourceXrRatio) setSourceXrRatio(parsed.sourceXrRatio);
+          if (parsed.unitSystem) setUnitSystem(parsed.unitSystem);
+        }
+      } catch (e) {}
+    }
+  }, [project?.id]);
+
+  useEffect(() => {
+    if (project?.id && rows.length > 0) {
+      try {
+        localStorage.setItem(`short_circuit_rows_${project.id}`, JSON.stringify({
+          rows,
+          sourceFaultLevel,
+          nominalVoltage,
+          sourceXrRatio,
+          unitSystem,
+          updatedAt: new Date().toISOString()
+        }));
+      } catch (e) {}
+    }
+  }, [project?.id, rows, sourceFaultLevel, nominalVoltage, sourceXrRatio, unitSystem]);
+
+  // URL query parameter listener for comment notifications
+  useEffect(() => {
+    const handleScrollToItem = (e: any) => {
+      const { id } = e.detail || {};
+      if (id) {
+        setHighlightedTargetId(id);
+        setTab("schedule");
+        setTimeout(() => {
+          const el = document.getElementById(`row-${id}`) || document.querySelector(`[data-row-id="${id}"]`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            el.classList.add("ring-2", "ring-primary", "animate-pulse");
+            setTimeout(() => {
+              el.classList.remove("ring-2", "ring-primary", "animate-pulse");
+            }, 3000);
+          }
+        }, 200);
+      }
+    };
+
+    window.addEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const targetId = params.get("commentTargetId") || params.get("targetId");
+      const targetName = params.get("commentTargetName") || params.get("targetName");
+      if (targetId || targetName) {
+        setTimeout(() => {
+          handleScrollToItem({ detail: { id: targetId, name: targetName } });
+        }, 400);
+      }
+    }
+
+    return () => {
+      window.removeEventListener("mep-scroll-to-item" as any, handleScrollToItem);
+    };
+  }, [rows]);
+
+  const getCalculationPreview = (row: CableRow): CalculationPreviewData => {
+    const isIP = unitSystem === "ip";
+    const L_input = row.length || 0;
+    const L = isIP ? L_input * 0.3048 : L_input;
+    const N = row.runs || 1;
+    const A = row.size || 1.5;
+    const V = row.voltage || nominalVoltage || 400;
+
+    const rho20 = row.material === "Copper" ? 0.01724 : 0.0282;
+    const alpha = row.material === "Copper" ? 0.00393 : 0.00403;
+    const rho70 = rho20 * (1 + alpha * 50);
+
+    const segmentR = (rho70 * L) / (A * N);
+    const xStd = STANDARD_REACTANCE_LOOKUP(A);
+    const segmentX = (xStd * L) / (1000 * N);
+    const segmentZ = Math.sqrt(Math.pow(segmentR, 2) + Math.pow(segmentX, 2));
+
+    const details = calculatedData.rowDetailsMap?.get(row.id) || {
+      segmentR,
+      segmentX,
+      segmentZ,
+      runningSumR: segmentR + calculatedData.rSource,
+      runningSumX: segmentX + calculatedData.xSource,
+      runningSumZ: Math.sqrt(Math.pow(segmentR + calculatedData.rSource, 2) + Math.pow(segmentX + calculatedData.xSource, 2)),
+      isc: 0
+    };
+
+    const isSafe = details.isc <= 50;
+    const isHighFault = details.isc > 50;
+
+    return {
+      title: "Short Circuit Calculation Preview (IEC 60909)",
+      itemName: row.description || `Cable Segment`,
+      itemCode: `${row.material} • ${row.size} mm² • ${row.runs} Run(s) • ${row.length} ${isIP ? "ft" : "m"}`,
+      standardReference: "IEC 60909-0 / BS 7671 Short-Circuit Analysis",
+      inputs: [
+        { label: "Cable Description", value: row.description || "Segment" },
+        { label: "Conductor Material", value: row.material },
+        { label: "Cable Size", value: row.size, unit: "mm²" },
+        { label: "Parallel Runs", value: row.runs },
+        { label: "Length", value: row.length, unit: isIP ? "ft" : "m" },
+        { label: "Nominal Voltage (Vn)", value: V, unit: "V" },
+        { label: "Source Fault Level", value: sourceFaultLevel, unit: "kA" },
+        { label: "Source X/R Ratio", value: sourceXrRatio },
+        { label: "Source Impedance (Zs)", value: calculatedData.zSource.toFixed(5), unit: "Ω" },
+      ],
+      steps: [
+        {
+          stepNumber: 1,
+          label: "Source Baseline Impedance (Zs)",
+          formula: "Zs = Vn / (√3 × Isc_source × 1000)",
+          substitution: `${V} V / (1.732 × ${sourceFaultLevel} kA × 1000)`,
+          result: calculatedData.zSource.toFixed(5),
+          unit: "Ω",
+          status: "info",
+          description: `Upstream network grid impedance (Rs = ${calculatedData.rSource.toFixed(5)} Ω, Xs = ${calculatedData.xSource.toFixed(5)} Ω with X/R = ${sourceXrRatio}).`
+        },
+        {
+          stepNumber: 2,
+          label: "Conductor Operating Resistance (R)",
+          formula: "R = (ρ70 × L) / (A × N)",
+          substitution: `(${rho70.toFixed(5)} × ${L.toFixed(1)} m) / (${A} mm² × ${N})`,
+          result: details.segmentR.toFixed(5),
+          unit: "Ω",
+          status: "info",
+          description: `Conductor resistance at 70°C for ${row.material} with ${N} parallel run(s).`
+        },
+        {
+          stepNumber: 3,
+          label: "Conductor Inductive Reactance (X)",
+          formula: "X = (X_std × L) / (1000 × N)",
+          substitution: `(${xStd} Ω/km × ${L.toFixed(1)} m) / (1000 × ${N})`,
+          result: details.segmentX.toFixed(5),
+          unit: "Ω",
+          status: "info",
+          description: `Standard line reactance for ${A} mm² cable spacing.`
+        },
+        {
+          stepNumber: 4,
+          label: "Cable Segment AC Impedance (Zseg)",
+          formula: "Zseg = √(R² + X²)",
+          substitution: `√(${details.segmentR.toFixed(5)}² + ${details.segmentX.toFixed(5)}²)`,
+          result: details.segmentZ.toFixed(5),
+          unit: "Ω",
+          status: "info",
+          description: `Individual AC impedance for this feeder section.`
+        },
+        {
+          stepNumber: 5,
+          label: "Cumulative Network Cascade Impedance (ΣZ)",
+          formula: "ΣZ = √((Rs + ΣR_cables)² + (Xs + ΣX_cables)²)",
+          substitution: `√(${details.runningSumR.toFixed(5)}² + ${details.runningSumX.toFixed(5)}²)`,
+          result: details.runningSumZ.toFixed(5),
+          unit: "Ω",
+          status: "info",
+          description: `Total cascading loop impedance from transformer/source to this fault point.`
+        },
+        {
+          stepNumber: 6,
+          label: "Prospective Symmetrical Fault Current (Isc)",
+          formula: "Isc = Vn / (√3 × ΣZ × 1000)",
+          substitution: `${V} V / (1.732 × ${details.runningSumZ.toFixed(5)} Ω × 1000)`,
+          result: details.isc.toFixed(3),
+          unit: "kA",
+          status: isSafe ? "pass" : "warning",
+          description: isHighFault
+            ? `Fault current exceeds 50 kA. Ensure downstream switchboards and breakers are rated for at least ${Math.ceil(details.isc)} kA (Icu/Ics).`
+            : `Fault current is within standard distribution switchgear rating.`
+        }
+      ],
+      finalResultLabel: "Prospective Short Circuit Current (Isc)",
+      finalResultValue: `${details.isc.toFixed(3)} kA`,
+      finalResultUnit: isHighFault ? "(High Fault Level - Verify Breaking Capacity)" : "(Standard Breaking Capacity)",
+      complianceNote: `Calculated prospective fault level at ${row.description} per IEC 60909 standard.`
+    };
+  };
+
   // Validation Rules
   const validations = useMemo(() => {
     const logs: { type: "warning" | "danger"; msg: string }[] = [];
@@ -344,16 +617,21 @@ function ShortCircuitCalculationsPage() {
   const [filterMaterial, setFilterMaterial] = useState<"all" | "Copper" | "Aluminium">("all");
   const [filterSize, setFilterSize] = useState<string>("all");
   const [filterVoltage, setFilterVoltage] = useState<string>("all");
+  const [filterFlaggedOnly, setFilterFlaggedOnly] = useState(false);
   const [sortBy, setSortBy] = useState<"none" | "description" | "length-desc" | "length-asc" | "size-desc" | "isc-desc">("none");
+
+  const flaggedCount = useMemo(() => rows.filter(r => r.flagged).length, [rows]);
 
   const activeFiltersCount = (filterMaterial !== "all" ? 1 : 0) + 
                              (filterSize !== "all" ? 1 : 0) + 
-                             (filterVoltage !== "all" ? 1 : 0);
+                             (filterVoltage !== "all" ? 1 : 0) +
+                             (filterFlaggedOnly ? 1 : 0);
 
   const handleResetFilters = () => {
     setFilterMaterial("all");
     setFilterSize("all");
     setFilterVoltage("all");
+    setFilterFlaggedOnly(false);
   };
 
   const uniqueSizes = useMemo(() => {
@@ -395,6 +673,10 @@ function ShortCircuitCalculationsPage() {
       result = result.filter(r => String(r.voltage) === filterVoltage);
     }
 
+    if (filterFlaggedOnly) {
+      result = result.filter(r => r.flagged);
+    }
+
     if (sortBy !== "none") {
       result = [...result].sort((a, b) => {
         if (sortBy === "description") return (a.description || "").localeCompare(b.description || "");
@@ -411,41 +693,63 @@ function ShortCircuitCalculationsPage() {
     }
 
     return result;
-  }, [rows, searchQuery, filterMaterial, filterSize, filterVoltage, sortBy, calculatedData]);
+  }, [rows, searchQuery, filterMaterial, filterSize, filterVoltage, filterFlaggedOnly, sortBy, calculatedData]);
 
   // CRUD Sizing actions
   const handleAddRow = () => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Adding rows is disabled.", { id: "readonly-notice" });
+      return;
+    }
+
+    // Clear any active filters that would hide the newly created row
+    if (filterFlaggedOnly) setFilterFlaggedOnly(false);
+    if (searchQuery) setSearchQuery("");
+    if (filterMaterial !== "all") setFilterMaterial("all");
+    if (filterSize !== "all") setFilterSize("all");
+    if (filterVoltage !== "all") setFilterVoltage("all");
+
     const nextId = "row-" + Date.now() + Math.random().toString(36).substr(2, 5);
-    setRows([
-      ...rows,
-      {
-        id: nextId,
-        description: "New Cable Section",
-        length: 30,
-        runs: 1,
-        size: 95,
-        voltage: 400,
-        material: "Copper",
-        remarks: ""
-      }
-    ]);
+    const newRow: CableRow = {
+      id: nextId,
+      description: `Cable Section ${rows.length + 1}`,
+      length: unitSystem === "ip" ? 100 : 30,
+      runs: 1,
+      size: 95,
+      voltage: nominalVoltage || 400,
+      material: "Copper",
+      remarks: "",
+      flagged: false
+    };
+    setRows(prev => [...prev, newRow]);
+    toast.success("New cable section added");
   };
 
   const handleDuplicateRow = (row: CableRow) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Duplicating rows is disabled.", { id: "readonly-notice" });
+      return;
+    }
     const nextId = "row-" + Date.now() + Math.random().toString(36).substr(2, 5);
-    setRows([
-      ...rows,
+    setRows(prev => [
+      ...prev,
       {
         ...row,
         id: nextId,
         description: `${row.description} (Copy)`
       }
     ]);
+    toast.success("Row duplicated");
   };
 
   const handleDeleteRow = (id: string) => {
-    setRows(rows.filter(r => r.id !== id));
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Deleting rows is disabled.", { id: "readonly-notice" });
+      return;
+    }
+    setRows(prev => prev.filter(r => r.id !== id));
     clearSelection();
+    toast.success("Row deleted");
   };
 
   const handleUpdateRow = (id: string, field: keyof CableRow, val: any) => {
@@ -453,6 +757,22 @@ function ShortCircuitCalculationsPage() {
     setRows(rows.map(r => 
       (r.id === id || (isBulkEdit && selected.has(r.id))) ? { ...r, [field]: val } : r
     ));
+  };
+
+  const handleToggleFlag = (targetRowId?: string) => {
+    const isSelected = targetRowId ? selected.has(targetRowId) : false;
+    const selectedIds = Array.from(selected);
+    const targetIds = targetRowId
+      ? (isSelected && selectedIds.length > 1 ? selectedIds : [targetRowId])
+      : selectedIds;
+
+    if (targetIds.length === 0) return;
+
+    const firstRow = rows.find(r => r.id === targetIds[0]);
+    const nextFlagged = !firstRow?.flagged;
+
+    setRows(rows.map(r => targetIds.includes(r.id) ? { ...r, flagged: nextFlagged } : r));
+    toast.info(nextFlagged ? `Flagged ${targetIds.length} cable(s) for review` : `Unflagged ${targetIds.length} cable(s)`);
   };
 
   const handleReset = async () => {
@@ -797,18 +1117,28 @@ function ShortCircuitCalculationsPage() {
       align: "center",
       render: (r) => {
         const idx = rows.findIndex((row) => row.id === r.id);
-        return <span className="text-muted-foreground font-mono">{idx + 1}</span>;
+        return (
+          <span 
+            className="text-muted-foreground font-mono cursor-pointer select-none" 
+            onDoubleClick={() => setPreviewRow(r)}
+          >
+            {idx + 1}
+          </span>
+        );
       }
     },
     {
       key: "description",
       header: "Description",
-      width: 200,
+      width: 180,
       editable: true,
       render: (r) => {
         const itemComments = getMergedItemComments(r.id, r.description, (r as any).comments, "/short-circuit-calculations", project?.id);
         return (
-          <div className="flex items-center gap-1.5 w-full">
+          <div 
+            className="flex items-center gap-1.5 w-full cursor-pointer"
+            onDoubleClick={() => setPreviewRow(r)}
+          >
             {itemComments.length > 0 && (
               <button
                 type="button"
@@ -826,6 +1156,7 @@ function ShortCircuitCalculationsPage() {
             <InlineInput
               value={r.description}
               onCommit={(val) => handleUpdateRow(r.id, "description", val)}
+              onDoubleClick={() => setPreviewRow(r)}
               className="font-medium text-[13px] flex-1"
             />
           </div>
@@ -834,8 +1165,8 @@ function ShortCircuitCalculationsPage() {
     },
     {
       key: "length",
-      header: unitSystem === "ip" ? "Cable Length (ft)" : "Cable Length (m)",
-      width: 120,
+      header: unitSystem === "ip" ? "Length (ft)" : "Length (m)",
+      width: 85,
       align: "center",
       editable: true,
       render: (r) => (
@@ -843,14 +1174,15 @@ function ShortCircuitCalculationsPage() {
           type="number"
           value={r.length}
           onCommit={(val) => handleUpdateRow(r.id, "length", Number(val) || 0)}
+          onDoubleClick={() => setPreviewRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
     },
     {
       key: "runs",
-      header: "Number of Parallel Runs",
-      width: 160,
+      header: "Runs",
+      width: 65,
       align: "center",
       editable: true,
       render: (r) => (
@@ -858,33 +1190,36 @@ function ShortCircuitCalculationsPage() {
           type="number"
           value={r.runs}
           onCommit={(val) => handleUpdateRow(r.id, "runs", Number(val) || 1)}
+          onDoubleClick={() => setPreviewRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
     },
     {
       key: "size",
-      header: "Cable Size (mmÂ²)",
-      width: 140,
+      header: "Size (mm²)",
+      width: 90,
       align: "center",
       render: (r) => (
-        <select
-          value={r.size}
-          onChange={(e) => handleUpdateRow(r.id, "size", Number(e.target.value))}
-          className="bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-center font-mono text-[12.5px] cursor-pointer"
-        >
-          {IEC_CABLE_SIZES.map((sz) => (
-            <option key={sz} value={sz} className="bg-popover text-foreground">
-              {sz}
-            </option>
-          ))}
-        </select>
+        <div onDoubleClick={() => setPreviewRow(r)} className="w-full flex justify-center cursor-pointer">
+          <select
+            value={r.size}
+            onChange={(e) => handleUpdateRow(r.id, "size", Number(e.target.value))}
+            className="bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-center font-mono text-[12.5px] cursor-pointer"
+          >
+            {IEC_CABLE_SIZES.map((sz) => (
+              <option key={sz} value={sz} className="bg-popover text-foreground">
+                {sz}
+              </option>
+            ))}
+          </select>
+        </div>
       )
     },
     {
       key: "voltage",
       header: "Voltage (V)",
-      width: 100,
+      width: 80,
       align: "center",
       editable: true,
       render: (r) => (
@@ -892,90 +1227,155 @@ function ShortCircuitCalculationsPage() {
           type="number"
           value={r.voltage}
           onCommit={(val) => handleUpdateRow(r.id, "voltage", Number(val) || 400)}
+          onDoubleClick={() => setPreviewRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
     },
     {
       key: "material",
-      header: "Cable Material",
-      width: 120,
+      header: "Material",
+      width: 85,
       align: "center",
       render: (r) => (
-        <select
-          value={r.material}
-          onChange={(e) => handleUpdateRow(r.id, "material", e.target.value as "Copper" | "Aluminium")}
-          className="bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-center font-semibold text-[12.5px] cursor-pointer"
-        >
-          <option value="Copper" className="bg-popover text-foreground">Copper</option>
-          <option value="Aluminium" className="bg-popover text-foreground">Aluminium</option>
-        </select>
+        <div onDoubleClick={() => setPreviewRow(r)} className="w-full flex justify-center cursor-pointer">
+          <select
+            value={r.material}
+            onChange={(e) => handleUpdateRow(r.id, "material", e.target.value as "Copper" | "Aluminium")}
+            className="bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-center font-semibold text-[12.5px] cursor-pointer"
+          >
+            <option value="Copper" className="bg-popover text-foreground">Copper</option>
+            <option value="Aluminium" className="bg-popover text-foreground">Aluminium</option>
+          </select>
+        </div>
       )
     },
     {
       key: "resistance",
-      header: "Resistance (Î©)",
-      width: 130,
+      header: "R (Ω)",
+      width: 90,
       align: "right",
       render: (r) => {
         const details = calculatedData.rowDetailsMap?.get(r.id) || { segmentR: 0 };
-        return <span className="font-mono text-muted-foreground text-[12.5px]">{(details.segmentR || 0).toFixed(5)}</span>;
+        return (
+          <span 
+            className="font-mono text-muted-foreground text-[12.5px] cursor-pointer"
+            onDoubleClick={() => setPreviewRow(r)}
+          >
+            {(details.segmentR || 0).toFixed(5)}
+          </span>
+        );
       }
     },
     {
       key: "impedance",
-      header: "Impedance (Î©)",
-      width: 130,
+      header: "Z (Ω)",
+      width: 90,
       align: "right",
       render: (r) => {
         const details = calculatedData.rowDetailsMap?.get(r.id) || { segmentZ: 0 };
-        return <span className="font-mono text-muted-foreground text-[12.5px]">{(details.segmentZ || 0).toFixed(5)}</span>;
+        return (
+          <span 
+            className="font-mono text-muted-foreground text-[12.5px] cursor-pointer"
+            onDoubleClick={() => setPreviewRow(r)}
+          >
+            {(details.segmentZ || 0).toFixed(5)}
+          </span>
+        );
       }
     },
     {
       key: "runningSumR",
-      header: "Running Î£R",
-      width: 120,
+      header: "Running ΣR",
+      width: 85,
       align: "right",
       render: (r) => {
         const details = calculatedData.rowDetailsMap?.get(r.id) || { runningSumR: 0 };
-        return <span className="font-mono text-muted-foreground text-[12.5px]">{(details.runningSumR || 0).toFixed(5)}</span>;
+        return (
+          <span 
+            className="font-mono text-muted-foreground text-[12.5px] cursor-pointer"
+            onDoubleClick={() => setPreviewRow(r)}
+          >
+            {(details.runningSumR || 0).toFixed(5)}
+          </span>
+        );
       }
     },
     {
       key: "runningSumX",
-      header: "Running Î£X",
-      width: 120,
+      header: "Running ΣX",
+      width: 85,
       align: "right",
       render: (r) => {
         const details = calculatedData.rowDetailsMap?.get(r.id) || { runningSumX: 0 };
-        return <span className="font-mono text-muted-foreground text-[12.5px]">{(details.runningSumX || 0).toFixed(5)}</span>;
+        return (
+          <span 
+            className="font-mono text-muted-foreground text-[12.5px] cursor-pointer"
+            onDoubleClick={() => setPreviewRow(r)}
+          >
+            {(details.runningSumX || 0).toFixed(5)}
+          </span>
+        );
       }
     },
     {
       key: "isc",
-      header: "Short Circuit Current (kA)",
-      width: 180,
+      header: "Isc (kA)",
+      width: 100,
       align: "right",
       render: (r) => {
         const details = calculatedData.rowDetailsMap?.get(r.id) || { isc: 0 };
-        return <span className="font-mono font-bold text-foreground text-[12.5px]">{(details.isc || 0).toFixed(3)}</span>;
+        return (
+          <span 
+            className="font-mono font-bold text-foreground text-[12.5px] cursor-pointer"
+            onDoubleClick={() => setPreviewRow(r)}
+          >
+            {(details.isc || 0).toFixed(3)}
+          </span>
+        );
       }
     },
     {
       key: "remarks",
       header: "Remarks",
-      width: 180,
+      width: 120,
       editable: true,
       render: (r) => (
         <InlineInput
           value={r.remarks}
           onCommit={(val) => handleUpdateRow(r.id, "remarks", val)}
+          onDoubleClick={() => setPreviewRow(r)}
           className="text-muted-foreground text-[12px]"
         />
       )
+    },
+    {
+      key: "flagged",
+      header: "",
+      width: 36,
+      align: "center",
+      render: (r) => (
+        <button
+          type="button"
+          disabled={isEffectiveReadOnly}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleFlag(r.id);
+          }}
+          title={r.flagged ? "Flagged for engineering review (click to unflag)" : "Flag cable for review"}
+          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+        >
+          <Flag
+            className={`size-3.5 transition-all duration-200 ${
+              r.flagged
+                ? "fill-red-500 text-red-500 scale-110"
+                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+            }`}
+          />
+        </button>
+      ),
     }
-  ], [rows, calculatedData, selected, unitSystem]);
+  ], [rows, calculatedData, selected, unitSystem, project?.id, isEffectiveReadOnly]);
 
   // Context Menu Renderer
   const renderRowContextMenu = (row: CableRow) => {
@@ -984,27 +1384,76 @@ function ShortCircuitCalculationsPage() {
     const targetsCount = selectedIds.length;
 
     return (
-      <ContextMenuContent className="w-48 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        <ContextMenuItem
+          onClick={() => setPreviewRow(row)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-semibold text-primary"
+        >
+          <Sparkles className="size-4 text-primary" /> View Calculation Preview
+        </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row.id, row.description)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <MessageSquare className="size-4 text-muted-foreground" /> Add Comment
+        </ContextMenuItem>
+        <ContextMenuSeparator className="my-1 border-t border-border" />
+        <ContextMenuItem
+          onClick={() => handleToggleFlag(row.id)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+          <span>{row.flagged ? "Unflag Cable" : "Flag Cable"}</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="my-1 border-t border-border" />
         {targetsCount > 1 ? (
-          <ContextMenuItem
-            onClick={async () => {
-              const ok = await confirm(`Are you sure you want to delete ${targetsCount} selected rows?`);
-              if (ok) {
-                setRows(rows.filter(r => !selectedIds.includes(r.id)));
-                clearSelection();
-              }
-            }}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-red-500 font-semibold"
-          >
-            <Trash2 className="size-3.5" /> Delete Selected ({targetsCount})
-          </ContextMenuItem>
+          <>
+            <ContextMenuItem
+              onClick={() => handleToggleFlag()}
+              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+            >
+              <Flag className="size-3.5 text-red-500" />
+              <span>Toggle Flag Selected ({targetsCount})</span>
+            </ContextMenuItem>
+            <ContextMenuItem
+              onClick={() => {
+                const duplicated: CableRow[] = [];
+                rows.forEach(r => {
+                  if (selectedIds.includes(r.id)) {
+                    duplicated.push({
+                      ...r,
+                      id: `row-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                      description: `${r.description} (Copy)`
+                    });
+                  }
+                });
+                setRows([...rows, ...duplicated]);
+              }}
+              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+            >
+              <Copy className="size-3.5 text-muted-foreground" /> Duplicate Selected ({targetsCount})
+            </ContextMenuItem>
+            <ContextMenuSeparator className="my-1 border-t border-border" />
+            <ContextMenuItem
+              onClick={async () => {
+                const ok = await confirm(`Are you sure you want to delete ${targetsCount} selected rows?`);
+                if (ok) {
+                  setRows(rows.filter(r => !selectedIds.includes(r.id)));
+                  clearSelection();
+                }
+              }}
+              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-red-500 font-semibold"
+            >
+              <Trash2 className="size-3.5" /> Delete Selected ({targetsCount})
+            </ContextMenuItem>
+          </>
         ) : (
           <>
             <ContextMenuItem
               onClick={() => handleDuplicateRow(row)}
               className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
             >
-              <Copy className="size-3.5" /> Duplicate Row
+              <Copy className="size-3.5 text-muted-foreground" /> Duplicate Row
             </ContextMenuItem>
             <ContextMenuSeparator className="my-1 border-t border-border" />
             <ContextMenuItem
@@ -1093,6 +1542,11 @@ function ShortCircuitCalculationsPage() {
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Short Circuit Calculator</h1>
                 <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "segment" : "segments"}</span>
+                {flaggedCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                    <Flag className="size-3 fill-rose-500 text-rose-500" /> {flaggedCount} flagged
+                  </span>
+                )}
               </div>
               <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/short-circuit-calculations" calculatorTitle="Short Circuit Calculator" />
             </div>
@@ -1283,6 +1737,20 @@ function ShortCircuitCalculationsPage() {
                               ))}
                             </select>
                           </div>
+
+                          {/* Flagged cables filter */}
+                          <div className="pt-2 border-t border-border">
+                            <label className="flex items-center gap-2 px-1 py-1 rounded cursor-pointer hover:bg-surface-2 text-[12px] font-medium text-foreground select-none">
+                              <input
+                                type="checkbox"
+                                checked={filterFlaggedOnly}
+                                onChange={(e) => setFilterFlaggedOnly(e.target.checked)}
+                                className="rounded border-border text-primary focus:ring-0 size-3.5 cursor-pointer"
+                              />
+                              <Flag className="size-3.5 text-red-500 fill-red-500" />
+                              <span>Flagged cables only</span>
+                            </label>
+                          </div>
                         </PopoverContent>
                       </Popover>
 
@@ -1302,7 +1770,7 @@ function ShortCircuitCalculationsPage() {
                             </span>
                             {sortBy !== "none" && (
                               <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                                âœ“
+                                ✓
                               </span>
                             )}
                           </button>
@@ -1341,6 +1809,44 @@ function ShortCircuitCalculationsPage() {
 
                     {/* Right: Actions */}
                     <div className="flex items-center gap-1.5 flex-wrap">
+                      {selected.size > 0 && (
+                        <>
+                          <TBtn
+                            onClick={() => handleToggleFlag()}
+                          >
+                            <Flag className="size-3.5 text-red-500" /> Flag Selected ({selected.size})
+                          </TBtn>
+                          <TBtn 
+                            onClick={() => {
+                              const duplicated: CableRow[] = [];
+                              rows.forEach(r => {
+                                if (selected.has(r.id)) {
+                                  duplicated.push({
+                                    ...r,
+                                    id: `row-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                                    description: `${r.description} (Copy)`
+                                  });
+                                }
+                              });
+                              setRows([...rows, ...duplicated]);
+                            }}
+                          >
+                            <Copy className="size-3.5" /> Duplicate Selected ({selected.size})
+                          </TBtn>
+                          <TBtn
+                            onClick={async () => {
+                              const ok = await confirm(`Are you sure you want to delete ${selected.size} selected rows?`);
+                              if (ok) {
+                                setRows(rows.filter(r => !selected.has(r.id)));
+                                clearSelection();
+                              }
+                            }}
+                            className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                          >
+                            <Trash2 className="size-3.5" /> Delete Selected ({selected.size})
+                          </TBtn>
+                        </>
+                      )}
                       <ImportExcelBtn
                         columnMapping={{
                           "Description": "description",
@@ -1351,7 +1857,7 @@ function ShortCircuitCalculationsPage() {
                           "Length": "length",
                           "Number of Parallel Runs": "runs",
                           "Runs": "runs",
-                          "Cable Size (mmÂ²)": "size",
+                          "Cable Size (mm²)": "size",
                           "Size": "size",
                           "Voltage (V)": "voltage",
                           "Voltage": "voltage",
@@ -1361,7 +1867,7 @@ function ShortCircuitCalculationsPage() {
                         }}
                         onImport={handleImportExcelRows}
                       />
-                      <TBtn onClick={handleExportPDF}><FileText className="size-3.5" /> Export PDF</TBtn>
+                      <TBtn onClick={handleExportPDF}><FileText className="size-3.5" /> Export</TBtn>
                       <TBtn primary onClick={handleAddRow}><Plus className="size-3.5" /> Add Row</TBtn>
                     </div>
                   </div>
@@ -1375,7 +1881,34 @@ function ShortCircuitCalculationsPage() {
                       onToggle={handleToggle}
                       onToggleAll={handleToggleAll}
                       renderContextMenu={renderRowContextMenu}
+                      onRowDoubleClick={(row) => setPreviewRow(row)}
+                      activeRowId={previewRow?.id}
+                      rowClassName={(r) => 
+                        r.id === highlightedTargetId 
+                          ? "bg-primary/10 ring-1 ring-primary" 
+                          : r.flagged 
+                          ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]" 
+                          : ""
+                      }
+                      isReadOnly={isEffectiveReadOnly}
                     />
+                  </div>
+
+                  {/* Bottom Summary Footer Bar matching Cable Voltage Drop & Ventilation */}
+                  <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 no-print modal-blur-bg select-none">
+                    <div>
+                      Showing <span className="text-foreground font-medium tabular">{filteredRows.length.toLocaleString()}</span> of {rows.length.toLocaleString()} cables
+                    </div>
+                    <div className="flex items-center gap-3 sm:gap-4 tabular text-[11px]">
+                      <span>Σ Length: <span className="font-mono text-foreground font-medium">{calculatedData.totalCableLength.toFixed(1)} {unitSystem === "ip" ? "ft" : "m"}</span></span>
+                      <span>Total Z: <span className="font-mono text-foreground font-medium">{calculatedData.totalZ.toFixed(5)} Ω</span></span>
+                      <span>Final Isc: <span className={`font-mono font-bold ${calculatedData.finalIsc > 50 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>{calculatedData.finalIsc.toFixed(3)} kA</span></span>
+                      {flaggedCount > 0 && (
+                        <span className="text-rose-500 font-semibold flex items-center gap-1">
+                          <Flag className="size-3 fill-rose-500 text-rose-500" /> {flaggedCount} Flagged
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1395,7 +1928,7 @@ function ShortCircuitCalculationsPage() {
                     </span>
                     <div className="flex items-center gap-1">
                       <TBtn onClick={handleExportPDF}><Printer className="size-3.5" /> Print</TBtn>
-                      <TBtn primary onClick={handleExportPDF}><FileText className="size-3.5" /> Export PDF</TBtn>
+                      <TBtn primary onClick={handleExportPDF}><FileText className="size-3.5" /> Export</TBtn>
                     </div>
                   </div>
 
@@ -1508,12 +2041,17 @@ function ShortCircuitCalculationsPage() {
                           {rows.map((r, idx) => {
                             const details = calculatedData.rowDetails[idx] || { segmentR: 0, segmentZ: 0, runningSumZ: 0, isc: 0 };
                             return (
-                              <tr key={r.id}>
+                              <tr 
+                                key={r.id} 
+                                className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                                onDoubleClick={() => setPreviewRow(r)}
+                                title="Double-click to view detailed calculation breakdown"
+                              >
                                 <td className="px-2 py-1.5 text-center font-mono">{idx + 1}</td>
                                 <td className="px-2 py-1.5 font-medium">{r.description}</td>
-                                <td className="px-2 py-1.5 text-center font-mono">{r.length} m</td>
+                                <td className="px-2 py-1.5 text-center font-mono">{r.length} {unitSystem === "ip" ? "ft" : "m"}</td>
                                 <td className="px-2 py-1.5 text-center font-mono">{r.runs}</td>
-                                <td className="px-2 py-1.5 text-center font-mono">{r.size} mmÂ²</td>
+                                <td className="px-2 py-1.5 text-center font-mono">{r.size} mm²</td>
                                 <td className="px-2 py-1.5 text-center">{r.material}</td>
                                 <td className="px-2 py-1.5 text-right font-mono">{details.segmentR.toFixed(5)}</td>
                                 <td className="px-2 py-1.5 text-right font-mono">{details.segmentZ.toFixed(5)}</td>
@@ -1533,15 +2071,15 @@ function ShortCircuitCalculationsPage() {
                         <div className="border border-slate-200 dark:border-slate-800 rounded-lg p-3 flex flex-col gap-2 bg-slate-50/50 dark:bg-slate-800/10">
                           <div className="flex justify-between">
                             <span>Total Cable Length:</span>
-                            <strong className="font-mono">{calculatedData.totalCableLength.toFixed(1)} m</strong>
+                            <strong className="font-mono">{calculatedData.totalCableLength.toFixed(1)} {unitSystem === "ip" ? "ft" : "m"}</strong>
                           </div>
                           <div className="flex justify-between">
                             <span>Total Cascade Resistance:</span>
-                            <strong className="font-mono">{calculatedData.totalR.toFixed(5)} Î©</strong>
+                            <strong className="font-mono">{calculatedData.totalR.toFixed(5)} Ω</strong>
                           </div>
                           <div className="flex justify-between">
                             <span>Total Cascade Reactance:</span>
-                            <strong className="font-mono">{calculatedData.totalX.toFixed(5)} Î©</strong>
+                            <strong className="font-mono">{calculatedData.totalX.toFixed(5)} Ω</strong>
                           </div>
                           <div className="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1.5 mt-1 font-semibold text-primary">
                             <span>Final Short Circuit Current:</span>
@@ -1555,15 +2093,15 @@ function ShortCircuitCalculationsPage() {
                         <div className="border border-slate-200 dark:border-slate-800 rounded-lg p-3 flex flex-col gap-2 bg-slate-50/50 dark:bg-slate-800/10">
                           <div className="flex justify-between">
                             <span>Source R:</span>
-                            <strong className="font-mono">{calculatedData.rSource.toFixed(6)} Î©</strong>
+                            <strong className="font-mono">{calculatedData.rSource.toFixed(6)} Ω</strong>
                           </div>
                           <div className="flex justify-between">
                             <span>Source X:</span>
-                            <strong className="font-mono">{calculatedData.xSource.toFixed(6)} Î©</strong>
+                            <strong className="font-mono">{calculatedData.xSource.toFixed(6)} Ω</strong>
                           </div>
                           <div className="flex justify-between">
                             <span>Source Impedance (Zs):</span>
-                            <strong className="font-mono">{calculatedData.zSource.toFixed(6)} Î©</strong>
+                            <strong className="font-mono">{calculatedData.zSource.toFixed(6)} Ω</strong>
                           </div>
                         </div>
                       </div>
@@ -1579,7 +2117,7 @@ function ShortCircuitCalculationsPage() {
                         </div>
                         <div>
                           <p className="font-semibold font-sans text-foreground">Running Impedance Cascade:</p>
-                          <span className="text-primary">Running Î£Z = sqrt((Î£R_cables + R_s)^2 + (Î£X_cables + X_s)^2)</span>
+                          <span className="text-primary">Running ΣZ = sqrt((ΣR_cables + R_s)^2 + (ΣX_cables + X_s)^2)</span>
                         </div>
                         <div className="mt-2">
                           <p className="font-semibold font-sans text-foreground">Conductor Reactance:</p>
@@ -1587,7 +2125,7 @@ function ShortCircuitCalculationsPage() {
                         </div>
                         <div className="mt-2">
                           <p className="font-semibold font-sans text-foreground">Short Circuit Current (kA):</p>
-                          <span className="text-primary">Isc = V / (sqrt(3) * Running Î£Z * 1000)</span>
+                          <span className="text-primary">Isc = V / (sqrt(3) * Running ΣZ * 1000)</span>
                         </div>
                       </div>
                     </div>
@@ -1615,7 +2153,7 @@ function ShortCircuitCalculationsPage() {
                       </div>
                       <div className="text-right">
                         <p>Calculation Engine Ver: 4.0.0 (Simple)</p>
-                        <p className="mt-1">Â© MEP Calculator, All Rights Reserved</p>
+                        <p className="mt-1">© MEP Calculator, All Rights Reserved</p>
                       </div>
                     </div>
 
@@ -1637,10 +2175,19 @@ function ShortCircuitCalculationsPage() {
           onSave={handleSaveComment}
           targetName={commentTargetItem.name}
           targetId={commentTargetItem.id}
+          targetType="cable-segment"
+          calculatorTitle="Short Circuit Calculator"
           calculatorPath="/short-circuit-calculations"
           existingComments={getMergedItemComments(commentTargetItem.id, commentTargetItem.name, (rows.find(r => r.id === commentTargetItem.id) as any)?.comments, "/short-circuit-calculations", project?.id)}
         />
       )}
+
+      {/* Calculation Preview Modal (IEC 60909 Breakdown on Double-Click) */}
+      <CalculationPreviewModal
+        isOpen={Boolean(previewRow)}
+        onClose={() => setPreviewRow(null)}
+        data={previewRow ? getCalculationPreview(previewRow) : null}
+      />
     </AppShell>
   );
 }

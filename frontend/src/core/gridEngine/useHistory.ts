@@ -4,18 +4,17 @@ export function useHistory<T>(initialState: T[]) {
   const [history, setHistory] = useState<T[][]>([initialState]);
   const [historyIndex, setHistoryIndex] = useState(0);
 
-  const pushState = useCallback((newState: T[]) => {
+  const pushState = useCallback((newStateOrUpdater: T[] | ((prev: T[]) => T[])) => {
     setHistory((prev) => {
-      // Use the actual previous state length to avoid closure stale state
-      // We only slice up to the current historyIndex if it was provided, 
-      // but to be safe against rapid calls, we can just slice to the end of the known state
-      // Actually, since historyIndex is state, we should sync them.
-      // The safest way is to just use historyIndex from closure but NOT use functional update for index
       const newHistory = prev.slice(0, historyIndex + 1);
-      newHistory.push(newState);
+      const current = prev[historyIndex] ?? [];
+      const resolved = typeof newStateOrUpdater === "function" 
+        ? (newStateOrUpdater as (prev: T[]) => T[])(current) 
+        : newStateOrUpdater;
+      newHistory.push(resolved);
       return newHistory;
     });
-    setHistoryIndex(historyIndex + 1);
+    setHistoryIndex((prev) => prev + 1);
   }, [historyIndex]);
 
   const undo = useCallback(() => {

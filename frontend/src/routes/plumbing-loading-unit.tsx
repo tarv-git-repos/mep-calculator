@@ -648,6 +648,7 @@ function LoadingUnitPage() {
   const calcReviewState = useCalculationReviewState("/plumbing-loading-unit", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-loading-unit", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
+  const currentUserName = profile?.full_name || (userData as any)?.name || (userData as any)?.email || "Lead Engineer";
 
   const isApprovedLocked = useCalculationLock("/plumbing-loading-unit", project?.id || activeProjectId);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
@@ -2527,7 +2528,7 @@ function LoadingUnitPage() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Sizing &amp; Report
+                  Report
                 </button>
               </div>
 
@@ -2728,8 +2729,15 @@ function LoadingUnitPage() {
                   />
                   <button
                     type="button"
-                    onClick={() => importFileRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-background hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
+                    disabled={isEffectiveReadOnly}
+                    onClick={() => {
+                      if (isEffectiveReadOnly) {
+                        toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+                        return;
+                      }
+                      importFileRef.current?.click();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-background hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Download className="size-3.5" /> Import
                   </button>
@@ -2744,16 +2752,18 @@ function LoadingUnitPage() {
 
                   <button
                     type="button"
+                    disabled={isEffectiveReadOnly}
                     onClick={handleAddNewFloorSection}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all cursor-pointer shadow-2xs"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Plus className="size-3.5" /> Add Floor Section
                   </button>
 
                   <button
                     type="button"
+                    disabled={isEffectiveReadOnly}
                     onClick={handleAddSpace}
-                    className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs transition-all cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Plus className="size-3.5" /> Add Space
                   </button>
@@ -2785,11 +2795,30 @@ function LoadingUnitPage() {
                 <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
 
                   {/* Main Spaces Schedule Table with Floor Section Grouping */}
-                  <div className="overflow-x-auto overflow-y-auto w-full flex-1 min-h-0 custom-scrollbar">
-                    <table className="w-full border-collapse text-[12px] font-sans text-left">
+                  <div className="overflow-y-auto overflow-x-hidden w-full flex-1 min-h-0 custom-scrollbar">
+                    <table className="w-full table-fixed border-collapse text-[11.5px] font-sans text-left">
+                      <colgroup>
+                        <col style={{ width: "3.5%" }} />
+                        <col style={{ width: "17%" }} />
+                        <col style={{ width: "5.1%" }} />
+                        <col style={{ width: "5.1%" }} />
+                        <col style={{ width: "5.1%" }} />
+                        <col style={{ width: "5.1%" }} />
+                        <col style={{ width: "5.1%" }} />
+                        <col style={{ width: "5.1%" }} />
+                        <col style={{ width: "5.1%" }} />
+                        <col style={{ width: "5.1%" }} />
+                        <col style={{ width: "5.1%" }} />
+                        <col style={{ width: "5.1%" }} />
+                        <col style={{ width: "5%" }} />
+                        <col style={{ width: "6.2%" }} />
+                        <col style={{ width: "6.2%" }} />
+                        <col style={{ width: "6.3%" }} />
+                        <col style={{ width: "4%" }} />
+                      </colgroup>
                       <thead>
-                        <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none sticky top-0 z-20 backdrop-blur-sm">
-                          <th className="py-2.5 px-2 text-center w-10">
+                        <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[10px] tracking-tight font-bold select-none sticky top-0 z-20 backdrop-blur-sm h-9">
+                          <th className="py-2 px-1 text-center">
                             <input
                               type="checkbox"
                               checked={allSelected}
@@ -2798,29 +2827,29 @@ function LoadingUnitPage() {
                               title="Select All Spaces"
                             />
                           </th>
-                          <th className="py-2.5 px-3 text-left min-w-[180px]">DESCRIPTION</th>
+                          <th className="py-2 px-2 text-left text-[11px] tracking-wider truncate">DESCRIPTION</th>
                           {LU_FIXTURES_META.map(f => (
-                            <th key={f.key} className="py-2.5 px-2 text-center font-mono whitespace-nowrap">
-                              {f.label}
+                            <th key={f.key} className="py-1 px-0.5 text-center font-mono text-[9px] sm:text-[9.5px] leading-tight font-bold uppercase" title={f.label}>
+                              <span className="block truncate">{f.label}</span>
                             </th>
                           ))}
-                          <th className="py-2.5 px-3 text-center w-16 text-primary">LU</th>
-                          <th className="py-2.5 px-2 text-center w-20">SPACE QTY</th>
-                          <th className="py-2.5 px-2 text-center w-20">NO. OF FLOORS</th>
-                          <th className="py-2.5 px-3 text-right w-24 text-primary font-bold">TOTAL LU</th>
-                          <th className="py-2.5 px-2 text-center w-16">ACTIONS</th>
+                          <th className="py-2 px-1 text-center text-primary text-[10.5px]">LU</th>
+                          <th className="py-2 px-0.5 text-center leading-tight text-[9.5px]">SPACE QTY</th>
+                          <th className="py-2 px-0.5 text-center leading-tight text-[9.5px]">NO. OF FLOORS</th>
+                          <th className="py-2 px-1 text-right text-primary font-bold leading-tight text-[10.5px]">TOTAL LU</th>
+                          <th className="py-2 px-0.5 text-center text-[9.5px]">ACTIONS</th>
                         </tr>
 
                         {/* Fixture Weights Overview Row */}
-                        <tr className="bg-slate-100/70 dark:bg-slate-900/40 border-b border-border/60 text-[11px] text-muted-foreground select-none">
-                          <td className="p-1.5 text-center"></td>
-                          <td className="p-1.5 text-left font-semibold text-muted-foreground italic">Standard Rate Override</td>
+                        <tr className="bg-slate-100/70 dark:bg-slate-900/40 border-b border-border/60 text-[10px] text-muted-foreground select-none h-7">
+                          <td className="p-1 text-center"></td>
+                          <td className="p-1 px-2 text-left font-semibold text-muted-foreground italic text-[10px] truncate">Standard Rate Override</td>
                           {LU_FIXTURES_META.map(f => {
                             const val = currentWeights[f.key] ?? 0;
                             const isOverridden = weightOverrides[f.key] !== undefined;
                             return (
-                              <td key={f.key} className="p-1 text-center font-mono">
-                                <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                              <td key={f.key} className="p-0.5 text-center font-mono">
+                                <span className={`inline-block px-1 py-0.2 rounded text-[9px] font-bold border ${
                                   isOverridden 
                                     ? "bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400" 
                                     : "bg-primary/5 border-primary/20 text-primary"
@@ -2830,15 +2859,15 @@ function LoadingUnitPage() {
                               </td>
                             );
                           })}
-                          <td className="p-1 text-center font-mono font-bold text-primary">Σ</td>
-                          <td className="p-1 text-center">
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-primary text-primary-foreground font-mono">ON</span>
+                          <td className="p-0.5 text-center font-mono font-bold text-primary text-[10.5px]">Σ</td>
+                          <td className="p-0.5 text-center">
+                            <span className="inline-block px-1 py-0.2 rounded text-[8.5px] font-bold bg-primary text-primary-foreground font-mono">ON</span>
                           </td>
-                          <td className="p-1 text-center">
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-primary text-primary-foreground font-mono">ON</span>
+                          <td className="p-0.5 text-center">
+                            <span className="inline-block px-1 py-0.2 rounded text-[8.5px] font-bold bg-primary text-primary-foreground font-mono">ON</span>
                           </td>
-                          <td className="p-1 text-right font-mono font-bold text-primary">Total</td>
-                          <td className="p-1 text-center"></td>
+                          <td className="p-0.5 px-1 text-right font-mono font-bold text-primary text-[10px]">Total</td>
+                          <td className="p-0.5 text-center"></td>
                         </tr>
                       </thead>
 
@@ -2925,39 +2954,39 @@ function LoadingUnitPage() {
                                         : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
                                     }`}
                                   >
-                                    <td className="p-2 text-center" onDoubleClick={(e) => e.stopPropagation()}>
-                                      <div className="flex items-center justify-center gap-1.5">
+                                    <td className="p-1 text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                      <div className="flex items-center justify-center gap-1">
                                         <input
                                           type="checkbox"
                                           checked={isSelected}
                                           onChange={(e) => handleToggleSelect(s.id, e.target.checked)}
                                           className="size-3.5 accent-primary cursor-pointer rounded shrink-0"
                                         />
-                                        <span className="text-[11px] font-mono text-muted-foreground min-w-[14px] text-left font-bold shrink-0">{spaceIdx + 1}</span>
+                                        <span className="text-[11px] font-mono text-muted-foreground min-w-[12px] text-left font-bold shrink-0">{spaceIdx + 1}</span>
                                         {Array.isArray(s.comments) && s.comments.length > 0 && (
                                           <button 
                                             type="button"
                                             title={`${s.comments.length} comment(s)/task(s) assigned`} 
-                                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-500/20 transition cursor-pointer shrink-0"
+                                            className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[9px] hover:bg-blue-500/20 transition cursor-pointer shrink-0"
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               setCommentTarget({ id: String(s.id), name: s.desc, type: 'space' });
                                               setAssignCommentOpen(true);
                                             }}
                                           >
-                                            <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
+                                            <MessageSquare className="size-2.5 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
                                             <span>{s.comments.length}</span>
                                           </button>
                                         )}
                                       </div>
                                     </td>
 
-                                    <td className="p-1.5" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
-                                      <span className="font-bold text-foreground">{s.desc || "Untitled Space"}</span>
+                                    <td className="p-1 px-2 truncate" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
+                                      <span className="font-bold text-foreground truncate block text-xs" title={s.desc || "Untitled Space"}>{s.desc || "Untitled Space"}</span>
                                     </td>
 
                                     {LU_FIXTURES_META.map(f => (
-                                      <td key={f.key} className="p-1 text-center font-mono">
+                                      <td key={f.key} className="p-0.5 text-center font-mono text-[11px]">
                                         {Number(s.fixtures?.[f.key] || 0) > 0 ? (
                                           <span className="font-bold text-foreground">{s.fixtures[f.key]}</span>
                                         ) : (
@@ -2966,24 +2995,24 @@ function LoadingUnitPage() {
                                       </td>
                                     ))}
 
-                                    <td className="p-1.5 text-center font-mono font-bold text-primary">
+                                    <td className="p-1 text-center font-mono font-bold text-primary text-[11.5px]">
                                       {spaceLU.toFixed(1)}
                                     </td>
 
-                                    <td className="p-1.5 text-center font-mono">
+                                    <td className="p-1 text-center font-mono text-[11px]">
                                       {s.qty || 1}
                                     </td>
 
-                                    <td className="p-1.5 text-center font-mono">
+                                    <td className="p-1 text-center font-mono text-[11px]">
                                       {s.floorQty || 1}
                                     </td>
 
-                                    <td className="p-1.5 text-right font-mono font-extrabold text-primary">
+                                    <td className="p-1 px-1.5 text-right font-mono font-extrabold text-primary text-[11.5px]">
                                       {totalSpaceLU.toFixed(1)}
                                     </td>
 
-                                    <td className="p-1 text-center" onDoubleClick={(e) => e.stopPropagation()}>
-                                      <div className="flex items-center justify-center gap-1">
+                                    <td className="p-0.5 text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                      <div className="flex items-center justify-center gap-0.5">
                                         <button
                                           type="button"
                                           onClick={() => {
@@ -2991,18 +3020,23 @@ function LoadingUnitPage() {
                                             const newFlagged = !s.flagged;
                                             setIopSpaces(prev => prev.map(item => targets.includes(item.id) ? { ...item, flagged: newFlagged } : item));
                                           }}
-                                          className="p-1 text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded transition-colors cursor-pointer"
+                                          className="p-0.5 text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded transition-colors cursor-pointer"
                                           title={s.flagged ? "Unflag space" : "Flag space for review"}
                                         >
                                           <Flag className={`size-3.5 ${s.flagged ? "fill-amber-500 text-amber-500" : ""}`} />
                                         </button>
                                         <button
                                           type="button"
+                                          disabled={isEffectiveReadOnly}
                                           onClick={() => {
+                                            if (isEffectiveReadOnly) {
+                                              toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+                                              return;
+                                            }
                                             setIopSpaces(prev => prev.filter(item => item.id !== s.id));
                                             toast.success(`Deleted "${s.desc || 'Space'}"`);
                                           }}
-                                          className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
+                                          className="p-0.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                           title="Delete space"
                                         >
                                           <Trash2 className="size-3.5" />

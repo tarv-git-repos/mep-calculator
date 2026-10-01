@@ -12,7 +12,7 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
 import {
-  FileText, Printer, HelpCircle, X, Check,
+  FileText, Printer, HelpCircle, X, Check, Sparkles,
   Copy, Clipboard, RotateCcw, MessageSquare, Download,
   Activity, Snowflake, ShieldCheck, Gauge, Zap, FileSpreadsheet, Waves, Wind
 } from "lucide-react";
@@ -25,6 +25,7 @@ import {
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
 import { AppShell } from "@/components/workspace/AppShell";
+import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 
@@ -410,6 +411,7 @@ const DEFAULT_PARAMS: RefrigerantParams = {
 };
 
 function RefrigerantPipeSizingPage() {
+  const [intelOpen, setIntelOpen] = useState(false);
   const { project, activeProjectId, isReadOnly } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/refrigerant-pipe-sizing", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/refrigerant-pipe-sizing", activeProjectId || project?.id);
@@ -1107,68 +1109,86 @@ function RefrigerantPipeSizingPage() {
   return (
     <AppShell title="Refrigerant Pipe Sizing" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
-            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-            : calcReviewState?.status === "REJECTED"
-            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-            : calcReviewState?.status === "REVIEWED"
-            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} custom-scrollbar`}>
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
           {/* Header & CalculationReviewBar */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print">
-            <div className="flex flex-col gap-1 w-full">
-              <div className="flex items-center justify-between gap-3 mt-0.5 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-baseline gap-2">
-                    <h1 className="text-[28px] font-bold tracking-tight text-foreground">Refrigerant Pipe Sizer</h1>
-                    <span className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider font-mono">ASHRAE ACR</span>
-                  </div>
-                  <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/refrigerant-pipe-sizing" calculatorTitle="Refrigerant Pipe Sizer" />
-                  {totalCommentsCount > 0 && (
-                    <span
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 text-xs font-bold border border-blue-200 dark:border-blue-900/60 shadow-2xs"
-                      title={`${totalCommentsCount} active comment(s)/task(s) in Refrigerant Pipe Sizer`}
-                    >
-                      <MessageSquare className="size-3.5 fill-blue-500/20" />
-                      <span>{totalCommentsCount} Active Task{totalCommentsCount === 1 ? "" : "s"}</span>
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <UnitToggle
-                    unitSystem={unitSystem}
-                    onChange={handleUnitSystemChange}
-                    ipLabel="IP"
-                    siLabel="SI"
-                    inputDescriptions="Cooling capacity, length, and temperatures"
-                    conversionExample={unitSystem === "si" ? "Convert 35.17 kW → 10.0 TR" : "Convert 10.0 TR → 35.17 kW"}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setShowFormulaModal(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-card hover:bg-muted/70 transition cursor-pointer text-foreground"
-                    title="Formulas & Engineering"
+          <div className="flex flex-col gap-1 select-none no-print">
+            <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Refrigerant Pipe Sizer</h1>
+                <button 
+                  onClick={() => setIntelOpen(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                    intelOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" />
+                  Intelligence
+                </button>
+                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/refrigerant-pipe-sizing" calculatorTitle="Refrigerant Pipe Sizer" />
+                {totalCommentsCount > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 text-xs font-bold border border-blue-200 dark:border-blue-900/60 shadow-2xs"
+                    title={`${totalCommentsCount} active comment(s)/task(s) in Refrigerant Pipe Sizer`}
                   >
-                    <HelpCircle className="size-3.5 text-primary" />
-                    <span>Formulas & Engineering</span>
-                  </button>
+                    <MessageSquare className="size-3.5 fill-blue-500/20" />
+                    <span>{totalCommentsCount} Active Task{totalCommentsCount === 1 ? "" : "s"}</span>
+                  </span>
+                )}
+              </div>
 
-                  {/* Export PDF Button */}
-                  <button
-                    type="button"
-                    onClick={handleExportPdf}
-                    className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full bg-[#0A7BC7] text-white hover:bg-[#0866A5] transition shadow-xs cursor-pointer"
-                    title="Export PDF Report"
-                  >
-                    <Download className="size-3.5" />
-                    <span>Export PDF</span>
-                  </button>
-                </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={handleUnitSystemChange}
+                  ipLabel="IP"
+                  siLabel="SI"
+                  inputDescriptions="Cooling capacity, length, and temperatures"
+                  conversionExample={unitSystem === "si" ? "Convert 35.17 kW → 10.0 TR" : "Convert 10.0 TR → 35.17 kW"}
+                />
               </div>
             </div>
+          </div>
+
+          
+          {/* Secondary Action Row */}
+          <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 mt-2 mb-2">
+            <div className="flex items-center gap-2">
+              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                {(["suction", "liquid", "discharge"] as LineType[]).map((t) => {
+                  const active = sizingParams.lineType === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      disabled={isEffectiveReadOnly}
+                      onClick={() => {
+                        const updated = { ...sizingParams, lineType: t };
+                        setSizingParams(updated);
+                        saveState(updated, unitSystem);
+                      }}
+                      className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer capitalize flex items-center justify-center gap-1 ${
+                        active
+                          ? "bg-background text-foreground shadow-sm font-bold"
+                          : "text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      }`}
+                    >
+                      {t} Line
+                    </button>
+                  );
+                })}
+              </div>
+              
+              <TBtn onClick={() => setShowFormulaModal(true)} title="Formulas & Engineering">
+                <HelpCircle className="size-3.5 text-primary" /> Formula Breakdown
+              </TBtn>
+            </div>
+
+            <TBtn onClick={handleExportPdf} title="Export PDF Report">
+              <FileText className="size-3.5" /> Export
+            </TBtn>
           </div>
 
           {/* Main Content Layout Grid */}
@@ -1178,7 +1198,7 @@ function RefrigerantPipeSizingPage() {
             <div className="lg:col-span-6 flex flex-col gap-4">
               
               {/* Card 1: System Capacity & Refrigerant Selection */}
-              <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
+              <div className={`bg-card border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs transition-all ${getCalculationStatusBorderClass(calcReviewState?.status)}`}>
                 <div className="flex items-center justify-between pb-2 border-b border-border/60">
                   <div className="flex items-center gap-2">
                     <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
@@ -1215,40 +1235,10 @@ function RefrigerantPipeSizingPage() {
                     </select>
                   </div>
                 </div>
-
-                {/* Line Type Selector Buttons */}
-                <div className="flex flex-col gap-1.5 p-1.5">
-                  <label className="font-semibold text-foreground text-xs">Refrigerant Line Service</label>
-                  <div className="grid grid-cols-3 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl gap-1 border border-border/60 select-none">
-                    {(["suction", "liquid", "discharge"] as LineType[]).map((t) => {
-                      const active = sizingParams.lineType === t;
-                      return (
-                        <button
-                          key={t}
-                          type="button"
-                          disabled={isEffectiveReadOnly}
-                          onClick={() => {
-                            const updated = { ...sizingParams, lineType: t };
-                            setSizingParams(updated);
-                            saveState(updated, unitSystem);
-                          }}
-                          className={`py-1.5 text-xs font-bold rounded-lg transition-all duration-150 cursor-pointer capitalize flex items-center justify-center gap-1 ${
-                            active
-                              ? "bg-white dark:bg-slate-800 text-[#0A7BC7] shadow-xs"
-                              : "text-muted-foreground hover:text-foreground disabled:opacity-50"
-                          }`}
-                        >
-                          {active && <Check className="size-3" />}
-                          <span>{t} Line</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
               </div>
 
               {/* Card 2: Piping Geometry & Design Margins */}
-              <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
+              <div className={`bg-card border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs transition-all ${getCalculationStatusBorderClass(calcReviewState?.status)}`}>
                 <div className="flex items-center justify-between pb-2 border-b border-border/60">
                   <div className="flex items-center gap-2">
                     <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
@@ -1270,7 +1260,7 @@ function RefrigerantPipeSizingPage() {
             <div className="lg:col-span-6 flex flex-col gap-4">
               
               {/* Main Sizing Highlight Card */}
-              <div className="bg-card border border-border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs">
+              <div className={`bg-card border rounded-2xl p-4 flex flex-col gap-3.5 shadow-xs transition-all ${getCalculationStatusBorderClass(calcReviewState?.status)}`}>
                 <div className="flex items-center justify-between pb-2 border-b border-border/60">
                   <div className="flex items-center gap-2">
                     <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
@@ -1451,6 +1441,30 @@ function RefrigerantPipeSizingPage() {
             />
           )}
 
+        </div>
+      
+        {/* Intelligence Drawer (Collapsible Right Side Panel) */}
+        <div
+          className={`shrink-0 overflow-hidden transition-all duration-300 ease-in-out ${
+            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <div className="flex flex-col h-full overflow-hidden w-[360px]">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-primary" />
+                  <h3 className="font-bold text-[13.5px] uppercase tracking-wider text-foreground">Live Intelligence</h3>
+                </div>
+                <button onClick={() => setIntelOpen(false)} className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded hover:bg-surface-2">
+                  <X className="size-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 custom-scrollbar flex flex-col gap-4 text-sm text-muted-foreground">
+                <p>Intelligence insights will appear here.</p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </AppShell>

@@ -86,9 +86,20 @@ interface InlineInputProps {
   min?: number;
   placeholder?: string;
   disabled?: boolean;
+  onDoubleClick?: (e: React.MouseEvent<HTMLInputElement>) => void;
 }
 
-function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled }: InlineInputProps) {
+function InlineInput({
+  value,
+  onCommit,
+  className = "",
+  type = "text",
+  step,
+  min,
+  placeholder,
+  disabled,
+  onDoubleClick,
+}: InlineInputProps) {
   const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
   const isEffectiveDisabled = disabled || isReadOnly;
 
@@ -142,7 +153,11 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       }}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => {
+        if (onDoubleClick) {
+          onDoubleClick(e);
+        }
+      }}
       className={`bg-transparent w-full border border-transparent py-0.5 px-1.5 rounded text-foreground transition-colors ${
         isEffectiveDisabled
           ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent"
@@ -1014,7 +1029,14 @@ function LoadSummaryPage() {
       mono: true,
       render: (row) => {
         const index = filteredRows.findIndex(r => r.id === row.id) + 1;
-        return <span className="text-muted-foreground font-mono text-[12px]">{index}</span>;
+        return (
+          <span
+            onDoubleClick={() => setPreviewRow(row)}
+            className="text-muted-foreground font-mono text-[12px] cursor-default"
+          >
+            {index}
+          </span>
+        );
       }
     },
     {
@@ -1038,6 +1060,7 @@ function LoadSummaryPage() {
               value={row.description}
               placeholder="e.g. Ground Floor Main Office"
               onCommit={(val) => updateRow(row.id, { description: val })}
+              onDoubleClick={() => setPreviewRow(row)}
               className="text-[12.5px] font-medium min-w-0 flex-1"
             />
             {rowComments.length > 0 ? (
@@ -1084,6 +1107,7 @@ function LoadSummaryPage() {
           min={0}
           value={row.qty === 0 ? "" : row.qty}
           onCommit={(val) => updateRow(row.id, { qty: parseFloat(val) || 0 })}
+          onDoubleClick={() => setPreviewRow(row)}
           className="font-mono tabular text-[12.5px] text-center"
         />
       )
@@ -1103,6 +1127,7 @@ function LoadSummaryPage() {
           min={0}
           value={row.area === 0 ? "" : row.area}
           onCommit={(val) => updateRow(row.id, { area: parseFloat(val) || 0 })}
+          onDoubleClick={() => setPreviewRow(row)}
           className="font-mono tabular text-[12.5px] text-center"
         />
       )
@@ -1122,6 +1147,7 @@ function LoadSummaryPage() {
           min={0}
           value={row.lighting === 0 ? "" : row.lighting}
           onCommit={(val) => updateRow(row.id, { lighting: parseFloat(val) || 0 })}
+          onDoubleClick={() => setPreviewRow(row)}
           className="font-mono tabular text-[12.5px] text-right"
         />
       )
@@ -1141,6 +1167,7 @@ function LoadSummaryPage() {
           min={0}
           value={row.power === 0 ? "" : row.power}
           onCommit={(val) => updateRow(row.id, { power: parseFloat(val) || 0 })}
+          onDoubleClick={() => setPreviewRow(row)}
           className="font-mono tabular text-[12.5px] text-right"
         />
       )
@@ -1160,6 +1187,7 @@ function LoadSummaryPage() {
           min={0}
           value={row.hvac === 0 ? "" : row.hvac}
           onCommit={(val) => updateRow(row.id, { hvac: parseFloat(val) || 0 })}
+          onDoubleClick={() => setPreviewRow(row)}
           className="font-mono tabular text-[12.5px] text-right"
         />
       )
@@ -1179,6 +1207,7 @@ function LoadSummaryPage() {
           min={0}
           value={row.other === 0 ? "" : row.other}
           onCommit={(val) => updateRow(row.id, { other: parseFloat(val) || 0 })}
+          onDoubleClick={() => setPreviewRow(row)}
           className="font-mono tabular text-[12.5px] text-right"
         />
       )
@@ -1190,7 +1219,10 @@ function LoadSummaryPage() {
       align: "right",
       mono: true,
       render: (row) => (
-        <span className="w-full text-right px-1 font-mono tabular font-medium text-foreground text-[12.5px]">
+        <span
+          onDoubleClick={() => setPreviewRow(row)}
+          className="w-full text-right px-1 font-mono tabular font-medium text-foreground text-[12.5px] cursor-default"
+        >
           {row.totalLoad.toFixed(2)}
         </span>
       )
@@ -1207,6 +1239,7 @@ function LoadSummaryPage() {
           value={row.remarks}
           placeholder="Remarks..."
           onCommit={(val) => updateRow(row.id, { remarks: val })}
+          onDoubleClick={() => setPreviewRow(row)}
           className="text-[12px] text-left"
         />
       )

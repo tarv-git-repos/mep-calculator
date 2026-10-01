@@ -873,26 +873,22 @@ function UpsSizingCalculationPage() {
   return (
     <AppShell 
       title="UPS Sizing" 
-      hideSubHeader={true}
+      actions={
+        <UnitToggle
+          unitSystem={unitSystem}
+          onChange={handleUnitSystemChange}
+          disabled={isEffectiveReadOnly}
+          ipLabel="IP"
+          siLabel="SI"
+          ipDescription="Imperial (IP)"
+          siDescription="Metric (SI)"
+          inputDescriptions="equipment load ratings"
+          conversionExample="Convert existing equipment load values between Watts (SI) and VA (IP) based on Power Factor."
+        />
+      }
     >
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          
-          {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
-            <div className="flex flex-col gap-1 w-full">
-              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">UPS Sizing</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">{loadRows.length} items</span>
-                </div>
-                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/ups-sizing-calculation" calculatorTitle="UPS Sizing" />
-              </div>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                Simplified preliminary electrical capacity sizing based on socket load schedule.
-              </p>
-            </div>
-          </div>
+        <div className="flex-1 min-w-0 flex flex-col pt-3 gap-3 overflow-y-auto h-full">
 
           {/* Card Container for Data Grid & Tabs */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
@@ -905,36 +901,28 @@ function UpsSizingCalculationPage() {
             
             {/* Tabs Row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card border-b border-border/60 shrink-0 select-none no-print">
-              <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-full gap-0.5 border border-border/80">
-                {TABS.map((t) => {
-                  const active = t.id === tab;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => setTab(t.id)}
-                      className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                        active
-                          ? "bg-background text-foreground shadow-xs font-bold"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {t.label}
-                    </button>
-                  );
-                })}
+              <div className="flex items-center gap-3">
+                <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-full gap-0.5 border border-border/80">
+                  {TABS.map((t) => {
+                    const active = t.id === tab;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => setTab(t.id)}
+                        className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                          active
+                            ? "bg-background text-foreground shadow-xs font-bold"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* IP / SI Unit System Toggle Pill */}
-              <UnitToggle
-                unitSystem={unitSystem}
-                onChange={handleUnitSystemChange}
-                ipLabel="IP"
-                siLabel="SI"
-                ipDescription="Imperial (IP)"
-                siDescription="Metric (SI)"
-                inputDescriptions="equipment load ratings"
-                conversionExample="Convert existing equipment load values between Watts (SI) and VA (IP) based on Power Factor."
-              />
+              <span className="text-xs font-semibold text-muted-foreground">{loadRows.length} items</span>
             </div>
 
             {/* Sizing Schedule View */}
@@ -976,7 +964,7 @@ function UpsSizingCalculationPage() {
                           )}
                         </div>
                         <div className="flex flex-col gap-1">
-                          <span className="text-[10.5px] font-semibold text-muted-foreground uppercase">Min Equip Load (W)</span>
+                          <span className="text-[10.5px] font-semibold text-muted-foreground uppercase">Min Equip Load ({unitSystem === "ip" ? "VA" : "W"})</span>
                           <input
                             type="number"
                             placeholder="e.g. 100"

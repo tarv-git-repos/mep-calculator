@@ -106,6 +106,8 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
   );
 }
 
+import { CalculationPreviewModal, type CalculationPreviewData } from "@/components/calculator-framework/CalculationPreviewModal";
+
 function TransformerSizingPage() {
   const { project, activeProjectId } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/transformer-sizing", activeProjectId || project?.id);
@@ -118,7 +120,8 @@ function TransformerSizingPage() {
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [searchQuery, setSearchQuery] = useState("");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
-  const [previewRowId, setPreviewRowId] = useState<string | null>(null);
+  const [intelOpen, setIntelOpen] = useState(false);
+  const [previewRow, setPreviewRow] = useState<LoadRow | null>(null);
   
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: string } | null>(null);
@@ -131,7 +134,7 @@ function TransformerSizingPage() {
   const renderRowContextMenu = (r: LoadRow) => (
     <ContextMenuContent className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-lg p-1 text-[13px] text-slate-800 dark:text-slate-200 z-50">
       <ContextMenuItem
-        onClick={() => setPreviewRowId(r.id)}
+        onClick={() => { setLoadRows(loadRows.map(row => ({ ...row, selected: row.id === r.id }))); setIntelOpen(true); }}
         className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white rounded cursor-pointer transition-colors"
       >
         <Edit className="size-3.5" />
@@ -354,6 +357,60 @@ function TransformerSizingPage() {
       // If clicking an already selected row, leave selection as-is for bulk editing
       return prev;
     });
+  };
+
+  const getCalculationPreview = (row: LoadRow): CalculationPreviewData => {
+    const calcRow = calculatedData.rowDetails.find(r => r.id === row.id);
+    const unit = unitSystem === "ip" ? "HP" : "kW";
+    const L = Number(row.lightingHeatingKw || 0);
+    const I = Number(row.inductiveMotorKw || 0);
+    const div = Number(row.diversityFactor || 1);
+    const dem = Number(row.demandFactor || 1);
+    
+    if (!calcRow) {
+      return { title: "Transformer Load Sizing", itemName: row.description || "Unnamed Load", steps: [] };
+    }
+    
+    return {
+      title: "Transformer Load Sizing",
+      itemName: row.description || "Unnamed Load",
+      inputs: [
+        { label: "Lighting / Heating Load", value: L, unit },
+        { label: "Inductive / Motor Load", value: I, unit },
+        { label: "Diversity Factor", value: div },
+        { label: "Demand Factor", value: dem }
+      ],
+      steps: [
+        {
+          stepNumber: 1,
+          label: "Total Connected Load (TCL)",
+          formula: "TCL = L/H Load + Inductive Load",
+          substitution: `${L} + ${I}`,
+          result: calcRow.connectedLoad.toFixed(2),
+          unit
+        },
+        {
+          stepNumber: 2,
+          label: "Sub-Total (After Diversity)",
+          formula: "Sub-Total = TCL × Diversity Factor",
+          substitution: `${calcRow.connectedLoad.toFixed(2)} × ${div}`,
+          result: (calcRow.connectedLoad * div).toFixed(2),
+          unit
+        },
+        {
+          stepNumber: 3,
+          label: "Maximum Demand (MD)",
+          formula: "MD = Sub-Total × Demand Factor",
+          substitution: `${(calcRow.connectedLoad * div).toFixed(2)} × ${dem}`,
+          result: calcRow.maxDemand.toFixed(2),
+          unit,
+          status: "pass"
+        }
+      ],
+      finalResultLabel: "Maximum Demand",
+      finalResultValue: calcRow.maxDemand.toFixed(2),
+      finalResultUnit: unit
+    };
   };
 
   const handleDeleteSelected = async () => {
@@ -710,10 +767,12 @@ function TransformerSizingPage() {
   return (
     <AppShell
       title="Transformer Sizing"
-      subtitle="Calculate transformer rating based on connected and maximum demand loads"
-      actions={<UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} />}
+      actions={<UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isEffectiveReadOnly} />}
+      intelOpen={intelOpen}
+      onIntelClick={() => setIntelOpen(v => !v)}
     >
-      <div className="h-full flex flex-col bg-background font-sans">
+      <div className="flex h-full min-h-0 bg-transparent overflow-hidden">
+        <div className="flex-1 h-full flex flex-col bg-background font-sans min-w-0">
         
         {/* Tabs */}
         <div className="flex items-center gap-2 border-b border-border px-4 py-2 bg-surface-2">
@@ -852,7 +911,8 @@ function TransformerSizingPage() {
                       const allSelected = loadRows.length > 0 && loadRows.every(r => r.selected);
                       setLoadRows(loadRows.map(r => ({ ...r, selected: !allSelected })));
                     }}
-                    onRowDoubleClick={(row) => setPreviewRowId(row.id)}
+                    onRowDoubleClick={(row) => setPreviewRow(row)}
+                    renderContextMenu={renderRowContextMenu}
                   />
                 )}
               </div>
@@ -953,200 +1013,200 @@ function TransformerSizingPage() {
             </div>
           </div>
         )}
-
-        {/* Edit Row / Calculation Preview Modal */}
-        {previewRowId && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col h-[85vh]">
-              {(() => {
-                const row = loadRows.find(r => r.id === previewRowId);
-                const calcRow = calculatedData.rowDetails.find(r => r.id === previewRowId);
-                if (!row || !calcRow) return null;
-                const unit = unitSystem === "ip" ? "HP" : "kW";
-                const rowIdx = loadRows.findIndex(r => r.id === previewRowId) + 1;
-
-                return (
-                  <>
-                    <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 shrink-0">
-                      <div className="flex items-center gap-3">
-                        <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                          Edit Transformer Load Parameters
-                        </h2>
-                        <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
-                          Row #{rowIdx}: {row.description || "Unnamed"}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleUpdateRow(row.id, "flagged", !row.flagged)}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-sm font-medium transition-colors ${
-                            row.flagged
-                              ? "bg-red-50 text-red-600 border-red-200 hover:bg-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400"
-                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
-                          }`}
-                        >
-                          <Flag className={`size-4 ${row.flagged ? "fill-red-500" : ""}`} />
-                          {row.flagged ? "Flagged" : "Flag"}
-                        </button>
-                        <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1"></div>
-                        <button onClick={() => setPreviewRowId(null)} className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" className="size-5"><path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd"></path></svg>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex-1 overflow-hidden flex flex-col md:flex-row bg-white dark:bg-slate-900">
-                      {/* Left Side: Parameters */}
-                      <div className="flex-1 border-r border-slate-200 dark:border-slate-800 p-6 overflow-y-auto">
-                        <div className="space-y-6">
-                          <div>
-                            <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 tracking-wider flex items-center gap-2 mb-4 uppercase">
-                              <FileText className="size-4" /> General Parameters
-                            </h3>
-                            <div className="space-y-4">
-                              <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Load Description</label>
-                                <input
-                                  type="text"
-                                  value={row.description}
-                                  onChange={(e) => handleUpdateRow(row.id, "description", e.target.value)}
-                                  className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-                                />
-                              </div>
-                            </div>
-                          </div>
-
-                          <div>
-                            <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 tracking-wider flex items-center gap-2 mb-4 uppercase mt-6">
-                              <Gauge className="size-4" /> Electrical Parameters
-                            </h3>
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Lighting / Heating ({unit})</label>
-                                <input
-                                  type="number"
-                                  value={row.lightingHeatingKw}
-                                  onChange={(e) => handleUpdateRow(row.id, "lightingHeatingKw", e.target.value === "" ? "" : Number(e.target.value))}
-                                  className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:border-blue-500 outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Inductive / Motor ({unit})</label>
-                                <input
-                                  type="number"
-                                  value={row.inductiveMotorKw}
-                                  onChange={(e) => handleUpdateRow(row.id, "inductiveMotorKw", e.target.value === "" ? "" : Number(e.target.value))}
-                                  className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:border-blue-500 outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Diversity Factor</label>
-                                <input
-                                  type="number"
-                                  value={row.diversityFactor}
-                                  onChange={(e) => handleUpdateRow(row.id, "diversityFactor", e.target.value === "" ? "" : Number(e.target.value))}
-                                  className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:border-blue-500 outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Demand Factor</label>
-                                <input
-                                  type="number"
-                                  value={row.demandFactor}
-                                  onChange={(e) => handleUpdateRow(row.id, "demandFactor", e.target.value === "" ? "" : Number(e.target.value))}
-                                  className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:border-blue-500 outline-none"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div>
-                            <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 tracking-wider flex items-center gap-2 mb-4 uppercase mt-6">
-                              <FileSpreadsheet className="size-4" /> Computed Load Summary
-                            </h3>
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-100 dark:border-slate-800">
-                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-1"><Layers className="size-3" /> Total Connected</span>
-                                <strong className="text-lg font-black text-blue-600 dark:text-blue-400 block">{calcRow.connectedLoad.toFixed(2)} {unit}</strong>
-                              </div>
-                              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-100 dark:border-slate-800">
-                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-1"><Zap className="size-3" /> Max Demand</span>
-                                <strong className="text-lg font-black text-blue-600 dark:text-blue-400 block">{calcRow.maxDemand.toFixed(2)} {unit}</strong>
-                              </div>
-                            </div>
-                          </div>
-
-                        </div>
-                      </div>
-
-                      {/* Right Side: Live Formula Breakdown */}
-                      <div className="w-[420px] bg-slate-50 dark:bg-slate-800/50 flex flex-col">
-                        <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2 shrink-0">
-                          <Calculator className="size-4 text-blue-500" />
-                          <h3 className="text-xs font-bold text-blue-600 dark:text-blue-400 tracking-wider uppercase">Live Formula Breakdown</h3>
-                        </div>
-                        <div className="p-4 overflow-y-auto flex-1 space-y-4">
-                          
-                          {/* Step 1 */}
-                          <div className="bg-white dark:bg-slate-900 rounded-lg p-4 border border-slate-200 dark:border-slate-700 shadow-sm">
-                            <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">1. Total Connected Load (TCL)</h4>
-                            <p className="text-xs text-slate-600 dark:text-slate-400 mb-3 font-mono">
-                              TCL = L/H Load + Inductive Load
-                            </p>
-                            <div className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs font-mono text-slate-700 dark:text-slate-300">
-                              {Number(row.lightingHeatingKw || 0).toFixed(2)} {unit} + {Number(row.inductiveMotorKw || 0).toFixed(2)} {unit}
-                            </div>
-                            <div className="mt-3 text-sm font-bold text-blue-600 dark:text-blue-400 font-mono">
-                              TCL = {calcRow.connectedLoad.toFixed(2)} {unit}
-                            </div>
-                          </div>
-
-                          {/* Step 2 */}
-                          <div className="bg-white dark:bg-slate-900 rounded-lg p-4 border border-slate-200 dark:border-slate-700 shadow-sm">
-                            <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">2. Sub-Total (After Diversity)</h4>
-                            <p className="text-xs text-slate-600 dark:text-slate-400 mb-3 font-mono">
-                              Sub-Total = TCL &times; Diversity Factor
-                            </p>
-                            <div className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs font-mono text-slate-700 dark:text-slate-300">
-                              {calcRow.connectedLoad.toFixed(2)} {unit} &times; {row.diversityFactor || 1}
-                            </div>
-                            <div className="mt-3 text-sm font-bold text-rose-600 dark:text-rose-400 font-mono">
-                              Sub-Total = {(calcRow.connectedLoad * Number(row.diversityFactor || 1)).toFixed(2)} {unit}
-                            </div>
-                          </div>
-
-                          {/* Step 3 */}
-                          <div className="bg-white dark:bg-slate-900 rounded-lg p-4 border border-slate-200 dark:border-slate-700 shadow-sm">
-                            <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2">3. Maximum Demand (MD)</h4>
-                            <p className="text-xs text-slate-600 dark:text-slate-400 mb-3 font-mono">
-                              MD = Sub-Total &times; Demand Factor
-                            </p>
-                            <div className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs font-mono text-slate-700 dark:text-slate-300">
-                              {(calcRow.connectedLoad * Number(row.diversityFactor || 1)).toFixed(2)} {unit} &times; {row.demandFactor || 1}
-                            </div>
-                            <div className="mt-3 text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                              MD = {calcRow.maxDemand.toFixed(2)} {unit}
-                            </div>
-                          </div>
-
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Footer */}
-                    <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex justify-end shrink-0">
-                      <button onClick={() => setPreviewRowId(null)} className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium transition-colors">
-                        Save Changes
-                      </button>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        )}
+        </div>{/* Edit Row / Calculation Preview Modal */}
+                {/* Intelligence Drawer */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[400px] border-l border-border bg-background shadow-lg flex flex-col" : "w-0 border-l-0"
+          }`}
+        >
+          {intelOpen && (
+            <TransformerIntelligenceDrawer
+              loadRows={loadRows}
+              calculatedData={calculatedData}
+              handleUpdateRow={handleUpdateRow}
+              unitSystem={unitSystem}
+              onClose={() => setIntelOpen(false)}
+            />
+          )}
+        </div>
 
       </div>
+
+      {/* Assign Comment Modal overlay */}
+      {commentTarget && (
+        <AssignCommentModal
+          isOpen={assignCommentOpen}
+          onClose={() => {
+            setAssignCommentOpen(false);
+            setCommentTarget(null);
+          }}
+          targetId={commentTarget.id}
+          targetName={commentTarget.name}
+          targetType={commentTarget.type as 'load' | 'equipment'}
+          route="/transformer-sizing"
+        />
+      )}
+
+      {/* Calculation Preview Modal on Double-click */}
+      <CalculationPreviewModal
+        isOpen={!!previewRow}
+        onClose={() => setPreviewRow(null)}
+        data={previewRow ? getCalculationPreview(previewRow) : null}
+      />
+
     </AppShell>
   );
 }
+
+
+function TransformerIntelligenceDrawer({
+  loadRows,
+  calculatedData,
+  handleUpdateRow,
+  unitSystem,
+  onClose
+}: any) {
+  const selectedRows = loadRows.filter((r: any) => r.selected);
+  
+  if (selectedRows.length !== 1) {
+    return (
+      <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-900/50">
+        <div className="p-4 border-b border-border bg-background flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-sparkles size-4 text-blue-500"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>
+            <h3 className="font-semibold text-sm tracking-tight">Intelligence &amp; Parameters</h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-muted-foreground hover:bg-muted rounded-md transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-x size-4"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+          <p className="text-sm text-slate-500">Select exactly one load row to view its live calculations and edit parameters.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const row = selectedRows[0];
+  const calcRow = calculatedData.rowDetails.find((r: any) => r.id === row.id);
+  if (!calcRow) return null;
+  const unit = unitSystem === "ip" ? "HP" : "kW";
+
+  return (
+    <div className="flex flex-col h-full bg-background">
+      <div className="p-4 border-b border-border flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-sparkles size-4 text-blue-500"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>
+          <h3 className="font-semibold text-sm tracking-tight">Intelligence &amp; Parameters</h3>
+        </div>
+        <button onClick={onClose} className="p-1.5 text-muted-foreground hover:bg-muted rounded-md transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-x size-4"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        
+        {/* EDIT FORM */}
+        <div>
+          <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+            Edit Parameters
+          </h4>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase">Load Description</label>
+              <input
+                type="text"
+                value={row.description}
+                onChange={(e) => handleUpdateRow(row.id, "description", e.target.value)}
+                className="w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm focus:border-blue-500 outline-none"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">L/H Load ({unit})</label>
+                <input
+                  type="number"
+                  value={row.lightingHeatingKw}
+                  onChange={(e) => handleUpdateRow(row.id, "lightingHeatingKw", e.target.value === "" ? "" : Number(e.target.value))}
+                  className="w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">Ind. Load ({unit})</label>
+                <input
+                  type="number"
+                  value={row.inductiveMotorKw}
+                  onChange={(e) => handleUpdateRow(row.id, "inductiveMotorKw", e.target.value === "" ? "" : Number(e.target.value))}
+                  className="w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">Diversity F.</label>
+                <input
+                  type="number"
+                  value={row.diversityFactor}
+                  onChange={(e) => handleUpdateRow(row.id, "diversityFactor", e.target.value === "" ? "" : Number(e.target.value))}
+                  className="w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase">Demand F.</label>
+                <input
+                  type="number"
+                  value={row.demandFactor}
+                  onChange={(e) => handleUpdateRow(row.id, "demandFactor", e.target.value === "" ? "" : Number(e.target.value))}
+                  className="w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm focus:border-blue-500 outline-none"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* LIVE FORMULA */}
+        <div>
+          <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2 pt-4 border-t border-border">
+            Live Formula Breakdown
+          </h4>
+          <div className="space-y-4">
+            {/* Step 1 */}
+            <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-3 border border-border">
+              <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">1. Total Connected Load (TCL)</h5>
+              <div className="bg-background rounded p-2 text-xs font-mono border border-border mb-2">
+                {Number(row.lightingHeatingKw || 0).toFixed(2)} + {Number(row.inductiveMotorKw || 0).toFixed(2)}
+              </div>
+              <div className="text-xs font-bold text-blue-600 dark:text-blue-400 font-mono">
+                TCL = {calcRow.connectedLoad.toFixed(2)} {unit}
+              </div>
+            </div>
+
+            {/* Step 2 */}
+            <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-3 border border-border">
+              <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">2. Sub-Total (After Div.)</h5>
+              <div className="bg-background rounded p-2 text-xs font-mono border border-border mb-2">
+                {calcRow.connectedLoad.toFixed(2)} &times; {row.diversityFactor || 1}
+              </div>
+              <div className="text-xs font-bold text-rose-600 dark:text-rose-400 font-mono">
+                Sub = {(calcRow.connectedLoad * Number(row.diversityFactor || 1)).toFixed(2)} {unit}
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-3 border border-border">
+              <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">3. Max Demand (MD)</h5>
+              <div className="bg-background rounded p-2 text-xs font-mono border border-border mb-2">
+                {(calcRow.connectedLoad * Number(row.diversityFactor || 1)).toFixed(2)} &times; {row.demandFactor || 1}
+              </div>
+              <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                MD = {calcRow.maxDemand.toFixed(2)} {unit}
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+

@@ -10,7 +10,7 @@ import { dirtyStore } from "@/lib/dirty-store";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { 
-  Plus, Download, Trash, Copy, Trash2, X, Database, FileText, FileSpreadsheet, 
+  Plus, Download, Trash, Copy, Trash2, X, FileText, FileSpreadsheet, 
   MessageSquare, Search, Filter, ArrowUpDown, Sparkles, Check, Sun, Edit3, Layers, Flag
 } from "lucide-react";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
@@ -20,6 +20,7 @@ import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { CalculationPreviewModal, type CalculationPreviewData, type CalculationStep } from "@/components/calculator-framework/CalculationPreviewModal";
 import { toast } from "sonner";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
@@ -104,11 +105,15 @@ function getLuxRowValidation(row: LuxRow) {
     warnings.push("Lumen output 0");
   }
   
-  const isAutoFlagged = warnings.length > 0;
-  const isManuallyFlagged = Boolean(row.flagged);
-  const isFlagged = isAutoFlagged || isManuallyFlagged;
+  const hasWarnings = warnings.length > 0;
+  const isExplicitlyUnflagged = row.flagged === false;
+  const isExplicitlyFlagged = row.flagged === true;
 
-  return { isAutoFlagged, isManuallyFlagged, isFlagged, warnings };
+  // A row is flagged if user explicitly flagged it, or if it has auto warnings and wasn't explicitly unflagged
+  const isFlagged = isExplicitlyFlagged || (!isExplicitlyUnflagged && hasWarnings);
+  const isAutoFlagged = !isExplicitlyFlagged && hasWarnings && !isExplicitlyUnflagged;
+
+  return { isAutoFlagged, isManuallyFlagged: isExplicitlyFlagged, isFlagged, warnings };
 }
 
 // Helper to compute calculated fields
@@ -157,6 +162,107 @@ function pushToHistory(
   }
 }
 
+// Helper to construct step-by-step Calculation Preview for Lighting LUX
+function getCalculationPreview(row: LuxRow, unitSystem: "si" | "ip"): CalculationPreviewData {
+  const L = row.length || 0;
+  const W = row.width || 0;
+  const H = row.height || 0;
+  const area = row.area || (L * W);
+  const roomIndex = row.roomIndex || (H > 0 && (L + W) > 0 ? parseFloat(((L * W) / (H * (L + W))).toFixed(2)) : 0);
+  const reqLux = row.reqLux || 0;
+  const lumen = row.lumen || 0;
+  const mf = row.mf || 0.8;
+  const uf = row.uf || 0.6;
+  const reqQty = row.reqQty || (lumen > 0 && mf > 0 && uf > 0 ? Math.ceil((reqLux * area) / (lumen * mf * uf)) : 0);
+
+  const dimUnit = unitSystem === "ip" ? "ft" : "m";
+  const areaUnit = unitSystem === "ip" ? "sq ft" : "m²";
+  const luxUnit = unitSystem === "ip" ? "fc" : "Lux";
+
+  const totalRequiredLumen = (mf > 0 && uf > 0) ? (reqLux * area) / (mf * uf) : 0;
+  const totalInstalledLumen = reqQty * lumen;
+  const achievedLux = area > 0 ? (totalInstalledLumen * mf * uf) / area : 0;
+  const isSatisfied = achievedLux >= reqLux && reqQty > 0;
+
+  const steps: CalculationStep[] = [
+    {
+      stepNumber: 1,
+      label: "Room Surface Area (A)",
+      formula: "A = Length (L) × Width (W)",
+      substitution: `${L} ${dimUnit} × ${W} ${dimUnit} = ${area.toFixed(2)} ${areaUnit}`,
+      result: area.toFixed(2),
+      unit: areaUnit,
+      status: area > 0 ? "pass" : "warning",
+      description: area > 0 ? "Effective working plane surface area." : "Specify non-zero room length and width.",
+    },
+    {
+      stepNumber: 2,
+      label: "Room Index (RI / K)",
+      formula: "RI = (L × W) / [H × (L + W)]",
+      substitution: H > 0 && (L + W) > 0 ? `(${L} × ${W}) / [${H} × (${L} + ${W})] = ${roomIndex}` : "Mounting height or dimensions zero",
+      result: roomIndex,
+      status: roomIndex > 0 ? "pass" : "info",
+      description: "Geometric index of room proportions used to select the Utilization Factor (UF).",
+    },
+    {
+      stepNumber: 3,
+      label: "Total Luminous Flux Required (Φ_total)",
+      formula: "Φ_total = (E_req × A) / (MF × UF)",
+      substitution: mf > 0 && uf > 0 ? `(${reqLux} ${luxUnit} × ${area.toFixed(2)} ${areaUnit}) / (${mf} × ${uf}) = ${Math.round(totalRequiredLumen).toLocaleString()} lm` : "MF or UF is zero",
+      result: Math.round(totalRequiredLumen).toLocaleString(),
+      unit: "Lumens (lm)",
+      status: "info",
+      description: "Total raw lamp lumens required to maintain target illuminance under depreciation and room reflection losses.",
+    },
+    {
+      stepNumber: 4,
+      label: "Required Luminaire Quantity (N)",
+      formula: "N = ⌈ Φ_total / Φ_lamp ⌉",
+      substitution: lumen > 0 ? `⌈ ${Math.round(totalRequiredLumen).toLocaleString()} / ${lumen} lm ⌉ = ${reqQty}` : "Lumens per fitting missing",
+      result: reqQty,
+      unit: "Fittings",
+      status: reqQty > 0 ? "pass" : "warning",
+      description: "Luminaire count rounded up to the next integer for layout symmetry.",
+    },
+    {
+      stepNumber: 5,
+      label: "Maintained Illuminance Achieved (E_achieved)",
+      formula: "E_achieved = (N × Φ_lamp × MF × UF) / A",
+      substitution: area > 0 ? `(${reqQty} × ${lumen} × ${mf} × ${uf}) / ${area.toFixed(2)} = ${achievedLux.toFixed(1)} ${luxUnit}` : "Area is zero",
+      result: achievedLux.toFixed(1),
+      unit: luxUnit,
+      status: isSatisfied ? "pass" : reqQty === 0 ? "info" : "warning",
+      description: isSatisfied
+        ? `Meets target illuminance of ${reqLux} ${luxUnit} (+${(achievedLux - reqLux).toFixed(1)} margin).`
+        : `Target illuminance is ${reqLux} ${luxUnit}. Consider increasing luminaire count or lumen package.`,
+    }
+  ];
+
+  return {
+    title: "Lighting LUX Calculation Preview",
+    itemName: row.location || `Space ${row.id}`,
+    itemCode: `${row.lightType || "Standard Luminaire"} • ${row.ipRating || "IP20"}`,
+    standardReference: "CIBSE Code for Lighting / EN 12464-1 / IESNA",
+    inputs: [
+      { label: "Target Illuminance (LL)", value: reqLux, unit: luxUnit },
+      { label: "Room Length (L)", value: L, unit: dimUnit },
+      { label: "Room Width (W)", value: W, unit: dimUnit },
+      { label: "Mounting Height (H)", value: H, unit: dimUnit },
+      { label: "Fitting Lumen Output", value: lumen, unit: "lm" },
+      { label: "Maintenance Factor (MF)", value: mf },
+      { label: "Utilization Factor (UF)", value: uf },
+      { label: "Fitting IP Rating", value: row.ipRating || "IP20" },
+    ],
+    steps,
+    finalResultLabel: "Required Luminaire Quantity",
+    finalResultValue: `${reqQty} Units`,
+    finalResultUnit: row.lightType || "Luminaires",
+    complianceNote: isSatisfied
+      ? `COMPLIANT: Design satisfies the required illuminance of ${reqLux} ${luxUnit} with ${reqQty} luminaires yielding an average maintained illuminance of ${achievedLux.toFixed(0)} ${luxUnit}.`
+      : `ATTENTION: Specified luminaire layout yields ${achievedLux.toFixed(0)} ${luxUnit}, which is below the target ${reqLux} ${luxUnit}.`
+  };
+}
+
 function LightingLuxCalculationPage() {
   const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/lighting-lux-calculation", activeProjectId || project?.id);
@@ -197,6 +303,8 @@ function LightingLuxCalculationPage() {
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
+  const [previewRow, setPreviewRow] = useState<LuxRow | null>(null);
+  const activePreviewRow = previewRow ? (rows.find(r => r.id === previewRow.id) || previewRow) : null;
 
   // Search, Filtering & Sorting State
   const [searchQuery, setSearchQuery] = useState("");
@@ -864,7 +972,7 @@ function LightingLuxCalculationPage() {
     }
 
     if (filterFlaggedOnly) {
-      result = result.filter(r => getLuxRowValidation(r).isFlagged);
+      result = result.filter(r => !!r.flagged);
     }
 
     if (sortKey === "location-asc") {
@@ -904,26 +1012,49 @@ function LightingLuxCalculationPage() {
     setAssignCommentOpen(true);
   };
 
+  const handleToggleFlag = (targetRowId?: string) => {
+    const isSelected = targetRowId ? selected.has(targetRowId) : false;
+    const targetIds = targetRowId
+      ? (isSelected && selected.size > 1 ? Array.from(selected) : [targetRowId])
+      : Array.from(selected);
+
+    if (targetIds.length === 0) return;
+
+    const firstRow = rows.find(r => r.id === targetIds[0]);
+    const nextFlagged = !firstRow?.flagged;
+
+    setRows(prev => prev.map(r => targetIds.includes(r.id) ? { ...r, flagged: nextFlagged } : r));
+    toast.info(nextFlagged ? `Flagged ${targetIds.length} space(s) for review` : `Unflagged ${targetIds.length} space(s)`);
+  };
+
   const columns: Column<LuxRow>[] = useMemo(() => [
     {
       key: "id",
       header: "Sr. No.",
-      width: 70,
+      width: 50,
       align: "center",
       render: (row) => {
         const index = rows.findIndex(r => r.id === row.id) + 1;
-        return <span className="text-muted-foreground">{index}</span>;
+        return (
+          <span 
+            onDoubleClick={() => setPreviewRow(row)} 
+            className="text-muted-foreground cursor-pointer select-none hover:text-primary transition-colors font-mono text-xs"
+            title="Double-click to open calculation preview"
+          >
+            {index}
+          </span>
+        );
       }
     },
     {
       key: "location",
       header: "Location",
-      width: 160,
+      width: 140,
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
         const itemComments = getMergedItemComments(row.id, row.location, (row as any).comments, "/lighting-lux-calculation", project?.id);
         return (
-          <div className="flex items-center gap-1.5 w-full h-full px-1">
+          <div className="flex items-center gap-1.5 w-full min-w-0 h-full px-1">
             {itemComments.length > 0 && (
               <button
                 type="button"
@@ -941,7 +1072,7 @@ function LightingLuxCalculationPage() {
             <input 
               value={row.location}
               onChange={(e) => updateRow(row.id, { location: e.target.value })}
-              className="w-full h-full bg-transparent border-none outline-none px-1 focus:bg-primary/5 font-medium"
+              className="w-full min-w-0 h-full bg-transparent border-none outline-none px-1 focus:bg-primary/5 font-medium"
               autoComplete="off"
               placeholder="Space / Room Name"
               data-row-idx={rowIdx}
@@ -954,14 +1085,14 @@ function LightingLuxCalculationPage() {
     {
       key: "lightType",
       header: "Type of Light",
-      width: 160,
+      width: 130,
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
         return (
           <input 
             value={row.lightType}
             onChange={(e) => updateRow(row.id, { lightType: e.target.value })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 focus:bg-primary/5"
+            className="w-full min-w-0 h-full bg-transparent border-none outline-none px-2 focus:bg-primary/5"
             autoComplete="off"
             placeholder="e.g. LED Panel"
             data-row-idx={rowIdx}
@@ -973,14 +1104,14 @@ function LightingLuxCalculationPage() {
     {
       key: "ipRating",
       header: "IP Rating",
-      width: 100,
+      width: 75,
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
         return (
           <input 
             value={row.ipRating}
             onChange={(e) => updateRow(row.id, { ipRating: e.target.value })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 focus:bg-primary/5 text-center"
+            className="w-full min-w-0 h-full bg-transparent border-none outline-none px-1 focus:bg-primary/5 text-center"
             autoComplete="off"
             placeholder="IP20"
             data-row-idx={rowIdx}
@@ -992,7 +1123,7 @@ function LightingLuxCalculationPage() {
     {
       key: "length",
       header: unitSystem === "ip" ? "Length (L) ft" : "Length (L) m",
-      width: 100,
+      width: 75,
       align: "right",
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
@@ -1001,7 +1132,7 @@ function LightingLuxCalculationPage() {
             type="number"
             value={row.length === 0 ? "" : row.length}
             onChange={(e) => updateRow(row.id, { length: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
+            className="w-full min-w-0 h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
             data-row-idx={rowIdx}
             data-col-idx={4}
           />
@@ -1011,7 +1142,7 @@ function LightingLuxCalculationPage() {
     {
       key: "width",
       header: unitSystem === "ip" ? "Width (W) ft" : "Width (W) m",
-      width: 100,
+      width: 75,
       align: "right",
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
@@ -1020,7 +1151,7 @@ function LightingLuxCalculationPage() {
             type="number"
             value={row.width === 0 ? "" : row.width}
             onChange={(e) => updateRow(row.id, { width: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
+            className="w-full min-w-0 h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
             data-row-idx={rowIdx}
             data-col-idx={5}
           />
@@ -1030,7 +1161,7 @@ function LightingLuxCalculationPage() {
     {
       key: "height",
       header: unitSystem === "ip" ? "Height (H) ft" : "Height (H) m",
-      width: 100,
+      width: 75,
       align: "right",
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
@@ -1039,7 +1170,7 @@ function LightingLuxCalculationPage() {
             type="number"
             value={row.height === 0 ? "" : row.height}
             onChange={(e) => updateRow(row.id, { height: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
+            className="w-full min-w-0 h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
             data-row-idx={rowIdx}
             data-col-idx={6}
           />
@@ -1048,22 +1179,38 @@ function LightingLuxCalculationPage() {
     },
     {
       key: "roomIndex",
-      header: "Room Index (RI)",
-      width: 110,
+      header: "Room Index\n(RI)",
+      width: 75,
       align: "right",
-      render: (row) => <span className="text-blue-600 dark:text-blue-400 font-medium px-2">{row.roomIndex}</span>
+      render: (row) => (
+        <span 
+          onDoubleClick={() => setPreviewRow(row)}
+          className="text-blue-600 dark:text-blue-400 font-medium px-2 cursor-pointer hover:underline"
+          title="Double-click to open calculation preview"
+        >
+          {row.roomIndex}
+        </span>
+      )
     },
     {
       key: "area",
       header: unitSystem === "ip" ? "Area (sq ft)" : "Area (m²)",
-      width: 100,
+      width: 75,
       align: "right",
-      render: (row) => <span className="font-medium px-2">{row.area}</span>
+      render: (row) => (
+        <span 
+          onDoubleClick={() => setPreviewRow(row)}
+          className="font-medium px-2 cursor-pointer hover:text-primary transition-colors"
+          title="Double-click to open calculation preview"
+        >
+          {row.area}
+        </span>
+      )
     },
     {
       key: "reqLux",
-      header: unitSystem === "ip" ? "Req. Illum (fc)" : "Req. Lux (LL)",
-      width: 110,
+      header: unitSystem === "ip" ? "Req. Illum\n(fc)" : "Req. Lux\n(LL)",
+      width: 80,
       align: "right",
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
@@ -1072,7 +1219,7 @@ function LightingLuxCalculationPage() {
             type="number"
             value={row.reqLux === 0 ? "" : row.reqLux}
             onChange={(e) => updateRow(row.id, { reqLux: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right font-medium text-amber-600 dark:text-amber-500 focus:bg-primary/5"
+            className="w-full min-w-0 h-full bg-transparent border-none outline-none px-2 text-right font-medium text-amber-600 dark:text-amber-500 focus:bg-primary/5"
             data-row-idx={rowIdx}
             data-col-idx={9}
           />
@@ -1082,7 +1229,7 @@ function LightingLuxCalculationPage() {
     {
       key: "lumen",
       header: "Lumen",
-      width: 100,
+      width: 75,
       align: "right",
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
@@ -1091,7 +1238,7 @@ function LightingLuxCalculationPage() {
             type="number"
             value={row.lumen === 0 ? "" : row.lumen}
             onChange={(e) => updateRow(row.id, { lumen: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
+            className="w-full min-w-0 h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
             data-row-idx={rowIdx}
             data-col-idx={10}
           />
@@ -1101,7 +1248,7 @@ function LightingLuxCalculationPage() {
     {
       key: "mf",
       header: "M.F",
-      width: 80,
+      width: 55,
       align: "right",
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
@@ -1111,7 +1258,7 @@ function LightingLuxCalculationPage() {
             step="0.05"
             value={row.mf === 0 ? "" : row.mf}
             onChange={(e) => updateRow(row.id, { mf: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
+            className="w-full min-w-0 h-full bg-transparent border-none outline-none px-1 text-right focus:bg-primary/5"
             data-row-idx={rowIdx}
             data-col-idx={11}
           />
@@ -1121,7 +1268,7 @@ function LightingLuxCalculationPage() {
     {
       key: "uf",
       header: "U.F",
-      width: 80,
+      width: 55,
       align: "right",
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
@@ -1131,7 +1278,7 @@ function LightingLuxCalculationPage() {
             step="0.05"
             value={row.uf === 0 ? "" : row.uf}
             onChange={(e) => updateRow(row.id, { uf: parseFloat(e.target.value) || 0 })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 text-right focus:bg-primary/5"
+            className="w-full min-w-0 h-full bg-transparent border-none outline-none px-1 text-right focus:bg-primary/5"
             data-row-idx={rowIdx}
             data-col-idx={12}
           />
@@ -1141,10 +1288,14 @@ function LightingLuxCalculationPage() {
     {
       key: "reqQty",
       header: "Req. QTY",
-      width: 90,
+      width: 75,
       align: "center",
       render: (row) => (
-        <div className="h-full w-full flex items-center justify-center bg-green-500/10 text-green-700 dark:text-green-400 font-bold border-x border-green-500/20">
+        <div 
+          onDoubleClick={() => setPreviewRow(row)}
+          className="h-full w-full flex items-center justify-center bg-green-500/10 text-green-700 dark:text-green-400 font-bold border-x border-green-500/20 cursor-pointer hover:bg-green-500/20 transition-colors"
+          title="Double-click to open calculation preview"
+        >
           {row.reqQty}
         </div>
       )
@@ -1152,14 +1303,14 @@ function LightingLuxCalculationPage() {
     {
       key: "remarks",
       header: "Remarks",
-      width: 200,
+      width: 130,
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
         return (
           <input 
             value={row.remarks}
             onChange={(e) => updateRow(row.id, { remarks: e.target.value })}
-            className="w-full h-full bg-transparent border-none outline-none px-2 focus:bg-primary/5"
+            className="w-full min-w-0 h-full bg-transparent border-none outline-none px-2 focus:bg-primary/5"
             autoComplete="off"
             data-row-idx={rowIdx}
             data-col-idx={14}
@@ -1169,43 +1320,44 @@ function LightingLuxCalculationPage() {
     },
     {
       key: "flagged",
-      header: "Flag",
-      width: 60,
+      header: "FLAG",
+      width: 50,
       align: "center",
-      render: (row) => {
-        const { isAutoFlagged, isFlagged, warnings } = getLuxRowValidation(row);
-        const tooltipText = isFlagged
-          ? (isAutoFlagged ? `⚠️ Issue: ${warnings.join(", ")}` : "Flagged for engineering review")
-          : "Flag space for review";
-
-        return (
+      render: (row) => (
+        <div className="flex items-center justify-center">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              const targetIds = (selected.has(row.id) && selected.size > 1) ? selected : new Set([row.id]);
-              const nextFlag = !row.flagged;
-              setRows(prev => prev.map(r => targetIds.has(r.id) ? { ...r, flagged: nextFlag } : r));
-              if (nextFlag) toast.warning(`Flagged ${targetIds.size} space(s) for review`);
-              else toast.info(`Unflagged ${targetIds.size} space(s)`);
+              handleToggleFlag(row.id);
             }}
-            title={tooltipText}
-            className={`p-1.5 rounded-md transition-all cursor-pointer ${
-              isFlagged
-                ? (isAutoFlagged ? "bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400" : "bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400")
-                : "text-muted-foreground/30 hover:text-foreground hover:bg-surface-2"
-            }`}
+            title={row.flagged ? "Flagged for engineering review (click to unflag)" : "Flag space for review"}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer flex items-center justify-center group/flag mx-auto"
           >
-            <Flag className={`size-3.5 transition-all ${isFlagged ? "fill-current" : ""}`} />
+            <Flag
+              className={`size-3.5 transition-transform ${
+                row.flagged
+                  ? "text-red-500 fill-red-500 scale-110"
+                  : "text-muted-foreground/30 hover:text-red-500/60 group-hover/flag:scale-110"
+              }`}
+            />
           </button>
-        );
-      }
+        </div>
+      )
     }
-  ], [rows, unitSystem]);
+  ], [rows, unitSystem, selected]);
 
   const renderContextMenu = (row: LuxRow) => {
     return (
-      <ContextMenuContent className="w-52">
+      <ContextMenuContent className="w-56">
+        <ContextMenuItem
+          onClick={() => setPreviewRow(row)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-semibold text-primary"
+        >
+          <Sparkles className="size-3.5 text-primary" />
+          <span>Calculation Preview</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="my-1 border-t border-border" />
         <ContextMenuItem onClick={addRow}>
           <Plus className="size-4 mr-2" /> Add Space Row
         </ContextMenuItem>
@@ -1240,17 +1392,15 @@ function LightingLuxCalculationPage() {
           <MessageSquare className="size-4 mr-2" /> Add comment
         </ContextMenuItem>
         <ContextMenuItem
-          onClick={() => {
-            const targetIds = (selected.has(row.id) && selected.size > 1) ? selected : new Set([row.id]);
-            const nextFlag = !row.flagged;
-            setRows(prev => prev.map(r => targetIds.has(r.id) ? { ...r, flagged: nextFlag } : r));
-            if (nextFlag) toast.warning(`Flagged ${targetIds.size} space(s) for review`);
-            else toast.info(`Unflagged ${targetIds.size} space(s)`);
-          }}
-          className="text-amber-600 dark:text-amber-400 font-medium"
+          onClick={() => handleToggleFlag(row.id)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
         >
-          <Flag className={`size-4 mr-2 ${getLuxRowValidation(row).isFlagged ? "fill-red-500 text-red-500" : ""}`} />
-          {getLuxRowValidation(row).isFlagged ? "Unflag Space" : "Flag Space for Review"}
+          <Flag className={`size-3.5 ${row.flagged ? "text-red-500 fill-red-500" : ""}`} />
+          <span className={row.flagged ? "text-red-600 dark:text-red-400 font-medium" : ""}>
+            {selected.size > 1 && selected.has(row.id)
+              ? (row.flagged ? `Unflag Selected (${selected.size})` : `Flag Selected (${selected.size})`)
+              : (row.flagged ? "Unflag Space" : "Flag Space for Review")}
+          </span>
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => {
@@ -1479,14 +1629,6 @@ function LightingLuxCalculationPage() {
                   </div>
                 </PopoverContent>
               </Popover>
-
-              <button 
-                onClick={loadDummyData}
-                className="flex items-center gap-1 px-2.5 py-1 text-muted-foreground hover:text-foreground hover:bg-surface-2 rounded-full text-[11.5px] font-medium transition-colors ml-1"
-                title="Load sample space data"
-              >
-                <Database className="size-3" /> Sample Data
-              </button>
             </div>
 
             {/* Right Controls: Import, Export PDF, + New Space */}
@@ -1535,13 +1677,8 @@ function LightingLuxCalculationPage() {
                   <Copy className="size-3.5" /> Duplicate
                 </button>
                 <button
-                  onClick={() => {
-                    const anyUnflagged = rows.some(r => selected.has(r.id) && !r.flagged);
-                    setRows(prev => prev.map(r => selected.has(r.id) ? { ...r, flagged: anyUnflagged } : r));
-                    if (anyUnflagged) toast.warning(`Flagged ${selected.size} space(s) for review`);
-                    else toast.info(`Unflagged ${selected.size} space(s)`);
-                  }}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-white/70 dark:bg-black/50 hover:bg-white dark:hover:bg-black/80 transition text-xs font-medium cursor-pointer shadow-2xs"
+                  onClick={() => handleToggleFlag()}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-white/70 dark:bg-black/50 hover:bg-white dark:hover:bg-black/80 transition text-xs font-medium cursor-pointer shadow-2xs text-red-600 dark:text-red-400"
                 >
                   <Flag className="size-3.5 text-red-500 fill-red-500" /> Flag / Unflag
                 </button>
@@ -1568,11 +1705,14 @@ function LightingLuxCalculationPage() {
             {filteredAndSortedRows.length > 0 ? (
               <>
                 <DataGrid
+                  gridId="lighting-lux-calc"
                   rows={filteredAndSortedRows}
                   columns={columns}
                   selected={selected}
                   onToggle={handleToggle}
                   onToggleAll={handleToggleAll}
+                  onRowDoubleClick={(row) => setPreviewRow(row)}
+                  rowClassName={(r) => r.flagged ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]" : ""}
                   renderContextMenu={renderContextMenu}
                 />
               </>
@@ -1775,6 +1915,13 @@ function LightingLuxCalculationPage() {
           }}
         />
       )}
+
+      {/* Step-by-Step Calculation Preview Modal */}
+      <CalculationPreviewModal
+        isOpen={Boolean(previewRow)}
+        onClose={() => setPreviewRow(null)}
+        data={activePreviewRow ? getCalculationPreview(activePreviewRow, unitSystem) : null}
+      />
     </AppShell>
   );
 }

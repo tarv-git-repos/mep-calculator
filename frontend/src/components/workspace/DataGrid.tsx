@@ -353,11 +353,14 @@ export function DataGrid<T extends { id: string }>({
     };
   }, []);
 
+  const totalDefaultWidth = useMemo(() => {
+    return 36 + columns.reduce((sum, c) => sum + (c.width || 100), 0);
+  }, [columns]);
+
   const gridTemplate = `36px ${columns.map((c) => {
     const ratio = colRatios[String(c.key)];
     if (ratio !== undefined) {
-      const minW = Math.min(c.width, 50);
-      return `minmax(${minW}px, ${ratio}fr)`;
+      return `minmax(0, ${ratio}fr)`;
     }
     return `${c.width}px`;
   }).join(" ")}`;
@@ -374,7 +377,7 @@ export function DataGrid<T extends { id: string }>({
       >
         <div
           className="grid h-10 items-center text-[11.5px] font-semibold uppercase tracking-wider text-muted-foreground w-full"
-          style={{ gridTemplateColumns: gridTemplate }}
+          style={{ gridTemplateColumns: gridTemplate, minWidth: totalDefaultWidth }}
         >
           <div className="px-2 grid place-items-center">
             <input
@@ -397,7 +400,7 @@ export function DataGrid<T extends { id: string }>({
             return (
               <div
                 key={k}
-                className={`relative px-2 border-l border-transparent hover:border-border transition-colors duration-150 first:border-l-0 group flex items-center h-full ${
+                className={`relative px-2 border-l border-transparent hover:border-border transition-colors duration-150 first:border-l-0 group flex items-center h-full min-w-0 ${
                   c.align === "right" ? "justify-end text-right" :
                   c.align === "center" ? "justify-center text-center" : ""
                 }`}
@@ -427,10 +430,10 @@ export function DataGrid<T extends { id: string }>({
             headerRef.current.scrollLeft = target.scrollLeft;
           }
         } : undefined}
-        className={isSticky ? "w-full relative z-10" : "flex-1 overflow-y-auto overflow-x-hidden w-full relative z-10"}
+        className={isSticky ? "w-full relative z-10" : "flex-1 overflow-y-auto overflow-x-auto w-full relative z-10"}
       >
-        <div style={{ height: total * ROW_H, position: "relative" }} className="w-full">
-          <div style={{ transform: `translateY(${start * ROW_H}px)` }} className="w-full">
+        <div style={{ height: total * ROW_H, position: "relative", minWidth: totalDefaultWidth }} className="w-full">
+          <div style={{ transform: `translateY(${start * ROW_H}px)`, minWidth: totalDefaultWidth }} className="w-full">
             {slice.map((item) => {
               if (item.type === "group") {
                 const groupVal = item.groupValue!;
@@ -491,7 +494,7 @@ export function DataGrid<T extends { id: string }>({
                       <ContextMenuTrigger asChild>
                         <div
                           className="grid h-[30px] w-full"
-                          style={{ gridTemplateColumns: "1fr" }}
+                          style={{ gridTemplateColumns: "1fr", minWidth: totalDefaultWidth }}
                         >
                           {groupContent}
                         </div>
@@ -505,7 +508,7 @@ export function DataGrid<T extends { id: string }>({
                   <div
                     key={item.id}
                     className="grid h-[30px] w-full"
-                    style={{ gridTemplateColumns: "1fr" }}
+                    style={{ gridTemplateColumns: "1fr", minWidth: totalDefaultWidth }}
                   >
                     {groupContent}
                   </div>
@@ -576,7 +579,7 @@ export function DataGrid<T extends { id: string }>({
                     return (
                       <div
                         key={String(c.key)}
-                        className={`px-2 truncate flex items-center ${
+                        className={`px-2 truncate min-w-0 flex items-center ${
                           c.align === "right" ? "justify-end text-right" :
                           c.align === "center" ? "justify-center text-center w-full" : ""
                         } ${c.mono ? "font-mono tabular text-[13.5px]" : ""} ${isEditable && !isReadOnly ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors" : ""}`}
@@ -659,7 +662,7 @@ export function DataGrid<T extends { id: string }>({
                             ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                             : ""
                         } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
-                        style={{ gridTemplateColumns: gridTemplate, height: ROW_H }}
+                        style={{ gridTemplateColumns: gridTemplate, height: ROW_H, minWidth: totalDefaultWidth }}
                       >
                         {renderRowContent()}
                       </div>
@@ -724,7 +727,7 @@ export function DataGrid<T extends { id: string }>({
                       ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                       : ""
                   } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
-                  style={{ gridTemplateColumns: gridTemplate, height: ROW_H }}
+                  style={{ gridTemplateColumns: gridTemplate, height: ROW_H, minWidth: totalDefaultWidth }}
                 >
                   {renderRowContent()}
                 </div>

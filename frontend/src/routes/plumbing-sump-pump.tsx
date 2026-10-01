@@ -1563,8 +1563,6 @@ function SumpPumpPage() {
               isEffectiveReadOnly={isEffectiveReadOnly}
               unitSystem={unitSystem}
               setFormulaModalOpen={setFormulaModalOpen}
-              setPreviewModalOpen={setPreviewModalOpen}
-              onSwitchTab={(t) => setTab(t)}
             />
           )}
         </div>

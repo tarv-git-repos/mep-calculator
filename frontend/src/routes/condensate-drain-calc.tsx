@@ -626,7 +626,6 @@ function CondensateDrainCalcPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Coil Condensate Calculator</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "coil" : "coils"}</span>
               </div>
               
               <button 

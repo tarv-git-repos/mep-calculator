@@ -7,7 +7,7 @@ import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
   Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, Clipboard,
-  RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, Sparkles
+  RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, X, Sparkles, Download
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/context-menu";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/smoke-extract-fan")({
   head: () => ({
@@ -43,6 +44,10 @@ interface SavedCalculation {
 }
 
 function SmokeExtractFanPage() {
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [intelOpen, setIntelOpen] = useState(false);
+  const [tab, setTab] = useState<"calculator" | "report">("calculator");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/smoke-extract-fan", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/smoke-extract-fan", activeProjectId || project?.id);
@@ -617,6 +622,17 @@ function SmokeExtractFanPage() {
             <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Corridor Smoke Extract Fan</h1>
+                <button 
+                  onClick={() => setIntelOpen(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                    intelOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" />
+                  Intelligence
+                </button>
                 <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/smoke-extract-fan" calculatorTitle="Corridor Smoke Extract Fan" />
                 {commentsList.length > 0 && (
                   <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
@@ -625,13 +641,64 @@ function SmokeExtractFanPage() {
                   </div>
                 )}
               </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={setUnitSystem}
+                  ipLabel="IP"
+                  siLabel="SI"
+                  inputDescriptions="System Units"
+                />
+              </div>
             </div>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              Calculate corridor air volume smoke extract rates and duct static pressure drops for extract fan systems.
-            </p>
+
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          
+          {/* Secondary Action Row */}
+          <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 mt-2 mb-2">
+            <div className="flex items-center gap-2">
+              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                <button
+                  type="button"
+                  onClick={() => setTab("calculator")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "calculator"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Fan Sizer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("report")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "report"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Report
+                </button>
+              </div>
+
+              <TBtn onClick={() => setShowPreviewModal(true)} title="Formula Breakdown">
+                <HelpCircle className="size-3.5 text-primary" /> Formula Breakdown
+              </TBtn>
+            </div>
+
+            <TBtn onClick={handleExportExcel} title="Export to Excel">
+              <FileText className="size-3.5" /> Export
+            </TBtn>
+          </div>
+
+          {tab === "calculator" && (
+          
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            {tab === "calculator" && (
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-2">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Inputs Column */}
             <div className="lg:col-span-5 flex flex-col gap-6">
               {/* Card 1: Corridor Parameters */}
@@ -680,7 +747,7 @@ function SmokeExtractFanPage() {
             </div>
 
             {/* Results Column */}
-            <div className="lg:col-span-7 flex flex-col gap-5">
+            <div className="lg:col-span-7 flex flex-col gap-5 lg:sticky lg:top-4">
               {/* Summary card */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
@@ -714,7 +781,136 @@ function SmokeExtractFanPage() {
                 </div>
               </div>
 
-              {/* Detailed Calculations Steps */}
+              
+
+              {/* Assumptions reference block */}
+              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
+                <p className="font-semibold text-foreground mb-1">Standard Reference &amp; Assumptions:</p>
+                <ul className="list-disc pl-4 space-y-1.5">
+                  <li>Calculates fresh air requirements in accordance with NFPA 92 and BS EN 12101-6.</li>
+                  <li>Friction loss calculation uses equivalent length sizers for typical fitting indices ($1.6 \times$ duct length).</li>
+                  <li>Fan motor sizing includes a $+10\%$ electrical security factor applied to nominal shaft horsepower outputs.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Save Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-4 shadow-2xl">
+            <h3 className="font-bold text-base text-foreground">Save Current Smoke Extract</h3>
+            <div className="flex flex-col gap-1.5 text-xs">
+              <label className="font-semibold text-muted-foreground">Calculation Name</label>
+              <input
+                type="text"
+                value={saveName}
+                onChange={e => setSaveName(e.target.value)}
+                placeholder="e.g. GF Entrance Corridor"
+                className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
+              />
+            </div>
+            <div className="flex justify-end gap-2.5 mt-2">
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="px-4 py-2 border border-border rounded-lg text-xs font-bold text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveCurrent}
+                className="px-4 py-2 bg-primary text-primary-foreground font-bold rounded-lg text-xs transition hover:bg-primary/95 cursor-pointer"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Load Modal */}
+      {showLoadModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-lg p-6 flex flex-col gap-4 shadow-2xl">
+            <h3 className="font-bold text-base text-foreground">Load Saved Calculations</h3>
+            <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
+              {saves.filter(s => s.type === "smoke-extract").length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground text-xs">
+                  📭 No saved calculations found.
+                </div>
+              ) : (
+                saves
+                  .filter(s => s.type === "smoke-extract")
+                  .map(s => (
+                    <div
+                      key={s.id}
+                      onClick={() => handleLoadSave(s.id)}
+                      className="border border-border/70 rounded-xl p-3.5 hover:border-primary/50 transition cursor-pointer bg-slate-50/20 dark:bg-slate-900/10 flex justify-between items-center gap-4"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="font-bold text-xs text-foreground block truncate">{s.name}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono mt-0.5 block">
+                          Area: {s.values["se-corridor-area"]}m² · Ht: {s.values["se-corridor-height"]}m · ACPH: {s.values["se-acph"]}
+                        </span>
+                        <span className="text-[9.5px] text-muted-foreground/80 mt-1 block">
+                          Saved: {new Date(s.savedAt).toLocaleString()}
+                        </span>
+                      </div>
+                      <button
+                        onClick={(e) => handleDeleteSave(s.id, e)}
+                        className="text-muted-foreground hover:text-red-500 transition p-2 cursor-pointer"
+                        title="Delete Save"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </div>
+                  ))
+              )}
+            </div>
+            <div className="flex justify-end mt-2">
+              <button
+                onClick={() => setShowLoadModal(false)}
+                className="px-4 py-2 border border-border rounded-lg text-xs font-bold text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        
+        {/* Intelligence Drawer (Collapsible Right Side Panel) */}
+        <div
+          className={`shrink-0 overflow-hidden transition-all duration-300 ease-in-out ${
+            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <div className="flex flex-col h-full overflow-hidden w-[360px]">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-primary" />
+                  <h3 className="font-bold text-[13.5px] uppercase tracking-wider text-foreground">Live Intelligence</h3>
+                </div>
+                <button onClick={() => setIntelOpen(false)} className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded hover:bg-surface-2">
+                  <X className="size-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 custom-scrollbar flex flex-col gap-4 text-sm text-muted-foreground">
+                <p>Intelligence insights will appear here.</p>
+              </div>
+            </div>
+          )}
+        </div>
+</div>
+              </div>
+            )}
+            
+          {tab === "report" && (
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-card border border-border rounded-2xl shadow-xs mx-4">
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><HelpCircle className="size-5 text-primary"/> Detailed Calculations & Steps</h2>
+              <div className="flex flex-col gap-4 max-w-4xl">
+                {/* Detailed Calculations Steps */}
               <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
             : calcReviewState?.status === "REJECTED"
@@ -723,15 +919,15 @@ function SmokeExtractFanPage() {
             ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
             : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
                 <button
-                  onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
+                  
                   className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"
                 >
                   <span className="flex items-center gap-2">
                     <HelpCircle className="size-4 text-primary" /> Σ Detailed Calculations Steps
                   </span>
-                  {showDetailedCalcs ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                  
                 </button>
-                {showDetailedCalcs && (
+                (
                   <div className="p-5 pt-0 border-t border-border/40 text-xs font-sans flex flex-col gap-4 max-h-[350px] overflow-y-auto">
                     {/* Step 1 */}
                     {(() => {
@@ -1120,103 +1316,11 @@ function SmokeExtractFanPage() {
                   </div>
                 )}
               </div>
-
-              {/* Assumptions reference block */}
-              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
-                <p className="font-semibold text-foreground mb-1">Standard Reference &amp; Assumptions:</p>
-                <ul className="list-disc pl-4 space-y-1.5">
-                  <li>Calculates fresh air requirements in accordance with NFPA 92 and BS EN 12101-6.</li>
-                  <li>Friction loss calculation uses equivalent length sizers for typical fitting indices ($1.6 \times$ duct length).</li>
-                  <li>Fan motor sizing includes a $+10\%$ electrical security factor applied to nominal shaft horsepower outputs.</li>
-                </ul>
               </div>
             </div>
+          )}
           </div>
-        </div>
-      </div>
 
-      {/* Save Modal */}
-      {showSaveModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-4 shadow-2xl">
-            <h3 className="font-bold text-base text-foreground">Save Current Smoke Extract</h3>
-            <div className="flex flex-col gap-1.5 text-xs">
-              <label className="font-semibold text-muted-foreground">Calculation Name</label>
-              <input
-                type="text"
-                value={saveName}
-                onChange={e => setSaveName(e.target.value)}
-                placeholder="e.g. GF Entrance Corridor"
-                className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
-              />
-            </div>
-            <div className="flex justify-end gap-2.5 mt-2">
-              <button
-                onClick={() => setShowSaveModal(false)}
-                className="px-4 py-2 border border-border rounded-lg text-xs font-bold text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveCurrent}
-                className="px-4 py-2 bg-primary text-primary-foreground font-bold rounded-lg text-xs transition hover:bg-primary/95 cursor-pointer"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Load Modal */}
-      {showLoadModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-card border border-border rounded-2xl w-full max-w-lg p-6 flex flex-col gap-4 shadow-2xl">
-            <h3 className="font-bold text-base text-foreground">Load Saved Calculations</h3>
-            <div className="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
-              {saves.filter(s => s.type === "smoke-extract").length === 0 ? (
-                <div className="text-center py-6 text-muted-foreground text-xs">
-                  📭 No saved calculations found.
-                </div>
-              ) : (
-                saves
-                  .filter(s => s.type === "smoke-extract")
-                  .map(s => (
-                    <div
-                      key={s.id}
-                      onClick={() => handleLoadSave(s.id)}
-                      className="border border-border/70 rounded-xl p-3.5 hover:border-primary/50 transition cursor-pointer bg-slate-50/20 dark:bg-slate-900/10 flex justify-between items-center gap-4"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <span className="font-bold text-xs text-foreground block truncate">{s.name}</span>
-                        <span className="text-[10px] text-muted-foreground font-mono mt-0.5 block">
-                          Area: {s.values["se-corridor-area"]}m² · Ht: {s.values["se-corridor-height"]}m · ACPH: {s.values["se-acph"]}
-                        </span>
-                        <span className="text-[9.5px] text-muted-foreground/80 mt-1 block">
-                          Saved: {new Date(s.savedAt).toLocaleString()}
-                        </span>
-                      </div>
-                      <button
-                        onClick={(e) => handleDeleteSave(s.id, e)}
-                        className="text-muted-foreground hover:text-red-500 transition p-2 cursor-pointer"
-                        title="Delete Save"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </div>
-                  ))
-              )}
-            </div>
-            <div className="flex justify-end mt-2">
-              <button
-                onClick={() => setShowLoadModal(false)}
-                className="px-4 py-2 border border-border rounded-lg text-xs font-bold text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Assign Comment / Task Modal */}

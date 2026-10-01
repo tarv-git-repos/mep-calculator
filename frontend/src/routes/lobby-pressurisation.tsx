@@ -8,6 +8,7 @@ import { api } from "@/services/api";
 import React, { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
+import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import {
   AlertTriangle, Info, Printer, Plus, Trash2,
@@ -1022,6 +1023,312 @@ function LobbyPressurisationPage() {
     };
   }, [calculatedRows, totalFans]);
 
+  const groupOrder = useMemo(() => {
+    return calculatedGroups.map(g => g.groupName);
+  }, [calculatedGroups]);
+
+  const toggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
+    setSelectedRowIds((prev) => {
+      const list = filteredRows;
+      const clickedIndex = list.findIndex((r) => r.id === id);
+      if (clickedIndex === -1) return prev;
+
+      const next = new Set(prev);
+      if (isShift) {
+        for (let i = 0; i <= clickedIndex; i++) {
+          if (list[i]) next.add(list[i].id);
+        }
+      } else if (isCtrl) {
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+      } else {
+        if (prev.has(id) && prev.size === 1) next.delete(id);
+        else {
+          next.clear();
+          next.add(id);
+        }
+      }
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelectedRowIds((prev) => (prev.size === filteredRows.length ? new Set() : new Set(filteredRows.map((r) => r.id))));
+  };
+
+  const handleToggleGroup = (ids: string[], select: boolean) => {
+    setSelectedRowIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => {
+        if (select) next.add(id);
+        else next.delete(id);
+      });
+      return next;
+    });
+  };
+
+  const renderGroupHeader = (groupValue: string) => {
+    const grpComments = getMergedItemComments(groupValue, groupValue, commentsList, "/lobby-pressurisation", project?.id);
+    const grp = calculatedGroups.find(g => g.groupName === groupValue);
+    const count = grp ? grp.rows.length : calculatedRows.filter(r => (groupByMode === "zone" ? r.zoneName : r.basementLevel) === groupValue).length;
+    const subArea = grp ? grp.totalArea : 0;
+    const subVol = grp ? grp.totalVolume : 0;
+    const sub6 = grp ? grp.subtotal6 : 0;
+
+    return (
+      <div className="flex items-center justify-between w-full pr-4 text-xs">
+        <div className="flex items-center gap-1.5 font-medium">
+          <strong className="font-bold text-primary">{groupValue}</strong>
+          <span className="text-[10.5px] text-muted-foreground font-normal">({count} {count === 1 ? "space" : "spaces"})</span>
+          {grpComments.length > 0 && (
+            <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[9.5px]">
+              <MessageSquare className="size-2.5 fill-blue-500/20" />
+              <span>{grpComments.length}</span>
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3.5 font-mono text-[11px] text-muted-foreground">
+          <span>Σ Area: <strong className="text-foreground">{subArea.toLocaleString()} {ip ? "ft²" : "m²"}</strong></span>
+          <span>Σ Vol: <strong className="text-foreground">{subVol.toLocaleString()} {ip ? "ft³" : "m³"}</strong></span>
+          <span>Total 6 ACH: <strong className="text-primary font-bold">{sub6.toLocaleString()} {ip ? "CFM" : "L/s"}</strong></span>
+        </div>
+      </div>
+    );
+  };
+
+  const renderGroupContextMenu = (groupValue: string) => {
+    const grp = calculatedGroups.find(g => g.groupName === groupValue);
+    const matching = grp ? grp.rows : calculatedRows.filter(r => (groupByMode === "zone" ? r.zoneName : r.basementLevel) === groupValue);
+    const matchingIds = matching.map(r => r.id);
+
+    return (
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+        <ContextMenuItem
+          onClick={() => handleOpenComment(groupValue, groupValue, "level")}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <MessageSquare className="size-3.5 text-blue-600" />
+          <span>Add Comment to {groupValue}</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        <ContextMenuItem
+          onClick={() => handleOpenBulkEdit(matchingIds)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <Edit3 className="size-3.5 text-primary" />
+          <span>Bulk Edit {matchingIds.length} Spaces</span>
+        </ContextMenuItem>
+        {grp && (
+          <ContextMenuItem
+            onClick={() => handleOpenEditLevelModal(grp)}
+            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          >
+            <Edit3 className="size-3.5 text-primary" />
+            <span>Edit Group Parameters</span>
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        <ContextMenuItem
+          onClick={() => handleAddZoneToLevel(groupValue)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <Plus className="size-3.5 text-emerald-600" />
+          <span>Add Space to {groupValue}</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        <ContextMenuItem
+          onClick={() => handleDeleteLevel(groupValue, matchingIds)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+        >
+          <Trash2 className="size-3.5" />
+          <span>Delete Entire {groupValue}</span>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
+  };
+
+  const renderRowContextMenu = (row: typeof calculatedRows[0]) => {
+    return (
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row.id, row.name || row.zoneName, "space")}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <MessageSquare className="size-3.5 text-blue-600" />
+          <span>Add Comment to {row.name || row.zoneName}</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        <ContextMenuItem
+          onClick={() => handleOpenBulkEdit([row.id])}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <Edit3 className="size-3.5 text-primary" />
+          <span>Bulk Edit Space</span>
+        </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => handleDuplicateZone(row)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+        >
+          <Copy className="size-3.5 text-muted-foreground" />
+          <span>Duplicate Space</span>
+        </ContextMenuItem>
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+        <ContextMenuItem
+          onClick={() => handleDeleteFloor(row.id)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+        >
+          <Trash2 className="size-3.5" />
+          <span>Delete Space</span>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
+  };
+
+  const columns: Column<typeof calculatedRows[0]>[] = [
+    {
+      key: "basementLevel",
+      header: "LEVEL / FLOOR",
+      width: 140,
+      editable: true,
+      render: (r) => (
+        <input
+          disabled={isApprovedLocked}
+          type="text"
+          value={r.basementLevel}
+          onChange={(e) => handleUpdateFloorCell(r.id, "basementLevel", e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          className="h-6 px-1.5 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-medium text-foreground outline-none w-full"
+          placeholder="Level 1"
+        />
+      ),
+    },
+    {
+      key: "zoneName",
+      header: "ZONE",
+      width: 160,
+      editable: true,
+      render: (r) => {
+        const itemComments = getMergedItemComments(r.id, r.zoneName || r.name, commentsList, "/lobby-pressurisation", project?.id);
+        return (
+          <div className="flex items-center gap-1.5 w-full">
+            {itemComments.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenComment(r.id, r.zoneName || r.name, "space");
+                }}
+                title={`${itemComments.length} comment(s)/task(s) assigned`}
+                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
+              >
+                <MessageSquare className="size-3.5 fill-blue-500/20" />
+                <span className="text-[10px] font-bold">{`${itemComments.length}`}</span>
+              </button>
+            )}
+            <input
+              disabled={isApprovedLocked}
+              type="text"
+              value={r.zoneName}
+              onChange={(e) => handleUpdateFloorCell(r.id, "zoneName", e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              className="h-6 px-1.5 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-medium text-foreground outline-none w-full"
+              placeholder="Lift Lobby 1"
+            />
+          </div>
+        );
+      },
+    },
+    {
+      key: "area",
+      header: `AREA (${ip ? "FT²" : "M²"})`,
+      width: 110,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (r) => (
+        <input
+          disabled={isApprovedLocked}
+          type="number"
+          value={r.area || ""}
+          onChange={(e) => handleUpdateFloorCell(r.id, "area", parseFloat(e.target.value) || 0)}
+          onClick={(e) => e.stopPropagation()}
+          className="h-6 w-full text-center px-1 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-mono font-semibold text-foreground outline-none"
+          placeholder="0"
+        />
+      ),
+    },
+    {
+      key: "height",
+      header: `HEIGHT (${ip ? "FT" : "M"})`,
+      width: 90,
+      align: "center",
+      mono: true,
+      editable: true,
+      render: (r) => (
+        <input
+          disabled={isApprovedLocked}
+          type="number"
+          step="0.1"
+          value={r.height || ""}
+          onChange={(e) => handleUpdateFloorCell(r.id, "height", parseFloat(e.target.value) || 0)}
+          onClick={(e) => e.stopPropagation()}
+          className="h-6 w-full text-center px-1 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-mono font-semibold text-foreground outline-none"
+          placeholder="0"
+        />
+      ),
+    },
+    {
+      key: "volume",
+      header: `VOLUME (${ip ? "FT³" : "M³"})`,
+      width: 110,
+      align: "center",
+      mono: true,
+      render: (r) => (
+        <span className="font-mono text-xs text-muted-foreground font-medium">
+          {r.volume.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: "flow6ach",
+      header: `6 ACH (${ip ? "CFM" : "L/S"})`,
+      width: 130,
+      align: "center",
+      mono: true,
+      render: (r) => (
+        <span className="font-mono text-xs text-primary font-bold">
+          {r.flow6ach.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: "flagged",
+      header: "",
+      width: 36,
+      align: "center",
+      render: (r) => (
+        <button
+          disabled={isApprovedLocked}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleUpdateFloorCell(r.id, "flagged", !r.flagged);
+          }}
+          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto disabled:cursor-default"
+          title={r.flagged ? "Flagged for engineering review (click to unflag)" : "Click to flag space"}
+        >
+          <Flag
+            className={`size-3.5 transition-all duration-200 ${
+              r.flagged
+                ? "fill-red-500 text-red-500 scale-110"
+                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+            }`}
+          />
+        </button>
+      ),
+    },
+  ];
+
   const handleAddFloor = () => {
     if (!newFloor.name && !newFloor.zone) return;
     const lvlName = newFloor.name.trim() || "Level 1";
@@ -1329,13 +1636,12 @@ function LobbyPressurisationPage() {
           <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
-                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Lobby Pressurisation &amp; Smoke Containment</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">{floors.length} {floors.length === 1 ? "space" : "spaces"}</span>
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Lobby Pressurisation</h1>
               </div>
               
               <button 
                 type="button"
-                onClick={() => setIntelOpen((v) => !v)}
+                onClick={() => setIntelOpen(v => !v)}
                 className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
                   intelOpen
                     ? "bg-primary text-primary-foreground border-primary"
@@ -1343,14 +1649,13 @@ function LobbyPressurisationPage() {
                 }`}
                 title="Toggle Lobby Pressurisation Intelligence"
               >
-                <Sparkles className="size-3.5" />
-                Intelligence
+                <Sparkles className="size-3.5" /> Intelligence
               </button>
 
-              <CalculationReviewBar
-                projectId={project?.id || activeProjectId || "default"}
-                calculatorPath="/lobby-pressurisation"
-                calculatorTitle="Lobby Pressurisation"
+              <CalculationReviewBar 
+                projectId={project?.id || activeProjectId || "default"} 
+                calculatorPath="/lobby-pressurisation" 
+                calculatorTitle="Lobby Pressurisation" 
               />
 
               {commentsList.length > 0 && (
@@ -1360,8 +1665,7 @@ function LobbyPressurisationPage() {
                 </div>
               )}
             </div>
-
-            {/* Unit System Toggle in Header inline with Approve / Reject */}
+            
             <div className="flex items-center gap-2">
               <UnitToggle
                 unitSystem={unitSystem}
@@ -1424,7 +1728,7 @@ function LobbyPressurisationPage() {
                 </TBtn>
               </div>
 
-              {/* Right Side: Group By Pill & Export */}
+              {/* Right Side: Group By Pill */}
               <div className="flex items-center gap-2.5 select-none shrink-0">
                 {activeSection === "schedule" && (
                   <div className="flex items-center bg-surface-2 p-1 rounded-full border border-border/80 text-xs font-semibold select-none">
@@ -1457,10 +1761,6 @@ function LobbyPressurisationPage() {
                     </button>
                   </div>
                 )}
-
-                <TBtn onClick={handleExportPDF}>
-                  <FileText className="size-3.5" /> Export
-                </TBtn>
               </div>
             </div>
 
@@ -1660,8 +1960,9 @@ function LobbyPressurisationPage() {
                   {/* PDF Export Button */}
                   <TBtn
                     onClick={handleExportPDF}
+                    title="Generate and Export PDF Calculation Report"
                   >
-                    <FileText className="size-3.5" /> Export PDF
+                    <FileText className="size-3.5" /> Export
                   </TBtn>
 
                   {/* Add Level / Zone (EXTREME RIGHT) */}
@@ -1684,382 +1985,134 @@ function LobbyPressurisationPage() {
               </div>
             )}
 
-            {/* Main Content Area */}
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-              
-              {/* Schedule Section */}
-              {activeSection === "schedule" && (
-                <div className="flex flex-col gap-3">
-                  {/* Action Banner when items are selected */}
-                  {selectedRowIds.size > 0 && (
-                    <div className="flex items-center justify-between bg-primary/10 border border-primary/20 rounded-xl px-4 py-2 text-xs font-medium text-primary select-none animate-fade-in">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="size-4 text-primary" />
-                        <span><strong>{selectedRowIds.size}</strong> space(s) selected</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => handleOpenBulkEdit()}
-                          className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
-                        >
-                          <Edit3 className="size-3" /> Bulk Edit
-                        </button>
-                        <button
-                          onClick={() => {
-                            const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
-                            setClipboard(selectedItems);
-                            toast.success(`Copied ${selectedItems.length} space(s) to clipboard`);
-                          }}
-                          className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
-                          title="Copy (Ctrl+C)"
-                        >
-                          <Copy className="size-3" /> Copy
-                        </button>
-                        <button
-                          onClick={() => {
-                            const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
-                            setClipboard(selectedItems);
-                            updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
-                            setSelectedRowIds(new Set());
-                          }}
-                          className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
-                          title="Cut (Ctrl+X)"
-                        >
-                          <Scissors className="size-3" /> Cut
-                        </button>
-                        <button
-                          onClick={() => {
-                            updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
-                            setSelectedRowIds(new Set());
-                          }}
-                          className="flex items-center gap-1 hover:underline font-bold text-red-500 cursor-pointer"
-                          title="Delete selected (Del)"
-                        >
-                          <Trash2 className="size-3" /> Delete
-                        </button>
-                        <button
-                          onClick={() => setSelectedRowIds(new Set())}
-                          className="text-muted-foreground hover:text-foreground font-semibold ml-2 cursor-pointer"
-                        >
-                          Clear (Esc)
-                        </button>
+                        {/* Main Content Area */}
+            {activeSection === "schedule" ? (
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+                {/* Floating Bulk Action Overlay Bar when rows selected */}
+                {!isApprovedLocked && selectedRowIds.size > 0 && (
+                  <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 h-10 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg border-b border-primary/20">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{selectedRowIds.size} row(s) selected</span>
+                      <span className="text-primary/30">·</span>
+                      <button
+                        onClick={() => handleOpenBulkEdit(Array.from(selectedRowIds))}
+                        className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                        title="Bulk Edit selected spaces"
+                      >
+                        <Edit3 className="size-3" /> Bulk Edit ({selectedRowIds.size})
+                      </button>
+                      <button
+                        onClick={() => {
+                          const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
+                          setClipboard(selectedItems);
+                          toast.info(`${selectedItems.length} space(s) copied`);
+                        }}
+                        className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                        title="Copy (Ctrl+C)"
+                      >
+                        <Copy className="size-3" /> Copy
+                      </button>
+                      <button
+                        onClick={() => {
+                          const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
+                          setClipboard(selectedItems);
+                          updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
+                          setSelectedRowIds(new Set());
+                          toast.info(`${selectedItems.length} space(s) cut`);
+                        }}
+                        className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                        title="Cut (Ctrl+X)"
+                      >
+                        <Scissors className="size-3" /> Cut
+                      </button>
+                      <button
+                        onClick={() => {
+                          updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
+                          setSelectedRowIds(new Set());
+                          toast.info(`Deleted ${selectedRowIds.size} space(s)`);
+                        }}
+                        className="flex items-center gap-1 hover:underline font-bold text-red-500 cursor-pointer"
+                        title="Delete selected (Del)"
+                      >
+                        <Trash2 className="size-3" /> Delete
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setSelectedRowIds(new Set())}
+                      className="text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 px-2 py-0.5 rounded cursor-pointer"
+                    >
+                      <X className="size-3" /> Clear (Esc)
+                    </button>
+                  </div>
+                )}
+
+                {/* Grid Container (Full Width) */}
+                <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
+                  {calculatedRows.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-2">
+                      <div className="max-w-md w-full bg-background border border-border rounded-xl p-8 shadow-sm flex flex-col items-center text-center animate-scale-in">
+                        <div className="size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4 animate-bounce">
+                          <Layers className="size-6" />
+                        </div>
+                        <h3 className="text-[15px] font-semibold tracking-tight">No Lobby Spaces Defined</h3>
+                        <p className="text-[12px] text-muted-foreground mt-2 mb-6 leading-relaxed">
+                          Start by adding lobby spaces or importing floor levels from 3D Studio or Excel schedule. The system will automatically compute 6 ACH airflow rates and size the pressurisation fan systems.
+                        </p>
+                        <div className="flex items-center gap-3 w-full">
+                          <button
+                            onClick={() => {
+                              setNewFloor({ name: "Level 1", zone: "Lift Lobby 1", area: 350, height: 3, numZones: 1 });
+                              setShowAddLevelModal(true);
+                            }}
+                            className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded-full hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
+                          >
+                            <Plus className="size-3.5" /> Add Space
+                          </button>
+                          <button
+                            onClick={() => setShowImportSourceModal(true)}
+                            className="flex-1 border border-border hover:bg-surface-2 font-semibold h-9 rounded-full transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            <Upload className="size-3.5" /> Import
+                          </button>
+                        </div>
                       </div>
                     </div>
+                  ) : (
+                    <DataGrid
+                      rows={calculatedRows}
+                      columns={columns}
+                      selected={selectedRowIds}
+                      onToggle={toggle}
+                      onToggleAll={toggleAll}
+                      renderContextMenu={renderRowContextMenu}
+                      groupBy={(r) => (groupByMode === "zone" ? ((r.zoneName || "Lift Lobby 1").trim() || "Lift Lobby 1") : ((r.basementLevel || "Level 1").trim() || "Level 1"))}
+                      groupOrder={groupOrder}
+                      renderGroupHeader={renderGroupHeader}
+                      renderGroupContextMenu={renderGroupContextMenu}
+                      onToggleGroup={handleToggleGroup}
+                      onRowDoubleClick={(r) => handleOpenBulkEdit([r.id])}
+                      isReadOnly={isApprovedLocked}
+                      gridId="lobby_pressurisation_schedule"
+                    />
                   )}
+                </div>
 
-                  {/* Grouped Table View */}
-                  <div className="overflow-x-auto w-full">
-                    <table className="w-full text-xs text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-border/70 text-muted-foreground font-semibold bg-slate-100/50 dark:bg-slate-900/30">
-                          <th className="py-2.5 px-2 text-center w-8">
-                            <input
-                              type="checkbox"
-                              checked={floors.length > 0 && selectedRowIds.size === floors.length}
-                              onChange={e => setSelectedRowIds(e.target.checked ? new Set(floors.map(f => f.id)) : new Set())}
-                              className="rounded border-border cursor-pointer"
-                              title="Select / Deselect all rows (Ctrl+A)"
-                            />
-                          </th>
-                          <th className="py-2.5 px-3">Level / Floor</th>
-                          <th className="py-2.5 px-3">Zone</th>
-                          <th className="py-2.5">Area ({ip ? "ft²" : "m²"})</th>
-                          <th className="py-2.5">Height ({ip ? "ft" : "m"})</th>
-                          <th className="py-2.5">Volume ({ip ? "ft³" : "m³"})</th>
-                          <th className="py-2.5 text-[#0A7BC7] font-bold">
-                            <div className="flex items-center gap-1">
-                              <span>6 ACH ({ip ? "CFM" : "L/s"})</span>
-                              <button
-                                type="button"
-                                onClick={() => setShowFormulaModal(true)}
-                                className="text-muted-foreground hover:text-primary transition cursor-pointer p-0.5 rounded"
-                                title="Click to view 6 ACH calculation formula"
-                              >
-                                <Info className="size-3 text-[#0A7BC7]" />
-                              </button>
-                            </div>
-                          </th>
-                          <th className="py-2.5 text-center w-12">Flag</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/40 font-mono">
-                        {calculatedGroups.map((grp, grpIdx) => (
-                          <Fragment key={grp.groupKey + "-group"}>
-                            {/* Group Header */}
-                            <ContextMenu key={grp.groupKey + "-level-ctx"}>
-                              <ContextMenuTrigger asChild>
-                                <tr className={`font-sans group/header ${
-                                  grpIdx > 0 ? "border-t-2 border-border/80" : ""
-                                } bg-slate-50/80 dark:bg-slate-900/40 text-foreground`}>
-                                  <td className="py-2 px-2 text-center w-8">
-                                    <input
-                                      type="checkbox"
-                                      checked={grp.rows.every(r => selectedRowIds.has(r.id))}
-                                      onChange={e => {
-                                        const next = new Set(selectedRowIds);
-                                        grp.rows.forEach(r => {
-                                          if (e.target.checked) next.add(r.id);
-                                          else next.delete(r.id);
-                                        });
-                                        setSelectedRowIds(next);
-                                      }}
-                                      className="rounded border-border cursor-pointer"
-                                      title={`Select all rows in ${grp.groupName}`}
-                                    />
-                                  </td>
-                                  <td className="py-2 px-3 font-bold text-[13px] text-foreground" colSpan={7}>
-                                    <div className="flex items-center justify-between w-full">
-                                      <div className="flex items-center gap-2">
-                                        <span className="font-extrabold text-foreground">{grp.groupName}</span>
-                                        {(() => {
-                                          const grpComments = getMergedItemComments(grp.groupName, grp.groupName, commentsList, "/lobby-pressurisation", project?.id);
-                                          if (grpComments.length === 0) return null;
-                                          return (
-                                            <button
-                                              onClick={() => handleOpenComment(grp.groupName, grp.groupName, "level")}
-                                              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10.5px] hover:bg-blue-200 transition cursor-pointer"
-                                              title={`${grpComments.length} comment(s)/task(s) assigned`}
-                                            >
-                                              <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                              <span>{grpComments.length}</span>
-                                            </button>
-                                          );
-                                        })()}
-                                      </div>
-                                      <div className="flex items-center gap-1.5">
-                                        <button
-                                          onClick={() => handleOpenEditLevelModal(grp)}
-                                          className="p-1 px-2 bg-white dark:bg-slate-900 border border-border/80 rounded-lg text-primary hover:bg-primary/10 transition cursor-pointer shadow-2xs text-xs font-semibold flex items-center gap-1"
-                                          title="Edit group parameters & spaces"
-                                        >
-                                          <Edit3 className="size-3.5" />
-                                        </button>
-                                        <button
-                                          onClick={() => handleAddZoneToLevel(grp.groupName)}
-                                          className="p-1 px-2 bg-white dark:bg-slate-900 border border-border/80 rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition cursor-pointer shadow-2xs text-xs font-semibold flex items-center gap-1"
-                                          title="Add new space to this group"
-                                        >
-                                          <Plus className="size-3.5" />
-                                        </button>
-                                        <button
-                                          onClick={() => handleDeleteLevel(grp.groupName, grp.rows.map(r => r.id))}
-                                          className="p-1 px-2 bg-white dark:bg-slate-900 border border-border/80 rounded-lg text-red-500 hover:bg-red-500/10 transition cursor-pointer shadow-2xs text-xs font-semibold flex items-center gap-1"
-                                          title="Delete entire group"
-                                        >
-                                          <Trash2 className="size-3.5" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </td>
-                                </tr>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
-                                <ContextMenuItem
-                                  onClick={() => handleOpenComment(grp.groupName, grp.groupName, "level")}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <MessageSquare className="size-3.5 text-blue-600" />
-                                  <span>Add Comment / Task to {grp.groupName}</span>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  onClick={() => handleOpenBulkEdit(grp.rows.map(r => r.id))}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Edit3 className="size-3.5 text-primary" />
-                                  <span>Bulk Edit All {grp.rows.length} Spaces in {grp.groupName}</span>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  onClick={() => handleOpenEditLevelModal(grp)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Edit3 className="size-3.5 text-primary" />
-                                  <span>Edit {grp.groupName} Parameters</span>
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() => handleAddZoneToLevel(grp.groupName)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Plus className="size-3.5 text-emerald-600" />
-                                  <span>Add Space to {grp.groupName}</span>
-                                </ContextMenuItem>
-                                <ContextMenuSeparator className="h-px bg-border my-1" />
-                                <ContextMenuItem
-                                  onClick={() => handleDeleteLevel(grp.groupName, grp.rows.map(r => r.id))}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
-                                >
-                                  <Trash2 className="size-3.5" />
-                                  <span>Delete Entire {grp.groupName}</span>
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
-
-                            {/* Space Rows */}
-                            {grp.rows.map(r => (
-                              <ContextMenu key={r.id}>
-                                <ContextMenuTrigger asChild>
-                                  <tr
-                                    className={`transition-colors group ${
-                                      selectedRowIds.has(r.id)
-                                        ? "bg-primary/10 dark:bg-primary/20 border-l-2 border-l-primary"
-                                        : "hover:bg-slate-50/50 dark:hover:bg-slate-900/10"
-                                    }`}
-                                  >
-                                    <td className="py-1 px-2 text-center w-8 select-none">
-                                      <input
-                                        type="checkbox"
-                                        checked={selectedRowIds.has(r.id)}
-                                        onChange={e => {
-                                          e.stopPropagation();
-                                          const next = new Set(selectedRowIds);
-                                          if (e.target.checked) next.add(r.id);
-                                          else next.delete(r.id);
-                                          setSelectedRowIds(next);
-                                        }}
-                                        className="rounded border-border cursor-pointer"
-                                      />
-                                    </td>
-                                    {/* Level / Floor */}
-                                    <td className="py-1 px-3 font-sans">
-                                      <div className="flex items-center gap-1.5">
-                                        {r.flagged && <Flag className="size-3 text-red-500 shrink-0 fill-red-500/20" />}
-                                        <input
-                                          type="text"
-                                          value={r.basementLevel}
-                                          onChange={e => handleUpdateFloorCell(r.id, "basementLevel", e.target.value)}
-                                          className="h-6 px-1.5 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-medium text-foreground outline-none w-full max-w-[140px]"
-                                          placeholder="Level 1"
-                                        />
-                                      </div>
-                                    </td>
-                                    {/* Zone */}
-                                    <td className="py-1 px-3 font-sans">
-                                      <input
-                                        type="text"
-                                        value={r.zoneName}
-                                        onChange={e => handleUpdateFloorCell(r.id, "zoneName", e.target.value)}
-                                        className="h-6 px-1.5 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-medium text-foreground outline-none w-full max-w-[150px]"
-                                        placeholder="Lift Lobby 1"
-                                      />
-                                    </td>
-                                    <td className="py-1 font-mono">
-                                      <input
-                                        type="number"
-                                        value={r.area || ""}
-                                        onChange={e => {
-                                          const v = parseFloat(e.target.value) || 0;
-                                          handleUpdateFloorCell(r.id, "area", v);
-                                        }}
-                                        className="h-6 w-20 px-1 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-mono outline-none"
-                                      />
-                                    </td>
-                                    <td className="py-1 font-mono">
-                                      <input
-                                        type="number"
-                                        step="0.1"
-                                        value={r.height || ""}
-                                        onChange={e => handleUpdateFloorCell(r.id, "height", parseFloat(e.target.value) || 0)}
-                                        className="h-6 w-16 px-1 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-mono outline-none"
-                                      />
-                                    </td>
-                                    <td className="py-1 font-mono text-muted-foreground">
-                                      {r.volume.toLocaleString()}
-                                    </td>
-                                    <td className="py-1 font-mono font-bold text-[#0A7BC7]">
-                                      {r.flow6ach.toLocaleString()}
-                                    </td>
-                                    <td className="py-1 text-center w-12">
-                                      <div className="flex items-center justify-center gap-1">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleUpdateFloorCell(r.id, "flagged", !r.flagged)}
-                                          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-muted-foreground/40 hover:text-red-500 transition cursor-pointer"
-                                          title={r.flagged ? "Unflag" : "Flag"}
-                                        >
-                                          <Flag className={`size-3 ${r.flagged ? "text-red-500 fill-red-500" : ""}`} />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleDeleteFloor(r.id)}
-                                          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground/40 hover:text-red-500 transition cursor-pointer"
-                                          title="Delete space"
-                                        >
-                                          <Trash2 className="size-3" />
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                </ContextMenuTrigger>
-                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
-                                  <ContextMenuItem
-                                    onClick={() => handleOpenComment(r.id, r.name, "space")}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                  >
-                                    <MessageSquare className="size-3.5 text-blue-600" />
-                                    <span>Add Comment to {r.name}</span>
-                                  </ContextMenuItem>
-                                  <ContextMenuSeparator className="h-px bg-border my-1" />
-                                  <ContextMenuItem
-                                    onClick={() => handleDuplicateZone(r)}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                                  >
-                                    <Copy className="size-3.5 text-muted-foreground" />
-                                    <span>Duplicate Space</span>
-                                  </ContextMenuItem>
-                                  <ContextMenuItem
-                                    onClick={() => handleDeleteFloor(r.id)}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
-                                  >
-                                    <Trash2 className="size-3.5" />
-                                    <span>Delete Space</span>
-                                  </ContextMenuItem>
-                                </ContextMenuContent>
-                              </ContextMenu>
-                            ))}
-                          </Fragment>
-                        ))}
-
-                        {calculatedGroups.length === 0 && (
-                          <tr>
-                            <td colSpan={8} className="py-20 px-4 text-center text-muted-foreground font-sans align-middle">
-                              <div className="flex flex-col items-center justify-center gap-2 min-h-[260px]">
-                                <Layers className="size-8 text-muted-foreground/40" />
-                                <p className="font-bold text-sm text-foreground">No lobby spaces defined</p>
-                                <p className="text-xs text-muted-foreground">Click "Add Level / Zone" or import directly from 3D Studio / Excel.</p>
-                                <div className="mt-2 flex items-center gap-2 flex-wrap justify-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setNewFloor({ name: "Level 1", zone: "Lift Lobby 1", area: 350, height: 3, numZones: 1 });
-                                      setShowAddLevelModal(true);
-                                    }}
-                                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#0A7BC7] text-white rounded-xl text-xs font-semibold hover:bg-[#06456F] transition cursor-pointer shadow-xs"
-                                  >
-                                    <Plus className="size-3.5" />
-                                    Add Space
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowImportSourceModal(true)}
-                                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-primary/10 text-primary border border-primary/30 rounded-xl text-xs font-semibold hover:bg-primary/20 transition cursor-pointer shadow-xs"
-                                  >
-                                    <Box className="size-3.5 text-primary" />
-                                    Import from 3D Studio
-                                  </button>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                {/* Bottom Statistics Summary Status Bar */}
+                <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 no-print modal-blur-bg">
+                  <div>
+                    Showing <span className="text-foreground font-medium tabular">{filteredRows.length}</span> of {floors.length} spaces
+                  </div>
+                  <div className="flex items-center gap-3.5 tabular">
+                    <span>Σ Area: <span className="font-mono text-foreground font-semibold">{totals.totalArea.toLocaleString()} {ip ? "ft²" : "m²"}</span></span>
+                    <span>Σ Volume: <span className="font-mono text-foreground font-semibold">{totals.totalVolume.toLocaleString()} {ip ? "ft³" : "m³"}</span></span>
+                    <span>Σ 6 ACH Airflow: <span className="font-mono text-primary font-bold">{totals.total6.toLocaleString()} {ip ? "CFM" : "L/s"}</span></span>
                   </div>
                 </div>
-              )}
-
-              {/* Fan Systems Head Loss Section */}
-              {activeSection === "fan-systems" && (
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
+{/* Fan Systems Head Loss Section */}
+              
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-border/60">
                     <div className="flex items-center gap-2">
@@ -2342,11 +2395,11 @@ function LobbyPressurisationPage() {
                     )}
                   </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-
-      {/* Add Level Modal */}
+      
+{/* Add Level Modal */}
       {showAddLevelModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-4 shadow-2xl animate-fade-in">

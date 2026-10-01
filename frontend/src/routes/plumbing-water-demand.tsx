@@ -392,6 +392,10 @@ function WaterDemandPage() {
   const [fillWindowHours, setFillWindowHours] = useState<number>(2);
 
   const handleAddOverheadTank = () => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     const newId = Date.now();
     setOverheadTanks((prev) => [
       ...prev,
@@ -400,16 +404,28 @@ function WaterDemandPage() {
   };
 
   const handleRemoveOverheadTank = (id: number) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     setOverheadTanks((prev) => prev.filter((t) => t.id !== id));
   };
 
   const handleRenameOverheadTank = (id: number, name: string) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     setOverheadTanks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, name } : t))
     );
   };
 
   const handleUpdateOverheadTankPct = (id: number, splitPct: number) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     setOverheadTanks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, splitPct: Math.max(0, Math.min(100, splitPct)) } : t))
     );
@@ -526,6 +542,10 @@ function WaterDemandPage() {
   };
 
   const handleQuickAddWd = () => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     const newId = Date.now();
     const newEntry: WDRow = {
       id: newId,
@@ -542,6 +562,10 @@ function WaterDemandPage() {
   };
 
   const handleImportExcelFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -1132,6 +1156,11 @@ function WaterDemandPage() {
 
   // Domestic Handlers
   const handleAddWd = () => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Modifications are locked.", { id: "readonly-notice" });
+      setShowAddWdModal(false);
+      return;
+    }
     if (!newWdName.trim()) {
       toast.error("Please enter a description for the space");
       return;
@@ -1175,6 +1204,11 @@ function WaterDemandPage() {
 
   // Irrigation Handlers
   const handleAddIrr = () => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Modifications are locked.", { id: "readonly-notice" });
+      setShowAddIrrModal(false);
+      return;
+    }
     const areaVal = Number(newIrrArea);
     if (!areaVal || areaVal <= 0) {
       toast.error("Please enter a valid landscape area");
@@ -1200,6 +1234,10 @@ function WaterDemandPage() {
   };
 
   const handleWdRowChange = (id: number, field: "name" | "ppl" | "cat" | "lpd" | "multiplier", val: any) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     setWdRows(
       wdRows.map((r) => {
         if (r.id !== id) return r;
@@ -1227,6 +1265,10 @@ function WaterDemandPage() {
   };
 
   const handleIrrRowChange = (id: number, field: "area" | "vegType", val: any) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and Locked. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     setIrrRows(
       irrRows.map((r) => {
         if (r.id !== id) return r;
@@ -1805,16 +1847,46 @@ function WaterDemandPage() {
                     accept=".xlsx,.xls,.csv"
                     className="hidden"
                   />
-                  <TBtn onClick={() => { setPreviewTarget({ type: "summary" }); setPreviewModalOpen(true); }}>
+                  <TBtn
+                    disabled={isEffectiveReadOnly}
+                    onClick={() => {
+                      if (isEffectiveReadOnly) {
+                        toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to auto-calculate.", { id: "readonly-notice" });
+                        return;
+                      }
+                      setPreviewTarget({ type: "summary" });
+                      setPreviewModalOpen(true);
+                    }}
+                  >
                     <Sparkles className="size-3.5 text-primary" /> Auto-Calculate
                   </TBtn>
-                  <TBtn onClick={() => importFileRef.current?.click()}>
+                  <TBtn
+                    disabled={isEffectiveReadOnly}
+                    onClick={() => {
+                      if (isEffectiveReadOnly) {
+                        toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import entries.", { id: "readonly-notice" });
+                        return;
+                      }
+                      importFileRef.current?.click();
+                    }}
+                  >
                     <Download className="size-3.5" /> Import
                   </TBtn>
-                  <TBtn onClick={handleExportPDF}>
+                  <TBtn onClick={handleExportPDF} title="Generate and Export PDF Report">
                     <FileText className="size-3.5" /> Export
                   </TBtn>
-                  <TBtn primary onClick={() => demandSection === "irrigation" ? setShowAddIrrModal(true) : setShowAddWdModal(true)}>
+                  <TBtn
+                    primary
+                    disabled={isEffectiveReadOnly}
+                    onClick={() => {
+                      if (isEffectiveReadOnly) {
+                        toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add entries.", { id: "readonly-notice" });
+                        return;
+                      }
+                      if (demandSection === "irrigation") setShowAddIrrModal(true);
+                      else setShowAddWdModal(true);
+                    }}
+                  >
                     <Plus className="size-3.5" /> New Entry
                   </TBtn>
                 </div>
@@ -1904,45 +1976,70 @@ function WaterDemandPage() {
               {tab === "demand" && (
                 <>
                   {demandSection === "domestic" && (
-                    <div className="flex flex-col gap-0 flex-1 min-h-0">
-                      {/* Selection Active Banner */}
+                    <div className="flex flex-col gap-0 flex-1 min-h-0 relative">
+                      {/* Floating Bulk Action Overlay Bar when rows selected */}
                       {selectedWdRows.size > 0 && (
-                        <div className="mx-4 mt-3 flex items-center justify-between px-3.5 py-1.5 bg-[#0A7BC7]/10 dark:bg-[#0A7BC7]/20 border border-[#0A7BC7]/30 rounded-xl text-xs font-semibold text-[#0A7BC7] select-none animate-fade-in">
-                        <div className="flex items-center gap-2">
-                          <span className="bg-[#0A7BC7] text-white px-2 py-0.5 rounded-full text-[10.5px] font-bold shadow-2xs">
-                            {selectedWdRows.size} selected
-                          </span>
-                          <span className="text-muted-foreground text-[11.5px]">
-                            Press <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Shift/Ctrl+Click</kbd> for range/multi-select, <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Ctrl+A</kbd> select all, <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Esc</kbd> clear, <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Delete</kbd> remove.
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
+                        <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 h-10 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg border-b border-primary/20">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{selectedWdRows.size} selected</span>
+                            <span className="text-primary/30">·</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const firstId = Array.from(selectedWdRows)[0];
+                                const row = wdRows.find((r) => r.id === firstId);
+                                if (row) {
+                                  setPreviewTarget({ type: "domestic", rowId: row.id });
+                                  setPreviewModalOpen(true);
+                                }
+                              }}
+                              className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                              title="Calculation Breakdown"
+                            >
+                              <Calculator className="size-3" /> Breakdown
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setWdRows((prev) =>
+                                  prev.map((r) =>
+                                    selectedWdRows.has(r.id) ? { ...r, flagged: !r.flagged } : r
+                                  )
+                                );
+                                toast.info(`Updated flag status for ${selectedWdRows.size} entry(s)`);
+                              }}
+                              className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                              title="Flag for review"
+                            >
+                              <Flag className="size-3" /> Flag
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const count = selectedWdRows.size;
+                                setWdRows((prev) => prev.filter((r) => !selectedWdRows.has(r.id)));
+                                setSelectedWdRows(new Set());
+                                setLastClickedWdIndex(null);
+                                toast.info(`Deleted ${count} selected entry(s)`);
+                              }}
+                              className="flex items-center gap-1 hover:underline font-bold text-red-500 cursor-pointer"
+                              title="Delete selected entries"
+                            >
+                              <Trash2 className="size-3" /> Delete
+                            </button>
+                          </div>
                           <button
                             type="button"
                             onClick={() => {
-                              const count = selectedWdRows.size;
-                              setWdRows((prev) => prev.filter((r) => !selectedWdRows.has(r.id)));
-                              setSelectedWdRows(new Set());
-                              setLastClickedWdIndex(null);
-                              toast.info(`Deleted ${count} selected entry(s)`);
-                            }}
-                            className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition shadow-2xs flex items-center gap-1"
-                          >
-                            <Trash2 className="size-3" /> Delete Selected ({selectedWdRows.size})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
                               setSelectedWdRows(new Set());
                               setLastClickedWdIndex(null);
                             }}
-                            className="px-2 py-1 bg-background hover:bg-slate-200 dark:hover:bg-slate-800 text-muted-foreground rounded-lg text-[11px] font-bold cursor-pointer transition border border-border/60"
+                            className="text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 px-2 py-0.5 rounded cursor-pointer"
                           >
-                            Deselect (Esc)
+                            <X className="size-3" /> Clear
                           </button>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* Domestic Table */}
                     <div className="overflow-x-auto overflow-y-auto w-full flex-1 min-h-0">
@@ -2231,19 +2328,43 @@ function WaterDemandPage() {
 
                   {/* 2. Irrigation Water Demand Schedule */}
                   {demandSection === "irrigation" && (
-                    <div className="flex flex-col gap-0 flex-1 min-h-0">
-                      {/* Selection Active Banner */}
+                    <div className="flex flex-col gap-0 flex-1 min-h-0 relative">
+                      {/* Floating Bulk Action Overlay Bar when rows selected */}
                       {selectedIrrRows.size > 0 && (
-                        <div className="mx-4 mt-3 flex items-center justify-between px-3.5 py-1.5 bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 rounded-xl text-xs font-semibold text-emerald-700 dark:text-emerald-300 select-none animate-fade-in">
+                        <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 h-10 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg border-b border-primary/20">
                           <div className="flex items-center gap-2">
-                            <span className="bg-emerald-600 text-white px-2 py-0.5 rounded-full text-[10.5px] font-bold shadow-2xs">
-                              {selectedIrrRows.size} selected
-                            </span>
-                            <span className="text-muted-foreground text-[11.5px]">
-                              Press <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Shift/Ctrl+Click</kbd> for range/multi-select, <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Ctrl+A</kbd> select all, <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Esc</kbd> clear, <kbd className="px-1 py-0.5 bg-background border rounded text-[10px] font-mono">Delete</kbd> remove.
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{selectedIrrRows.size} selected</span>
+                            <span className="text-primary/30">·</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const firstId = Array.from(selectedIrrRows)[0];
+                                const row = irrRows.find((r) => r.id === firstId);
+                                if (row) {
+                                  setPreviewTarget({ type: "irrigation", rowId: row.id });
+                                  setPreviewModalOpen(true);
+                                }
+                              }}
+                              className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                              title="Calculation Breakdown"
+                            >
+                              <Calculator className="size-3" /> Breakdown
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIrrRows((prev) =>
+                                  prev.map((r) =>
+                                    selectedIrrRows.has(r.id) ? { ...r, flagged: !r.flagged } : r
+                                  )
+                                );
+                                toast.info(`Updated flag status for ${selectedIrrRows.size} irrigation entry(s)`);
+                              }}
+                              className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                              title="Flag for review"
+                            >
+                              <Flag className="size-3" /> Flag
+                            </button>
                             <button
                               type="button"
                               onClick={() => {
@@ -2253,21 +2374,22 @@ function WaterDemandPage() {
                                 setLastClickedIrrIndex(null);
                                 toast.info(`Deleted ${count} selected irrigation entry(s)`);
                               }}
-                              className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition shadow-2xs flex items-center gap-1"
+                              className="flex items-center gap-1 hover:underline font-bold text-red-500 cursor-pointer"
+                              title="Delete selected entries"
                             >
-                              <Trash2 className="size-3" /> Delete Selected ({selectedIrrRows.size})
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedIrrRows(new Set());
-                                setLastClickedIrrIndex(null);
-                              }}
-                              className="px-2 py-1 bg-background hover:bg-slate-200 dark:hover:bg-slate-800 text-muted-foreground rounded-lg text-[11px] font-bold cursor-pointer transition border border-border/60"
-                            >
-                              Deselect (Esc)
+                              <Trash2 className="size-3" /> Delete
                             </button>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedIrrRows(new Set());
+                              setLastClickedIrrIndex(null);
+                            }}
+                            className="text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 px-2 py-0.5 rounded cursor-pointer"
+                          >
+                            <X className="size-3" /> Clear
+                          </button>
                         </div>
                       )}
 
@@ -3937,8 +4059,9 @@ function WaterDemandPage() {
               </button>
               <button
                 type="button"
+                disabled={isEffectiveReadOnly}
                 onClick={handleAddWd}
-                className="px-4 py-2 bg-[#0A7BC7] hover:bg-[#0863a0] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                className="px-4 py-2 bg-[#0A7BC7] hover:bg-[#0863a0] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus className="size-4" /> Add Entry
               </button>
@@ -4010,8 +4133,9 @@ function WaterDemandPage() {
               </button>
               <button
                 type="button"
+                disabled={isEffectiveReadOnly}
                 onClick={handleAddIrr}
-                className="px-4 py-2 bg-[#0A7BC7] hover:bg-[#0863a0] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                className="px-4 py-2 bg-[#0A7BC7] hover:bg-[#0863a0] text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus className="size-4" /> Add Plant Area
               </button>

@@ -1603,7 +1603,7 @@ function DiffuserSelectorPage() {
     {
       key: "name",
       header: "NAME OF SPACE",
-      width: 220,
+      width: 180,
       editable: true,
       render: (r) => {
         const itemComments = getMergedItemComments(r.id, r.name, r.comments, "/diffuser-selector", project?.id);
@@ -1640,7 +1640,7 @@ function DiffuserSelectorPage() {
     {
       key: "coolingKw",
       header: "LOAD (KW)",
-      width: 95,
+      width: 80,
       align: "center",
       mono: true,
       editable: true,
@@ -1652,7 +1652,7 @@ function DiffuserSelectorPage() {
           step="0.1"
           min={0}
           value={r.coolingKw !== "" && r.coolingKw !== undefined ? r.coolingKw : ""}
-          placeholder="â€”"
+          placeholder="—"
           onCommit={(val) => {
             const nextKw = val === "" ? "" : Number(val);
             setRows(prev => prev.map(row => {
@@ -1672,7 +1672,7 @@ function DiffuserSelectorPage() {
     {
       key: "diffType",
       header: "DIFFUSER TYPE",
-      width: 170,
+      width: 145,
       render: (r) => (
         <select
           disabled={isApprovedLocked}
@@ -1695,7 +1695,7 @@ function DiffuserSelectorPage() {
     {
       key: "airflow",
       header: `AIRFLOW (${flowUnit})`,
-      width: 110,
+      width: 95,
       align: "center",
       mono: true,
       editable: true,
@@ -1719,7 +1719,7 @@ function DiffuserSelectorPage() {
     {
       key: "count",
       header: "QTY",
-      width: 65,
+      width: 55,
       align: "center",
       mono: true,
       editable: true,
@@ -1743,7 +1743,7 @@ function DiffuserSelectorPage() {
     {
       key: "flowPerDiff",
       header: "FLOW / DIFF",
-      width: 100,
+      width: 90,
       align: "center",
       mono: true,
       render: (r) => (
@@ -1755,7 +1755,7 @@ function DiffuserSelectorPage() {
     {
       key: "neckSize",
       header: "RECOMMENDED NECK",
-      width: 180,
+      width: 155,
       render: (r) => (
         <span className={`font-mono text-[11.5px] font-bold truncate ${r.sizing.isExceeded ? "text-destructive" : "text-primary"}`}>
           {r.sizing.neckSize}
@@ -1765,7 +1765,7 @@ function DiffuserSelectorPage() {
     {
       key: "velocity",
       header: "VEL (m/s)",
-      width: 80,
+      width: 70,
       align: "center",
       mono: true,
       render: (r) => (
@@ -1787,7 +1787,7 @@ function DiffuserSelectorPage() {
     {
       key: "throw",
       header: `THROW (${ip ? "ft" : "m"})`,
-      width: 90,
+      width: 70,
       align: "center",
       mono: true,
       render: (r) => (
@@ -1799,7 +1799,7 @@ function DiffuserSelectorPage() {
     {
       key: "nc",
       header: "NC SOUND",
-      width: 85,
+      width: 70,
       align: "center",
       mono: true,
       render: (r) => (
@@ -1811,7 +1811,7 @@ function DiffuserSelectorPage() {
     {
       key: "status",
       header: "STATUS",
-      width: 100,
+      width: 75,
       align: "center",
       render: (r) => {
         if (r.sizing.status === "FAIL") {
@@ -1826,7 +1826,7 @@ function DiffuserSelectorPage() {
     {
       key: "flagged",
       header: "",
-      width: 40,
+      width: 36,
       align: "center",
       render: (r) => (
         <button
@@ -1903,7 +1903,6 @@ function DiffuserSelectorPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Diffuser Selector</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "space" : "spaces"}</span>
               </div>
 
               <button 
@@ -2247,6 +2246,7 @@ function DiffuserSelectorPage() {
                     </div>
                   ) : (
                     <DataGrid
+                      gridId="diffuser-selector"
                       rows={filteredRows}
                       columns={columns}
                       selected={selectedRowIds}
@@ -2278,12 +2278,12 @@ function DiffuserSelectorPage() {
                     Showing <span className="text-foreground font-medium tabular">{filteredRows.length.toLocaleString()}</span> of {rows.length.toLocaleString()} spaces
                   </div>
                   <div className="flex items-center gap-3 tabular">
-                    <span>Î£ Airflow: <span className="font-mono text-primary font-bold">{totalFlowSum.toLocaleString()} {flowUnit}</span></span>
-                    <span>Î£ Outlets: <span className="font-mono text-foreground font-bold">{totalDiffusersSum} Outlets</span></span>
+                    <span>Σ Airflow: <span className="font-mono text-primary font-bold">{totalFlowSum.toLocaleString()} {flowUnit}</span></span>
+                    <span>Σ Outlets: <span className="font-mono text-foreground font-bold">{totalDiffusersSum} Outlets</span></span>
                     {totalCoolingKwSum > 0 && (
-                      <span>Î£ Load (kW): <span className="font-mono text-foreground font-bold">{totalCoolingKwSum.toFixed(2)} kW</span></span>
+                      <span>Σ Load (kW): <span className="font-mono text-foreground font-bold">{totalCoolingKwSum.toFixed(2)} kW</span></span>
                     )}
-                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">Status: All Terminals Sized (NC â‰¤ 30)</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">Status: All Terminals Sized (NC ≤ 30)</span>
                   </div>
                 </div>
               </div>
