@@ -77,7 +77,15 @@ const LOCAL_STORAGE_USER_KEY = 'mep_calculator_user_data';
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoggedin, setIsLoggedin] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return !!(localStorage.getItem(LOCAL_STORAGE_USER_KEY) || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile') || localStorage.getItem('auth_token'));
+      try {
+        const saved = localStorage.getItem(LOCAL_STORAGE_USER_KEY) || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object' && parsed.id) return true;
+        }
+      } catch (e) {
+        return false;
+      }
     }
     return false;
   });
@@ -87,8 +95,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          if (parsed && typeof parsed === 'object') return parsed;
-        } catch (e) {}
+          if (parsed && typeof parsed === 'object' && parsed.id) return parsed;
+        } catch (e) {
+          try {
+            localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
+            localStorage.removeItem('mep_user_data');
+            localStorage.removeItem('mep_profile');
+          } catch (_) {}
+        }
       }
     }
     return null;
@@ -96,7 +110,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(LOCAL_STORAGE_USER_KEY) || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile');
-      return !saved;
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === 'object' && parsed.id) return false;
+        } catch (e) {}
+      }
     }
     return true;
   });
