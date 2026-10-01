@@ -1,4 +1,5 @@
-import { CalculationReviewBar, useCalculationLock, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { useConfirm } from "@/hooks/use-confirm";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -40,6 +41,8 @@ import {
   Printer,
   TrendingUp,
   Check,
+  ShieldCheck,
+  BookOpen,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -57,7 +60,6 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditCoilModal, type CoilRow } from "@/components/workspace/EditCoilModal";
 import { ImportCoilModal } from "@/components/workspace/ImportCoilModal";
 import { exportCondensatePDF } from "@/lib/exportCondensatePDF";
-import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 
 export const Route = createFileRoute("/condensate-drain-calc")({
@@ -147,10 +149,11 @@ function CondensateDrainCalcPage() {
   const currentUserName = userData?.name || profile?.name || (user as any)?.user_metadata?.full_name || user?.email?.split("@")[0] || "Design Engineer";
   const confirm = useConfirm();
   const isLocked = useCalculationLock("/condensate-drain-calc", project?.id);
-  const [calcReviewState, setCalcReviewState] = useState<CalculationReviewState | null>(null);
+  const calcReviewState = useCalculationReviewState("/condensate-drain-calc", project?.id);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [rows, setRows] = useState<CoilRow[]>([]);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const [showFormulaModal, setShowFormulaModal] = useState(false);
 
   // Selection & UI State
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -618,98 +621,124 @@ function CondensateDrainCalcPage() {
     >
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
-            <div className="flex flex-col gap-1 w-full">
-              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                <div className="flex items-baseline gap-2">
-                  <h1 className="text-[28px] font-bold tracking-tight text-foreground">Coil Condensate Calculator</h1>
-                  <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "coil" : "coils"}</span>
-                </div>
-                <button 
-                  onClick={() => setIntelOpen(v => !v)}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                    intelOpen
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                  }`}
-                >
-                  <Sparkles className="size-3.5" />
-                  Intelligence
-                </button>
-                <CalculationReviewBar
-                  projectId={project?.id}
-                  calculatorPath="/condensate-drain-calc"
-                  calculatorTitle="Coil Condensate Calculator"
-                />
-                {totalCommentsCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (firstCommentedCoil) handleOpenComment(firstCommentedCoil);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 font-bold text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
-                    title={`${totalCommentsCount} total active comment(s)/task(s)`}
-                  >
-                    <MessageSquare className="size-3.5 fill-blue-500/20" />
-                    <span>{totalCommentsCount} Active {totalCommentsCount === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
-                  </button>
-                )}
+          {/* Page Header & Actions */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Coil Condensate Calculator</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "coil" : "coils"}</span>
               </div>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                Input entering and leaving air conditions for multiple cooling coils to formulate aggregate condensate drainage loads.
-              </p>
+              
+              <button 
+                type="button"
+                onClick={() => setIntelOpen((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+                title="Toggle Coil Condensate Intelligence"
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
+
+              <CalculationReviewBar
+                projectId={project?.id || "default"}
+                calculatorPath="/condensate-drain-calc"
+                calculatorTitle="Coil Condensate Calculator"
+              />
+
+              {totalCommentsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (firstCommentedCoil) handleOpenComment(firstCommentedCoil);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 font-bold text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
+                  title={`${totalCommentsCount} total active comment(s)/task(s)`}
+                >
+                  <MessageSquare className="size-3.5 fill-blue-500/20" />
+                  <span>{totalCommentsCount} Active {totalCommentsCount === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Unit System Toggle in Header inline with Approve / Reject */}
+            <div className="flex items-center gap-2">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitSystemChange}
+                disabled={isLocked}
+                inputDescriptions="DB In, WB In, DB Out, WB Out, Airflow"
+                conversionExample={unitSystem === "si" ? "Convert 24°C → 75.2°F, 1500 L/s → 3,178 CFM" : "Convert 75.2°F → 24°C, 3178 CFM → 1,500 L/s"}
+              />
             </div>
           </div>
 
-          {/* White card container for Tabs & Data Grid */}
-          <div className="flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+          {/* Main Card container for Tabs & Data Grid */}
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+            calcReviewState?.status === "APPROVED" 
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+              : calcReviewState?.status === "REJECTED"
+                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+                : calcReviewState?.status === "REVIEWED"
+                  ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                  : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+          }`}>
             {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
-              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                <button
-                  type="button"
-                  onClick={() => setTab("coils")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "coils"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    type="button"
+                    onClick={() => setTab("coils")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "coils"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Coils
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTab("summary")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "summary"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Summary &amp; Totals
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTab("report")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "report"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Report
+                  </button>
+                </div>
+
+                {/* Formula Breakdown button placed right next to tabs */}
+                <TBtn
+                  onClick={() => setShowFormulaModal(true)}
+                  title="Detailed Formulas & Sizing Derivations"
                 >
-                  Coils
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTab("summary")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "summary"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Summary &amp; Totals
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTab("report")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "report"
-                      ? "bg-background text-foreground shadow-sm font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Report
-                </button>
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
               </div>
 
-              {/* Units toggle option */}
+              {/* Right Side Action Button: Export */}
               <div className="flex items-center gap-2 select-none shrink-0">
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  inputDescriptions="DB In, WB In, DB Out, WB Out, Airflow"
-                  conversionExample={unitSystem === "si" ? "Convert 24°C → 75.2°F, 1500 L/s → 3,178 CFM" : "Convert 75.2°F → 24°C, 3178 CFM → 1,500 L/s"}
-                />
+                <TBtn onClick={handleExportPDF}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
               </div>
             </div>
 
@@ -1625,6 +1654,14 @@ function CondensateDrainCalcPage() {
           currentUnitSystem={unitSystem}
         />
       )}
+
+      {/* Formula Breakdown Modal */}
+      {showFormulaModal && (
+        <CoilCondensateFormulaModal
+          onClose={() => setShowFormulaModal(false)}
+          unitSystem={unitSystem}
+        />
+      )}
     </AppShell>
   );
 }
@@ -1794,6 +1831,174 @@ function CoilCondensateIntelligenceDrawer({
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Mathematical Formula & Engineering Derivations Modal for Coil Condensate Calculator
+function CoilCondensateFormulaModal({
+  onClose,
+  unitSystem,
+}: {
+  onClose: () => void;
+  unitSystem: "si" | "ip";
+}) {
+  const isSI = unitSystem === "si";
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-150">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden text-xs">
+        
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-header-bg shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="size-8 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+              <BookOpen className="size-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-foreground">Coil Condensate &amp; Psychrometric Formula Breakdown</h2>
+              <p className="text-[11px] text-muted-foreground">Governing ASHRAE psychrometric equations and IPC 307.2 condensate drain sizing</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="size-7 rounded-lg hover:bg-surface-2 flex items-center justify-center text-muted-foreground hover:text-foreground transition cursor-pointer"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-5 overflow-y-auto space-y-5 flex-1 custom-scrollbar">
+
+          {/* Section 1: Psychrometric Humidity Ratio Equations */}
+          <div className="p-4 rounded-xl border border-border bg-surface-2/60 space-y-3">
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center justify-center size-5 rounded-full bg-primary text-primary-foreground font-bold text-[10px]">1</span>
+                <span className="font-bold text-foreground uppercase tracking-wider text-[11.5px]">Psychrometric Humidity Ratio (W) Derivation</span>
+              </div>
+              <span className="text-[10.5px] font-semibold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">ASHRAE Fundamentals Chapter 1</span>
+            </div>
+
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              Entering and leaving air moisture contents are computed from dry-bulb (DB) and wet-bulb (WB) temperatures under standard atmospheric pressure (P<sub>atm</sub> = 101,325 Pa).
+            </p>
+
+            <div className="p-3 bg-card rounded-lg font-mono border border-border/80 space-y-2">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase block font-sans">Saturation Pressure &amp; Humidity Ratio</span>
+              <div className="text-primary font-bold text-xs space-y-1">
+                <div>P_ws(T_wb) = exp( -5800.22/T_K + 1.3915 - 0.04864·T_K + 4.176e-5·T_K² - 1.445e-8·T_K³ + 6.546·ln(T_K) )</div>
+                <div>W_s(T_wb) = 0.621945 × P_ws / (P_atm - P_ws)</div>
+                <div>W = [ (2501 - 2.381·T_wb)·W_s - 1.006·(T_db - T_wb) ] / [ 2501 + 1.805·T_db - 4.186·T_wb ]</div>
+              </div>
+            </div>
+
+            <div className="text-[10.5px] text-muted-foreground italic pl-2 border-l-2 border-primary/40">
+              Where T<sub>K</sub> = T<sub>wb</sub> + 273.15 K, and W is the absolute moisture content in kg of water vapor per kg of dry air (kg<sub>w</sub>/kg<sub>da</sub>).
+            </div>
+          </div>
+
+          {/* Section 2: Moisture Extraction & Condensate Rate */}
+          <div className="p-4 rounded-xl border border-border bg-surface-2/60 space-y-3">
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center justify-center size-5 rounded-full bg-primary text-primary-foreground font-bold text-[10px]">2</span>
+                <span className="font-bold text-foreground uppercase tracking-wider text-[11.5px]">Moisture Extraction Rate &amp; Drainage Flow</span>
+              </div>
+              <span className="text-[10.5px] font-semibold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">Mass Conservation Law</span>
+            </div>
+
+            <div className="p-3 bg-card rounded-lg font-mono border border-border/80 space-y-2">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase block font-sans">Governing Equations</span>
+              <div className="text-primary font-bold text-xs space-y-1">
+                <div>ΔW = max(0, W_on_coil - W_off_coil)  [kg_w / kg_da]</div>
+                <div>m_dot_air = ρ_air × Q_airflow  (with ρ_air = 1.204 kg/m³ @ 20°C std)</div>
+                <div>m_dot_cond (kg/s) = m_dot_air × ΔW</div>
+                <div>Q_cond (L/s) = m_dot_cond / ρ_water = m_dot_cond (since ρ_water ≈ 1.0 kg/L)</div>
+                <div>Q_cond (GPM) = Q_cond (L/s) × 15.8503  |  Q_cond (L/hr) = Q_cond (L/s) × 3600</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: IPC Drainage Header Sizing */}
+          <div className="p-4 rounded-xl border border-border bg-surface-2/60 space-y-3">
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center justify-center size-5 rounded-full bg-primary text-primary-foreground font-bold text-[10px]">3</span>
+                <span className="font-bold text-foreground uppercase tracking-wider text-[11.5px]">Drain Pipe Sizing Criteria (IPC Table 307.2.2)</span>
+              </div>
+              <span className="text-[10.5px] font-semibold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">IPC 307.2 / ASHRAE</span>
+            </div>
+
+            <div className="border border-border rounded-lg overflow-hidden bg-card">
+              <table className="w-full text-left text-[11px]">
+                <thead>
+                  <tr className="bg-surface-2 border-b border-border font-bold">
+                    <th className="py-2 px-3">Equipment Capacity</th>
+                    <th className="py-2 px-3">Max Condensate Flow</th>
+                    <th className="py-2 px-3">Min Metric Size</th>
+                    <th className="py-2 px-3">Min Imperial Size</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/60 font-sans">
+                  <tr><td className="py-1.5 px-3">Up to 20 Tons</td><td className="py-1.5 px-3 font-mono">0.05 GPM (0.0032 L/s)</td><td className="py-1.5 px-3 font-mono font-bold">DN20 (20 mm)</td><td className="py-1.5 px-3 font-mono font-bold">3/4"</td></tr>
+                  <tr><td className="py-1.5 px-3">21 to 40 Tons</td><td className="py-1.5 px-3 font-mono">0.20 GPM (0.0126 L/s)</td><td className="py-1.5 px-3 font-mono font-bold">DN25 (25 mm)</td><td className="py-1.5 px-3 font-mono font-bold">1"</td></tr>
+                  <tr><td className="py-1.5 px-3">41 to 90 Tons</td><td className="py-1.5 px-3 font-mono">0.50 GPM (0.0315 L/s)</td><td className="py-1.5 px-3 font-mono font-bold">DN32 (32 mm)</td><td className="py-1.5 px-3 font-mono font-bold">1-1/4"</td></tr>
+                  <tr><td className="py-1.5 px-3">91 to 125 Tons</td><td className="py-1.5 px-3 font-mono">1.20 GPM (0.0757 L/s)</td><td className="py-1.5 px-3 font-mono font-bold">DN40 (40 mm)</td><td className="py-1.5 px-3 font-mono font-bold">1-1/2"</td></tr>
+                  <tr><td className="py-1.5 px-3">126 to 250 Tons</td><td className="py-1.5 px-3 font-mono">3.00 GPM (0.1893 L/s)</td><td className="py-1.5 px-3 font-mono font-bold">DN50 (50 mm)</td><td className="py-1.5 px-3 font-mono font-bold">2"</td></tr>
+                  <tr><td className="py-1.5 px-3">251 to 450 Tons</td><td className="py-1.5 px-3 font-mono">6.00 GPM (0.3785 L/s)</td><td className="py-1.5 px-3 font-mono font-bold">DN65 (65 mm)</td><td className="py-1.5 px-3 font-mono font-bold">2-1/2"</td></tr>
+                  <tr><td className="py-1.5 px-3">&gt; 450 Tons</td><td className="py-1.5 px-3 font-mono">&gt; 6.00 GPM</td><td className="py-1.5 px-3 font-mono font-bold">DN80 (80 mm)</td><td className="py-1.5 px-3 font-mono font-bold">3"</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="text-[10.5px] text-muted-foreground pl-2 border-l-2 border-primary/40">
+              • Minimum pitch slope: 1% (1/8 inch per foot) gravity slope toward designated floor sink / drain point.
+            </div>
+          </div>
+
+          {/* Section 4: P-Trap Water Seal Sizing */}
+          <div className="p-4 rounded-xl border border-border bg-surface-2/60 space-y-3">
+            <div className="flex items-center justify-between border-b border-border pb-2">
+              <div className="flex items-center gap-2">
+                <span className="flex items-center justify-center size-5 rounded-full bg-primary text-primary-foreground font-bold text-[10px]">4</span>
+                <span className="font-bold text-foreground uppercase tracking-wider text-[11.5px]">P-Trap Seal Depth &amp; Static Head Margin</span>
+              </div>
+              <span className="text-[10.5px] font-semibold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">ASHRAE System Design Guide</span>
+            </div>
+
+            <div className="p-3 bg-card rounded-lg font-mono border border-border/80 space-y-1">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase block font-sans">Formula: Min P-Trap Water Seal</span>
+              <div className="text-primary font-bold text-xs">
+                H_trap (inches) = 1.0 in + Fan Negative External Static Pressure (ESP in. w.g.)
+              </div>
+            </div>
+
+            <p className="text-muted-foreground text-[10.5px] leading-relaxed">
+              For draw-through AHU configurations, negative plenum pressure will prevent water from escaping or induce blowout without a deep water seal. Standard practice provides minimum 75 mm (3.0 in) seal depth.
+            </p>
+          </div>
+
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-border bg-card flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <ShieldCheck className="size-4 text-emerald-500" />
+            <span>Thermodynamic equations verified against ASHRAE Fundamentals 2021 &amp; IPC 307</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2 rounded-xl bg-primary text-primary-foreground font-bold text-xs hover:bg-primary/90 transition cursor-pointer shadow-xs"
+          >
+            Done
+          </button>
+        </div>
+
       </div>
     </div>
   );

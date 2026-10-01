@@ -13,7 +13,7 @@ import autoTable from "jspdf-autotable";
 import {
   Flame, Info, Download, MessageSquare, Check, ShieldCheck,
   AlertTriangle, Copy, RotateCcw, CheckCircle2, X, Gauge, Cylinder, Sparkles, FileText,
-  TrendingUp, Layers, HelpCircle, Activity, Zap, Building2, Home, ArrowUpRight, CheckCircle
+  TrendingUp, Layers, HelpCircle, Activity, Zap, Building2, Home, ArrowUpRight, CheckCircle, ChevronDown
 } from "lucide-react";
 import {
   ContextMenu,
@@ -530,6 +530,37 @@ export function SupplyPipeSizerPage() {
     toast.success("Copied to clipboard");
   };
 
+  const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs text-foreground focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold text-foreground focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+  const selectClass = "w-full h-8 pl-2.5 pr-7 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs text-foreground focus:outline-none focus:border-primary appearance-none cursor-pointer disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+
+  const isFieldHighlighted = (id: string, name?: string) => {
+    if (!highlightedTargetId) return "";
+    const target = highlightedTargetId.toLowerCase();
+    if (target === id.toLowerCase() || (name && target === name.toLowerCase())) {
+      return "ring-2 ring-primary bg-blue-50/50 dark:bg-blue-950/40";
+    }
+    return "";
+  };
+
+  const renderCommentBadge = (id: string, name: string) => {
+    const count = (commentsMap[id] || []).length;
+    if (count === 0) return null;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveCommentTarget({ id, label: name });
+        }}
+        className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline ml-1.5 cursor-pointer"
+      >
+        <MessageSquare className="size-3 fill-primary/20" />
+        <span>{count}</span>
+      </button>
+    );
+  };
+
   // Helper renderer for input boxes with context menu matching ventilation
   const renderInputBox = (
     fieldId: keyof SupplyPipeInputs,
@@ -723,127 +754,244 @@ export function SupplyPipeSizerPage() {
                         {/* Header */}
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                           <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                            📥 Sizing Parameters
+                            🕹 SIZING PARAMETERS
                           </span>
                         </div>
 
-                        {/* Section 1: Flow & Demand Parameters */}
-                        <div className="space-y-3">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                            Flow &amp; Demand Parameters
-                          </span>
+                        {/* Section 1: Flow & Material Selection */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-flowParams"
+                              data-field-id="flowParams"
+                              data-comment-target="flowParams"
+                              className={`space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("flowParams", "Flow & Material")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Flow &amp; Pipe Material
+                                  </span>
+                                  {renderCommentBadge("flowParams", "Flow & Material")}
+                                </div>
+                              </div>
 
-                          <div className="grid grid-cols-1 gap-2.5">
-                            {renderInputBox(
-                              "flow",
-                              "Design Flow Rate",
-                              inputs.flow,
-                              flowUnit,
-                              "0.1",
-                              0,
-                              isIP ? 25 : 1.58
-                            )}
+                              <div className="space-y-1">
+                                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                  Design Flow Rate ({flowUnit})
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min={0}
+                                  disabled={isEffectiveReadOnly}
+                                  value={inputs.flow}
+                                  onChange={(e) => handleInputChange("flow", parseFloat(e.target.value) || 0)}
+                                  className={flowInputClass}
+                                />
+                              </div>
 
-                            {/* Pipe Material Dropdown */}
-                            <ContextMenu>
-                              <ContextMenuTrigger asChild>
-                                <div className="p-3 rounded-xl border bg-slate-50/70 dark:bg-slate-900/50 border-border/80 space-y-1.5">
-                                  <label className="text-xs font-semibold text-foreground tracking-tight block">
-                                    Pipe Material
-                                  </label>
+                              <div>
+                                <label className="text-[11px] text-slate-500">Pipe Material &amp; Hazen-Williams (C)</label>
+                                <div className="relative mt-1">
                                   <select
                                     disabled={isEffectiveReadOnly}
                                     value={inputs.pipeMaterial}
                                     onChange={(e) => handleInputChange("pipeMaterial", e.target.value)}
-                                    className="w-full bg-background border border-border/90 rounded-lg px-3 py-1.5 text-xs font-bold text-foreground focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition disabled:opacity-60"
+                                    className={selectClass}
                                   >
                                     <option value="150">Copper Type L (C = 150)</option>
                                     <option value="150">CPVC Schedule 80 (C = 150)</option>
                                     <option value="130">PEX Tubing (C = 130)</option>
                                     <option value="120">Galvanized Steel Pipe (C = 120)</option>
                                   </select>
+                                  {!isEffectiveReadOnly && (
+                                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 size-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
+                                  )}
                                 </div>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                                <ContextMenuItem
-                                  onClick={() => setActiveCommentTarget({ id: "pipeMaterial", label: "Pipe Material" })}
-                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                                >
-                                  <MessageSquare className="size-3.5" />
-                                  <span>Add / View Comment</span>
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
-                          </div>
-                        </div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                handleInputChange("flow", isIP ? 25 : 1.58);
+                                handleInputChange("pipeMaterial", "150");
+                                toast.success("Flow parameters reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Flow &amp; Material</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "flowParams", label: "Flow & Material" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
-                        {/* Section 2: Pressure & Pipe Run Constraints */}
-                        <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                            Pressure &amp; Pipe Run Constraints
-                          </span>
+                        {/* Section 2: Supply & Residual Pressures */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-pressureParams"
+                              data-field-id="pressureParams"
+                              data-comment-target="pressureParams"
+                              className={`pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("pressureParams", "Supply & Residual Pressures")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Supply &amp; Residual Pressures ({pressUnit})
+                                  </span>
+                                  {renderCommentBadge("pressureParams", "Supply & Residual Pressures")}
+                                </div>
+                              </div>
 
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            {renderInputBox(
-                              "pAvail",
-                              "Supply Pressure",
-                              inputs.pAvail,
-                              pressUnit,
-                              "1",
-                              0,
-                              isIP ? 60 : 413.7
-                            )}
-                            {renderInputBox(
-                              "pResid",
-                              "Req. Residual",
-                              inputs.pResid,
-                              pressUnit,
-                              "1",
-                              0,
-                              isIP ? 20 : 137.9
-                            )}
-                          </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Supply Pressure ({pressUnit})</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.pAvail}
+                                    onChange={(e) => handleInputChange("pAvail", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Req. Residual ({pressUnit})</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.pResid}
+                                    onChange={(e) => handleInputChange("pResid", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                handleInputChange("pAvail", isIP ? 60 : 413.7);
+                                handleInputChange("pResid", isIP ? 20 : 137.9);
+                                toast.success("Pressure parameters reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Pressures</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "pressureParams", label: "Supply & Residual Pressures" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            {renderInputBox(
-                              "length",
-                              "Pipe Run Length",
-                              inputs.length,
-                              lenUnit,
-                              "1",
-                              0,
-                              isIP ? 120 : 36.6
-                            )}
-                            {renderInputBox(
-                              "fittingAllowance",
-                              "Fittings Allowance",
-                              inputs.fittingAllowance,
-                              "%",
-                              "1",
-                              0,
-                              20
-                            )}
-                          </div>
+                        {/* Section 3: Piping Layout & Elevation */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-pipeLayout"
+                              data-field-id="pipeLayout"
+                              data-comment-target="pipeLayout"
+                              className={`pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("pipeLayout", "Piping Layout")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Piping Layout &amp; Geometry
+                                  </span>
+                                  {renderCommentBadge("pipeLayout", "Piping Layout")}
+                                </div>
+                                <span className="text-[11px] font-mono font-semibold text-slate-500">
+                                  Leff: {(calculations.Leff * (isIP ? 1 : 0.3048)).toFixed(1)} {lenUnit}
+                                </span>
+                              </div>
 
-                          <div className="grid grid-cols-1 gap-2 text-xs">
-                            {renderInputBox(
-                              "elevation",
-                              "Elevation Rise",
-                              inputs.elevation,
-                              lenUnit,
-                              "0.5",
-                              0,
-                              isIP ? 20 : 6.1
-                            )}
-                          </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Pipe Run Length ({lenUnit})</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.length}
+                                    onChange={(e) => handleInputChange("length", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Fittings Allowance (%)</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.fittingAllowance}
+                                    onChange={(e) => handleInputChange("fittingAllowance", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                              </div>
 
-                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-zinc-800/40 border border-slate-200/60 dark:border-zinc-800 flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground font-medium">Effective Length (Leff):</span>
-                            <span className="font-mono font-bold text-foreground">
-                              {(calculations.Leff * (isIP ? 1 : 0.3048)).toFixed(1)} {lenUnit} ({calculations.Leff.toFixed(1)} ft)
-                            </span>
-                          </div>
-                        </div>
+                              <div>
+                                <label className="text-[11px] text-slate-500">Elevation Rise ({lenUnit})</label>
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  min={0}
+                                  disabled={isEffectiveReadOnly}
+                                  value={inputs.elevation}
+                                  onChange={(e) => handleInputChange("elevation", parseFloat(e.target.value) || 0)}
+                                  className={inputClass}
+                                />
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                handleInputChange("length", isIP ? 120 : 36.6);
+                                handleInputChange("fittingAllowance", 20);
+                                handleInputChange("elevation", isIP ? 20 : 6.1);
+                                toast.success("Piping layout reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Piping Layout</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "pipeLayout", label: "Piping Layout" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                       </div>
                     </div>

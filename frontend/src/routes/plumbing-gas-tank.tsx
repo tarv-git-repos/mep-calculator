@@ -501,6 +501,37 @@ function GasTankPage() {
     toast.success("Copied to clipboard");
   };
 
+  const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs text-foreground focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold text-foreground focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+  const selectClass = "w-full h-8 pl-2.5 pr-7 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs text-foreground focus:outline-none focus:border-primary appearance-none cursor-pointer disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+
+  const isFieldHighlighted = (id: string, name?: string) => {
+    if (!highlightedTargetId) return "";
+    const target = highlightedTargetId.toLowerCase();
+    if (target === id.toLowerCase() || (name && target === name.toLowerCase())) {
+      return "ring-2 ring-primary bg-blue-50/50 dark:bg-blue-950/40";
+    }
+    return "";
+  };
+
+  const renderCommentBadge = (id: string, name: string) => {
+    const count = (commentsMap[id] || []).length;
+    if (count === 0) return null;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveCommentTarget({ id, label: name });
+        }}
+        className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline ml-1.5 cursor-pointer"
+      >
+        <MessageSquare className="size-3 fill-primary/20" />
+        <span>{count}</span>
+      </button>
+    );
+  };
+
   // Helper renderer for input boxes with context menu matching ventilation fonts & styling
   const renderInputBox = (
     fieldId: keyof GasTankInputs,
@@ -694,7 +725,7 @@ function GasTankPage() {
                         {/* Header */}
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                           <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                            📥 Sizing Parameters
+                            🕹 SIZING PARAMETERS
                           </span>
                         </div>
 
@@ -710,19 +741,12 @@ function GasTankPage() {
                               }`}
                             >
                               <div className="flex items-center justify-between">
-                                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                                  Fuel System Selection
-                                </span>
-                                {(commentsMap["gasType"] || []).length > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setActiveCommentTarget({ id: "gasType", label: "Fuel System Selection" })}
-                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
-                                  >
-                                    <MessageSquare className="size-3 fill-primary/20" />
-                                    <span>{(commentsMap["gasType"] || []).length}</span>
-                                  </button>
-                                )}
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                    Fuel System Selection
+                                  </span>
+                                  {renderCommentBadge("gasType", "Fuel System Selection")}
+                                </div>
                               </div>
 
                               <div className="grid grid-cols-2 gap-2.5">
@@ -775,104 +799,221 @@ function GasTankPage() {
                           </ContextMenuContent>
                         </ContextMenu>
 
-                        {/* Section 2: Units & Demand Constants */}
-                        <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                              Kitchen Units &amp; Demand Constants
-                            </span>
-                          </div>
+                        {/* Section 2: Residential Demand */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-resDemand"
+                              data-field-id="resDemand"
+                              data-comment-target="resDemand"
+                              className={`pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("resDemand", "Residential Demand")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                    Residential Demand
+                                  </span>
+                                  {renderCommentBadge("resDemand", "Residential Demand")}
+                                </div>
+                                <span className="text-[11px] font-mono font-semibold text-slate-500">
+                                  Subtotal: {resConsumptionDisp.toFixed(2)} {demandUnit}
+                                </span>
+                              </div>
 
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            {renderInputBox(
-                              "resKitchens",
-                              "Residential Units",
-                              inputs.resKitchens,
-                              "Units",
-                              "1",
-                              0,
-                              DEFAULT_INPUTS.resKitchens
-                            )}
-                            {renderInputBox(
-                              "resDemandConst",
-                              "Res. Demand Const.",
-                              inputs.resDemandConst,
-                              demandUnit,
-                              "0.01",
-                              0,
-                              DEFAULT_INPUTS.resDemandConst
-                            )}
-                          </div>
-
-                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-zinc-800/40 border border-slate-200/60 dark:border-zinc-800 flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground font-medium">Residential Subtotal:</span>
-                            <span className="font-mono font-bold text-foreground">
-                              {resConsumptionDisp.toFixed(2)} {demandUnit} ({(resConsumption * 1000 * (isIP ? L_TO_GAL : 1)).toFixed(0)} {volUnitDay})
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2 text-xs pt-1">
-                            {renderInputBox(
-                              "retKitchens",
-                              "Retail F&B Units",
-                              inputs.retKitchens,
-                              "Units",
-                              "1",
-                              0,
-                              DEFAULT_INPUTS.retKitchens
-                            )}
-                            {renderInputBox(
-                              "retDemandConst",
-                              "Retail Demand Const.",
-                              inputs.retDemandConst,
-                              demandUnit,
-                              "1",
-                              0,
-                              DEFAULT_INPUTS.retDemandConst
-                            )}
-                          </div>
-
-                          <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-zinc-800/40 border border-slate-200/60 dark:border-zinc-800 flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground font-medium">Retail Subtotal:</span>
-                            <span className="font-mono font-bold text-foreground">
-                              {retConsumptionDisp.toFixed(2)} {demandUnit} ({(retConsumption * 1000 * (isIP ? L_TO_GAL : 1)).toFixed(0)} {volUnitDay})
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Section 3: Storage Tank Setting */}
-                        <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                              Storage Tank Capacity
-                            </span>
-                          </div>
-
-                          {renderInputBox(
-                            "storageCapacity",
-                            "Installed Tank Nominal Capacity",
-                            inputs.storageCapacity,
-                            volUnit,
-                            "500",
-                            0,
-                            DEFAULT_INPUTS.storageCapacity
-                          )}
-
-                          <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                            <div className="p-2 rounded-lg bg-blue-50/50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50">
-                              <span className="text-[10px] text-muted-foreground block">Max Safe Fill</span>
-                              <strong className="text-primary font-mono text-xs">70% Volume</strong>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Residential Units</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.resKitchens}
+                                    onChange={(e) => handleInputChange("resKitchens", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Demand Constant ({demandUnit})</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.resDemandConst}
+                                    onChange={(e) => handleInputChange("resDemandConst", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                              </div>
                             </div>
-                            <div className="p-2 rounded-lg bg-slate-50 dark:bg-zinc-800/40 border border-slate-200/60 dark:border-zinc-800">
-                              <span className="text-[10px] text-muted-foreground block">Refill Reserve</span>
-                              <strong className="text-foreground font-mono text-xs">20% Level</strong>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                handleInputChange("resKitchens", DEFAULT_INPUTS.resKitchens);
+                                handleInputChange("resDemandConst", DEFAULT_INPUTS.resDemandConst);
+                                toast.success("Residential demand reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Residential Demand</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "resDemand", label: "Residential Demand" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        {/* Section 3: Retail Demand */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-retDemand"
+                              data-field-id="retDemand"
+                              data-comment-target="retDemand"
+                              className={`pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("retDemand", "Retail Demand")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                    Retail F&amp;B Demand
+                                  </span>
+                                  {renderCommentBadge("retDemand", "Retail Demand")}
+                                </div>
+                                <span className="text-[11px] font-mono font-semibold text-slate-500">
+                                  Subtotal: {retConsumptionDisp.toFixed(2)} {demandUnit}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Retail F&amp;B Units</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.retKitchens}
+                                    onChange={(e) => handleInputChange("retKitchens", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Demand Constant ({demandUnit})</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.retDemandConst}
+                                    onChange={(e) => handleInputChange("retDemandConst", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                              </div>
                             </div>
-                            <div className="p-2 rounded-lg bg-slate-50 dark:bg-zinc-800/40 border border-slate-200/60 dark:border-zinc-800">
-                              <span className="text-[10px] text-muted-foreground block">Vapor Space</span>
-                              <strong className="text-foreground font-mono text-xs">30% Headroom</strong>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                handleInputChange("retKitchens", DEFAULT_INPUTS.retKitchens);
+                                handleInputChange("retDemandConst", DEFAULT_INPUTS.retDemandConst);
+                                toast.success("Retail demand reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Retail Demand</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "retDemand", label: "Retail Demand" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        {/* Section 4: Storage Tank Capacity */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-storageCapacity"
+                              data-field-id="storageCapacity"
+                              data-comment-target="storageCapacity"
+                              className={`pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("storageCapacity", "Storage Tank Capacity")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                    Storage Tank Capacity
+                                  </span>
+                                  {renderCommentBadge("storageCapacity", "Storage Tank Capacity")}
+                                </div>
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                  Installed Tank Nominal Capacity ({volUnit})
+                                </label>
+                                <input
+                                  type="number"
+                                  step="500"
+                                  min={0}
+                                  disabled={isEffectiveReadOnly}
+                                  value={inputs.storageCapacity}
+                                  onChange={(e) => handleInputChange("storageCapacity", parseFloat(e.target.value) || 0)}
+                                  className={flowInputClass}
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-2 text-center text-xs pt-1">
+                                <div className="p-2 rounded-lg bg-blue-50/50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50">
+                                  <span className="text-[10px] text-muted-foreground block">Max Safe Fill</span>
+                                  <strong className="text-primary font-mono text-xs">70% Volume</strong>
+                                </div>
+                                <div className="p-2 rounded-lg bg-slate-50 dark:bg-zinc-800/40 border border-slate-200/60 dark:border-zinc-800">
+                                  <span className="text-[10px] text-muted-foreground block">Refill Reserve</span>
+                                  <strong className="text-foreground font-mono text-xs">20% Level</strong>
+                                </div>
+                                <div className="p-2 rounded-lg bg-slate-50 dark:bg-zinc-800/40 border border-slate-200/60 dark:border-zinc-800">
+                                  <span className="text-[10px] text-muted-foreground block">Vapor Space</span>
+                                  <strong className="text-foreground font-mono text-xs">30% Headroom</strong>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                handleInputChange("storageCapacity", DEFAULT_INPUTS.storageCapacity);
+                                toast.success("Tank capacity reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Tank Capacity</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "storageCapacity", label: "Storage Tank Capacity" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                       </div>
                     </div>

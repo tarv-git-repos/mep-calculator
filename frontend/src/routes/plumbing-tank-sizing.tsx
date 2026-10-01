@@ -554,197 +554,34 @@ function TankSizingPage() {
     toast.success(`Comment / Task assigned successfully!`);
   };
 
-  // Reusable Parameter Input Tile with Standard Context Menu
-  const renderInputBox = (
-    fieldId: string,
-    field: keyof TankSizingParams,
-    label: string,
-    value: number | "",
-    unit: string,
-    step: string = "1",
-    min: number = 0,
-    defaultVal: number,
-    subtitle?: string
-  ) => {
-    const isHighlighted = highlightedTargetId === fieldId || highlightedTargetId === `field-${fieldId}`;
-    const comments = commentsMap[fieldId] || [];
+  const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs text-foreground focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold text-foreground focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+  const selectClass = "w-full h-8 pl-2.5 pr-7 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs text-foreground focus:outline-none focus:border-primary appearance-none cursor-pointer disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
 
-    return (
-      <ContextMenu key={fieldId}>
-        <ContextMenuTrigger asChild>
-          <div
-            id={`field-${fieldId}`}
-            className={`p-3 rounded-xl border transition-all relative ${
-              isHighlighted
-                ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
-                : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-foreground tracking-tight">
-                {label}
-              </label>
-              <div className="flex items-center gap-1">
-                {comments.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveCommentTarget({ id: fieldId, label })}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
-                    title={`${comments.length} comment(s)`}
-                  >
-                    <MessageSquare className="size-3 fill-primary/20" />
-                    <span>{comments.length}</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                step={step}
-                min={min}
-                disabled={isEffectiveReadOnly}
-                value={value}
-                onChange={(e) => handleInputChange(field, e.target.value)}
-                className="w-full bg-background border border-border/90 rounded-lg px-3 py-1.5 text-xs font-bold text-foreground focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition disabled:opacity-60"
-              />
-              <span className="text-[11px] font-semibold text-muted-foreground whitespace-nowrap min-w-[35px]">
-                {unit}
-              </span>
-            </div>
-            {subtitle && (
-              <span className="text-[10px] text-muted-foreground mt-1 block">
-                {subtitle}
-              </span>
-            )}
-          </div>
-        </ContextMenuTrigger>
-
-        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50 font-sans">
-          <ContextMenuItem
-            onClick={() => setActiveCommentTarget({ id: fieldId, label })}
-            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium text-[13px]"
-          >
-            <MessageSquare className="size-3.5" />
-            <span>Add / View Comment</span>
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => copyToClipboard(value)}
-            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
-          >
-            <Copy className="size-3.5 text-muted-foreground" />
-            <span>Copy Value</span>
-          </ContextMenuItem>
-          {!isEffectiveReadOnly && (
-            <>
-              <ContextMenuSeparator className="h-px bg-border my-1" />
-              <ContextMenuItem
-                onClick={() => handleInputChange(field, defaultVal)}
-                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-muted-foreground text-[13px]"
-              >
-                <RotateCcw className="size-3.5" />
-                <span>Reset Default ({defaultVal})</span>
-              </ContextMenuItem>
-            </>
-          )}
-        </ContextMenuContent>
-      </ContextMenu>
-    );
+  const isFieldHighlighted = (id: string, name?: string) => {
+    if (!highlightedTargetId) return "";
+    const target = highlightedTargetId.toLowerCase();
+    if (target === id.toLowerCase() || (name && target === name.toLowerCase())) {
+      return "ring-2 ring-primary bg-blue-50/50 dark:bg-blue-950/40";
+    }
+    return "";
   };
 
-  // Reusable Select Box with Standard Context Menu
-  const renderSelectBox = (
-    fieldId: string,
-    field: keyof TankSizingParams,
-    label: string,
-    value: string | number,
-    options: { label: string; value: string | number }[],
-    defaultVal: string | number,
-    subtitle?: string
-  ) => {
-    const isHighlighted = highlightedTargetId === fieldId || highlightedTargetId === `field-${fieldId}`;
-    const comments = commentsMap[fieldId] || [];
-
+  const renderCommentBadge = (id: string, name: string) => {
+    const count = (commentsMap[id] || []).length;
+    if (count === 0) return null;
     return (
-      <ContextMenu key={fieldId}>
-        <ContextMenuTrigger asChild>
-          <div
-            id={`field-${fieldId}`}
-            className={`p-3 rounded-xl border transition-all relative ${
-              isHighlighted
-                ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
-                : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-foreground tracking-tight">
-                {label}
-              </label>
-              <div className="flex items-center gap-1">
-                {comments.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveCommentTarget({ id: fieldId, label })}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
-                    title={`${comments.length} comment(s)`}
-                  >
-                    <MessageSquare className="size-3 fill-primary/20" />
-                    <span>{comments.length}</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <select
-              disabled={isEffectiveReadOnly}
-              value={value}
-              onChange={(e) => handleInputChange(field, parseInt(e.target.value) || 2)}
-              className="w-full bg-background border border-border/90 rounded-lg px-2.5 py-1.5 text-xs font-bold text-foreground focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none transition cursor-pointer disabled:opacity-60"
-            >
-              {options.map((opt) => (
-                <option key={String(opt.value)} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            {subtitle && (
-              <span className="text-[10px] text-muted-foreground mt-1 block">
-                {subtitle}
-              </span>
-            )}
-          </div>
-        </ContextMenuTrigger>
-
-        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50 font-sans">
-          <ContextMenuItem
-            onClick={() => setActiveCommentTarget({ id: fieldId, label })}
-            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium text-[13px]"
-          >
-            <MessageSquare className="size-3.5" />
-            <span>Add / View Comment</span>
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => copyToClipboard(value)}
-            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
-          >
-            <Copy className="size-3.5 text-muted-foreground" />
-            <span>Copy Value</span>
-          </ContextMenuItem>
-          {!isEffectiveReadOnly && (
-            <>
-              <ContextMenuSeparator className="h-px bg-border my-1" />
-              <ContextMenuItem
-                onClick={() => handleInputChange(field, defaultVal)}
-                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-muted-foreground text-[13px]"
-              >
-                <RotateCcw className="size-3.5" />
-                <span>Reset Default ({defaultVal} Cells)</span>
-              </ContextMenuItem>
-            </>
-          )}
-        </ContextMenuContent>
-      </ContextMenu>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveCommentTarget({ id, label: name });
+        }}
+        className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline ml-1.5 cursor-pointer"
+      >
+        <MessageSquare className="size-3 fill-primary/20" />
+        <span>{count}</span>
+      </button>
     );
   };
 
@@ -1071,121 +908,214 @@ function TankSizingPage() {
                         {/* Header */}
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                           <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                            📥 Sizing Parameters
+                            🕹 SIZING PARAMETERS
                           </span>
                         </div>
 
                         {/* Section 1: Water Demand & Storage Criteria */}
-                        <div className="space-y-3">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                            Water Demand &amp; Inflow Rates
-                          </span>
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-tankDemandParams"
+                              data-field-id="tankDemandParams"
+                              data-comment-target="tankDemandParams"
+                              className={`pt-0 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("tankDemandParams", "Water Demand & Inflow")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Water Demand &amp; Inflow Rates
+                                  </span>
+                                  {renderCommentBadge("tankDemandParams", "Water Demand & Inflow")}
+                                </div>
+                              </div>
 
-                          {renderInputBox(
-                            "tank-daily-demand",
-                            "dailyDemand",
-                            "Daily Water Consumption Demand",
-                            sizingParams.dailyDemand,
-                            calc.volUnit,
-                            "100",
-                            0,
-                            unitSystem === "ip" ? 5000 : 20000,
-                            "Total calculated or occupancy-based daily water demand"
-                          )}
+                              <div>
+                                <label className="text-[11px] text-slate-500">Daily Water Consumption Demand ({calc.volUnit})</label>
+                                <input
+                                  type="number"
+                                  step="100"
+                                  min="0"
+                                  disabled={isEffectiveReadOnly}
+                                  value={sizingParams.dailyDemand}
+                                  onChange={(e) => handleInputChange("dailyDemand", e.target.value)}
+                                  className={flowInputClass}
+                                />
+                              </div>
 
-                          <div className="grid grid-cols-2 gap-2">
-                            {renderInputBox(
-                              "tank-storage-days",
-                              "storageDays",
-                              "Autonomy Duration",
-                              sizingParams.storageDays,
-                              "days",
-                              "0.5",
-                              0.5,
-                              1,
-                              "Reserve storage autonomy"
-                            )}
-                            {renderInputBox(
-                              "tank-peak-flow",
-                              "peakFlow",
-                              "Peak Fixture Flow Rate",
-                              sizingParams.peakFlow,
-                              calc.flowUnit,
-                              "0.5",
-                              0,
-                              unitSystem === "ip" ? 40 : 2.5,
-                              "Peak draw rate"
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            {renderInputBox(
-                              "tank-pump-refill",
-                              "pumpFillRate",
-                              "Pump Inflow / Refill Rate",
-                              sizingParams.pumpFillRate,
-                              calc.flowUnit,
-                              "0.5",
-                              0,
-                              unitSystem === "ip" ? 30 : 2.0,
-                              "Main refill supply rate"
-                            )}
-                            {renderInputBox(
-                              "tank-safety-factor",
-                              "safetyFactor",
-                              "Safety / Freeboard Margin",
-                              sizingParams.safetyFactor,
-                              "%",
-                              "1",
-                              0,
-                              10,
-                              "Freeboard & surge buffer"
-                            )}
-                          </div>
-                        </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Autonomy Duration (days)</label>
+                                  <input
+                                    type="number"
+                                    step="0.5"
+                                    min="0.5"
+                                    disabled={isEffectiveReadOnly}
+                                    value={sizingParams.storageDays}
+                                    onChange={(e) => handleInputChange("storageDays", e.target.value)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Peak Fixture Flow Rate ({calc.flowUnit})</label>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    disabled={isEffectiveReadOnly}
+                                    value={sizingParams.peakFlow}
+                                    onChange={(e) => handleInputChange("peakFlow", e.target.value)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Pump Inflow / Refill Rate ({calc.flowUnit})</label>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    disabled={isEffectiveReadOnly}
+                                    value={sizingParams.pumpFillRate}
+                                    onChange={(e) => handleInputChange("pumpFillRate", e.target.value)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Safety / Freeboard Margin (%)</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min="0"
+                                    disabled={isEffectiveReadOnly}
+                                    value={sizingParams.safetyFactor}
+                                    onChange={(e) => handleInputChange("safetyFactor", e.target.value)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                const next = {
+                                  ...sizingParams,
+                                  dailyDemand: unitSystem === "ip" ? 5000 : 20000,
+                                  storageDays: 1,
+                                  peakFlow: unitSystem === "ip" ? 40 : 2.5,
+                                  pumpFillRate: unitSystem === "ip" ? 30 : 2.0,
+                                  safetyFactor: 10,
+                                };
+                                setSizingParams(next);
+                                saveState(next, unitSystem, preset);
+                                toast.success("Demand and inflow parameters reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Demand &amp; Inflow</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "tankDemandParams", label: "Water Demand & Inflow" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Section 2: Physical Geometry & Redundancy */}
-                        <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                            Physical Geometry &amp; Redundancy
-                          </span>
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-tankGeometryParams"
+                              data-field-id="tankGeometryParams"
+                              data-comment-target="tankGeometryParams"
+                              className={`pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("tankGeometryParams", "Geometry & Redundancy")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Physical Geometry &amp; Redundancy
+                                  </span>
+                                  {renderCommentBadge("tankGeometryParams", "Geometry & Redundancy")}
+                                </div>
+                              </div>
 
-                          <div className="grid grid-cols-2 gap-2">
-                            {renderInputBox(
-                              "tank-usable-depth",
-                              "usableDepth",
-                              "Usable Water Depth",
-                              sizingParams.usableDepth,
-                              calc.dimUnit,
-                              "0.1",
-                              0.5,
-                              unitSystem === "ip" ? 8 : 2.5,
-                              "Effective liquid depth"
-                            )}
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Usable Water Depth ({calc.dimUnit})</label>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0.5"
+                                    disabled={isEffectiveReadOnly}
+                                    value={sizingParams.usableDepth}
+                                    onChange={(e) => handleInputChange("usableDepth", e.target.value)}
+                                    className={inputClass}
+                                  />
+                                </div>
 
-                            {renderSelectBox(
-                              "tank-compartments",
-                              "numCompartments",
-                              "Maintenance Compartments",
-                              sizingParams.numCompartments,
-                              [
-                                { label: "1 Single Cell (100%)", value: 1 },
-                                { label: "2 Cells (50%/50% - Recommended)", value: 2 },
-                                { label: "3 Cells (33% each)", value: 3 },
-                                { label: "4 Cells (25% each)", value: 4 },
-                              ],
-                              2,
-                              "IPC / BS EN 806 split"
-                            )}
-                          </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Maintenance Compartments</label>
+                                  <div className="relative mt-1">
+                                    <select
+                                      disabled={isEffectiveReadOnly}
+                                      value={sizingParams.numCompartments}
+                                      onChange={(e) => handleInputChange("numCompartments", parseInt(e.target.value) || 2)}
+                                      className={selectClass}
+                                    >
+                                      <option value={1}>1 Single Cell (100%)</option>
+                                      <option value={2}>2 Cells (50%/50% - Recommended)</option>
+                                      <option value={3}>3 Cells (33% each)</option>
+                                      <option value={4}>4 Cells (25% each)</option>
+                                    </select>
+                                    {!isEffectiveReadOnly && (
+                                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 size-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
 
-                          <div className="p-2.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/40 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
-                            <Info className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                            <span>
-                              <strong>IPC / BS EN 806:</strong> Dual 50% compartments allow online cleaning &amp; disinfection without disrupting building water service.
-                            </span>
-                          </div>
-                        </div>
+                              <div className="p-2.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/40 text-[11px] text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                                <Info className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                                <span>
+                                  <strong>IPC / BS EN 806:</strong> Dual 50% compartments allow online cleaning &amp; disinfection without disrupting building water service.
+                                </span>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                const next = {
+                                  ...sizingParams,
+                                  usableDepth: unitSystem === "ip" ? 8 : 2.5,
+                                  numCompartments: 2,
+                                };
+                                setSizingParams(next);
+                                saveState(next, unitSystem, preset);
+                                toast.success("Geometry parameters reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Geometry</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "tankGeometryParams", label: "Geometry & Redundancy" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                       </div>
                     </div>

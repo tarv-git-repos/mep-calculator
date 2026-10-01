@@ -8,6 +8,7 @@ export interface Cable {
   qty: number | "";
   customOd?: number | string;
   comments?: any[];
+  flagged?: boolean;
 }
 
 export interface Tray {

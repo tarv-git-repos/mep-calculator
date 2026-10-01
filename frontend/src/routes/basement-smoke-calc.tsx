@@ -22,6 +22,7 @@ import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile, getFloorRank, Extracted3DSpace } from "@/lib/bimViewerSpaceExtractor";
 import { calculateSmokeFlows, calculateFanStatic, calculateMakeupScaling } from "@/lib/calc-basement-smoke";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -125,6 +126,8 @@ function BasementSmokeCalcPage() {
   
   // Active section view state
   const [activeSection, setActiveSection] = useState<"schedule" | "fan-systems">("schedule");
+  const [intelOpen, setIntelOpen] = useState<boolean>(false);
+  const [showFormulaModal, setShowFormulaModal] = useState<boolean>(false);
   
   // Collapsible Global Fan Sizing card state
   const [showGlobalFanSizing, setShowGlobalFanSizing] = useState<boolean>(true);
@@ -1622,28 +1625,55 @@ function BasementSmokeCalcPage() {
   }, [calculatedFanSystems]);
 
   return (
-    <AppShell title="Basement Smoke Calc" hideSubHeader={true}>
+    <AppShell 
+      title="Basement Smoke Calc" 
+      hideSubHeader={true}
+      onIntelClick={() => setIntelOpen(v => !v)}
+      intelOpen={intelOpen}
+    >
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          {/* Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print py-0.5">
+          {/* Page Header & Actions */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground">Basement Smoke Extract Schedule</h1>
-              <CalculationReviewBar
-                projectId={project?.id}
-                calculatorPath="/basement-smoke-calc"
-                calculatorTitle="Basement Smoke Calc"
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Basement Smoke Extract Schedule</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">{floors.length} {floors.length === 1 ? "space" : "spaces"}</span>
+              </div>
+              
+              <button 
+                type="button"
+                onClick={() => setIntelOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+                title="Toggle Basement Smoke Intelligence"
+              >
+                <Sparkles className="size-3.5" /> Intelligence
+              </button>
+
+              <CalculationReviewBar 
+                projectId={project?.id || activeProjectId || "default"} 
+                calculatorPath="/basement-smoke-calc" 
+                calculatorTitle="Basement Smoke Extract Schedule" 
               />
+
               {commentsList.length > 0 && (
                 <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
                   <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Active Task(s) / Comment(s)</span>
+                  <span>{commentsList.length} Active {commentsList.length === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
                 </div>
               )}
             </div>
+            
+            <div className="flex items-center gap-2">
+              <UnitToggle unitSystem={unitSystem} onChange={(target, shouldConvert) => executeUnitSystemChange(target, shouldConvert)} disabled={isEffectiveReadOnly} />
+            </div>
           </div>
 
-          {/* Ventilation-style Outer Card Container */}
+          {/* White Card Container for Tabs & Content */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
@@ -1651,63 +1681,51 @@ function BasementSmokeCalcPage() {
             ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
             : calcReviewState?.status === "REVIEWED"
             ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            : "bg-card border border-border shadow-sm"
           }`}>
-            {/* Top Row 1: Section Navigation Tabs & Unit System Toggle */}
-            <div className="flex items-center justify-between px-4 py-2.5 bg-card shrink-0 select-none no-print border-b border-border/50 flex-wrap gap-3">
-              {/* Rounded-full Pill Tabs (Ventilation style) */}
-              <div className="flex bg-slate-100 dark:bg-slate-900/60 p-1 rounded-full border border-border/80 gap-1">
-                <button
-                  onClick={() => setActiveSection("schedule")}
-                  className={`flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeSection === "schedule"
-                      ? "bg-white dark:bg-slate-800 text-primary shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+            {/* Top Row 1: Section Navigation Tabs & Export */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection("schedule")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      activeSection === "schedule"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                    }`}
+                  >
+                    Basement Schedule
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection("fan-systems")}
+                    className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      activeSection === "fan-systems"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                    }`}
+                  >
+                    <span>Fan Systems</span>
+                    <span className="text-[10px] px-1.5 py-0.2 bg-primary/15 text-primary rounded-full font-bold">
+                      {calculatedFanSystems.length}
+                    </span>
+                  </button>
+                </div>
+
+                <TBtn
+                  onClick={() => setShowFormulaModal(true)}
+                  title="Calculation Formulas & Methodology"
                 >
-                  <Activity className="size-3.5" />
-                  Basement Schedule
-                </button>
-                <button
-                  onClick={() => setActiveSection("fan-systems")}
-                  className={`flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeSection === "fan-systems"
-                      ? "bg-white dark:bg-slate-800 text-primary shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Wind className="size-3.5" />
-                  Fan Systems
-                  <span className="ml-1 text-[10px] px-2 py-0.5 bg-primary/15 text-primary rounded-full font-extrabold">
-                    {fanSystems.length}
-                  </span>
-                </button>
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
               </div>
 
-              {/* Unit System Toggle Pill */}
-              <div className="flex items-center bg-slate-100 dark:bg-slate-900/60 p-1 rounded-full border border-border/80 text-xs font-semibold select-none">
-                <button
-                  type="button"
-                  onClick={() => handleUnitSystemClick("ip")}
-                  className={`px-3 py-0.5 rounded-full transition cursor-pointer font-bold ${
-                    unitSystem === "ip"
-                      ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  IP
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUnitSystemClick("si")}
-                  className={`px-3 py-0.5 rounded-full transition cursor-pointer font-bold ${
-                    unitSystem === "si"
-                      ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  SI
-                </button>
+              <div className="flex items-center gap-2.5 select-none shrink-0">
+                <TBtn onClick={handleExportExcel} title="Export schedule to Excel (.xlsx)">
+                  <FileSpreadsheet className="size-3.5 text-emerald-600 dark:text-emerald-400" /> Export Excel
+                </TBtn>
               </div>
             </div>
 
@@ -2314,297 +2332,490 @@ function BasementSmokeCalcPage() {
                 </div>
               )}
 
-          {/* Fan Systems Head Loss Section */}
-          {activeSection === "fan-systems" && (
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-border/60">
-                <div className="flex items-center gap-2">
-                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Fan Systems Head Loss Calculations</h3>
-                </div>
-                <TBtn onClick={handleOpenCreateFS} className="h-8.5 text-xs">
-                  <Plus className="size-3.5" /> Create Fan System
-                </TBtn>
-              </div>
+              {/* Fan Systems Head Loss Section (Full 2-Column Responsive Dashboard) */}
+              {activeSection === "fan-systems" && (
+                <div className="flex flex-col gap-5">
+                  {/* Fan Systems Header Bar */}
+                  <div className="flex flex-wrap justify-between items-center gap-2 pb-2 border-b border-border/60">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
+                        Fan Systems Head Loss Calculations
+                      </h3>
+                    </div>
+                    <TBtn primary onClick={handleOpenCreateFS} className="h-8.5 text-xs">
+                      <Plus className="size-3.5" /> Create Fan System
+                    </TBtn>
+                  </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {calculatedFanSystems.map(fs => (
-                  <ContextMenu key={fs.id}>
-                    <ContextMenuTrigger asChild>
-                      <div className="border border-border/75 rounded-2xl bg-slate-50/30 dark:bg-slate-900/10 flex flex-col overflow-hidden shadow-xs">
-                        
-                        {/* Card Header with Toggle Collapse */}
-                        <div
-                          onClick={() => setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, collapsed: !x.collapsed } : x))}
-                          className="flex justify-between items-center gap-2 bg-slate-100/50 dark:bg-slate-800/40 p-4 border-b border-border/70 cursor-pointer hover:bg-slate-100/80 dark:hover:bg-slate-800/60 select-none transition"
-                        >
-                          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-                            <span className={`text-[10px] text-muted-foreground transition duration-200 block ${fs.collapsed ? "-rotate-90" : ""}`}>▼</span>
-                            <strong className="text-xs text-foreground font-sans font-bold">{fs.name}</strong>
-                            <span className="text-[9.5px] px-2 py-0.5 bg-primary/10 text-primary font-bold rounded-full uppercase shrink-0">
-                              {fs.fanType} System
-                            </span>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {fs.servedFloors.map(f => (
-                                <span key={f.id} className="text-[10px] bg-slate-200/50 dark:bg-slate-700/40 text-slate-700 dark:text-slate-300 font-bold px-1.5 py-0.5 rounded-md">
-                                  {f.name}
-                                </span>
-                              ))}
+                  {/* 2-Column Responsive Split */}
+                  <div className="flex flex-col xl:flex-row gap-6 items-start">
+                    {/* Left Column: Fan System Calculation Cards */}
+                    <div className="flex-1 min-w-0 w-full flex flex-col gap-5">
+                      {calculatedFanSystems.map(fs => (
+                        <ContextMenu key={fs.id}>
+                          <ContextMenuTrigger asChild>
+                            <div className="border border-border/80 rounded-2xl bg-slate-50/40 dark:bg-slate-900/20 flex flex-col overflow-hidden shadow-xs hover:border-border transition-colors">
+                              
+                              {/* Card Header with Toggle Collapse */}
+                              <div
+                                onClick={() => setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, collapsed: !x.collapsed } : x))}
+                                className="flex justify-between items-center gap-2 bg-slate-100/60 dark:bg-slate-800/50 p-4 border-b border-border/70 cursor-pointer hover:bg-slate-100/90 dark:hover:bg-slate-800/70 select-none transition"
+                              >
+                                <div className="flex items-center gap-2.5 flex-wrap flex-1 min-w-0">
+                                  <span className={`text-[10px] text-muted-foreground transition duration-200 block ${fs.collapsed ? "-rotate-90" : ""}`}>▼</span>
+                                  <strong className="text-xs text-foreground font-sans font-bold">{fs.name}</strong>
+                                  <span className={`text-[9.5px] px-2.5 py-0.5 font-bold rounded-full uppercase shrink-0 border ${
+                                    fs.fanType === "Extract"
+                                      ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                                      : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                  }`}>
+                                    {fs.fanType} System
+                                  </span>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {fs.servedFloors.map(f => (
+                                      <span key={f.id} className="text-[10px] bg-slate-200/60 dark:bg-slate-700/50 text-slate-700 dark:text-slate-300 font-bold px-2 py-0.5 rounded-md border border-border/50">
+                                        {f.name}
+                                      </span>
+                                    ))}
+                                    {fs.servedFloors.length === 0 && (
+                                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                                        No zones assigned
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex gap-1 items-center shrink-0">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleOpenEditFS(fs); }}
+                                    className="bg-transparent text-primary hover:bg-primary/10 p-1.5 rounded-lg transition cursor-pointer"
+                                    title="Edit Fan System"
+                                  >
+                                    <Edit3 className="size-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setFanSystems(fanSystems.filter(x => x.id !== fs.id)); }}
+                                    className="bg-transparent text-red-500 hover:bg-red-500/10 p-1.5 rounded-lg transition cursor-pointer"
+                                    title="Delete Fan System"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {!fs.collapsed && (
+                                <div className="p-4 sm:p-5 flex flex-col gap-4">
+                                  {/* Compact Fire Scenario & Capacity Bar */}
+                                  <div className="flex items-center justify-between gap-2 bg-slate-100/60 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 rounded-xl px-3.5 py-2 text-xs">
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <Flame className="size-3.5 text-rose-500 dark:text-rose-400" />
+                                      <span className="font-bold text-foreground text-xs font-sans">Fire Scenario</span>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2 font-mono flex-wrap">
+                                      <div className="flex items-center gap-1 bg-primary/10 text-primary px-2.5 py-1 rounded-lg text-[11px] whitespace-nowrap border border-primary/20">
+                                        <span className="font-sans font-bold text-[9.5px] text-muted-foreground uppercase">Normal:</span>
+                                        <strong className="font-bold text-xs">{fs.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                                      </div>
+                                      <div className="flex items-center gap-1 bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2.5 py-1 rounded-lg text-[11px] whitespace-nowrap border border-rose-500/20">
+                                        <span className="font-sans font-bold text-[9.5px] text-muted-foreground uppercase">Fire:</span>
+                                        <strong className="font-bold text-xs">{fs.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setFireConfigFSId(fs.id)}
+                                        className="bg-[#0A7BC7] hover:bg-[#06456F] text-white font-bold px-3 py-1 rounded-lg text-[11px] flex items-center gap-1 transition cursor-pointer shrink-0 shadow-xs"
+                                        title="Configure Fire Scenario & Zone ACH"
+                                      >
+                                        <Settings className="size-3" />
+                                        <span>Configure</span>
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* System Parameters Row: Number of Fans & Friction Factor */}
+                                  <div className="flex flex-wrap justify-between items-center gap-3 bg-slate-100/40 dark:bg-slate-900/30 border border-border rounded-xl px-4 py-2.5 text-xs select-none">
+                                    <div className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
+                                      <span className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Number of Fans:</span>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        value={fs.fanQty === 0 ? "" : (fs.fanQty ?? 1)}
+                                        onChange={e => {
+                                          const val = e.target.value === "" ? 0 : Number(e.target.value);
+                                          setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, fanQty: val } : x));
+                                        }}
+                                        onBlur={() => {
+                                          if (!fs.fanQty || fs.fanQty < 1) {
+                                            setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, fanQty: 1 } : x));
+                                          }
+                                        }}
+                                        className="w-8 bg-background border border-border/80 text-primary font-bold text-center outline-none focus:border-primary rounded-md py-0.5 transition-colors"
+                                      />
+                                      <span className="text-muted-foreground font-semibold">Fan(s)</span>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
+                                      <span className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Friction Factor:</span>
+                                      <input
+                                        type="number"
+                                        step="0.1"
+                                        value={fs.frictionFactor}
+                                        onChange={e => {
+                                          const val = Number(e.target.value);
+                                          setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, frictionFactor: val } : x));
+                                        }}
+                                        className="w-12 bg-background border border-border/80 text-primary font-bold text-center outline-none focus:border-primary rounded-md py-0.5 transition-colors"
+                                      />
+                                      <span className="text-muted-foreground font-semibold">Pa/m</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Inputs Split */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-stretch">
+                                    <div className="flex flex-col h-full gap-2.5 text-xs">
+                                      <div className="font-bold text-[#64748b] border-b border-border pb-1.5 uppercase tracking-wider text-[10px]">Ductwork Inputs</div>
+                                      <div className="bg-slate-100/30 dark:bg-slate-900/20 border border-border/80 rounded-xl p-3 flex-1 flex flex-col justify-between gap-2.5">
+                                        <div className="flex flex-col gap-1">
+                                          <label className="font-semibold text-muted-foreground text-[11px]">Duct Length (m)</label>
+                                          <input
+                                            type="number"
+                                            value={fs.length}
+                                            onChange={e => {
+                                              const val = Number(e.target.value);
+                                              setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, length: val } : x));
+                                            }}
+                                            className="w-full bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs focus:border-primary"
+                                          />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                          <label className="font-semibold text-muted-foreground text-[11px]">Losses in Louver (Pa)</label>
+                                          <input
+                                            type="number"
+                                            value={fs.louver}
+                                            onChange={e => {
+                                              const val = Number(e.target.value);
+                                              setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, louver: val } : x));
+                                            }}
+                                            className="w-full bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs focus:border-primary"
+                                          />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                          <label className="font-semibold text-muted-foreground text-[11px]">Losses in Grille (Pa)</label>
+                                          <input
+                                            type="number"
+                                            value={fs.grille}
+                                            onChange={e => {
+                                              const val = Number(e.target.value);
+                                              setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, grille: val } : x));
+                                            }}
+                                            className="w-full bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs focus:border-primary"
+                                          />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                          <label className="font-semibold text-muted-foreground text-[11px]">Losses in SAs (Pa)</label>
+                                          <input
+                                            type="number"
+                                            value={fs.sa}
+                                            onChange={e => {
+                                              const val = Number(e.target.value);
+                                              setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, sa: val } : x));
+                                            }}
+                                            className="w-full bg-background border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs focus:border-primary"
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex flex-col gap-2.5 text-xs">
+                                      <div className="font-bold text-[#64748b] border-b border-border pb-1.5 uppercase tracking-wider text-[10px]">Calculated Results</div>
+                                      <div className="bg-slate-100/30 dark:bg-slate-900/20 border border-border/80 rounded-xl p-3 flex flex-col gap-2 font-sans">
+                                        <div className="flex justify-between items-center py-1 border-b border-border/40">
+                                          <span className="font-semibold text-muted-foreground text-[11px]">Fittings in Ducting</span>
+                                          <strong className="font-bold text-foreground font-mono">{fs.fittings.toFixed(1)} m</strong>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-border/40">
+                                          <span className="font-semibold text-muted-foreground text-[11px]">Equivalent Length</span>
+                                          <strong className="font-bold text-foreground font-mono">{fs.eqLen.toFixed(1)} m</strong>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-border/40">
+                                          <span className="font-semibold text-muted-foreground text-[11px]">Frictional Losses</span>
+                                          <strong className="font-bold text-foreground font-mono">{fs.frictionLoss.toFixed(2)} Pa</strong>
+                                        </div>
+                                        <div className="flex justify-between items-center py-1 border-b border-border/40">
+                                          <span className="font-semibold text-muted-foreground text-[11px]">Safety Overhead (10%)</span>
+                                          <strong className="font-bold text-foreground font-mono">{fs.safety.toFixed(2)} Pa</strong>
+                                        </div>
+                                        <div className="flex justify-between items-center pt-1 text-[#0A7BC7]">
+                                          <span className="font-bold text-xs">Total Static Sized</span>
+                                          <strong className="font-extrabold text-sm font-mono">{fs.totalStatic} Pa</strong>
+                                        </div>
+                                      </div>
+
+                                      {/* Final Equipment Duty Selection Box */}
+                                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex flex-col gap-1 shadow-2xs font-sans text-xs">
+                                        <div className="flex items-center justify-between font-bold text-emerald-900 dark:text-emerald-200">
+                                          <span className="flex items-center gap-1.5 uppercase text-[9.5px] tracking-wider text-emerald-800 dark:text-emerald-300">
+                                            <Gauge className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            Final Fan Selection ({fs.governingMode})
+                                          </span>
+                                          <span className="text-[10px] font-mono px-1.5 py-0.5 bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 rounded font-bold">
+                                            {fs.fanQty || 1} Fan(s)
+                                          </span>
+                                        </div>
+
+                                        <div className="font-mono text-xs sm:text-sm font-extrabold text-emerald-700 dark:text-emerald-300 mt-0.5">
+                                          {(fs.fanQty || 1) === 1 ? (
+                                            <span>1 Fan: {fs.totalStatic} Pa at {fs.sizedCap.toLocaleString()} {ip ? "CFM" : "L/s"}</span>
+                                          ) : (
+                                            <span>{fs.fanQty} Fans: {fs.totalStatic} Pa at {fs.perFanCap.toLocaleString()} {ip ? "CFM" : "L/s"} each</span>
+                                          )}
+                                        </div>
+
+                                        <div className="text-[10.5px] font-mono text-emerald-800/80 dark:text-emerald-300/80 font-medium">
+                                          Total System Airflow: <strong>{fs.sizedCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong> @ {fs.totalStatic} Pa
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          </div>
-                          <div className="flex gap-1 items-center shrink-0">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleOpenEditFS(fs); }}
-                              className="bg-transparent text-primary hover:bg-primary/10 p-1.5 rounded transition cursor-pointer"
-                              title="Edit Fan System"
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(fs.id, fs.name, "system")}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
                             >
-                              <Edit3 className="size-3.5" />
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setFanSystems(fanSystems.filter(x => x.id !== fs.id)); }}
-                              className="bg-transparent text-red-500 hover:bg-red-500/10 p-1.5 rounded transition cursor-pointer"
-                              title="Delete Fan System"
+                              <MessageSquare className="size-3.5 text-blue-600" />
+                              <span>Add Comment / Task to {fs.name}</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setFireConfigFSId(fs.id)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Flame className="size-3.5 text-rose-500" />
+                              <span>Configure Fire Scenario & Zone ACH</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onClick={() => handleOpenEditFS(fs)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Edit3 className="size-3.5 text-primary" />
+                              <span>Edit Fan System Properties</span>
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onClick={() => setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, collapsed: !x.collapsed } : x))}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Settings className="size-3.5 text-muted-foreground" />
+                              <span>{fs.collapsed ? "Expand Fan System Card" : "Collapse Fan System Card"}</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleDuplicateFanSystem(fs)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Duplicate Fan System</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setFanSystems(fanSystems.filter(x => x.id !== fs.id))}
+                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
                             >
                               <Trash2 className="size-3.5" />
-                            </button>
+                              <span>Delete Fan System</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      ))}
+
+                      {calculatedFanSystems.length === 0 && (
+                        <div className="border border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-3 text-center bg-surface-2/30">
+                          <Wind className="size-8 text-muted-foreground/50" />
+                          <h4 className="font-bold text-sm text-foreground">No Fan Systems Created</h4>
+                          <p className="text-xs text-muted-foreground max-w-sm">
+                            Create an Extract or Makeup fan system to associate basement zones and calculate ductwork head loss.
+                          </p>
+                          <TBtn primary onClick={handleOpenCreateFS} className="mt-1">
+                            <Plus className="size-3.5" /> Create Fan System
+                          </TBtn>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right Column: Dedicated Sizing & Analysis Dashboard */}
+                    <div className="w-full xl:w-[420px] shrink-0 flex flex-col gap-4">
+                      {/* Card 1: Aggregated System Metrics & Duty */}
+                      <div className="border border-border/80 rounded-2xl bg-card p-4 shadow-xs flex flex-col gap-3">
+                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                          <div className="flex items-center gap-2">
+                            <Activity className="size-4 text-primary" />
+                            <span className="font-bold text-xs text-foreground uppercase tracking-wider">
+                              Aggregated System Metrics
+                            </span>
+                          </div>
+                          <span className="text-[10.5px] font-mono text-muted-foreground font-bold">
+                            {calculatedFanSystems.length} {calculatedFanSystems.length === 1 ? "System" : "Systems"}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <div className="p-3 bg-surface-2/60 rounded-xl border border-border/50 flex flex-col gap-0.5">
+                            <span className="text-[10px] font-semibold text-muted-foreground uppercase">Total Extract Airflow</span>
+                            <span className="text-sm font-bold font-mono text-rose-600 dark:text-rose-400">
+                              {calculatedFanSystems
+                                .filter(fs => fs.fanType === "Extract")
+                                .reduce((sum, fs) => sum + fs.sizedCap, 0)
+                                .toLocaleString()}{" "}
+                              <span className="text-[10px] font-normal text-muted-foreground">{ip ? "CFM" : "L/s"}</span>
+                            </span>
+                          </div>
+
+                          <div className="p-3 bg-surface-2/60 rounded-xl border border-border/50 flex flex-col gap-0.5">
+                            <span className="text-[10px] font-semibold text-muted-foreground uppercase">Total Makeup Airflow</span>
+                            <span className="text-sm font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                              {calculatedFanSystems
+                                .filter(fs => fs.fanType === "Makeup")
+                                .reduce((sum, fs) => sum + fs.sizedCap, 0)
+                                .toLocaleString()}{" "}
+                              <span className="text-[10px] font-normal text-muted-foreground">{ip ? "CFM" : "L/s"}</span>
+                            </span>
+                          </div>
+
+                          <div className="p-3 bg-surface-2/60 rounded-xl border border-border/50 flex flex-col gap-0.5">
+                            <span className="text-[10px] font-semibold text-muted-foreground uppercase">Governing Max Static</span>
+                            <span className="text-sm font-bold font-mono text-primary">
+                              {Math.max(0, ...calculatedFanSystems.map(fs => fs.totalStatic))}{" "}
+                              <span className="text-[10px] font-normal text-muted-foreground">Pa</span>
+                            </span>
+                          </div>
+
+                          <div className="p-3 bg-surface-2/60 rounded-xl border border-border/50 flex flex-col gap-0.5">
+                            <span className="text-[10px] font-semibold text-muted-foreground uppercase">Total Ductwork Run</span>
+                            <span className="text-sm font-bold font-mono text-foreground">
+                              {calculatedFanSystems.reduce((sum, fs) => sum + fs.length, 0)}{" "}
+                              <span className="text-[10px] font-normal text-muted-foreground">m</span>
+                            </span>
                           </div>
                         </div>
 
-                        {!fs.collapsed && (
-                          <div className="p-4 sm:p-5 flex flex-col gap-4">
-                            {/* Compact Fire Scenario & Capacity Bar */}
-                            <div className="flex items-center justify-between gap-2 bg-slate-100/60 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 rounded-xl px-3 py-2 text-xs">
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <Flame className="size-3.5 text-rose-500 dark:text-rose-400" />
-                                <span className="font-bold text-foreground text-xs font-sans">Fire Scenario</span>
-                              </div>
-                              
-                              <div className="flex items-center gap-2 font-mono flex-wrap">
-                                <div className="flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[11px] whitespace-nowrap">
-                                  <span className="font-sans font-bold text-[9.5px] text-muted-foreground uppercase">Normal:</span>
-                                  <strong className="font-bold text-xs">{fs.lowCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                                </div>
-                                <div className="flex items-center gap-1 bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded-md text-[11px] whitespace-nowrap">
-                                  <span className="font-sans font-bold text-[9.5px] text-muted-foreground uppercase">Fire:</span>
-                                  <strong className="font-bold text-xs">{fs.highCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setFireConfigFSId(fs.id)}
-                                  className="bg-[#0A7BC7] hover:bg-[#06456F] text-white font-bold px-2.5 py-1 rounded-md text-[11px] flex items-center gap-1 transition cursor-pointer shrink-0 shadow-xs"
-                                  title="Configure Fire Scenario & Zone ACH"
-                                >
-                                  <Settings className="size-3" />
-                                  <span>Configure</span>
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* System Parameters Row: Number of Fans & Friction Factor */}
-                            <div className="flex flex-wrap justify-between items-center gap-3 bg-slate-100/30 dark:bg-slate-900/30 border border-border rounded-xl px-4 py-2 text-xs select-none">
-                              <div className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
-                                <span className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Number of Fans:</span>
-                                 <input
-                                  type="number"
-                                  min="1"
-                                  value={fs.fanQty === 0 ? "" : (fs.fanQty ?? 1)}
-                                  onChange={e => {
-                                    const val = e.target.value === "" ? 0 : Number(e.target.value);
-                                    setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, fanQty: val } : x));
-                                  }}
-                                  onBlur={() => {
-                                    if (!fs.fanQty || fs.fanQty < 1) {
-                                      setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, fanQty: 1 } : x));
-                                    }
-                                  }}
-                                  className="w-7 bg-transparent text-primary font-bold text-center outline-none focus:bg-slate-200/50 dark:focus:bg-slate-800/50 rounded transition-colors"
-                                />
-                                <span className="text-muted-foreground font-semibold">Fan(s)</span>
-                              </div>
-
-                              <div className="flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-300">
-                                <span className="font-bold text-muted-foreground uppercase tracking-wider text-[10px]">Friction Factor:</span>
-                                <input
-                                  type="number"
-                                  step="0.1"
-                                  value={fs.frictionFactor}
-                                  onChange={e => {
-                                    const val = Number(e.target.value);
-                                    setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, frictionFactor: val } : x));
-                                  }}
-                                  className="w-8 bg-transparent text-primary font-bold text-center outline-none focus:bg-slate-200/50 dark:focus:bg-slate-800/50 rounded transition-colors"
-                                />
-                                <span>Pa/m</span>
-                              </div>
-                            </div>
-
-                            {/* Inputs Split */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-stretch">
-                              <div className="flex flex-col h-full gap-2.5 text-xs">
-                                <div className="font-bold text-[#64748b] border-b border-border pb-1.5 uppercase tracking-wider text-[10px]">Ductwork Inputs</div>
-                                <div className="bg-slate-100/20 dark:bg-slate-900/10 border border-border rounded-xl p-3 flex-1 flex flex-col justify-between gap-2">
-                                  <div className="flex flex-col gap-1">
-                                    <label className="font-semibold text-muted-foreground">Duct Length (m)</label>
-                                    <input
-                                      type="number"
-                                      value={fs.length}
-                                      onChange={e => {
-                                        const val = Number(e.target.value);
-                                        setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, length: val } : x));
-                                      }}
-                                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
-                                    />
-                                  </div>
-                                  <div className="flex flex-col gap-1">
-                                    <label className="font-semibold text-muted-foreground">Losses in Louver (Pa)</label>
-                                    <input
-                                      type="number"
-                                      value={fs.louver}
-                                      onChange={e => {
-                                        const val = Number(e.target.value);
-                                        setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, louver: val } : x));
-                                      }}
-                                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
-                                    />
-                                  </div>
-                                  <div className="flex flex-col gap-1">
-                                    <label className="font-semibold text-muted-foreground">Losses in Grille (Pa)</label>
-                                    <input
-                                      type="number"
-                                      value={fs.grille}
-                                      onChange={e => {
-                                        const val = Number(e.target.value);
-                                        setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, grille: val } : x));
-                                      }}
-                                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
-                                    />
-                                  </div>
-                                  <div className="flex flex-col gap-1">
-                                    <label className="font-semibold text-muted-foreground">Losses in SAs (Pa)</label>
-                                    <input
-                                      type="number"
-                                      value={fs.sa}
-                                      onChange={e => {
-                                        const val = Number(e.target.value);
-                                        setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, sa: val } : x));
-                                      }}
-                                      className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none text-xs"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="flex flex-col gap-2.5 text-xs">
-                                <div className="font-bold text-[#64748b] border-b border-border pb-1.5 uppercase tracking-wider text-[10px]">Calculated Results</div>
-                                <div className="bg-slate-100/20 dark:bg-slate-900/10 border border-border rounded-xl p-3 flex flex-col gap-2 font-sans">
-                                  <div className="flex justify-between items-center py-1 border-b border-border/40">
-                                    <span className="font-semibold text-muted-foreground">Fittings in Ducting</span>
-                                    <strong className="font-bold text-foreground font-mono">{fs.fittings.toFixed(1)} m</strong>
-                                  </div>
-                                  <div className="flex justify-between items-center py-1 border-b border-border/40">
-                                    <span className="font-semibold text-muted-foreground">Equivalent Length</span>
-                                    <strong className="font-bold text-foreground font-mono">{fs.eqLen.toFixed(1)} m</strong>
-                                  </div>
-                                  <div className="flex justify-between items-center py-1 border-b border-border/40">
-                                    <span className="font-semibold text-muted-foreground">Frictional Losses</span>
-                                    <strong className="font-bold text-foreground font-mono">{fs.frictionLoss.toFixed(2)} Pa</strong>
-                                  </div>
-                                  <div className="flex justify-between items-center py-1 border-b border-border/40">
-                                    <span className="font-semibold text-muted-foreground">Safety Overhead (10%)</span>
-                                    <strong className="font-bold text-foreground font-mono">{fs.safety.toFixed(2)} Pa</strong>
-                                  </div>
-                                  <div className="flex justify-between items-center pt-1 text-[#0A7BC7]">
-                                    <span className="font-bold">Total Static Sized</span>
-                                    <strong className="font-bold text-sm font-mono">{fs.totalStatic} Pa</strong>
-                                  </div>
-                                </div>
-
-                                {/* Final Equipment Duty Selection Box */}
-                                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex flex-col gap-1 shadow-2xs font-sans text-xs">
-                                  <div className="flex items-center justify-between font-bold text-emerald-900 dark:text-emerald-200">
-                                    <span className="flex items-center gap-1.5 uppercase text-[9.5px] tracking-wider text-emerald-800 dark:text-emerald-300">
-                                      <Gauge className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                                      Final Fan Selection ({fs.governingMode})
-                                    </span>
-                                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-emerald-500/20 text-emerald-800 dark:text-emerald-200 rounded font-bold">
-                                      {fs.fanQty || 1} Fan(s)
-                                    </span>
-                                  </div>
-
-                                  <div className="font-mono text-xs sm:text-sm font-extrabold text-emerald-700 dark:text-emerald-300 mt-0.5">
-                                    {(fs.fanQty || 1) === 1 ? (
-                                      <span>1 Fan: {fs.totalStatic} Pa at {fs.sizedCap.toLocaleString()} {ip ? "CFM" : "L/s"}</span>
-                                    ) : (
-                                      <span>{fs.fanQty} Fans: {fs.totalStatic} Pa at {fs.perFanCap.toLocaleString()} {ip ? "CFM" : "L/s"} each</span>
-                                    )}
-                                  </div>
-
-                                  <div className="text-[10.5px] font-mono text-emerald-800/80 dark:text-emerald-300/80 font-medium">
-                                    Total System Airflow: <strong>{fs.sizedCap.toLocaleString()} {ip ? "CFM" : "L/s"}</strong> @ {fs.totalStatic} Pa
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
+                        <div className="flex items-center justify-between pt-1 border-t border-border/40 text-[11px] text-muted-foreground">
+                          <span>Extract Systems: <strong className="text-foreground">{fanSystemMetrics.extractCount}</strong></span>
+                          <span>Makeup Systems: <strong className="text-foreground">{fanSystemMetrics.makeupCount}</strong></span>
+                        </div>
                       </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
-                      <ContextMenuItem
-                        onClick={() => handleOpenComment(fs.id, fs.name, "system")}
-                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                      >
-                        <MessageSquare className="size-3.5 text-blue-600" />
-                        <span>Add Comment / Task to {fs.name}</span>
-                      </ContextMenuItem>
-                      <ContextMenuSeparator className="h-px bg-border my-1" />
-                      <ContextMenuItem
-                        onClick={() => setFireConfigFSId(fs.id)}
-                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                      >
-                        <Flame className="size-3.5 text-rose-500" />
-                        <span>Configure Fire Scenario & Zone ACH</span>
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        onClick={() => handleOpenEditFS(fs)}
-                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                      >
-                        <Edit3 className="size-3.5 text-primary" />
-                        <span>Edit Fan System Properties</span>
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        onClick={() => setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, collapsed: !x.collapsed } : x))}
-                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                      >
-                        <Settings className="size-3.5 text-muted-foreground" />
-                        <span>{fs.collapsed ? "Expand Fan System Card" : "Collapse Fan System Card"}</span>
-                      </ContextMenuItem>
-                      <ContextMenuSeparator className="h-px bg-border my-1" />
-                      <ContextMenuItem
-                        onClick={() => handleDuplicateFanSystem(fs)}
-                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                      >
-                        <Copy className="size-3.5 text-muted-foreground" />
-                        <span>Duplicate Fan System</span>
-                      </ContextMenuItem>
-                      <ContextMenuSeparator className="h-px bg-border my-1" />
-                      <ContextMenuItem
-                        onClick={() => setFanSystems(fanSystems.filter(x => x.id !== fs.id))}
-                        className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
-                      >
-                        <Trash2 className="size-3.5" />
-                        <span>Delete Fan System</span>
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
-                ))}
-              </div>
+
+                      {/* Card 2: Basement Zone Coverage & Assignment Matrix */}
+                      <div className="border border-border/80 rounded-2xl bg-card p-4 shadow-xs flex flex-col gap-3">
+                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                          <div className="flex items-center gap-2">
+                            <Layers className="size-4 text-[#0A7BC7]" />
+                            <span className="font-bold text-xs text-foreground uppercase tracking-wider">
+                              Zone Coverage Matrix
+                            </span>
+                          </div>
+                          <span className="text-[10.5px] font-mono text-muted-foreground">
+                            {floors.length} {floors.length === 1 ? "Zone" : "Zones"}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col gap-2 max-h-60 overflow-y-auto pr-1">
+                          {floors.map(floor => {
+                            const extractFS = calculatedFanSystems.find(fs => fs.fanType === "Extract" && fs.floorIds.includes(floor.id));
+                            const makeupFS = calculatedFanSystems.find(fs => fs.fanType === "Makeup" && fs.floorIds.includes(floor.id));
+                            return (
+                              <div key={floor.id} className="p-2.5 rounded-xl bg-surface-2/60 border border-border/60 flex flex-col gap-1.5">
+                                <div className="flex justify-between items-center">
+                                  <span className="font-bold text-foreground text-xs">{floor.name}</span>
+                                  <span className="text-[10px] font-mono text-muted-foreground">
+                                    {floor.effArea} {ip ? "ft²" : "m²"}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                                  {extractFS ? (
+                                    <span className="px-2 py-0.5 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold rounded-md border border-rose-500/20">
+                                      Extract: {extractFS.name}
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold rounded-md border border-amber-500/20">
+                                      Extract: Unassigned
+                                    </span>
+                                  )}
+
+                                  {makeupFS ? (
+                                    <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold rounded-md border border-emerald-500/20">
+                                      Makeup: {makeupFS.name}
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-slate-200/60 dark:bg-slate-700/60 text-muted-foreground font-semibold rounded-md">
+                                      Makeup: Unassigned
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {floors.length === 0 && (
+                            <div className="text-center py-4 text-xs text-muted-foreground">
+                              No basement zones defined. Add levels in Basement Schedule first.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Card 3: Engineering Standards & Governing Rules */}
+                      <div className="border border-border/80 rounded-2xl bg-card p-4 shadow-xs flex flex-col gap-2.5">
+                        <div className="flex items-center gap-2 pb-1.5 border-b border-border/60">
+                          <Sparkles className="size-4 text-primary" />
+                          <span className="font-bold text-xs text-foreground uppercase tracking-wider">
+                            Governing Sizing Standards
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground space-y-1.5 leading-relaxed font-sans">
+                          <p>• <strong>Normal 3-3-6 Sizing</strong>: Highest compartment @ 6 ACH + remainder @ 3 ACH.</p>
+                          <p>• <strong>Fire Mode 10 ACH</strong>: Sized for peak 10 ACH fire condition in any single zone.</p>
+                          <p>• <strong>Makeup Air (80%)</strong>: Sized at 80% of smoke extract rate to maintain negative pressure differential.</p>
+                          <p>• <strong>Duct Head Loss</strong>: Total static includes 60% fittings allowance and 10% safety margin.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
+
+        {/* Intelligence Drawer (Collapsible Right Side) */}
+        {intelOpen && (
+          <BasementIntelligenceDrawer
+            onClose={() => setIntelOpen(false)}
+            floors={floors}
+            calculatedRows={calculatedRows}
+            calculatedFanSystems={calculatedFanSystems}
+            unitSystem={unitSystem}
+            onSelectZone={(id) => {
+              setActiveSection("schedule");
+              setTimeout(() => {
+                const el = document.getElementById(id);
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+              }, 150);
+            }}
+          />
+        )}
       </div>
-    </div>
-  </div>
+
+      {/* Formula Breakdown Modal */}
+      {showFormulaModal && (
+        <BasementFormulaModal
+          onClose={() => setShowFormulaModal(false)}
+          unitSystem={unitSystem}
+        />
+      )}
 
       {/* Add Level Modal */}
       {showAddLevelModal && (
@@ -3516,5 +3727,357 @@ function BasementSmokeCalcPage() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+interface BasementIntelligenceDrawerProps {
+  onClose: () => void;
+  floors: BasementFloor[];
+  calculatedRows: (BasementFloor & { flow3ach: number; flow6ach: number; flow10ach: number })[];
+  calculatedFanSystems: (FanSystem & {
+    lowCap: number;
+    highCap: number;
+    sizedCap: number;
+    totalStatic: number;
+    frictionLoss: number;
+    fittings: number;
+    eqLen: number;
+    safety: number;
+    perFanCap: number;
+    governingMode: string;
+  })[];
+  unitSystem: "si" | "ip";
+  onSelectZone?: (id: string) => void;
+}
+
+function BasementIntelligenceDrawer({
+  onClose,
+  floors,
+  calculatedRows,
+  calculatedFanSystems,
+  unitSystem,
+  onSelectZone,
+}: BasementIntelligenceDrawerProps) {
+  const isIp = unitSystem === "ip";
+
+  const totalGrossArea = useMemo(() => floors.reduce((acc, f) => acc + (f.area || 0), 0), [floors]);
+  const totalEffArea = useMemo(() => floors.reduce((acc, f) => acc + (f.effArea || 0), 0), [floors]);
+  const totalFireAirflow = useMemo(() => calculatedRows.reduce((acc, r) => acc + (r.flow10ach || 0), 0), [calculatedRows]);
+  const totalNormal3Airflow = useMemo(() => calculatedRows.reduce((acc, r) => acc + (r.flow3ach || 0), 0), [calculatedRows]);
+  const totalNormal6Airflow = useMemo(() => calculatedRows.reduce((acc, r) => acc + (r.flow6ach || 0), 0), [calculatedRows]);
+  const recommendedMakeupAirflow = Math.round(totalFireAirflow * 0.8);
+
+  const oversizedZones = useMemo(() => {
+    const limit = isIp ? 21500 : 2000;
+    return floors.filter(f => (f.effArea || f.area || 0) > limit);
+  }, [floors, isIp]);
+
+  const lowHeightZones = useMemo(() => {
+    const limit = isIp ? 7.87 : 2.4;
+    return floors.filter(f => (f.height || 0) > 0 && (f.height || 0) < limit);
+  }, [floors, isIp]);
+
+  const unassignedExtractZones = useMemo(() => {
+    return floors.filter(f => !calculatedFanSystems.some(fs => fs.fanType === "Extract" && fs.floorIds.includes(f.id)));
+  }, [floors, calculatedFanSystems]);
+
+  const unassignedMakeupZones = useMemo(() => {
+    return floors.filter(f => !calculatedFanSystems.some(fs => fs.fanType === "Makeup" && fs.floorIds.includes(f.id)));
+  }, [floors, calculatedFanSystems]);
+
+  const complianceIssuesCount = oversizedZones.length + lowHeightZones.length + unassignedExtractZones.length;
+
+  return (
+    <div className="w-80 md:w-96 border-l border-border bg-card flex flex-col h-full shrink-0 shadow-lg animate-fade-in font-sans">
+      {/* Header */}
+      <div className="p-4 border-b border-border/80 flex items-center justify-between bg-header-bg/50">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+            <Sparkles className="size-4" />
+          </div>
+          <div>
+            <h3 className="font-bold text-sm text-foreground">Basement Intelligence</h3>
+            <span className="text-[11px] text-muted-foreground font-medium">Compliance &amp; System Health</span>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+          title="Close Intelligence"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      {/* Body Content */}
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 text-xs">
+        {/* Compliance Status Banner */}
+        <div
+          className={`p-3 rounded-xl border flex items-start gap-2.5 ${
+            complianceIssuesCount === 0
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300"
+              : "bg-amber-500/10 border-amber-500/30 text-amber-900 dark:text-amber-200"
+          }`}
+        >
+          {complianceIssuesCount === 0 ? (
+            <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+          ) : (
+            <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          )}
+          <div className="flex flex-col gap-0.5">
+            <span className="font-bold text-xs">
+              {complianceIssuesCount === 0
+                ? "All Zones Meet Smoke & Code Guidelines"
+                : `${complianceIssuesCount} Warning / Advisory Item${complianceIssuesCount > 1 ? "s" : ""}`}
+            </span>
+            <span className="text-[11px] opacity-90 leading-tight">
+              {complianceIssuesCount === 0
+                ? "Zone areas, clear heights, and fan associations conform to NFPA 92 and BS 7346-7 standards."
+                : "Review oversized compartments or unassigned fan system routes below."}
+            </span>
+          </div>
+        </div>
+
+        {/* Key Aggregate Metrics */}
+        <div className="border border-border/80 rounded-2xl p-3.5 bg-surface-2/40 flex flex-col gap-2.5">
+          <div className="flex items-center justify-between pb-1.5 border-b border-border/60">
+            <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+              Total Airflow &amp; Area Demands
+            </span>
+            <span className="font-mono text-[10px] font-bold text-primary">{floors.length} Zones</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="p-2 bg-background/80 rounded-lg border border-border/50 flex flex-col">
+              <span className="text-[9.5px] font-medium text-muted-foreground uppercase">Effective Area</span>
+              <span className="text-xs font-bold font-mono text-foreground">
+                {totalEffArea.toLocaleString()} <span className="text-[9.5px] font-normal text-muted-foreground">{isIp ? "ft²" : "m²"}</span>
+              </span>
+            </div>
+
+            <div className="p-2 bg-background/80 rounded-lg border border-border/50 flex flex-col">
+              <span className="text-[9.5px] font-medium text-muted-foreground uppercase">Gross Footprint</span>
+              <span className="text-xs font-bold font-mono text-foreground">
+                {totalGrossArea.toLocaleString()} <span className="text-[9.5px] font-normal text-muted-foreground">{isIp ? "ft²" : "m²"}</span>
+              </span>
+            </div>
+
+            <div className="p-2 bg-rose-500/10 rounded-lg border border-rose-500/20 flex flex-col">
+              <span className="text-[9.5px] font-semibold text-rose-600 dark:text-rose-400 uppercase">Emergency Extract (10 ACH)</span>
+              <span className="text-xs font-bold font-mono text-rose-700 dark:text-rose-300">
+                {totalFireAirflow.toLocaleString()} <span className="text-[9.5px] font-normal opacity-75">{isIp ? "CFM" : "L/s"}</span>
+              </span>
+            </div>
+
+            <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20 flex flex-col">
+              <span className="text-[9.5px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase">Makeup Air (80%)</span>
+              <span className="text-xs font-bold font-mono text-emerald-700 dark:text-emerald-300">
+                {recommendedMakeupAirflow.toLocaleString()} <span className="text-[9.5px] font-normal opacity-75">{isIp ? "CFM" : "L/s"}</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center pt-1 border-t border-border/40 text-[10.5px] text-muted-foreground font-mono">
+            <span>Normal 3 ACH: <strong>{totalNormal3Airflow.toLocaleString()} {isIp ? "CFM" : "L/s"}</strong></span>
+            <span>Normal 6 ACH: <strong>{totalNormal6Airflow.toLocaleString()} {isIp ? "CFM" : "L/s"}</strong></span>
+          </div>
+        </div>
+
+        {/* Warnings & Checks Section */}
+        {oversizedZones.length > 0 && (
+          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex flex-col gap-1.5 text-rose-900 dark:text-rose-200">
+            <div className="flex items-center gap-1.5 font-bold text-[11px]">
+              <AlertTriangle className="size-3.5 text-rose-600 dark:text-rose-400" />
+              <span>Oversized Smoke Compartment (&gt; {isIp ? "21,500 ft²" : "2,000 m²"})</span>
+            </div>
+            <p className="text-[10.5px] leading-relaxed text-rose-800 dark:text-rose-300">
+              Per BS 7346-7 &amp; NFPA 92, single smoke zones should not exceed {isIp ? "21,500 ft²" : "2,000 m²"} without dedicated smoke curtains/barriers:
+            </p>
+            <div className="flex flex-wrap gap-1 mt-0.5">
+              {oversizedZones.map(z => (
+                <button
+                  key={z.id}
+                  onClick={() => onSelectZone?.(z.id)}
+                  className="px-2 py-0.5 bg-rose-200 dark:bg-rose-900/60 rounded text-[10px] font-mono font-bold hover:underline cursor-pointer"
+                >
+                  {z.name} ({z.effArea} {isIp ? "ft²" : "m²"})
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {unassignedExtractZones.length > 0 && (
+          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex flex-col gap-1.5 text-amber-900 dark:text-amber-200">
+            <div className="flex items-center gap-1.5 font-bold text-[11px]">
+              <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400" />
+              <span>Unassigned Extract Zones ({unassignedExtractZones.length})</span>
+            </div>
+            <p className="text-[10.5px] leading-relaxed text-amber-800 dark:text-amber-300">
+              The following zones are not linked to any Extract Fan System:
+            </p>
+            <div className="flex flex-wrap gap-1 mt-0.5">
+              {unassignedExtractZones.map(z => (
+                <span key={z.id} className="px-2 py-0.5 bg-amber-200 dark:bg-amber-900/60 rounded text-[10px] font-mono font-bold">
+                  {z.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Zone Quick Inspector */}
+        <div className="border border-border/80 rounded-2xl p-3.5 bg-card flex flex-col gap-2.5">
+          <div className="flex items-center justify-between pb-1 border-b border-border/60">
+            <div className="flex items-center gap-1.5">
+              <Layers className="size-3.5 text-primary" />
+              <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+                Zone Duty Breakdown
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground">Click to locate</span>
+          </div>
+
+          <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto pr-1">
+            {calculatedRows.map(row => (
+              <div
+                key={row.id}
+                onClick={() => onSelectZone?.(row.id)}
+                className="p-2 rounded-xl bg-surface-2/60 hover:bg-surface-2 border border-border/60 flex flex-col gap-1 cursor-pointer transition"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-foreground text-xs">{row.name}</span>
+                  <span className="text-primary font-mono font-bold text-xs">
+                    {row.flow10ach.toLocaleString()} {isIp ? "CFM" : "L/s"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[10.5px] text-muted-foreground font-mono">
+                  <span>Eff: {row.effArea} {isIp ? "ft²" : "m²"}</span>
+                  <span>Normal: {row.flow3ach.toLocaleString()} | {row.flow6ach.toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
+
+            {calculatedRows.length === 0 && (
+              <div className="text-center py-3 text-muted-foreground text-xs">
+                No zones created yet.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Governing Engineering Codes */}
+        <div className="border border-border/80 rounded-2xl p-3.5 bg-card flex flex-col gap-2">
+          <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
+            Governing Standards &amp; Codes
+          </span>
+          <div className="text-[11px] text-muted-foreground space-y-1.5 leading-relaxed">
+            <p>• <strong>NFPA 92 / NFPA 88A</strong>: Minimum 10 air changes per hour (ACH) emergency smoke extraction in car parks and sub-grade structures.</p>
+            <p>• <strong>Makeup Air Velocity</strong>: Maximum velocity across supply openings &le; 2.5 m/s (500 fpm) to avoid disruptive turbulence.</p>
+            <p>• <strong>BS 7346-7 / BS 9999</strong>: Dual-speed fan sizing for 3/6 ACH continuous car park ventilation and 10 ACH fire mode duty.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BasementFormulaModal({
+  onClose,
+  unitSystem,
+}: {
+  onClose: () => void;
+  unitSystem: "si" | "ip";
+}) {
+  const isIp = unitSystem === "ip";
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 font-sans animate-fade-in">
+      <div className="bg-card border border-border rounded-2xl w-full max-w-2xl p-6 flex flex-col gap-4 shadow-2xl animate-scale-in max-h-[85vh] overflow-y-auto">
+        <div className="flex justify-between items-center pb-2.5 border-b border-border/60">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+              <Info className="size-4" />
+            </div>
+            <div>
+              <h3 className="font-bold text-base text-foreground">Basement Smoke Extract &amp; Ventilation Methodology</h3>
+              <span className="text-xs text-muted-foreground">Governed by NFPA 92, NFPA 88A, BS 7346-7, BS 9999 &amp; ASHRAE 62.1</span>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4 text-xs">
+          {/* 1. Flow Calculations */}
+          <div className="bg-slate-50 dark:bg-slate-900/40 border border-border/70 rounded-xl p-3.5 flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 font-bold text-foreground">
+              <div className="size-2 rounded-full bg-[#0A7BC7]" />
+              <span>1. Normal &amp; Fire Airflow Sizing (3, 6, and 10 ACH)</span>
+            </div>
+            <div className="bg-background border border-border/60 rounded-lg p-2.5 font-mono text-[11.5px] text-primary font-semibold space-y-1">
+              <div>Q_3ACH = (Effective Area × Clear Height × 3) ÷ {isIp ? "60 (CFM)" : "3.6 (L/s)"}</div>
+              <div>Q_6ACH = (Effective Area × Clear Height × 6) ÷ {isIp ? "60 (CFM)" : "3.6 (L/s)"}</div>
+              <div className="text-rose-600 dark:text-rose-400">Q_10ACH = (Effective Area × Clear Height × 10) ÷ {isIp ? "60 (CFM)" : "3.6 (L/s)"}</div>
+            </div>
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              Effective area accounts for usable parking and sump space excluding structural shear walls, core lobbies, and staircases.
+            </p>
+          </div>
+
+          {/* 2. Makeup Air Sizing */}
+          <div className="bg-slate-50 dark:bg-slate-900/40 border border-border/70 rounded-xl p-3.5 flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 font-bold text-foreground">
+              <div className="size-2 rounded-full bg-[#0A7BC7]" />
+              <span>2. Makeup Air Supply Flow Rate (80% Rule)</span>
+            </div>
+            <div className="bg-background border border-border/60 rounded-lg p-2.5 font-mono text-[11.5px] text-primary font-semibold">
+              Q_makeup = 0.80 × Q_extract (80% of total fire extract capacity)
+            </div>
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              Maintains a slight negative pressure differential inside the fire compartment to prevent smoke escaping into adjacent lobbies and vertical shafts.
+            </p>
+          </div>
+
+          {/* 3. Fan Capacity & Redundancy */}
+          <div className="bg-slate-50 dark:bg-slate-900/40 border border-border/70 rounded-xl p-3.5 flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 font-bold text-foreground">
+              <div className="size-2 rounded-full bg-[#0A7BC7]" />
+              <span>3. Fan System Capacity &amp; Redundancy (2 × 50% Configuration)</span>
+            </div>
+            <div className="bg-background border border-border/60 rounded-lg p-2.5 font-mono text-[11.5px] text-foreground space-y-1">
+              <div>Capacity per Fan = Total Sized Capacity ÷ Number of Parallel Fans</div>
+              <div className="text-emerald-700 dark:text-emerald-400 font-bold">Standard: 2 Extract Fans @ 50% duty each (dual-speed high temp 300°C/2hr rated)</div>
+            </div>
+          </div>
+
+          {/* 4. Static Pressure Calculation */}
+          <div className="bg-slate-50 dark:bg-slate-900/40 border border-border/70 rounded-xl p-3.5 flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5 font-bold text-foreground">
+              <div className="size-2 rounded-full bg-[#0A7BC7]" />
+              <span>4. Duct Static Head Loss &amp; Safety Allowance</span>
+            </div>
+            <div className="bg-background border border-border/60 rounded-lg p-2.5 font-mono text-[11.5px] text-foreground space-y-1">
+              <div>Equivalent Length (L_eq) = Duct Length × 1.60 (60% allowance for elbows/fittings)</div>
+              <div>Friction Loss (ΔP_f) = L_eq × Friction Factor (Pa/m)</div>
+              <div className="text-primary font-bold">Total Static Pa = (ΔP_f + Louver + Grille + SA) × 1.10 (10% Safety Margin)</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-2 border-t border-border/60">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-[#0A7BC7] text-white font-bold rounded-lg text-xs transition hover:bg-[#06456F] cursor-pointer shadow-xs"
+          >
+            Close Guide
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

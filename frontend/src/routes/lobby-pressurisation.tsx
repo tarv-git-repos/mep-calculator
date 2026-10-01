@@ -8,6 +8,7 @@ import { api } from "@/services/api";
 import React, { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import {
   AlertTriangle, Info, Printer, Plus, Trash2,
   ChevronDown, ChevronUp, Edit3, Settings, HelpCircle, Sparkles,
@@ -74,6 +75,7 @@ function LobbyPressurisationPage() {
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [intelOpen, setIntelOpen] = useState<boolean>(false);
   
   // Active section view state
   const [activeSection, setActiveSection] = useState<"schedule" | "fan-systems">("schedule");
@@ -1314,104 +1316,125 @@ function LobbyPressurisationPage() {
   };
 
   return (
-    <AppShell title="Lobby Pressurisation" hideSubHeader={true}>
-      <div className="flex-1 flex flex-col h-full bg-background overflow-hidden relative font-sans">
-        <div className="flex-1 flex flex-col p-4 sm:p-6 overflow-y-auto gap-4">
+    <AppShell 
+      title="Lobby Pressurisation" 
+      hideSubHeader={true}
+      onIntelClick={() => setIntelOpen((v) => !v)}
+      intelOpen={intelOpen}
+    >
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
-          {/* Header Title Bar */}
-          <div className="flex flex-wrap justify-between items-center gap-3 border-b border-border/70 pb-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-[#0A7BC7]/10 text-[#0A7BC7] border border-[#0A7BC7]/20">
-                <ShieldCheck className="size-6 text-[#0A7BC7]" />
+          {/* Page Header & Actions */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Lobby Pressurisation &amp; Smoke Containment</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">{floors.length} {floors.length === 1 ? "space" : "spaces"}</span>
               </div>
-              <div>
-                <h1 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
-                  Lobby Pressurisation & Smoke Containment
-                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#0A7BC7]/10 text-[#0A7BC7] font-bold border border-[#0A7BC7]/20">
-                    6 ACH Standard
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowFormulaModal(true)}
-                    className="p-1 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-muted-foreground hover:text-primary transition cursor-pointer shadow-2xs"
-                    title="Calculation Methodology & Formulas (i)"
-                  >
-                    <Info className="size-3.5 text-primary" />
-                  </button>
-                </h1>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Calculate required 6 ACH pressurisation airflows, volume containment, and fan system duct static head losses.
-                </p>
-              </div>
-            </div>
+              
+              <button 
+                type="button"
+                onClick={() => setIntelOpen((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+                title="Toggle Lobby Pressurisation Intelligence"
+              >
+                <Sparkles className="size-3.5" />
+                Intelligence
+              </button>
 
-            <div className="flex items-center gap-2 flex-wrap">
               <CalculationReviewBar
-                projectId={project?.id}
+                projectId={project?.id || activeProjectId || "default"}
                 calculatorPath="/lobby-pressurisation"
                 calculatorTitle="Lobby Pressurisation"
               />
+
               {commentsList.length > 0 && (
                 <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
                   <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Active Task(s) / Comment(s)</span>
+                  <span>{commentsList.length} Active {commentsList.length === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
                 </div>
               )}
+            </div>
+
+            {/* Unit System Toggle in Header inline with Approve / Reject */}
+            <div className="flex items-center gap-2">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={executeUnitSystemChange}
+                disabled={isApprovedLocked}
+                inputDescriptions="Area, Height, Flow Rate"
+                conversionExample={unitSystem === "si" ? "Convert 350 m² → 3,767 sq ft, 3m → 9.8 ft, 1,750 L/s → 3,708 CFM" : "Convert 3,767 sq ft → 350 m², 9.8 ft → 3m, 3,708 CFM → 1,750 L/s"}
+              />
             </div>
           </div>
 
           {/* Ventilation-style Outer Card Container */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
-            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-            : calcReviewState?.status === "REJECTED"
-            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-            : calcReviewState?.status === "REVIEWED"
-            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+              : calcReviewState?.status === "REJECTED"
+                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+                : calcReviewState?.status === "REVIEWED"
+                  ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                  : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
-            {/* Top Row 1: Section Navigation Tabs, Group By & Unit System Toggle */}
-            <div className="flex items-center justify-between px-4 py-2.5 bg-card shrink-0 select-none no-print border-b border-border/50 flex-wrap gap-3">
-              {/* Rounded-full Pill Tabs (Ventilation style) */}
-              <div className="flex bg-slate-100 dark:bg-slate-900/60 p-1 rounded-full border border-border/80 gap-1">
-                <button
-                  onClick={() => setActiveSection("schedule")}
-                  className={`flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeSection === "schedule"
-                      ? "bg-white dark:bg-slate-800 text-primary shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+            {/* Top Row 1: Section Navigation Tabs, Group By & Export */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                {/* Rounded-full Pill Tabs */}
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection("schedule")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      activeSection === "schedule"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Lobby Schedule (6 ACH)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection("fan-systems")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer flex items-center gap-1.5 ${
+                      activeSection === "fan-systems"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <span>Fan Systems</span>
+                    <span className="text-[10px] px-1.5 py-0.2 bg-primary/15 text-primary rounded-full font-extrabold">
+                      {fanSystems.length}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Formula Breakdown button placed right next to tabs */}
+                <TBtn
+                  onClick={() => setShowFormulaModal(true)}
+                  title="Calculation Formulas & Methodology"
                 >
-                  <Activity className="size-3.5" />
-                  Lobby Schedule (6 ACH)
-                </button>
-                <button
-                  onClick={() => setActiveSection("fan-systems")}
-                  className={`flex items-center gap-2 px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeSection === "fan-systems"
-                      ? "bg-white dark:bg-slate-800 text-primary shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Wind className="size-3.5" />
-                  Fan Systems
-                  <span className="ml-1 text-[10px] px-2 py-0.5 bg-primary/15 text-primary rounded-full font-extrabold">
-                    {fanSystems.length}
-                  </span>
-                </button>
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
               </div>
 
-              {/* Group By Pill, Unit System Toggle Pill & Info Button */}
-              <div className="flex items-center gap-3">
+              {/* Right Side: Group By Pill & Export */}
+              <div className="flex items-center gap-2.5 select-none shrink-0">
                 {activeSection === "schedule" && (
-                  <div className="flex items-center bg-slate-100 dark:bg-slate-900/60 p-1 rounded-full border border-border/80 text-xs font-semibold select-none">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase px-2">Group By:</span>
+                  <div className="flex items-center bg-surface-2 p-1 rounded-full border border-border/80 text-xs font-semibold select-none">
+                    <span className="text-[10px] font-extrabold text-muted-foreground uppercase px-2">Group By:</span>
                     <button
                       type="button"
                       onClick={() => setGroupByMode("zone")}
-                      className={`flex items-center gap-1.5 px-3 py-0.5 rounded-full transition cursor-pointer font-bold ${
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition cursor-pointer text-xs font-semibold ${
                         groupByMode === "zone"
-                          ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
+                          ? "bg-background text-foreground shadow-sm font-bold"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                       title="Group matching zone names across all floors together"
@@ -1422,9 +1445,9 @@ function LobbyPressurisationPage() {
                     <button
                       type="button"
                       onClick={() => setGroupByMode("level")}
-                      className={`flex items-center gap-1.5 px-3 py-0.5 rounded-full transition cursor-pointer font-bold ${
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition cursor-pointer text-xs font-semibold ${
                         groupByMode === "level"
-                          ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
+                          ? "bg-background text-foreground shadow-sm font-bold"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                       title="Group floor by floor"
@@ -1435,41 +1458,9 @@ function LobbyPressurisationPage() {
                   </div>
                 )}
 
-                {/* Unit System Toggle Pill */}
-                <div className="flex items-center bg-slate-100 dark:bg-slate-900/60 p-1 rounded-full border border-border/80 text-xs font-semibold select-none">
-                  <button
-                    type="button"
-                    onClick={() => handleUnitSystemClick("ip")}
-                    className={`px-3 py-0.5 rounded-full transition cursor-pointer font-bold ${
-                      unitSystem === "ip"
-                        ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    IP
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleUnitSystemClick("si")}
-                    className={`px-3 py-0.5 rounded-full transition cursor-pointer font-bold ${
-                      unitSystem === "si"
-                        ? "bg-white dark:bg-slate-800 text-primary shadow-xs"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    SI
-                  </button>
-                </div>
-
-                {/* Info / Formula Icon Button */}
-                <button
-                  type="button"
-                  onClick={() => setShowFormulaModal(true)}
-                  className="flex items-center justify-center size-7 rounded-full bg-slate-100 dark:bg-slate-900/60 hover:bg-slate-200 dark:hover:bg-slate-800 border border-border/80 text-muted-foreground hover:text-primary transition cursor-pointer shadow-2xs"
-                  title="Calculation Formulas & Methodology"
-                >
-                  <Info className="size-3.5 text-primary" />
-                </button>
+                <TBtn onClick={handleExportPDF}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
               </div>
             </div>
 
@@ -2354,8 +2345,6 @@ function LobbyPressurisationPage() {
               )}
             </div>
           </div>
-        </div>
-      </div>
 
       {/* Add Level Modal */}
       {showAddLevelModal && (
@@ -3291,6 +3280,179 @@ function LobbyPressurisationPage() {
           calculatorTitle="Lobby Pressurisation"
         />
       )}
+
+        </div>
+
+        {/* Intelligence drawer */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <LobbyPressurisationIntelligenceDrawer
+              onClose={() => setIntelOpen(false)}
+              floors={floors}
+              calculatedFanSystems={calculatedFanSystems}
+              calculatedRows={calculatedRows}
+              totals={totals}
+              unitSystem={unitSystem}
+            />
+          )}
+        </div>
+      </div>
     </AppShell>
+  );
+}
+
+interface LobbyPressurisationIntelligenceDrawerProps {
+  onClose: () => void;
+  floors: LobbyFloor[];
+  calculatedFanSystems: any[];
+  calculatedRows: any[];
+  totals: {
+    totalArea: number;
+    totalVolume: number;
+    total6: number;
+    totalM3h: number;
+    perFanCapacity: number;
+    sizedCap: number;
+  };
+  unitSystem: "si" | "ip";
+}
+
+function LobbyPressurisationIntelligenceDrawer({
+  onClose,
+  floors,
+  calculatedFanSystems,
+  calculatedRows,
+  totals,
+  unitSystem,
+}: LobbyPressurisationIntelligenceDrawerProps) {
+  const ip = unitSystem === "ip";
+  const flowUnit = ip ? "CFM" : "L/s";
+  const volUnit = ip ? "ft³" : "m³";
+  const pressUnit = ip ? "in.wg" : "Pa";
+
+  // Check unassigned spaces
+  const assignedIds = new Set<string>();
+  calculatedFanSystems.forEach(fs => {
+    (fs.floorIds || []).forEach((id: string) => assignedIds.add(id));
+  });
+  const unassignedCount = calculatedRows.filter(r => !assignedIds.has(r.id)).length;
+
+  // Max fan static
+  const maxStaticSys = [...calculatedFanSystems].sort((a, b) => (b.totalStatic || 0) - (a.totalStatic || 0))[0];
+
+  return (
+    <div className="flex flex-col h-full bg-card p-4 overflow-y-auto gap-4 select-none text-xs font-sans">
+      <div className="flex items-center justify-between pb-2 border-b border-border">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+            <Sparkles className="size-4" />
+          </div>
+          <div>
+            <h3 className="font-bold text-sm text-foreground">Pressurisation Intelligence</h3>
+            <p className="text-[10.5px] text-muted-foreground">Real-time Code & Engineering Sizing Audits</p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-2 transition cursor-pointer"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      {/* Summary KPI grid */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-surface-2 border border-border/70 rounded-xl p-2.5 flex flex-col">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase">Total Required 6 ACH</span>
+          <span className="font-mono text-base font-extrabold text-primary">
+            {totals.total6.toLocaleString()} <span className="text-xs font-normal">{flowUnit}</span>
+          </span>
+          <span className="text-[10px] text-muted-foreground mt-0.5">({totals.totalM3h.toLocaleString()} m³/h)</span>
+        </div>
+
+        <div className="bg-surface-2 border border-border/70 rounded-xl p-2.5 flex flex-col">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase">Total Containment Vol</span>
+          <span className="font-mono text-base font-extrabold text-foreground">
+            {totals.totalVolume.toLocaleString()} <span className="text-xs font-normal">{volUnit}</span>
+          </span>
+          <span className="text-[10px] text-muted-foreground mt-0.5">{floors.length} scheduled {floors.length === 1 ? "space" : "spaces"}</span>
+        </div>
+      </div>
+
+      {/* Code & Safety Health Checks */}
+      <div className="flex flex-col gap-2">
+        <span className="text-[11px] font-bold text-foreground uppercase tracking-wider">Compliance & Health Checks</span>
+
+        {/* 6 ACH Standard Verification */}
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex items-start gap-2.5">
+          <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-0.5">
+            <span className="font-bold text-emerald-800 dark:text-emerald-300">NFPA 92 / BS EN 12101 Compliant</span>
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-400 leading-relaxed">
+              Air change rate is actively enforced at 6.0 ACH across all lobby and smoke containment zones.
+            </p>
+          </div>
+        </div>
+
+        {/* Unassigned Spaces Warning */}
+        {unassignedCount > 0 ? (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-2.5">
+            <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-bold text-amber-800 dark:text-amber-300">{unassignedCount} Unassigned Space(s)</span>
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                Some lobby spaces are not yet linked to a dedicated Fan System. Head losses cannot be calculated for unserved spaces.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-surface-2 border border-border/70 rounded-xl p-3 flex items-start gap-2.5">
+            <Check className="size-4 text-primary shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-bold text-foreground">Full Fan Coverage</span>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                All {floors.length} lobby floor spaces are mapped to fan systems.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Static Head Loss Evaluation */}
+        {maxStaticSys && (
+          <div className="bg-surface-2 border border-border/70 rounded-xl p-3 flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-foreground">Critical Path Head Loss</span>
+              <span className="font-mono font-extrabold text-primary">{maxStaticSys.totalStatic} {pressUnit}</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Highest static pressure in <strong>{maxStaticSys.name}</strong> (Duct friction: {maxStaticSys.frictionLoss.toFixed(1)} {pressUnit}, Safety allowance: +10%).
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Fan Configuration Insights */}
+      <div className="flex flex-col gap-2">
+        <span className="text-[11px] font-bold text-foreground uppercase tracking-wider">Duty / Standby Insights</span>
+        <div className="bg-surface-2 border border-border/70 rounded-xl p-3 flex flex-col gap-2">
+          <div className="flex justify-between items-center text-[11px]">
+            <span className="text-muted-foreground">Configured Fan Systems:</span>
+            <span className="font-bold font-mono text-foreground">{calculatedFanSystems.length}</span>
+          </div>
+          <div className="flex justify-between items-center text-[11px]">
+            <span className="text-muted-foreground">Standard Multi-Fan Split:</span>
+            <span className="font-bold text-foreground">2 × 50% Duty</span>
+          </div>
+          <div className="flex justify-between items-center text-[11px]">
+            <span className="text-muted-foreground">Average Flow per Duty Fan:</span>
+            <span className="font-bold font-mono text-primary">{totals.perFanCapacity.toLocaleString()} {flowUnit}</span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

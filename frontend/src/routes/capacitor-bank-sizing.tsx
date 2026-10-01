@@ -8,7 +8,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Download, Plus, X, ChevronDown, ChevronUp, Zap, Activity, FileText, MessageSquare, Flag, Copy, Trash2, Edit3, Sparkles, AlertCircle, CheckCircle2, ShieldCheck, Search, Filter, SlidersHorizontal } from "lucide-react";
+import { Download, Plus, X, ChevronDown, ChevronUp, Zap, Activity, FileText, MessageSquare, Copy, Trash2, Edit3, Sparkles, AlertCircle, CheckCircle2, ShieldCheck, Search, Filter, SlidersHorizontal } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -36,7 +36,6 @@ interface CapPanel {
   stepUnit: number;
   overcurrentFactor: number;
   voltageKv: number;
-  flagged?: boolean;
   comments?: TaskComment[];
 }
 
@@ -130,7 +129,7 @@ function CapacitorBankSizingPage() {
   const [showMathId, setShowMathId] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterStatus, setFilterStatus] = useState<"all" | "flagged" | "low_pf">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "low_pf">("all");
   const [sortBy, setSortBy] = useState<"none" | "name" | "load">("none");
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; panelId: string } | null>(null);
@@ -149,9 +148,7 @@ function CapacitorBankSizingPage() {
       const q = searchQuery.toLowerCase().trim();
       list = list.filter(p => p.name.toLowerCase().includes(q) || p.panelRef.toLowerCase().includes(q));
     }
-    if (filterStatus === "flagged") {
-      list = list.filter(p => p.flagged);
-    } else if (filterStatus === "low_pf") {
+    if (filterStatus === "low_pf") {
       list = list.filter(p => Number(p.initialPf || 1) < 0.85);
     }
     if (sortBy === "name") {
@@ -308,17 +305,6 @@ function CapacitorBankSizingPage() {
     setActivePanelId(newPanel.id);
     saveToWorkspace(newPanels);
     toast.success(`Duplicated ${target.name}`);
-  };
-
-  const handleToggleFlagPanel = (panelId: string) => {
-    if (isApprovedLocked) {
-      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
-      return;
-    }
-    const newPanels = panels.map(p => p.id === panelId ? { ...p, flagged: !p.flagged } : p);
-    setPanels(newPanels);
-    saveToWorkspace(newPanels);
-    toast.info("Panel flag status updated");
   };
 
   const handleOpenCommentModal = (panel: CapPanel, e?: React.MouseEvent) => {
@@ -502,20 +488,6 @@ function CapacitorBankSizingPage() {
     setPanels(updated);
     saveToWorkspace(updated);
     toast.success("Optimized capacitor step sizes for all panels");
-  };
-
-  const handleFlagPoorPfPanels = () => {
-    if (isApprovedLocked) {
-      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
-      return;
-    }
-    const updated = panels.map(p => {
-      const initPf = Number(p.initialPf) || 0.8;
-      return initPf < 0.80 ? { ...p, flagged: true } : p;
-    });
-    setPanels(updated);
-    saveToWorkspace(updated);
-    toast.info("Flagged panels with Initial P.F. < 0.80");
   };
 
   const exportExcel = async () => {
@@ -1064,12 +1036,6 @@ function CapacitorBankSizingPage() {
                         <span>All Panels ({panels.length})</span>
                       </button>
                       <button
-                        onClick={() => setFilterStatus("flagged")}
-                        className={`px-2.5 py-1.5 text-xs text-left rounded-lg transition-colors font-medium flex items-center justify-between ${filterStatus === "flagged" ? "bg-primary/10 text-primary font-bold" : "hover:bg-surface-2 text-foreground"}`}
-                      >
-                        <span>Flagged Panels ({panels.filter(p => p.flagged).length})</span>
-                      </button>
-                      <button
                         onClick={() => setFilterStatus("low_pf")}
                         className={`px-2.5 py-1.5 text-xs text-left rounded-lg transition-colors font-medium flex items-center justify-between ${filterStatus === "low_pf" ? "bg-primary/10 text-primary font-bold" : "hover:bg-surface-2 text-foreground"}`}
                       >
@@ -1158,7 +1124,7 @@ function CapacitorBankSizingPage() {
                   key={p.id} 
                   onContextMenu={(e) => handlePanelContextMenu(e, p.id)}
                   onDoubleClick={(e) => handlePanelDoubleClick(p, e)}
-                  className={`flex flex-col bg-white/60 dark:bg-black/40 backdrop-blur-xl border rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] transition-all overflow-hidden cursor-pointer ${isActive ? 'border-white/80 dark:border-white/30 shadow-lg' : 'border-white/50 dark:border-white/10 hover:border-white/80 dark:hover:border-white/30'} ${p.flagged ? 'ring-2 ring-red-500/40' : ''}`}
+                  className={`flex flex-col bg-white/60 dark:bg-black/40 backdrop-blur-xl border rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] transition-all overflow-hidden cursor-pointer ${isActive ? 'border-white/80 dark:border-white/30 shadow-lg' : 'border-white/50 dark:border-white/10 hover:border-white/80 dark:hover:border-white/30'}`}
                   title="Double click to edit panel details"
                 >
                   {/* Accordion Header */}
@@ -1194,12 +1160,6 @@ function CapacitorBankSizingPage() {
                         className="bg-transparent outline-none text-xs text-muted-foreground w-40 focus:ring-1 focus:ring-primary/20 rounded px-1 hidden sm:block"
                         placeholder="Panel Reference"
                       />
-
-                      {p.flagged && (
-                        <span title="Flagged Panel" className="p-0.5 rounded-full bg-red-500/10 text-red-500">
-                          <Flag className="size-3 fill-red-500 text-red-500" />
-                        </span>
-                      )}
                     </div>
 
                     <div className="flex items-center gap-3 mt-1 sm:mt-0 w-full sm:w-auto justify-between sm:justify-end">
@@ -1441,7 +1401,7 @@ function CapacitorBankSizingPage() {
                       <span className="text-[9px] font-semibold text-primary uppercase tracking-wider">1-Click Actions</span>
                     </div>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Automatically optimize target power factor, capacitor step units, and panel flagging.
+                      Automatically optimize target power factor and capacitor step units.
                     </p>
                     
                     <div className="flex flex-col gap-2 mt-1">
@@ -1461,15 +1421,6 @@ function CapacitorBankSizingPage() {
                       >
                         <span>🔄 Balance Capacitor Step Sizes</span>
                         <span className="text-[9px] font-mono text-primary/70">Auto-step</span>
-                      </button>
-
-                      <button
-                        onClick={handleFlagPoorPfPanels}
-                        disabled={isApprovedLocked}
-                        className="w-full py-2 px-3 rounded-xl text-xs font-bold border border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/5 hover:bg-amber-500/10 text-left transition-all cursor-pointer flex items-center justify-between shadow-2xs disabled:opacity-50"
-                      >
-                        <span>🚩 Flag Low P.F. Panels (&lt; 0.80)</span>
-                        <span className="text-[9px] font-mono text-amber-500">Auto-flag</span>
                       </button>
                     </div>
                   </div>
@@ -1570,17 +1521,6 @@ function CapacitorBankSizingPage() {
           >
             <Copy className="size-3.5 text-blue-500" />
             <span>Duplicate Panel</span>
-          </button>
-
-          <button
-            className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors cursor-pointer"
-            onClick={() => {
-              handleToggleFlagPanel(contextMenu.panelId);
-              setContextMenu(null);
-            }}
-          >
-            <Flag className={`size-3.5 ${panels.find(p => p.id === contextMenu.panelId)?.flagged ? 'text-red-500 fill-red-500' : 'text-slate-400'}`} />
-            <span>{panels.find(p => p.id === contextMenu.panelId)?.flagged ? 'Unflag Panel' : 'Flag Panel'}</span>
           </button>
 
           {panels.length > 1 && (
@@ -1790,20 +1730,6 @@ function EditCapPanelModal({ panel, isOpen, onClose, onSave, unitSystem = "si" }
                 onChange={e => setFormData({ ...formData, overcurrentFactor: e.target.value === "" ? "" : Number(e.target.value) })}
               />
             </div>
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
-            <input 
-              type="checkbox"
-              id="flag-check"
-              checked={Boolean(formData.flagged)}
-              onChange={e => setFormData({ ...formData, flagged: e.target.checked })}
-              className="size-4 rounded cursor-pointer"
-            />
-            <label htmlFor="flag-check" className="text-xs font-semibold text-foreground cursor-pointer flex items-center gap-1.5">
-              <Flag className={`size-3.5 ${formData.flagged ? 'text-red-500 fill-red-500' : 'text-slate-400'}`} />
-              Flag panel for review
-            </label>
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-border">

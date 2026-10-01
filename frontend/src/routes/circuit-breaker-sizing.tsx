@@ -12,9 +12,10 @@ import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import {
-  Plus, Trash2, Download, Upload, Sparkles, Gauge, FileText, Printer, FileSpreadsheet, RotateCcw, Filter, ArrowUpDown, Copy, X, Check, MessageSquare, Search, SlidersHorizontal
+  Plus, Trash2, Download, Upload, Sparkles, Gauge, FileText, Printer, FileSpreadsheet, RotateCcw, Filter, ArrowUpDown, Copy, X, Check, MessageSquare, Search, SlidersHorizontal, Flag
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
 import { toast } from "sonner";
 import { useConfirm } from "@/hooks/use-confirm";
 import ExcelJS from "exceljs";
@@ -26,6 +27,7 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { STANDARD_BREAKER_RATINGS_A } from "@/core/standards/breakers";
+import { CalculationPreviewModal, type CalculationPreviewData, type CalculationStep } from "@/components/calculator-framework/CalculationPreviewModal";
 
 interface InlineInputProps {
   value: string | number;
@@ -36,9 +38,10 @@ interface InlineInputProps {
   min?: number;
   placeholder?: string;
   onFocus?: (e: any) => void;
+  onDoubleClick?: (e: React.MouseEvent<HTMLInputElement>) => void;
 }
 
-function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, onFocus }: InlineInputProps) {
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, onFocus, onDoubleClick }: InlineInputProps) {
   const [localVal, setLocalVal] = useState(String(value));
 
   // Sync local state when external value changes
@@ -78,7 +81,11 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
       onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => {
+        if (onDoubleClick) {
+          onDoubleClick(e);
+        }
+      }}
       className={`bg-transparent w-full border border-transparent hover:border-border/60 focus:border-primary px-1.5 py-0.5 outline-none text-xs transition-colors cursor-text ${className}`}
     />
   );
@@ -126,12 +133,15 @@ function CircuitBreakerSizingPage() {
 
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
 
+  const [previewRow, setPreviewRow] = useState<any | null>(null);
+
   // Search, Filter & Sort State
   const [searchQuery, setSearchQuery] = useState("");
   const [filterPhase, setFilterPhase] = useState<"all" | "Single Phase" | "Three Phase">("all");
   const [filterMinLoad, setFilterMinLoad] = useState<number | null>(null);
   const [filterMinCurrent, setFilterMinCurrent] = useState<number | null>(null);
   const [filterSelectedOnly, setFilterSelectedOnly] = useState(false);
+  const [filterFlagged, setFilterFlagged] = useState(false);
   const [sortKey, setSortKey] = useState<"default" | "description" | "connectedLoad" | "voltage" | "designCurrent" | "recBreaker">("default");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -164,14 +174,16 @@ function CircuitBreakerSizingPage() {
     if (filterMinLoad !== null) count++;
     if (filterMinCurrent !== null) count++;
     if (filterSelectedOnly) count++;
+    if (filterFlagged) count++;
     return count;
-  }, [filterPhase, filterMinLoad, filterMinCurrent, filterSelectedOnly]);
+  }, [filterPhase, filterMinLoad, filterMinCurrent, filterSelectedOnly, filterFlagged]);
 
   const handleResetFilters = () => {
     setFilterPhase("all");
     setFilterMinLoad(null);
     setFilterMinCurrent(null);
     setFilterSelectedOnly(false);
+    setFilterFlagged(false);
   };
 
   // Table rows matching screenshot
@@ -179,6 +191,7 @@ function CircuitBreakerSizingPage() {
     {
       id: "1",
       selected: true,
+      flagged: false,
       description: "New Feeder Load",
       connectedLoad: 10,
       voltage: 400,
@@ -208,6 +221,137 @@ function CircuitBreakerSizingPage() {
     }
     return calculateCircuitBreakers(rows);
   }, [rows, unitSystem]);
+
+  const activePreviewRow = useMemo(() => {
+    if (!previewRow) return null;
+    return calculatedData.rowDetails.find(r => r.id === previewRow.id) || previewRow;
+  }, [previewRow, calculatedData.rowDetails]);
+
+  const getCalculationPreview = (row: any): CalculationPreviewData => {
+    const isIP = unitSystem === "ip";
+    const rawLoad = Number(row.connectedLoad) || 0;
+    const loadKw = isIP ? Number((rawLoad * 0.746).toFixed(3)) : rawLoad;
+    const volt = Number(row.voltage) || 0;
+    const pf = Number(row.powerFactor) || 0.8;
+    const df = Number(row.demandFactor) || 1.0;
+    const isSinglePhase = row.phase === "Single Phase";
+    const isThreePhase = row.phase === "Three Phase";
+    const designLoadKw = Number(row.designLoad ?? (loadKw * df));
+    const designCurrent = Number(row.designCurrent ?? 0);
+    const recBreaker = Number(row.recBreaker ?? 0);
+    const utilization = recBreaker > 0 ? (designCurrent / recBreaker) * 100 : 0;
+
+    const steps: CalculationStep[] = [];
+
+    // Step 1: Design Load Calculation
+    if (isIP) {
+      steps.push({
+        stepNumber: 1,
+        label: "Design Load & Unit Conversion (HP to kW)",
+        formula: "P_design (kW) = Connected_Load (HP) × 0.746 × Demand_Factor",
+        substitution: `${rawLoad} HP × 0.746 × ${df}`,
+        result: designLoadKw.toFixed(2),
+        unit: "kW",
+        status: "info",
+        description: "Horsepower (HP) converted to kW equivalent (1 HP = 0.746 kW) and multiplied by the circuit Demand Factor.",
+      });
+    } else {
+      steps.push({
+        stepNumber: 1,
+        label: "Design Operating Load (P_design)",
+        formula: "P_design = Connected_Load × Demand_Factor",
+        substitution: `${rawLoad} kW × ${df}`,
+        result: designLoadKw.toFixed(2),
+        unit: "kW",
+        status: "info",
+        description: "Effective continuous operating load calculated after applying the circuit demand factor.",
+      });
+    }
+
+    // Step 2: Full-Load Operating Current (Ib)
+    if (isSinglePhase) {
+      steps.push({
+        stepNumber: 2,
+        label: "Continuous Design Current (Ib) - Single Phase",
+        formula: "Ib = (P_design × 1000) / (V × cos φ)",
+        substitution: `(${designLoadKw.toFixed(2)} × 1000) / (${volt || 230} × ${pf})`,
+        result: designCurrent.toFixed(2),
+        unit: "A",
+        status: "info",
+        description: "Calculated continuous design current for a single-phase (1P) 2-wire AC branch circuit.",
+      });
+    } else if (isThreePhase) {
+      steps.push({
+        stepNumber: 2,
+        label: "Continuous Design Current (Ib) - Three Phase",
+        formula: "Ib = (P_design × 1000) / (√3 × V × cos φ)",
+        substitution: `(${designLoadKw.toFixed(2)} × 1000) / (1.732 × ${volt || 400} × ${pf})`,
+        result: designCurrent.toFixed(2),
+        unit: "A",
+        status: "info",
+        description: "Calculated balanced continuous design current for a three-phase (3P) 3/4-wire AC branch circuit.",
+      });
+    } else {
+      steps.push({
+        stepNumber: 2,
+        label: "Continuous Design Current (Ib)",
+        formula: "Select Single Phase or Three Phase in circuit row",
+        substitution: "Phase not specified",
+        result: designCurrent.toFixed(2),
+        unit: "A",
+        status: "warning",
+        description: "Please specify either Single Phase or Three Phase to complete current determination.",
+      });
+    }
+
+    // Step 3: Recommended Standard Circuit Breaker (In)
+    steps.push({
+      stepNumber: 3,
+      label: "Standard Circuit Breaker Rating (In)",
+      formula: "In ≥ Ib (Selected from Standard Ratings Curve)",
+      substitution: `Standard rating ≥ ${designCurrent.toFixed(2)} A`,
+      result: recBreaker,
+      unit: "A",
+      status: recBreaker >= designCurrent ? "pass" : "warning",
+      description: "Next standard industrial frame rating selected in accordance with IEC 60947-2 / BS EN 60898 / NEC.",
+    });
+
+    // Step 4: Circuit Breaker Loading & Utilization
+    steps.push({
+      stepNumber: 4,
+      label: "Breaker Continuous Loading Ratio",
+      formula: "Utilization = (Ib / In) × 100%",
+      substitution: `(${designCurrent.toFixed(2)} A / ${recBreaker} A) × 100`,
+      result: `${utilization.toFixed(1)}%`,
+      unit: "%",
+      status: utilization <= 80 ? "pass" : utilization <= 100 ? "info" : "warning",
+      description: utilization <= 80 
+        ? "Within recommended 80% continuous branch circuit breaker loading threshold (NEC Art. 210)."
+        : utilization <= 100
+        ? "Within 100% rated frame capacity under non-continuous operating conditions."
+        : "Overloaded breaker rating; select a larger frame rating.",
+    });
+
+    return {
+      title: "Circuit Breaker Sizing Calculation Preview",
+      itemName: row.description || `Circuit ${row.id}`,
+      itemCode: `${row.phase === "Single Phase" ? "1-Phase (1P)" : row.phase === "Three Phase" ? "3-Phase (3P)" : "Phase Unspecified"} • ${row.voltage || 0}V`,
+      standardReference: "IEC 60947-2 / IEC 60898 / NEC Art. 210 & 430",
+      inputs: [
+        { label: "Connected Load", value: rawLoad, unit: isIP ? "HP" : "kW" },
+        ...(isIP ? [{ label: "Converted Load", value: `${loadKw.toFixed(2)} kW`, unit: "" }] : []),
+        { label: "Operating Voltage", value: volt, unit: "V" },
+        { label: "Phase System", value: row.phase || "Unspecified" },
+        { label: "Power Factor (cos φ)", value: pf },
+        { label: "Demand Factor (DF)", value: df },
+      ],
+      steps,
+      finalResultLabel: "Recommended Breaker Rating",
+      finalResultValue: `${recBreaker} A`,
+      finalResultUnit: row.phase === "Single Phase" ? "1P / 2P" : "3P / 4P",
+      complianceNote: `Standard ${recBreaker} A rated breaker provides continuous thermal & magnetic overcurrent protection for ${designCurrent.toFixed(2)} A design current.`
+    };
+  };
 
 
   // Filtered & Sorted Rows for Display
@@ -241,6 +385,10 @@ function CircuitBreakerSizingPage() {
       list = list.filter(r => r.selected);
     }
 
+    if (filterFlagged) {
+      list = list.filter(r => Boolean(r.flagged));
+    }
+
     if (sortKey !== "default") {
       list.sort((a, b) => {
         let valA: any = a[sortKey];
@@ -259,7 +407,23 @@ function CircuitBreakerSizingPage() {
     }
 
     return list;
-  }, [calculatedData.rowDetails, searchQuery, filterPhase, filterMinLoad, filterMinCurrent, filterSelectedOnly, sortKey, sortDirection]);
+  }, [calculatedData.rowDetails, searchQuery, filterPhase, filterMinLoad, filterMinCurrent, filterSelectedOnly, filterFlagged, sortKey, sortDirection]);
+
+  const handleToggleFlag = (targetRowId?: string) => {
+    const isSelected = rows.find(r => r.id === targetRowId)?.selected;
+    const selectedRows = rows.filter(r => r.selected);
+    const targetIds = targetRowId
+      ? (isSelected && selectedRows.length > 1 ? selectedRows.map(r => r.id) : [targetRowId])
+      : rows.filter(r => r.selected).map(r => r.id);
+
+    if (targetIds.length === 0) return;
+
+    const targetRow = rows.find(r => r.id === targetIds[0]);
+    const nextFlagged = !targetRow?.flagged;
+
+    setRows(prev => prev.map(r => targetIds.includes(r.id) ? { ...r, flagged: nextFlagged } : r));
+    toast.info(nextFlagged ? `Flagged ${targetIds.length} circuit(s) for review` : `Unflagged ${targetIds.length} circuit(s)`);
+  };
 
   // DataGrid Column Definitions matching standard application design
   const columns: Column<any>[] = useMemo(() => [
@@ -268,7 +432,15 @@ function CircuitBreakerSizingPage() {
       header: "SR.",
       width: 55,
       align: "center",
-      render: (r) => <span className="font-mono text-muted-foreground text-xs">{rows.findIndex(row => row.id === r.id) + 1}</span>
+      render: (r) => (
+        <span 
+          onDoubleClick={() => setPreviewRow(r)}
+          className="font-mono text-muted-foreground text-xs cursor-pointer select-none hover:text-primary transition-colors"
+          title="Double-click to open calculation preview"
+        >
+          {rows.findIndex(row => row.id === r.id) + 1}
+        </span>
+      )
     },
     {
       key: "description",
@@ -297,6 +469,7 @@ function CircuitBreakerSizingPage() {
               value={r.description} 
               onCommit={(val) => handleUpdateRow(r.id, "description", val)}
               onFocus={() => handleRowFocus(r.id)}
+              onDoubleClick={() => setPreviewRow(r)}
               placeholder="e.g. Feeder Load"
               className="font-medium text-foreground text-xs min-w-0 flex-1"
             />
@@ -402,7 +575,11 @@ function CircuitBreakerSizingPage() {
       align: "right",
       mono: true,
       render: (r) => (
-        <span className="font-mono font-medium text-foreground text-xs tabular-nums">
+        <span 
+          onDoubleClick={() => setPreviewRow(r)}
+          className="font-mono font-medium text-foreground text-xs tabular-nums cursor-pointer hover:text-primary transition-colors"
+          title="Double-click to open calculation preview"
+        >
           {r.designCurrent.toFixed(2)} A
         </span>
       )
@@ -414,7 +591,11 @@ function CircuitBreakerSizingPage() {
       align: "right",
       mono: true,
       render: (r) => (
-        <span className="font-mono font-bold text-primary text-xs tabular-nums">
+        <span 
+          onDoubleClick={() => setPreviewRow(r)}
+          className="font-mono font-bold text-primary text-xs tabular-nums cursor-pointer hover:underline"
+          title="Double-click to open calculation preview"
+        >
           {r.recBreaker} A
         </span>
       )
@@ -433,6 +614,31 @@ function CircuitBreakerSizingPage() {
           className="text-muted-foreground text-xs min-w-0 flex-1"
         />
       )
+    },
+    {
+      key: "flagged",
+      header: "FLAG",
+      width: 50,
+      align: "center",
+      render: (r) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleFlag(r.id);
+          }}
+          title={r.flagged ? "Flagged for engineering review (click to unflag)" : "Flag circuit for review"}
+          className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer flex items-center justify-center group/flag mx-auto"
+        >
+          <Flag
+            className={`size-3.5 transition-transform ${
+              r.flagged
+                ? "text-red-500 fill-red-500 scale-110"
+                : "text-muted-foreground/30 hover:text-red-500/60 group-hover/flag:scale-110"
+            }`}
+          />
+        </button>
+      )
     }
   ], [rows, unitSystem, project?.id]);
 
@@ -441,6 +647,7 @@ function CircuitBreakerSizingPage() {
     const newRow: BreakerRow = {
       id: Date.now().toString(),
       selected: false,
+      flagged: false,
       description: `New Feeder Load ${rows.length + 1}`,
       connectedLoad: 10,
       voltage: 400,
@@ -460,7 +667,8 @@ function CircuitBreakerSizingPage() {
       ...r,
       id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       description: `${r.description} (Copy)`,
-      selected: false
+      selected: false,
+      flagged: Boolean(r.flagged),
     }));
     setRows(prev => [...prev, ...duplicated]);
     toast.success(`Duplicated ${duplicated.length} circuit(s)`);
@@ -521,6 +729,104 @@ function CircuitBreakerSizingPage() {
       setRows(prev => prev.filter(r => !r.selected));
       toast.success(`Deleted ${selectedCount} circuit(s)`);
     }
+  };
+
+  const handleDuplicateRow = (row: BreakerRow) => {
+    const newRow: BreakerRow = {
+      ...row,
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      description: `${row.description} (Copy)`,
+      selected: false,
+      flagged: Boolean(row.flagged),
+    };
+    setRows(prev => [...prev, newRow]);
+    toast.success("Circuit duplicated");
+  };
+
+  const handleDeleteRow = async (id: string) => {
+    if (await confirm({ title: "Delete Circuit", body: "Are you sure you want to delete this circuit?" })) {
+      setRows(prev => prev.filter(r => r.id !== id));
+      toast.info("Circuit deleted");
+    }
+  };
+
+  const renderRowContextMenu = (row: any) => {
+    const isSelected = rows.find(r => r.id === row.id)?.selected;
+    const selectedRows = rows.filter(r => r.selected);
+    const hasMultipleSelected = isSelected && selectedRows.length > 1;
+
+    return (
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        <ContextMenuItem
+          onClick={() => setPreviewRow(row)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-semibold text-primary"
+        >
+          <Sparkles className="size-3.5 text-primary" />
+          <span>Calculation Preview</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="my-1 border-t border-border" />
+
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row.id, row.description)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-3.5 text-blue-500" />
+          <span>Add Comment</span>
+        </ContextMenuItem>
+
+        <ContextMenuItem
+          onClick={() => handleToggleFlag(row.id)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Flag className={`size-3.5 ${row.flagged ? "text-red-500 fill-red-500" : ""}`} />
+          <span>{hasMultipleSelected ? (row.flagged ? `Unflag Selected (${selectedRows.length})` : `Flag Selected (${selectedRows.length})`) : (row.flagged ? "Unflag Circuit" : "Flag Circuit")}</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="my-1 border-t border-border" />
+
+        <ContextMenuItem
+          disabled={isEffectiveReadOnly}
+          onClick={() => {
+            if (hasMultipleSelected) {
+              handleDuplicateSelected();
+            } else {
+              handleDuplicateRow(row);
+            }
+          }}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+        >
+          <Copy className="size-3.5" />
+          <span>{hasMultipleSelected ? `Duplicate Selected (${selectedRows.length})` : "Duplicate Circuit"}</span>
+        </ContextMenuItem>
+
+        <ContextMenuItem
+          disabled={isEffectiveReadOnly}
+          onClick={handleAddRow}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+        >
+          <Plus className="size-3.5" />
+          <span>New Circuit</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="my-1 border-t border-border" />
+
+        <ContextMenuItem
+          disabled={isEffectiveReadOnly}
+          onClick={() => {
+            if (hasMultipleSelected) {
+              handleDeleteSelected();
+            } else {
+              handleDeleteRow(row.id);
+            }
+          }}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-red-500 font-medium disabled:opacity-50 disabled:pointer-events-none"
+        >
+          <Trash2 className="size-3.5 text-red-500" />
+          <span>{hasMultipleSelected ? `Delete Selected (${selectedRows.length})` : "Delete Circuit"}</span>
+        </ContextMenuItem>
+      </ContextMenuContent>
+    );
   };
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -599,6 +905,7 @@ function CircuitBreakerSizingPage() {
         demandFactor: r.demandFactor !== undefined && r.demandFactor !== "" ? Number(r.demandFactor) : 1.0,
         remarks: r.remarks || "",
         selected: false,
+        flagged: false,
       };
     });
     setRows(prev => [...prev, ...newRows]);
@@ -912,15 +1219,29 @@ function CircuitBreakerSizingPage() {
                           />
                         </div>
 
+                        {/* Flagged Only */}
+                        <label className="flex items-center justify-between pt-1 border-t border-border/60 text-[11.5px] font-medium text-foreground cursor-pointer select-none">
+                          <span className="flex items-center gap-1.5">
+                            <Flag className="size-3 text-red-500 fill-red-500" />
+                            <span>Flagged circuits only</span>
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={filterFlagged}
+                            onChange={(e) => setFilterFlagged(e.target.checked)}
+                            className="rounded border-gray-300 text-primary size-3.5 focus:ring-primary cursor-pointer"
+                          />
+                        </label>
+
                         {/* Selected Only */}
-                        <label className="flex items-center gap-2 pt-1 border-t border-border/60 text-[11.5px] font-medium text-foreground cursor-pointer select-none">
+                        <label className="flex items-center justify-between pt-1 border-t border-border/60 text-[11.5px] font-medium text-foreground cursor-pointer select-none">
+                          <span>Selected circuits only</span>
                           <input
                             type="checkbox"
                             checked={filterSelectedOnly}
                             onChange={(e) => setFilterSelectedOnly(e.target.checked)}
                             className="rounded border-gray-300 text-primary size-3.5 focus:ring-primary cursor-pointer"
                           />
-                          <span>Selected circuits only</span>
                         </label>
                       </PopoverContent>
                     </Popover>
@@ -1031,6 +1352,9 @@ function CircuitBreakerSizingPage() {
                       <BulkBtn icon={Copy} onClick={handleDuplicateSelected}>
                         Duplicate
                       </BulkBtn>
+                      <BulkBtn icon={Flag} onClick={() => handleToggleFlag()}>
+                        Flag / Unflag
+                      </BulkBtn>
                       <BulkBtn icon={Trash2} onClick={handleDeleteSelected}>
                         Delete
                       </BulkBtn>
@@ -1055,6 +1379,8 @@ function CircuitBreakerSizingPage() {
                       <span className="font-semibold text-foreground">
                         {rows.length === 0
                           ? 'No circuits added. Click "+ New Row" to begin sizing.'
+                          : filterFlagged
+                          ? "No flagged circuits found for review."
                           : "No matching circuits found for current filter."}
                       </span>
                       {rows.length > 0 && (
@@ -1083,8 +1409,11 @@ function CircuitBreakerSizingPage() {
                         const visibleIds = new Set(displayedRows.map(r => r.id));
                         setRows(prev => prev.map(r => visibleIds.has(r.id) ? { ...r, selected: !allSelected } : r));
                       }}
+                      onRowDoubleClick={(row) => setPreviewRow(row)}
+                      rowClassName={(r) => r.flagged ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]" : ""}
                       gridId="circuit-breaker-sizing"
                       isReadOnly={isEffectiveReadOnly}
+                      renderContextMenu={renderRowContextMenu}
                     />
                   )}
                 </div>
@@ -1113,7 +1442,7 @@ function CircuitBreakerSizingPage() {
               </div>
 
               {/* Sizing & Report KPI Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className={`grid grid-cols-1 ${rows.some(r => r.flagged) ? "md:grid-cols-4" : "md:grid-cols-3"} gap-4 mb-6`}>
                 <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-4 shadow-2xs relative overflow-hidden">
                   <div className="absolute right-3 top-3 text-slate-500/10"><FileText className="size-8" /></div>
                   <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest block mb-1">Total Connected Load</span>
@@ -1137,6 +1466,16 @@ function CircuitBreakerSizingPage() {
                   <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1">Peak Design Current</span>
                   <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.maxDesignCurrentA.toFixed(2)} <span className="text-sm text-slate-500 font-sans">A</span></strong>
                 </div>
+
+                {rows.some(r => r.flagged) && (
+                  <div className="bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded-xl p-4 shadow-2xs relative overflow-hidden">
+                    <div className="absolute right-3 top-3 text-red-500/20"><Flag className="size-8" /></div>
+                    <span className="text-[10px] font-bold text-red-600 dark:text-red-400 uppercase tracking-widest block mb-1">Flagged For Review</span>
+                    <strong className="text-2xl font-black text-red-600 dark:text-red-400 block font-mono">
+                      {rows.filter(r => r.flagged).length} <span className="text-sm font-sans font-normal text-slate-500">circuit(s)</span>
+                    </strong>
+                  </div>
+                )}
               </div>
 
               <div className="mb-6">
@@ -1153,12 +1492,18 @@ function CircuitBreakerSizingPage() {
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">PF</th>
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">DF</th>
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Current (A)</th>
-                        <th className="p-2 text-right">Breaker Rating</th>
+                        <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Breaker Rating</th>
+                        <th className="p-2 text-center w-12">Flag</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-slate-700 font-mono">
                       {calculatedData.rowDetails.map((r, idx) => (
-                        <tr key={r.id}>
+                        <tr 
+                          key={r.id}
+                          onDoubleClick={() => setPreviewRow(r)}
+                          className="hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                          title="Double-click to view calculation preview"
+                        >
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">{idx + 1}</td>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 font-sans">{r.description}</td>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">{r.connectedLoad !== "" ? Number(r.connectedLoad).toFixed(1) : "-"} {unitSystem === "ip" ? "HP" : "kW"}</td>
@@ -1167,7 +1512,16 @@ function CircuitBreakerSizingPage() {
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">{r.powerFactor !== "" ? r.powerFactor : "-"}</td>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-center">{r.demandFactor !== "" ? r.demandFactor : "-"}</td>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-right font-bold">{r.designCurrent.toFixed(2)} A</td>
-                          <td className="p-2 text-right font-bold">{r.recBreaker} A</td>
+                          <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-right font-bold">{r.recBreaker} A</td>
+                          <td className="p-2 text-center">
+                            {r.flagged ? (
+                              <span title="Flagged circuit for review" className="inline-flex items-center justify-center">
+                                <Flag className="size-3 text-red-500 fill-red-500" />
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/30 text-[10px]">-</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1241,6 +1595,13 @@ function CircuitBreakerSizingPage() {
           onSave={handleSaveComment}
         />
       )}
+
+      {/* Calculation Preview Modal */}
+      <CalculationPreviewModal
+        isOpen={Boolean(previewRow)}
+        onClose={() => setPreviewRow(null)}
+        data={activePreviewRow ? getCalculationPreview(activePreviewRow) : null}
+      />
     </AppShell>
   );
 }

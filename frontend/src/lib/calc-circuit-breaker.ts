@@ -3,6 +3,7 @@ import { STANDARD_BREAKER_RATINGS_A } from "@/core/standards/breakers";
 export interface BreakerRow {
   id: string;
   selected?: boolean;
+  flagged?: boolean;
   description: string;
   connectedLoad: number | "";
   voltage: number | "";

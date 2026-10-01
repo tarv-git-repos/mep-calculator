@@ -733,6 +733,37 @@ export function SewagePumpPage() {
     }
   };
 
+  const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs text-foreground focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold text-foreground focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+  const selectClass = "w-full h-8 pl-2.5 pr-7 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs text-foreground focus:outline-none focus:border-primary appearance-none cursor-pointer disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+
+  const isFieldHighlighted = (id: string, name?: string) => {
+    if (!highlightedTargetId) return "";
+    const target = highlightedTargetId.toLowerCase();
+    if (target === id.toLowerCase() || (name && target === name.toLowerCase())) {
+      return "ring-2 ring-primary bg-blue-50/50 dark:bg-blue-950/40";
+    }
+    return "";
+  };
+
+  const renderCommentBadge = (id: string, name: string) => {
+    const count = (commentsMap[id] || []).length;
+    if (count === 0) return null;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveCommentTarget({ id, label: name });
+        }}
+        className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline ml-1.5 cursor-pointer"
+      >
+        <MessageSquare className="size-3 fill-primary/20" />
+        <span>{count}</span>
+      </button>
+    );
+  };
+
   // Helper renderer for input boxes matching standard design
   const renderInputBox = (
     fieldId: string,
@@ -1145,201 +1176,382 @@ export function SewagePumpPage() {
                         {/* Header */}
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                           <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                            📥 Sizing Parameters
+                            🕹 SIZING PARAMETERS
                           </span>
                         </div>
 
-                        {/* Section 1: Inflow & Pumping Criteria */}
-                        <div className="space-y-3">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                            Sanitary Inflow &amp; Pumping Duty
-                          </span>
+                        {/* Section 1: Sanitary Inflow & Pumping Criteria */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-inflowParams"
+                              data-field-id="inflowParams"
+                              data-comment-target="inflowParams"
+                              className={`space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("inflowParams", "Sanitary Inflow")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Sanitary Inflow &amp; Pumping Duty
+                                  </span>
+                                  {renderCommentBadge("inflowParams", "Sanitary Inflow")}
+                                </div>
+                              </div>
 
-                          {renderInputBox(
-                            "inflow",
-                            "Peak Sanitary Inflow Rate (Q_in)",
-                            isSI && typeof inflow === "number" ? parseFloat((inflow * GPM_TO_LPS).toFixed(2)) : inflow,
-                            isSI ? "L/s" : "GPM",
-                            "1",
-                            1,
-                            isSI ? 3.15 : 50,
-                            (v) => {
-                              if (v === "") setInflow("");
-                              else if (isSI) setInflow(v / GPM_TO_LPS);
-                              else setInflow(v);
-                              saveState({ inflow: isSI ? v / GPM_TO_LPS : v });
-                            },
-                            "Total continuous sanitary inflow to wet well"
-                          )}
+                              <div className="space-y-1">
+                                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                  Peak Sanitary Inflow Rate (Q_in) ({isSI ? "L/s" : "GPM"})
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min={0.1}
+                                  disabled={isEffectiveReadOnly}
+                                  value={isSI && typeof inflow === "number" ? parseFloat((inflow * GPM_TO_LPS).toFixed(2)) : inflow}
+                                  onChange={(e) => {
+                                    const v = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                    if (v === "") setInflow("");
+                                    else if (isSI) setInflow(v / GPM_TO_LPS);
+                                    else setInflow(v);
+                                    saveState({ inflow: isSI ? v / GPM_TO_LPS : v });
+                                  }}
+                                  className={flowInputClass}
+                                />
+                              </div>
 
-                          <div className="grid grid-cols-2 gap-2">
-                            {renderInputBox(
-                              "flowMultiplier",
-                              "Drawdown Factor",
-                              flowMultiplier,
-                              "x",
-                              "0.1",
-                              1.0,
-                              2.0,
-                              (v) => {
-                                setFlowMultiplier(v);
-                                saveState({ flowMultiplier: v });
-                              },
-                              "ASPE 1.5x - 2.0x"
-                            )}
-                            {renderInputBox(
-                              "cycle",
-                              "Target Cycle Time",
-                              cycle,
-                              "min",
-                              "0.5",
-                              2,
-                              6,
-                              (v) => {
-                                setCycle(v);
-                                saveState({ cycle: v });
-                              },
-                              "Interval between starts"
-                            )}
-                          </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Drawdown Factor (x)</label>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min={1.0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={flowMultiplier}
+                                    onChange={(e) => {
+                                      const v = parseFloat(e.target.value) || 1.5;
+                                      setFlowMultiplier(v);
+                                      saveState({ flowMultiplier: v });
+                                    }}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Cycle Time (min)</label>
+                                  <input
+                                    type="number"
+                                    step="0.5"
+                                    min={2}
+                                    disabled={isEffectiveReadOnly}
+                                    value={cycle}
+                                    onChange={(e) => {
+                                      const v = parseFloat(e.target.value) || 6;
+                                      setCycle(v);
+                                      saveState({ cycle: v });
+                                    }}
+                                    className={inputClass}
+                                  />
+                                </div>
+                              </div>
 
-                          {/* Pumping Arrangement Mode */}
-                          {renderArrangementBox()}
-                        </div>
+                              {/* Pumping Arrangement Mode */}
+                              <div className="flex items-center justify-between pt-1 text-xs">
+                                <span className="text-[11px] text-slate-500">Arrangement:</span>
+                                <div className="flex gap-1 bg-slate-100 dark:bg-zinc-800 p-0.5 rounded-lg border border-slate-200 dark:border-zinc-700">
+                                  <button
+                                    type="button"
+                                    disabled={isEffectiveReadOnly}
+                                    onClick={() => {
+                                      setPumpCountMode("1W_1S");
+                                      saveState({ pumpCountMode: "1W_1S" });
+                                    }}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                                      pumpCountMode === "1W_1S"
+                                        ? "bg-white dark:bg-zinc-700 text-foreground shadow-xs font-bold"
+                                        : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                  >
+                                    Duplex (1W+1S)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isEffectiveReadOnly}
+                                    onClick={() => {
+                                      setPumpCountMode("2W_1S");
+                                      saveState({ pumpCountMode: "2W_1S" });
+                                    }}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                                      pumpCountMode === "2W_1S"
+                                        ? "bg-white dark:bg-zinc-700 text-foreground shadow-xs font-bold"
+                                        : "text-muted-foreground hover:text-foreground"
+                                    }`}
+                                  >
+                                    Triplex (2W+1S)
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                setInflow(isSI ? 3.15 / GPM_TO_LPS : 50);
+                                setFlowMultiplier(2.0);
+                                setCycle(6);
+                                setPumpCountMode("1W_1S");
+                                saveState({ inflow: isSI ? 3.15 / GPM_TO_LPS : 50, flowMultiplier: 2.0, cycle: 6, pumpCountMode: "1W_1S" });
+                                toast.success("Inflow parameters reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Inflow Criteria</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "inflowParams", label: "Sanitary Inflow" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Section 2: Piping & Dynamic Head */}
-                        <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                            Piping Layout &amp; Friction Head
-                          </span>
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-sewagePiping"
+                              data-field-id="sewagePiping"
+                              data-comment-target="sewagePiping"
+                              className={`pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("sewagePiping", "Piping & Head")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Piping Layout &amp; Dynamic Head
+                                  </span>
+                                  {renderCommentBadge("sewagePiping", "Piping & Head")}
+                                </div>
+                              </div>
 
-                          <div className="grid grid-cols-2 gap-2">
-                            {renderInputBox(
-                              "lift",
-                              "Static Lift (H_static)",
-                              isSI && typeof lift === "number" ? parseFloat((lift * FT_TO_M).toFixed(2)) : lift,
-                              isSI ? "m" : "ft",
-                              "0.5",
-                              0,
-                              isSI ? 7.62 : 25,
-                              (v) => {
-                                if (v === "") setLift("");
-                                else if (isSI) setLift(v / FT_TO_M);
-                                else setLift(v);
-                                saveState({ lift: isSI ? v / FT_TO_M : v });
-                              }
-                            )}
-
-                            {/* Discharge Pipe Size Selector with Context Menu */}
-                            {renderSelectBox(
-                              "pipeDia",
-                              "Pipe Size (NPS)",
-                              pipeDia,
-                              [
-                                { label: '2.0" NPS (50mm)', value: 2.0 },
-                                { label: '2.5" NPS (65mm)', value: 2.5 },
-                                { label: '3.0" NPS (80mm)', value: 3.0 },
-                                { label: '4.0" NPS (100mm)', value: 4.0 },
-                                { label: '6.0" NPS (150mm)', value: 6.0 },
-                              ],
-                              3.0,
-                              (v) => {
-                                setPipeDia(parseFloat(v));
-                                saveState({ pipeDia: parseFloat(v) });
-                              }
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            {renderInputBox(
-                              "pipeLen",
-                              "Pipe Length (L)",
-                              isSI && typeof pipeLen === "number" ? parseFloat((pipeLen * FT_TO_M).toFixed(1)) : pipeLen,
-                              isSI ? "m" : "ft",
-                              "5",
-                              0,
-                              isSI ? 19.8 : 65,
-                              (v) => {
-                                if (v === "") setPipeLen("");
-                                else if (isSI) setPipeLen(v / FT_TO_M);
-                                else setPipeLen(v);
-                                saveState({ pipeLen: isSI ? v / FT_TO_M : v });
-                              }
-                            )}
-                            {renderInputBox(
-                              "fittingsHead",
-                              "Fittings Head Loss",
-                              isSI && typeof fittingsHead === "number" ? parseFloat((fittingsHead * FT_TO_M).toFixed(1)) : fittingsHead,
-                              isSI ? "m" : "ft",
-                              "0.5",
-                              0,
-                              isSI ? 1.83 : 6.0,
-                              (v) => {
-                                if (v === "") setFittingsHead("");
-                                else if (isSI) setFittingsHead(v / FT_TO_M);
-                                else setFittingsHead(v);
-                                saveState({ fittingsHead: isSI ? v / FT_TO_M : v });
-                              }
-                            )}
-                          </div>
-                        </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Static Lift ({isSI ? "m" : "ft"})</label>
+                                  <input
+                                    type="number"
+                                    step="0.5"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={isSI && typeof lift === "number" ? parseFloat((lift * FT_TO_M).toFixed(2)) : lift}
+                                    onChange={(e) => {
+                                      const v = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                      if (v === "") setLift("");
+                                      else if (isSI) setLift(v / FT_TO_M);
+                                      else setLift(v);
+                                      saveState({ lift: isSI ? v / FT_TO_M : v });
+                                    }}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Discharge Pipe Size</label>
+                                  <div className="relative mt-1">
+                                    <select
+                                      disabled={isEffectiveReadOnly}
+                                      value={pipeDia}
+                                      onChange={(e) => {
+                                        const v = parseFloat(e.target.value) || 3.0;
+                                        setPipeDia(v);
+                                        saveState({ pipeDia: v });
+                                      }}
+                                      className={selectClass}
+                                    >
+                                      <option value="2">2.0" NPS (50mm)</option>
+                                      <option value="2.5">2.5" NPS (65mm)</option>
+                                      <option value="3">3.0" NPS (80mm)</option>
+                                      <option value="4">4.0" NPS (100mm)</option>
+                                      <option value="6">6.0" NPS (150mm)</option>
+                                    </select>
+                                    {!isEffectiveReadOnly && (
+                                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 size-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
+                                    )}
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Pipe Length ({isSI ? "m" : "ft"})</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={isSI && typeof pipeLen === "number" ? parseFloat((pipeLen * FT_TO_M).toFixed(1)) : pipeLen}
+                                    onChange={(e) => {
+                                      const v = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                      if (v === "") setPipeLen("");
+                                      else if (isSI) setPipeLen(v / FT_TO_M);
+                                      else setPipeLen(v);
+                                      saveState({ pipeLen: isSI ? v / FT_TO_M : v });
+                                    }}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Fittings Head ({isSI ? "m" : "ft"})</label>
+                                  <input
+                                    type="number"
+                                    step="0.5"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={isSI && typeof fittingsHead === "number" ? parseFloat((fittingsHead * FT_TO_M).toFixed(1)) : fittingsHead}
+                                    onChange={(e) => {
+                                      const v = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                      if (v === "") setFittingsHead("");
+                                      else if (isSI) setFittingsHead(v / FT_TO_M);
+                                      else setFittingsHead(v);
+                                      saveState({ fittingsHead: isSI ? v / FT_TO_M : v });
+                                    }}
+                                    className={inputClass}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                setLift(isSI ? 7.62 / FT_TO_M : 25);
+                                setPipeDia(3.0);
+                                setPipeLen(isSI ? 19.8 / FT_TO_M : 65);
+                                setFittingsHead(isSI ? 1.83 / FT_TO_M : 6.0);
+                                saveState({ lift: isSI ? 7.62 / FT_TO_M : 25, pipeDia: 3.0, pipeLen: isSI ? 19.8 / FT_TO_M : 65, fittingsHead: isSI ? 1.83 / FT_TO_M : 6.0 });
+                                toast.success("Piping parameters reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Piping &amp; Head</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "sewagePiping", label: "Piping & Head" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Section 3: Wet Well Basin & Efficiency */}
-                        <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                            Wet Well Sump &amp; Efficiency
-                          </span>
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-basinEfficiency"
+                              data-field-id="basinEfficiency"
+                              data-comment-target="basinEfficiency"
+                              className={`pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("basinEfficiency", "Basin & Efficiency")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Wet Well Sump &amp; Efficiency
+                                  </span>
+                                  {renderCommentBadge("basinEfficiency", "Basin & Efficiency")}
+                                </div>
+                              </div>
 
-                          {/* Basin Internal Diameter Selector with Context Menu */}
-                          {renderSelectBox(
-                            "basinDia",
-                            "Basin Internal Diameter (Ø)",
-                            basinDia,
-                            [
-                              { label: '24" Ø (600mm)', value: 24 },
-                              { label: '30" Ø (750mm)', value: 30 },
-                              { label: '36" Ø (900mm)', value: 36 },
-                              { label: '42" Ø (1050mm)', value: 42 },
-                              { label: '48" Ø (1200mm)', value: 48 },
-                              { label: '60" Ø (1500mm)', value: 60 },
-                              { label: '72" Ø (1800mm)', value: 72 },
-                            ],
-                            36,
-                            (v) => {
-                              setBasinDia(parseFloat(v));
-                              saveState({ basinDia: parseFloat(v) });
-                            }
-                          )}
+                              <div>
+                                <label className="text-[11px] text-slate-500">Basin Internal Diameter (Ø)</label>
+                                <div className="relative mt-1">
+                                  <select
+                                    disabled={isEffectiveReadOnly}
+                                    value={basinDia}
+                                    onChange={(e) => {
+                                      const v = parseFloat(e.target.value) || 36;
+                                      setBasinDia(v);
+                                      saveState({ basinDia: v });
+                                    }}
+                                    className={selectClass}
+                                  >
+                                    <option value="24">24" Ø (600mm)</option>
+                                    <option value="30">30" Ø (750mm)</option>
+                                    <option value="36">36" Ø (900mm)</option>
+                                    <option value="42">42" Ø (1050mm)</option>
+                                    <option value="48">48" Ø (1200mm)</option>
+                                    <option value="60">60" Ø (1500mm)</option>
+                                    <option value="72">72" Ø (1800mm)</option>
+                                  </select>
+                                  {!isEffectiveReadOnly && (
+                                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 size-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
+                                  )}
+                                </div>
+                              </div>
 
-                          <div className="grid grid-cols-2 gap-2">
-                            {renderInputBox(
-                              "pumpEfficiency",
-                              "Pump Efficiency (%)",
-                              pumpEfficiency,
-                              "%",
-                              "5",
-                              30,
-                              60,
-                              (v) => {
-                                setPumpEfficiency(v);
-                                saveState({ pumpEfficiency: v });
-                              }
-                            )}
-                            {renderInputBox(
-                              "motorEfficiency",
-                              "Motor Efficiency (%)",
-                              motorEfficiency,
-                              "%",
-                              "1",
-                              50,
-                              85,
-                              (v) => {
-                                setMotorEfficiency(v);
-                                saveState({ motorEfficiency: v });
-                              }
-                            )}
-                          </div>
-                        </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Pump Efficiency (%)</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={30}
+                                    disabled={isEffectiveReadOnly}
+                                    value={pumpEfficiency}
+                                    onChange={(e) => {
+                                      const v = parseFloat(e.target.value) || 60;
+                                      setPumpEfficiency(v);
+                                      saveState({ pumpEfficiency: v });
+                                    }}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Motor Efficiency (%)</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min={50}
+                                    disabled={isEffectiveReadOnly}
+                                    value={motorEfficiency}
+                                    onChange={(e) => {
+                                      const v = parseFloat(e.target.value) || 85;
+                                      setMotorEfficiency(v);
+                                      saveState({ motorEfficiency: v });
+                                    }}
+                                    className={inputClass}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                setBasinDia(36);
+                                setPumpEfficiency(60);
+                                setMotorEfficiency(85);
+                                saveState({ basinDia: 36, pumpEfficiency: 60, motorEfficiency: 85 });
+                                toast.success("Basin and efficiency reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Basin &amp; Efficiency</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "basinEfficiency", label: "Basin & Efficiency" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                       </div>
                     </div>

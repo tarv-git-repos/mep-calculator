@@ -1502,7 +1502,7 @@ function ConductorSizingPage() {
                       title="Export to PDF"
                       className="h-7 px-3 rounded-full border border-border text-[12px] font-medium text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer transition bg-background"
                     >
-                      <FileDown className="size-3.5 text-muted-foreground" /> Export
+                      <FileText className="size-3.5 text-foreground" /> Export PDF
                     </button>
 
                     {/* New Conductor Primary Pill Button */}

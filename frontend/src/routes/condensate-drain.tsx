@@ -1123,6 +1123,19 @@ export function CondensateDrainPage() {
       onIntelClick={() => setIntelOpen((v) => !v)}
       intelOpen={intelOpen}
       intelLabel="Intelligence"
+      actions={
+        <UnitToggle
+          unitSystem={unitSystem}
+          onChange={handleUnitSystemChange}
+          disabled={isLocked}
+          inputDescriptions="Cooling Capacity (TR / kW), Latent Load (BTU/hr / kW), Drain Run Length (ft / m)"
+          conversionExample={
+            unitSystem === "ip"
+              ? "Convert 10 TR → 35.17 kW, 12,000 BTU/hr → 3.52 kW, 10 ft → 3.05 m"
+              : "Convert 35 kW → 9.95 TR, 3.5 kW → 11,942 BTU/hr, 3 m → 9.84 ft"
+          }
+        />
+      }
     >
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
@@ -1131,7 +1144,6 @@ export function CondensateDrainPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Condensate Drain Sizer</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">Total discharge &amp; slope sizer (IPC 307.2.2 &amp; ASHRAE)</span>
               </div>
               <button 
                 type="button"
@@ -1213,24 +1225,11 @@ export function CondensateDrainPage() {
                 </button>
               </div>
 
-              {/* Right Side Controls: Export & Unit System Toggle */}
+              {/* Right Side Controls: Export */}
               <div className="flex items-center gap-2 select-none shrink-0">
                 <TBtn onClick={exportPdf}>
                   <FileText className="size-3.5" /> Export
                 </TBtn>
-
-                {/* Sizing Unit system toggle */}
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  disabled={isLocked}
-                  inputDescriptions="Cooling Capacity (TR / kW), Latent Load (BTU/hr / kW), Drain Run Length (ft / m)"
-                  conversionExample={
-                    unitSystem === "ip"
-                      ? "Convert 10 TR → 35.17 kW, 12,000 BTU/hr → 3.52 kW, 10 ft → 3.05 m"
-                      : "Convert 35 kW → 9.95 TR, 3.5 kW → 11,942 BTU/hr, 3 m → 9.84 ft"
-                  }
-                />
               </div>
             </div>
 

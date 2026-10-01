@@ -1604,7 +1604,27 @@ function BusbarCalculationPage() {
   };
 
   return (
-    <AppShell title="Busbar Calculation" subtitle="Calculate voltage drop over multiple busbars and panels">
+    <AppShell 
+      title="Busbar Calculation" 
+      subtitle="Calculate voltage drop over multiple busbars and panels"
+      actions={
+        <UnitToggle
+          unitSystem={unitSystem}
+          onChange={handleUnitToggle}
+          disabled={isApproved}
+          ipLabel="IP"
+          siLabel="SI"
+          ipDescription="Imperial (IP) [Feet - ft]"
+          siDescription="Metric (SI) [Meters - m]"
+          inputDescriptions="Busbar Run Lengths"
+          conversionExample={
+            unitSystem === "si"
+              ? "Convert 160.0 m → 524.93 ft, 3.5 m → 11.48 ft"
+              : "Convert 524.93 ft → 160.0 m, 11.48 ft → 3.5 m"
+          }
+        />
+      }
+    >
       
       <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
@@ -1749,18 +1769,6 @@ function BusbarCalculationPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
-            <UnitToggle
-              unitSystem={unitSystem}
-              onChange={handleUnitToggle}
-              disabled={isApproved}
-              inputDescriptions="Busbar Run Lengths"
-              conversionExample={
-                unitSystem === "si"
-                  ? "Convert 160.0 m â†’ 524.93 ft, 3.5 m â†’ 11.48 ft"
-                  : "Convert 524.93 ft â†’ 160.0 m, 11.48 ft â†’ 3.5 m"
-              }
-            />
-
             <label className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground transition-all ${isApproved ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer hover:bg-surface-3"}`}>
               <Download className="size-3.5" /> Import Ratings
               <input type="file" disabled={isApproved} accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
@@ -1773,13 +1781,6 @@ function BusbarCalculationPage() {
               <FileText className="size-3.5" /> Export PDF
             </button>
 
-            <button
-              disabled={isApproved}
-              onClick={clearAll}
-              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground hover:bg-surface-3 hover:text-red-500 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Trash2 className="size-3.5" /> Clear All
-            </button>
 
             <button
               disabled={isApproved}

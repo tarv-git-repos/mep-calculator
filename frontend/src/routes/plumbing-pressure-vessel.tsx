@@ -529,6 +529,37 @@ export function PressureVesselPage() {
     toast.success("Copied to clipboard");
   };
 
+  const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs text-foreground focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold text-foreground focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+  const selectClass = "w-full h-8 pl-2.5 pr-7 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs text-foreground focus:outline-none focus:border-primary appearance-none cursor-pointer disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground";
+
+  const isFieldHighlighted = (id: string, name?: string) => {
+    if (!highlightedTargetId) return "";
+    const target = highlightedTargetId.toLowerCase();
+    if (target === id.toLowerCase() || (name && target === name.toLowerCase())) {
+      return "ring-2 ring-primary bg-blue-50/50 dark:bg-blue-950/40";
+    }
+    return "";
+  };
+
+  const renderCommentBadge = (id: string, name: string) => {
+    const count = (commentsMap[id] || []).length;
+    if (count === 0) return null;
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setActiveCommentTarget({ id, label: name });
+        }}
+        className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline ml-1.5 cursor-pointer"
+      >
+        <MessageSquare className="size-3 fill-primary/20" />
+        <span>{count}</span>
+      </button>
+    );
+  };
+
   // Helper renderer for input boxes with context menu matching ventilation
   const renderInputBox = (
     fieldId: keyof PressureVesselInputs,
@@ -722,107 +753,184 @@ export function PressureVesselPage() {
                         {/* Header */}
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                           <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                            📥 Sizing Parameters
+                            🕹 SIZING PARAMETERS
                           </span>
                         </div>
 
-                        {/* Section 1: Pump Duty & Import Source */}
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                              Pump Duty &amp; Import Source
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              disabled={isEffectiveReadOnly}
-                              onClick={() => handleImport("booster")}
-                              className="py-2 px-3 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-primary border border-blue-200/80 dark:border-blue-800/60 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                        {/* Section 1: Pump Duty & Inflow Criteria */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-pumpDuty"
+                              data-field-id="pumpDuty"
+                              data-comment-target="pumpDuty"
+                              className={`space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("pumpDuty", "Pump Duty")}`}
                             >
-                              Import Booster Pump
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isEffectiveReadOnly}
-                              onClick={() => handleImport("transfer")}
-                              className="py-2 px-3 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-primary border border-blue-200/80 dark:border-blue-800/60 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                            >
-                              Import Transfer Pump
-                            </button>
-                          </div>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Pump Duty &amp; Inflow Rate
+                                  </span>
+                                  {renderCommentBadge("pumpDuty", "Pump Duty")}
+                                </div>
+                              </div>
 
-                          {renderInputBox(
-                            "qLmin",
-                            "Pump Discharge Volume (Q)",
-                            inputs.qLmin,
-                            flowUnit,
-                            "1",
-                            0,
-                            isIP ? 20.6 : 78
-                          )}
-                        </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  disabled={isEffectiveReadOnly}
+                                  onClick={() => handleImport("booster")}
+                                  className="py-1.5 px-3 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-primary border border-blue-200/80 dark:border-blue-800/60 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                                >
+                                  Import Booster
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isEffectiveReadOnly}
+                                  onClick={() => handleImport("transfer")}
+                                  className="py-1.5 px-3 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-primary border border-blue-200/80 dark:border-blue-800/60 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                                >
+                                  Import Transfer
+                                </button>
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                  Pump Discharge Flow Rate ({flowUnit})
+                                </label>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  min={0}
+                                  disabled={isEffectiveReadOnly}
+                                  value={inputs.qLmin}
+                                  onChange={(e) => handleInputChange("qLmin", parseFloat(e.target.value) || 0)}
+                                  className={flowInputClass}
+                                />
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                handleInputChange("qLmin", isIP ? 20.6 : 78);
+                                toast.success("Pump flow parameter reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Pump Duty</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "pumpDuty", label: "Pump Duty" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                         {/* Section 2: Pressure & Starts Criteria */}
-                        <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                            Pressure &amp; Starts Criteria
-                          </span>
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-pressureSettings"
+                              data-field-id="pressureSettings"
+                              data-comment-target="pressureSettings"
+                              className={`pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("pressureSettings", "Pressure & Starts")}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                    Pressure &amp; Starts Settings
+                                  </span>
+                                  {renderCommentBadge("pressureSettings", "Pressure & Starts")}
+                                </div>
+                                <span className="text-[11.5px] font-medium text-slate-500">
+                                  Preload: {results.pc_disp.toFixed(2)} {pressUnit}
+                                </span>
+                              </div>
 
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            {renderInputBox(
-                              "bandFactor",
-                              "Band Factor (-)",
-                              inputs.bandFactor,
-                              "ratio",
-                              "0.01",
-                              0,
-                              0.20
-                            )}
-                            {renderInputBox(
-                              "zmax",
-                              "Max Starts (Zmax)",
-                              inputs.zmax,
-                              "#/hr",
-                              "5",
-                              0,
-                              60
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            {renderInputBox(
-                              "ppVal",
-                              "Pump Stop (Pp)",
-                              inputs.ppVal,
-                              pressUnit,
-                              "0.1",
-                              0,
-                              isIP ? 123.6 : 8.52
-                            )}
-                            {renderInputBox(
-                              "paVal",
-                              "Pump Start (Pa)",
-                              inputs.paVal,
-                              pressUnit,
-                              "0.1",
-                              0,
-                              isIP ? 82.4 : 5.68
-                            )}
-                          </div>
-
-                          {/* Preload Display Box */}
-                          <div className="p-3 rounded-xl border bg-slate-50/70 dark:bg-slate-900/50 border-border/80 flex items-center justify-between text-xs">
-                            <div>
-                              <span className="font-semibold text-foreground block">Gas Preload (Pc = Pa - 0.2 bar)</span>
-                              <span className="text-[10px] text-muted-foreground">Pre-charge nitrogen pressure</span>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Pump Stop (Pp) ({pressUnit})</label>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.ppVal}
+                                    onChange={(e) => handleInputChange("ppVal", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Pump Start (Pa) ({pressUnit})</label>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.paVal}
+                                    onChange={(e) => handleInputChange("paVal", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Band Factor (ratio)</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.bandFactor}
+                                    onChange={(e) => handleInputChange("bandFactor", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[11px] text-slate-500">Max Starts (Zmax #/hr)</label>
+                                  <input
+                                    type="number"
+                                    step="5"
+                                    min={0}
+                                    disabled={isEffectiveReadOnly}
+                                    value={inputs.zmax}
+                                    onChange={(e) => handleInputChange("zmax", parseFloat(e.target.value) || 0)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                              </div>
                             </div>
-                            <span className="font-mono font-bold text-primary text-sm">
-                              {results.pc_disp.toFixed(2)} {pressUnit}
-                            </span>
-                          </div>
-                        </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={isEffectiveReadOnly}
+                              onClick={() => {
+                                handleInputChange("ppVal", isIP ? 123.6 : 8.52);
+                                handleInputChange("paVal", isIP ? 82.4 : 5.68);
+                                handleInputChange("bandFactor", 0.20);
+                                handleInputChange("zmax", 60);
+                                toast.success("Pressure parameters reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Pressure Settings</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => setActiveCommentTarget({ id: "pressureSettings", label: "Pressure & Starts" })}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Assign Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
 
                       </div>
                     </div>

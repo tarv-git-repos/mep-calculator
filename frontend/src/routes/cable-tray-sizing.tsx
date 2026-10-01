@@ -8,7 +8,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal, Info, FileText, ChevronDown, ChevronRight, Sparkles, CheckCircle2, Gauge, AlertTriangle, Layers, ShieldCheck, ArrowRight, Lightbulb } from "lucide-react";
+import { Plus, Trash2, Search, Download, Trash, Upload, RefreshCcw, X, MessageSquare, Edit3, Copy, ArrowUp, ArrowDown, Filter, SlidersHorizontal, Info, FileText, ChevronDown, ChevronRight, Sparkles, CheckCircle2, Gauge, AlertTriangle, Layers, ShieldCheck, ArrowRight, Lightbulb, Flag } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import { exportCableTrayExcel } from '../lib/exportCableTrayExcel';
@@ -161,6 +161,7 @@ function CableTraySizingPage() {
       qty: 80,
       od: 100,
       sumOd: 110,
+      flag: 44,
       actions: 60
     };
   });
@@ -198,11 +199,36 @@ function CableTraySizingPage() {
   const activeFiltersCount = useMemo(() => {
     let count = 0;
     if (filterSpare !== "all") count++;
+    if (showFlaggedOnly) count++;
     return count;
-  }, [filterSpare]);
+  }, [filterSpare, showFlaggedOnly]);
 
   const handleResetFilters = () => {
     setFilterSpare("all");
+    setShowFlaggedOnly(false);
+  };
+
+  const handleToggleFlagCable = (trayId: string, cableId: string) => {
+    const isTargetSelected = selectedRows.has(cableId);
+    const targetIds = isTargetSelected && selectedRows.size > 0 ? Array.from(selectedRows) : [cableId];
+    
+    let targetFlagState = false;
+    for (const t of trays) {
+      const found = t.cables.find(c => c.id === cableId);
+      if (found) {
+        targetFlagState = !!found.flagged;
+        break;
+      }
+    }
+    const nextFlagged = !targetFlagState;
+
+    pushToUndo(trays);
+    setTrays(prev => prev.map(t => ({
+      ...t,
+      cables: t.cables.map(c => targetIds.includes(c.id) ? { ...c, flagged: nextFlagged } : c)
+    })));
+
+    toast.info(nextFlagged ? `Flagged ${targetIds.length} cable(s) for review` : `Unflagged ${targetIds.length} cable(s)`);
   };
 
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
@@ -1246,6 +1272,19 @@ function CableTraySizingPage() {
                     <option value="custom">Custom (&ne; 20%)</option>
                   </select>
                 </div>
+
+                <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+                  <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer font-medium select-none">
+                    <input
+                      type="checkbox"
+                      checked={showFlaggedOnly}
+                      onChange={(e) => setShowFlaggedOnly(e.target.checked)}
+                      className="rounded border-border text-primary focus:ring-primary size-3.5 cursor-pointer"
+                    />
+                    <Flag className="size-3 text-red-500 fill-red-500" />
+                    <span>Flagged Only</span>
+                  </label>
+                </div>
               </PopoverContent>
             </Popover>
 
@@ -1361,14 +1400,18 @@ function CableTraySizingPage() {
             if (!tray) return null;
             const trayCables = Array.isArray(tray.cables) ? tray.cables : [];
             const sq = (searchQuery || "").toLowerCase();
-            const filteredCables = trayCables.filter(c => 
-              (c?.type || '').toLowerCase().includes(sq) || 
-              (c?.cores || '').toLowerCase().includes(sq) || 
-              (c?.size || '').toLowerCase().includes(sq) ||
-              ((tray?.name || '').toLowerCase().includes(sq))
-            );
+            const filteredCables = trayCables.filter(c => {
+              if (showFlaggedOnly && !c.flagged) return false;
+              if (!sq) return true;
+              return (
+                (c?.type || '').toLowerCase().includes(sq) || 
+                (c?.cores || '').toLowerCase().includes(sq) || 
+                (c?.size || '').toLowerCase().includes(sq) ||
+                ((tray?.name || '').toLowerCase().includes(sq))
+              );
+            });
 
-            if (sq && filteredCables.length === 0 && !((tray?.name || "").toLowerCase().includes(sq))) {
+            if ((sq || showFlaggedOnly) && filteredCables.length === 0 && !((tray?.name || "").toLowerCase().includes(sq))) {
               return null;
             }
 
@@ -1546,12 +1589,17 @@ function CableTraySizingPage() {
                           <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
                         </div>
                       </th>
+                      <th style={{ width: colWidths.flag || 44, minWidth: colWidths.flag || 44 }} className="px-1 py-1.5 text-center relative group">
+                        <div onMouseDown={(e) => handleResizeMouseDown("flag", e)} className="absolute -right-1 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30 flex items-center justify-center group/handle">
+                          <div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 transition-colors" />
+                        </div>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {calcCables.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="text-center py-8 text-muted-foreground italic">
+                        <td colSpan={9} className="text-center py-8 text-muted-foreground italic">
                           No cables in this tray. Click "+ Add Cable" to start.
                         </td>
                       </tr>
@@ -1582,6 +1630,8 @@ function CableTraySizingPage() {
                                     ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
                                     : selectedRows.has(c.id)
                                     ? "bg-primary/10"
+                                    : c.flagged
+                                    ? "bg-red-500/[0.06] dark:bg-red-500/[0.12] hover:bg-red-500/[0.10]"
                                     : "hover:bg-slate-100/50 dark:hover:bg-slate-800/30"
                                 )}
                                 onClick={(e) => {
@@ -1705,6 +1755,19 @@ function CableTraySizingPage() {
                                 <td style={{ width: colWidths.sumOd, minWidth: colWidths.sumOd }} className="px-3 py-1 text-center font-mono font-medium bg-surface-2 text-foreground">
                                   {isNaN(c.sumOd) ? "-" : (unitSystem === "si" ? c.sumOd.toFixed(1) : (c.sumOd / 25.4).toFixed(2))}
                                 </td>
+                                <td style={{ width: colWidths.flag || 44, minWidth: colWidths.flag || 44 }} className="px-1 py-1 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleToggleFlagCable(tray.id, c.id);
+                                    }}
+                                    title={c.flagged ? "Unflag cable" : "Flag cable for review"}
+                                    className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer inline-flex items-center justify-center"
+                                  >
+                                    <Flag className={cn("size-3.5 transition-transform hover:scale-110", c.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground/30 hover:text-muted-foreground")} />
+                                  </button>
+                                </td>
                               </tr>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-xl p-1 text-[13px] text-popover-foreground z-[999]">
@@ -1725,6 +1788,14 @@ function CableTraySizingPage() {
                               >
                                 <Copy className="size-3.5 text-muted-foreground" />
                                 <span>{selectedRows.size > 1 && selectedRows.has(c.id) ? `Duplicate Selected (${selectedRows.size})` : "Duplicate Cable"}</span>
+                              </ContextMenuItem>
+
+                              <ContextMenuItem
+                                onClick={() => handleToggleFlagCable(tray.id, c.id)}
+                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                              >
+                                <Flag className={cn("size-3.5", c.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground")} />
+                                <span>{selectedRows.size > 1 && selectedRows.has(c.id) ? (c.flagged ? `Unflag Selected (${selectedRows.size})` : `Flag Selected (${selectedRows.size})`) : (c.flagged ? "Unflag Cable" : "Flag for Review")}</span>
                               </ContextMenuItem>
 
                               <ContextMenuItem
@@ -1776,7 +1847,7 @@ function CableTraySizingPage() {
                     )}
                     {/* Add Cable Row button inline */}
                     <tr>
-                      <td colSpan={8} className="p-0">
+                      <td colSpan={9} className="p-0">
                         <div className="flex border-t border-border border-dashed w-full">
                           <button onClick={() => addCable(tray.id)} className="flex-1 py-1.5 flex items-center justify-center gap-2 text-sm text-primary font-medium hover:bg-primary/5 transition-colors">
                             <Plus className="size-3.5" /> Add Cable
@@ -1925,6 +1996,27 @@ function CableTraySizingPage() {
               className="text-xs hover:bg-slate-800 px-3 py-1.5 rounded transition-colors"
             >
               Duplicate
+            </button>
+            <button 
+              onClick={() => {
+                const selectedArr = Array.from(selectedRows);
+                if (selectedArr.length > 0) {
+                  const firstId = selectedArr[0];
+                  let targetTrayId = "";
+                  for (const t of trays) {
+                    if (t.cables.some(c => c.id === firstId)) {
+                      targetTrayId = t.id;
+                      break;
+                    }
+                  }
+                  if (targetTrayId) {
+                    handleToggleFlagCable(targetTrayId, firstId);
+                  }
+                }
+              }} 
+              className="text-xs hover:bg-slate-800 px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 text-amber-300"
+            >
+              <Flag className="size-3.5" /> Flag / Unflag
             </button>
             <button 
               onClick={() => {
@@ -2242,6 +2334,9 @@ function CableTrayIntelligenceDrawer({
   }, [trays, safeDb]);
 
   const totalCables = traySummaries.reduce((sum, t) => sum + t.totalQty, 0);
+  const flaggedCablesCount = useMemo(() => {
+    return trays.reduce((sum, t) => sum + (t.cables || []).filter(c => c.flagged).length, 0);
+  }, [trays]);
   const maxRequiredWidth = traySummaries.length > 0 ? Math.max(0, ...traySummaries.map((t) => t.totalWidth)) : 0;
   const avgSpareCapacity =
     traySummaries.length > 0
@@ -2299,6 +2394,15 @@ function CableTrayIntelligenceDrawer({
           <div className="flex items-center justify-between text-[12px] py-0.5">
             <span className="text-muted-foreground">Total Installed Cables</span>
             <span className="font-mono tabular font-semibold text-foreground">{totalCables} run{totalCables === 1 ? "" : "s"}</span>
+          </div>
+          <div className="flex items-center justify-between text-[12px] py-0.5">
+            <span className="text-muted-foreground flex items-center gap-1.5">
+              <Flag className="size-3 text-red-500 fill-red-500" />
+              <span>Flagged for Review</span>
+            </span>
+            <span className={cn("font-mono tabular font-semibold", flaggedCablesCount > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>
+              {flaggedCablesCount} cable{flaggedCablesCount === 1 ? "" : "s"}
+            </span>
           </div>
           <div className="flex items-center justify-between text-[12px] py-0.5">
             <span className="text-muted-foreground">Max Single-Run Width</span>
