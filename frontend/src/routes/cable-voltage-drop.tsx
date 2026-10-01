@@ -398,14 +398,20 @@ function CableVoltageDropPage() {
 
   const getCalculationPreview = (row: CableVDRow): CalculationPreviewData => {
     const isIP = unitSystem === "ip";
-    const V = row.voltage || 400;
-    const PF = row.pf || 0.8;
-    const runs = row.runs || 1;
-    const lengthMeters = isIP ? (Number(row.length) || 0) * 0.3048 : (Number(row.length) || 0);
-    const lengthDisplay = `${row.length} ${isIP ? "ft" : "m"}`;
-    const parentVd = groupParentVdMap[row.groupName || "Main Feeders"] || 0;
-    const vdPercent = row.vdPercent || 0;
-    const cumulativeVd = row.cumulativeVd || Number((parentVd + vdPercent).toFixed(2));
+    const V = Number(row.voltage) || 400;
+    const PF = Number(row.pf) || 0.8;
+    const runs = Number(row.runs) || 1;
+    const loadKw = Number(row.load) || 0;
+    const lineCurrent = Number(row.lineCurrent) || 0;
+    const currentPerCable = Number(row.currentPerCable) || (runs > 0 ? lineCurrent / runs : lineCurrent);
+    const rawLength = Number(row.length) || 0;
+    const lengthMeters = isIP ? rawLength * 0.3048 : rawLength;
+    const lengthDisplay = `${rawLength} ${isIP ? "ft" : "m"}`;
+    const parentVd = Number(groupParentVdMap[row.groupName || "Main Feeders"]) || 0;
+    const mvAm = Number(row.mvAm) || 0;
+    const vd = Number(row.vd) || 0;
+    const vdPercent = Number(row.vdPercent) || 0;
+    const cumulativeVd = Number(row.cumulativeVd) || Number((parentVd + vdPercent).toFixed(2));
 
     const isSafe = vdPercent <= 2.5;
     const isWarn = vdPercent > 2.5 && vdPercent <= 5.0;
@@ -416,8 +422,8 @@ function CableVoltageDropPage() {
         stepNumber: 1,
         label: "Continuous Design Line Current (Ib)",
         formula: "Ib = (Load (kW) × 1000) / (√3 × Voltage (V) × Power Factor)",
-        substitution: `(${row.load} × 1000) / (1.732 × ${V} × ${PF})`,
-        result: row.lineCurrent.toFixed(2),
+        substitution: `(${loadKw} × 1000) / (1.732 × ${V} × ${PF})`,
+        result: lineCurrent.toFixed(2),
         unit: "A",
         status: "info",
         description: "Balanced 3-phase full-load continuous line current.",
@@ -426,8 +432,8 @@ function CableVoltageDropPage() {
         stepNumber: 2,
         label: "Current Per Parallel Cable Run (I_cable)",
         formula: "I_cable = Ib / Number of Parallel Cable Runs",
-        substitution: `${row.lineCurrent.toFixed(2)} A / ${runs}`,
-        result: row.currentPerCable.toFixed(2),
+        substitution: `${lineCurrent.toFixed(2)} A / ${runs}`,
+        result: currentPerCable.toFixed(2),
         unit: "A",
         status: "info",
         description: `Current carried per cable conductor with ${runs} parallel run${runs > 1 ? "s" : ""}.`,
@@ -436,7 +442,7 @@ function CableVoltageDropPage() {
         stepNumber: 3,
         label: "Cable Route Length & Conversion",
         formula: isIP ? "Length (m) = Length (ft) × 0.3048" : "Length (m) = Metric Route Length",
-        substitution: isIP ? `${row.length} ft × 0.3048` : `${row.length} m`,
+        substitution: isIP ? `${rawLength} ft × 0.3048` : `${rawLength} m`,
         result: lengthMeters.toFixed(2),
         unit: "m",
         status: "info",
@@ -446,20 +452,20 @@ function CableVoltageDropPage() {
         stepNumber: 4,
         label: "Voltage Drop in Volts (ΔV)",
         formula: "ΔV (V) = (mV/A/m × I_cable × Length (m)) / 1000",
-        substitution: `(${row.mvAm} × ${row.currentPerCable.toFixed(2)} × ${lengthMeters.toFixed(2)}) / 1000`,
-        result: row.vd.toFixed(2),
+        substitution: `(${mvAm} × ${currentPerCable.toFixed(2)} × ${lengthMeters.toFixed(2)}) / 1000`,
+        result: vd.toFixed(2),
         unit: "V",
         status: "info",
-        description: `Line-to-line voltage loss across the cable run using catalogue impedance (${row.mvAm} mV/A/m for ${row.size || "selected cable"}).`,
+        description: `Line-to-line voltage loss across the cable run using catalogue impedance (${mvAm} mV/A/m for ${row.size || "selected cable"}).`,
       },
       {
         stepNumber: 5,
         label: "Branch Circuit Voltage Drop Percentage (ΔV%)",
         formula: "ΔV (%) = (ΔV / Voltage) × 100",
-        substitution: `(${row.vd.toFixed(2)} V / ${V} V) × 100`,
+        substitution: `(${vd.toFixed(2)} V / ${V} V) × 100`,
         result: `${vdPercent.toFixed(2)}%`,
         unit: "%",
-        status: isSafe ? "pass" : isWarn ? "warning" : "warning",
+        status: isSafe ? "pass" : "warning",
         description: `Permissible branch drop: recommended ≤ 2.5% for sub-feeders (Status: ${isSafe ? "Safe / Compliant" : isWarn ? "Acceptable / Warning" : "Critical / High"}).`,
       },
       {
@@ -482,13 +488,13 @@ function CableVoltageDropPage() {
       inputs: [
         { label: "Feeder Group", value: row.groupName || "Main Feeders" },
         { label: "Fed From", value: row.from || "Main Switchboard" },
-        { label: "Connected Load", value: row.load, unit: "kW" },
+        { label: "Connected Load", value: loadKw, unit: "kW" },
         { label: "System Voltage", value: V, unit: "V" },
         { label: "Power Factor (cos φ)", value: PF },
         { label: "Number of Runs", value: runs },
         { label: "Cable Size", value: row.size || "Standard Core" },
-        { label: "Route Length", value: row.length, unit: isIP ? "ft" : "m" },
-        { label: "Unit Drop (mV/A/m)", value: row.mvAm, unit: "mV/A/m" },
+        { label: "Route Length", value: rawLength, unit: isIP ? "ft" : "m" },
+        { label: "Unit Drop (mV/A/m)", value: mvAm, unit: "mV/A/m" },
         { label: "Source Parent VD%", value: parentVd.toFixed(2), unit: "%" },
       ],
       steps,
@@ -1831,7 +1837,6 @@ function CableVoltageDropPage() {
                     renderGroupContextMenu={renderFeederGroupContextMenu}
                     onToggleGroup={handleToggleGroup}
                     onRowDoubleClick={(row) => setPreviewRow(row)}
-                    activeRowId={previewRow?.id || activeRowId}
                     rowClassName={(r) => r.flagged ? "bg-red-500/5 hover:bg-red-500/10" : ""}
                     renderContextMenu={(row) => (
                       <ContextMenuContent className="w-56">
