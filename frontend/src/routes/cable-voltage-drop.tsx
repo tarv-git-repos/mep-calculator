@@ -1627,12 +1627,8 @@ function CableVoltageDropPage() {
               )}
             </div>
 
-            {/* Right: Sample Data, Import Excel, Export, Add Group, Add Row */}
+            {/* Right: Import Excel, Export, Add Group, Add Row */}
             <div className="flex items-center gap-2">
-              <TBtn onClick={loadDummyData} title="Load sample feeder groups & circuits">
-                <Database className="size-3.5" /> Sample Data
-              </TBtn>
-
               <ImportExcelBtn
                 columnMapping={{
                   "Group": "groupName",
