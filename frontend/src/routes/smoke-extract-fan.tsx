@@ -24,7 +24,6 @@ import {
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
-import { useAppStore } from "@/store/useAppStore";
 
 export const Route = createFileRoute("/smoke-extract-fan")({
   head: () => ({
@@ -45,7 +44,7 @@ interface SavedCalculation {
 }
 
 function SmokeExtractFanPage() {
-  const { unitSystem, setUnitSystem } = useAppStore();
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [intelOpen, setIntelOpen] = useState(false);
   const [tab, setTab] = useState<"calculator" | "report">("calculator");
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
@@ -653,7 +652,49 @@ function SmokeExtractFanPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          
+          {/* Secondary Action Row */}
+          <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 mt-2 mb-2">
+            <div className="flex items-center gap-2">
+              <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                <button
+                  type="button"
+                  onClick={() => setTab("calculator")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "calculator"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Fan Sizer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("report")}
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    tab === "report"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Report
+                </button>
+              </div>
+
+              <button type="button" onClick={() => setTab("report")} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 bg-background hover:bg-slate-50 dark:hover:bg-slate-900 border border-border shadow-sm cursor-pointer text-foreground">
+                <HelpCircle className="size-3.5 text-primary" /> Formula Breakdown
+              </button>
+            </div>
+
+            <button type="button" className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 bg-background hover:bg-slate-50 dark:hover:bg-slate-900 border border-border shadow-sm cursor-pointer text-foreground" onClick={() => window.print()}>
+              <FileText className="size-3.5 text-muted-foreground" /> Export
+            </button>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            {tab === "calculator" && (
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-2">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Inputs Column */}
             <div className="lg:col-span-5 flex flex-col gap-6">
               {/* Card 1: Corridor Parameters */}
@@ -702,7 +743,7 @@ function SmokeExtractFanPage() {
             </div>
 
             {/* Results Column */}
-            <div className="lg:col-span-7 flex flex-col gap-5">
+            <div className="lg:col-span-7 flex flex-col gap-5 sticky top-0 pb-4">
               {/* Summary card */}
               <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
                 <div className="flex items-center gap-2 pb-2 border-b border-border/60">
@@ -736,7 +777,26 @@ function SmokeExtractFanPage() {
                 </div>
               </div>
 
-              {/* Detailed Calculations Steps */}
+              
+
+              {/* Assumptions reference block */}
+              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
+                <p className="font-semibold text-foreground mb-1">Standard Reference &amp; Assumptions:</p>
+                <ul className="list-disc pl-4 space-y-1.5">
+                  <li>Calculates fresh air requirements in accordance with NFPA 92 and BS EN 12101-6.</li>
+                  <li>Friction loss calculation uses equivalent length sizers for typical fitting indices ($1.6 \times$ duct length).</li>
+                  <li>Fan motor sizing includes a $+10\%$ electrical security factor applied to nominal shaft horsepower outputs.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+              </div>
+            )}
+            {tab === "report" && (
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-card border border-border rounded-2xl shadow-xs mx-4 mb-4 mt-2">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><HelpCircle className="size-5 text-primary"/> Detailed Calculations & Steps</h2>
+                <div className="flex flex-col gap-4 max-w-4xl mx-auto w-full">
+                  {/* Detailed Calculations Steps */}
               <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
             : calcReviewState?.status === "REJECTED"
@@ -745,16 +805,15 @@ function SmokeExtractFanPage() {
             ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
             : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
                 <button
-                  onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
+                  
                   className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"
                 >
                   <span className="flex items-center gap-2">
                     <HelpCircle className="size-4 text-primary" /> Σ Detailed Calculations Steps
                   </span>
-                  {showDetailedCalcs ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                  
                 </button>
-                {showDetailedCalcs && (
-                  <div className="p-5 pt-0 border-t border-border/40 text-xs font-sans flex flex-col gap-4 max-h-[350px] overflow-y-auto">
+                <div className="p-5 pt-0 border-t border-border/40 text-xs font-sans flex flex-col gap-4 max-h-[350px] overflow-y-auto">
                     {/* Step 1 */}
                     {(() => {
                       const stepId = "step-1-volume";
@@ -1139,22 +1198,35 @@ function SmokeExtractFanPage() {
                         </ContextMenu>
                       );
                     })()}
-                  </div>
-                )}
-              </div>
+                      </div>
+                    </div>
+                    </div>
+                    </div>
+                      )}
+                    </div>
 
-              {/* Assumptions reference block */}
-              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
-                <p className="font-semibold text-foreground mb-1">Standard Reference &amp; Assumptions:</p>
-                <ul className="list-disc pl-4 space-y-1.5">
-                  <li>Calculates fresh air requirements in accordance with NFPA 92 and BS EN 12101-6.</li>
-                  <li>Friction loss calculation uses equivalent length sizers for typical fitting indices ($1.6 \times$ duct length).</li>
-                  <li>Fan motor sizing includes a $+10\%$ electrical security factor applied to nominal shaft horsepower outputs.</li>
-                </ul>
+{/* Intelligence Drawer (Collapsible Right Side Panel) */}
+      <div
+        className={`shrink-0 overflow-hidden transition-all duration-300 ease-in-out ${
+          intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+        }`}
+      >
+        {intelOpen && (
+          <div className="flex flex-col h-full overflow-hidden w-[360px]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-2 shrink-0">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-primary" />
+                <h3 className="font-bold text-[13.5px] uppercase tracking-wider text-foreground">Live Intelligence</h3>
               </div>
+              <button onClick={() => setIntelOpen(false)} className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded hover:bg-surface-2">
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar flex flex-col gap-4 text-sm text-muted-foreground">
+              <p>Intelligence insights will appear here.</p>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Save Modal */}
@@ -1255,6 +1327,8 @@ function SmokeExtractFanPage() {
           existingComments={commentsList.filter(c => c.spaceId === commentTargetItem.id || c.targetId === commentTargetItem.id || c.itemId === commentTargetItem.id)}
         />
       )}
+      </div>
+      </div>
     </AppShell>
   );
 }

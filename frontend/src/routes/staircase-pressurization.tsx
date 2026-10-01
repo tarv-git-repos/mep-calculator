@@ -18,6 +18,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import { addPdfHeader, addPdfSignatureBlock } from "@/lib/pdfHelpers";
 
 export const Route = createFileRoute("/staircase-pressurization")({
   component: StaircasePressurizationPage,
@@ -331,10 +332,8 @@ function StaircasePressurizationPage() {
   const handleExportPdf = () => {
     try {
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      doc.setFontSize(14);
-      doc.text("STAIRCASE PRESSURIZATION CALCULATION REPORT", 14, 16);
-      doc.setFontSize(10);
-      doc.text("Project: " + (project?.name || "N/A"), 14, 24);
+      
+      const startY = addPdfHeader(doc, "STAIRCASE PRESSURIZATION CALCULATION REPORT");
 
       const tableData = items.map((item, index) => {
         const calc = calculateStaircase(item, isIp);
@@ -352,13 +351,29 @@ function StaircasePressurizationPage() {
         ];
       });
 
+      const primaryFill = [217, 217, 217] as [number, number, number];
+
       autoTable(doc, {
-        startY: 32,
+        startY: startY,
         head: [["#", "Staircase Name", "Door Type", `Door Area (${isIp ? "sq ft" : "m²"})`, "Open Doors", "Closed Doors", `Fan Airflow (${isIp ? "CFM" : "L/s"})`, `dP (${isIp ? "in.wg" : "Pa"})`, `Relief Area (${isIp ? "sq ft" : "m²"})`]],
         body: tableData,
         theme: "grid",
-        styles: { fontSize: 8, halign: "center", valign: "middle" }
+        styles: { fontSize: 8, halign: "center", valign: "middle", lineColor: [100, 100, 100], lineWidth: 0.1 },
+        headStyles: { fillColor: primaryFill, textColor: 0, fontStyle: 'bold' },
       });
+
+      const finalY = (doc as any).lastAutoTable?.finalY ?? 150;
+      let userName = "System Admin";
+      if (typeof window !== "undefined") {
+        try {
+          const profileStr = localStorage.getItem('mep_calculator_user_data') || localStorage.getItem('mep_profile') || localStorage.getItem('mep_user_data');
+          if (profileStr) {
+            const profile = JSON.parse(profileStr);
+            userName = profile.name || profile.user?.name || profile.userData?.name || "System Admin";
+          }
+        } catch(e) {}
+      }
+      addPdfSignatureBlock(doc, finalY, userName, project?.id, "/staircase-pressurization");
 
       doc.save("Staircase_Pressurization_Report.pdf");
       toast.success("PDF report downloaded!");
