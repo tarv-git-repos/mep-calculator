@@ -333,7 +333,7 @@ function StaircasePressurizationPage() {
     try {
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       
-      const startY = addPdfHeader(doc, "STAIRCASE PRESSURIZATION CALCULATION REPORT");
+      const startY = addPdfHeader(doc, "Staircase Pressurization Calculation Report");
 
       const tableData = items.map((item, index) => {
         const calc = calculateStaircase(item, isIp);

@@ -252,7 +252,7 @@ function LiftwellPressurizationPage() {
     try {
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       
-      const startY = addPdfHeader(doc, "LIFTWELL PRESSURIZATION CALCULATION REPORT");
+      const startY = addPdfHeader(doc, "Liftwell Pressurization Calculation Report");
 
       const tableData = items.map((item, index) => {
         const calc = calculateLiftwell(item, isIp);
