@@ -1543,7 +1543,6 @@ function CableVoltageDropPage() {
   return (
     <AppShell 
       title="Cable Voltage Drop Calculations" 
-      subtitle="Calculate electrical cable voltage drop."
       actions={
         <UnitToggle
           unitSystem={unitSystem}
