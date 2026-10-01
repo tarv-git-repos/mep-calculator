@@ -72,6 +72,7 @@ import { Route as ChwPipeSizerRouteImport } from './routes/chw-pipe-sizer'
 import { Route as CentralBatterySizingRouteImport } from './routes/central-battery-sizing'
 import { Route as CapacitorBankSizingRouteImport } from './routes/capacitor-bank-sizing'
 import { Route as CalculatorsRouteImport } from './routes/calculators'
+import { Route as CableVoltageDropRouteImport } from './routes/cable-voltage-drop'
 import { Route as CableTraySizingRouteImport } from './routes/cable-tray-sizing'
 import { Route as BusbarVoltageDropRouteImport } from './routes/busbar-voltage-drop'
 import { Route as BusbarCalculationRouteImport } from './routes/busbar-calculation'
@@ -401,6 +402,11 @@ const CalculatorsRoute = CalculatorsRouteImport.update({
   path: '/calculators',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CableVoltageDropRoute = CableVoltageDropRouteImport.update({
+  id: '/cable-voltage-drop',
+  path: '/cable-voltage-drop',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CableTraySizingRoute = CableTraySizingRouteImport.update({
   id: '/cable-tray-sizing',
   path: '/cable-tray-sizing',
@@ -451,6 +457,7 @@ export interface FileRoutesByFullPath {
   '/busbar-calculation': typeof BusbarCalculationRoute
   '/busbar-voltage-drop': typeof BusbarVoltageDropRoute
   '/cable-tray-sizing': typeof CableTraySizingRoute
+  '/cable-voltage-drop': typeof CableVoltageDropRoute
   '/calculators': typeof CalculatorsRoute
   '/capacitor-bank-sizing': typeof CapacitorBankSizingRoute
   '/central-battery-sizing': typeof CentralBatterySizingRoute
@@ -524,6 +531,7 @@ export interface FileRoutesByTo {
   '/busbar-calculation': typeof BusbarCalculationRoute
   '/busbar-voltage-drop': typeof BusbarVoltageDropRoute
   '/cable-tray-sizing': typeof CableTraySizingRoute
+  '/cable-voltage-drop': typeof CableVoltageDropRoute
   '/calculators': typeof CalculatorsRoute
   '/capacitor-bank-sizing': typeof CapacitorBankSizingRoute
   '/central-battery-sizing': typeof CentralBatterySizingRoute
@@ -598,6 +606,7 @@ export interface FileRoutesById {
   '/busbar-calculation': typeof BusbarCalculationRoute
   '/busbar-voltage-drop': typeof BusbarVoltageDropRoute
   '/cable-tray-sizing': typeof CableTraySizingRoute
+  '/cable-voltage-drop': typeof CableVoltageDropRoute
   '/calculators': typeof CalculatorsRoute
   '/capacitor-bank-sizing': typeof CapacitorBankSizingRoute
   '/central-battery-sizing': typeof CentralBatterySizingRoute
@@ -673,6 +682,7 @@ export interface FileRouteTypes {
     | '/busbar-calculation'
     | '/busbar-voltage-drop'
     | '/cable-tray-sizing'
+    | '/cable-voltage-drop'
     | '/calculators'
     | '/capacitor-bank-sizing'
     | '/central-battery-sizing'
@@ -746,6 +756,7 @@ export interface FileRouteTypes {
     | '/busbar-calculation'
     | '/busbar-voltage-drop'
     | '/cable-tray-sizing'
+    | '/cable-voltage-drop'
     | '/calculators'
     | '/capacitor-bank-sizing'
     | '/central-battery-sizing'
@@ -819,6 +830,7 @@ export interface FileRouteTypes {
     | '/busbar-calculation'
     | '/busbar-voltage-drop'
     | '/cable-tray-sizing'
+    | '/cable-voltage-drop'
     | '/calculators'
     | '/capacitor-bank-sizing'
     | '/central-battery-sizing'
@@ -893,6 +905,7 @@ export interface RootRouteChildren {
   BusbarCalculationRoute: typeof BusbarCalculationRoute
   BusbarVoltageDropRoute: typeof BusbarVoltageDropRoute
   CableTraySizingRoute: typeof CableTraySizingRoute
+  CableVoltageDropRoute: typeof CableVoltageDropRoute
   CalculatorsRoute: typeof CalculatorsRoute
   CapacitorBankSizingRoute: typeof CapacitorBankSizingRoute
   CentralBatterySizingRoute: typeof CentralBatterySizingRoute
@@ -1401,6 +1414,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CalculatorsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cable-voltage-drop': {
+      id: '/cable-voltage-drop'
+      path: '/cable-voltage-drop'
+      fullPath: '/cable-voltage-drop'
+      preLoaderRoute: typeof CableVoltageDropRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/cable-tray-sizing': {
       id: '/cable-tray-sizing'
       path: '/cable-tray-sizing'
@@ -1469,6 +1489,7 @@ const rootRouteChildren: RootRouteChildren = {
   BusbarCalculationRoute: BusbarCalculationRoute,
   BusbarVoltageDropRoute: BusbarVoltageDropRoute,
   CableTraySizingRoute: CableTraySizingRoute,
+  CableVoltageDropRoute: CableVoltageDropRoute,
   CalculatorsRoute: CalculatorsRoute,
   CapacitorBankSizingRoute: CapacitorBankSizingRoute,
   CentralBatterySizingRoute: CentralBatterySizingRoute,
