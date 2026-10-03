@@ -1092,11 +1092,12 @@ function ProjectLoadSchedulePage() {
         
         {/* Top Header */}
         <div className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-slate-200 shadow-2xs shrink-0">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              Load Schedule <span className="text-xs font-normal text-slate-500">Hierarchical MEP Load Distribution Manager</span>
-            </h1>
-              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/project-load-schedule" calculatorTitle="Project Load Schedule" />
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-baseline gap-2">
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground">Project Load Schedule (DB Builder)</h1>
+              <span className="text-[15px] font-semibold text-muted-foreground">Hierarchical MEP Load Distribution Manager</span>
+            </div>
+            <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/project-load-schedule" calculatorTitle="Project Load Schedule (DB Builder)" />
           </div>
           <div className="flex items-center gap-3">
             <button onClick={globalNetworkBalance} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#3178c6] text-white rounded hover:bg-[#2968ad] transition shadow-sm">

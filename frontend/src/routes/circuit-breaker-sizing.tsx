@@ -1086,6 +1086,8 @@ function CircuitBreakerSizingPage() {
   return (
     <AppShell
       title="Circuit Breaker Sizing"
+      spaceCount={rows.length}
+      spaceCountUnit={rows.length === 1 ? "circuit" : "circuits"}
       actions={<UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isEffectiveReadOnly} />}
     >
       {/* Main Card Container with 3-State Status Highlight */}

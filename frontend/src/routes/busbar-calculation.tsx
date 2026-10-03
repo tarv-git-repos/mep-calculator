@@ -1606,6 +1606,8 @@ function BusbarCalculationPage() {
   return (
     <AppShell 
       title="Busbar Calculation" 
+      spaceCount={panels.length}
+      spaceCountUnit={panels.length === 1 ? "panel" : "panels"}
       actions={
         <UnitToggle
           unitSystem={unitSystem}

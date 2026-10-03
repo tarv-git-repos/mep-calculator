@@ -1275,6 +1275,7 @@ function LoadSummaryPage() {
     <AppShell 
       title="Load Summary" 
       spaceCount={rows.length}
+      spaceCountUnit={rows.length === 1 ? "space" : "spaces"}
       actions={
         <UnitToggle
           unitSystem={unitSystem}

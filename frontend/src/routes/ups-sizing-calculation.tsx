@@ -872,7 +872,9 @@ function UpsSizingCalculationPage() {
 
   return (
     <AppShell 
-      title="UPS Sizing" 
+      title="UPS Sizing Calculation" 
+      spaceCount={loadRows.length}
+      spaceCountUnit={loadRows.length === 1 ? "load" : "loads"}
       actions={
         <UnitToggle
           unitSystem={unitSystem}

@@ -767,6 +767,8 @@ function TransformerSizingPage() {
   return (
     <AppShell
       title="Transformer Sizing"
+      spaceCount={loadRows.length}
+      spaceCountUnit={loadRows.length === 1 ? "load" : "loads"}
       actions={<UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isEffectiveReadOnly} />}
       intelOpen={intelOpen}
       onIntelClick={() => setIntelOpen(v => !v)}

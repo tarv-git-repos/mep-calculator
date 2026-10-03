@@ -1200,6 +1200,8 @@ function GeneratorSizingPage() {
   return (
     <AppShell
       title="Generator Sizing"
+      spaceCount={rows.length}
+      spaceCountUnit={rows.length === 1 ? "load" : "loads"}
 
       actions={<UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isEffectiveReadOnly} />}
     >

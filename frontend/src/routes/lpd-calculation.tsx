@@ -541,6 +541,12 @@ function LPDCalculationPage() {
 
   const currentProject = projects.find((p) => p.id === currentProjectId) || projects[0];
 
+  const totalSpacesCount = useMemo(() => {
+    const internal = (currentProject?.internalGroups || []).reduce((acc, g) => acc + (g.spaces?.length || 0), 0);
+    const external = (currentProject?.externalGroups || []).reduce((acc, g) => acc + (g.spaces?.length || 0), 0);
+    return internal + external;
+  }, [currentProject]);
+
   const updateProject = (fn: (p: LpdProject) => LpdProject) => {
     setProjects((prev) => {
       const targetId = currentProject ? currentProject.id : null;
@@ -1551,6 +1557,7 @@ function LPDCalculationPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">LPD Calculation</h1>
+                <span className="text-[15px] font-semibold text-muted-foreground">{totalSpacesCount} {totalSpacesCount === 1 ? "space" : "spaces"}</span>
               </div>
 
               {/* Intelligence Button */}

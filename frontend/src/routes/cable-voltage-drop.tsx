@@ -1548,7 +1548,9 @@ function CableVoltageDropPage() {
 
   return (
     <AppShell 
-      title="Cable Voltage Drop Calculations" 
+      title="Cable Voltage Drop" 
+      spaceCount={rows.length}
+      spaceCountUnit={rows.length === 1 ? "run" : "runs"}
       actions={
         <UnitToggle
           unitSystem={unitSystem}

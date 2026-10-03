@@ -30,6 +30,9 @@ import { AutoUpdateModal } from "./AutoUpdateModal";
 import { NotificationCenterView } from "./NotificationCenterView";
 import { CalculationReviewBar, useCalculationLock, useCalculationReviewState, getCalculationStatusBorderClass } from "./CalculationReviewBar";
 import { navigateToNotificationTarget, executeHighlightAndScroll } from "@/utils/notificationHelpers";
+import brandmarkDark from "@/assets/logo/brandmark-dark.png";
+import brandmarkLight from "@/assets/logo/brandmark-light.png";
+
 
 import {
   DropdownMenu,
@@ -388,7 +391,7 @@ const MEP_CALC_ROUTES = new Set([
   "/load-summary"
 ]);
 
-export function AppShell({ children, title, subtitle, actions, onIntelClick, intelOpen, intelLabel, hideSubHeader, breadcrumb, spaceCount }: {
+export function AppShell({ children, title, subtitle, actions, onIntelClick, intelOpen, intelLabel, hideSubHeader, breadcrumb, spaceCount, spaceCountUnit, subtext }: {
   children: ReactNode;
   title: string;
   subtitle?: string;
@@ -399,6 +402,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   hideSubHeader?: boolean;
   breadcrumb?: ReactNode;
   spaceCount?: number;
+  spaceCountUnit?: string;
+  subtext?: ReactNode;
 }) {
   const { profile, userData, logout, loading } = useAuth();
   const userId = userData?.id || profile?.id;
@@ -3404,9 +3409,26 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
           {/* Brand Header */}
           <div className="p-4 flex items-center justify-between border-b border-border dark:border-[#262626]">
             <div className="flex items-center gap-3">
-              <div className="size-9 rounded-xl bg-foreground text-background dark:bg-white dark:text-black flex items-center justify-center font-bold text-[17px] shrink-0 font-sans shadow-sm">
-                {logoLetter}
-              </div>
+              {import.meta.env.VITE_APP_MODE === 'kfactor' ? (
+                <div className="size-9 rounded-xl bg-foreground text-background dark:bg-white dark:text-black flex items-center justify-center font-bold text-[17px] shrink-0 font-sans shadow-sm">
+                  {logoLetter}
+                </div>
+              ) : (
+                <div className="size-9 rounded-xl overflow-hidden shrink-0 shadow-sm border border-slate-200/80 dark:border-[#2f2f2f] flex items-center justify-center bg-white dark:bg-[#030405] transition-colors">
+                  <img
+                    src={brandmarkLight}
+                    alt="TARV Brandmark"
+                    className="size-full object-cover dark:hidden select-none"
+                    draggable={false}
+                  />
+                  <img
+                    src={brandmarkDark}
+                    alt="TARV Brandmark"
+                    className="size-full object-cover hidden dark:block select-none"
+                    draggable={false}
+                  />
+                </div>
+              )}
               <span className="font-bold text-foreground dark:text-white text-[15px] font-sans tracking-tight">
                 {brandName}
               </span>
@@ -3524,15 +3546,22 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 <div className="text-[11px] font-bold text-muted-foreground tracking-wider uppercase flex items-center gap-1.5 mb-1">
                   {breadcrumb}
                 </div>
-                <div className="flex items-center gap-3">
-                  <h1 className="text-[20px] font-extrabold text-foreground tracking-tight flex items-center gap-2">
-                    {title}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-baseline gap-2">
+                    <h1 className="text-[28px] font-bold tracking-tight text-foreground">
+                      {title}
+                    </h1>
                     {spaceCount !== undefined && (
-                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-surface-2 text-muted-foreground border border-border">
-                        {spaceCount} spaces
+                      <span className="text-[15px] font-semibold text-muted-foreground">
+                        {spaceCount} {spaceCountUnit || (spaceCount === 1 ? "space" : "spaces")}
                       </span>
                     )}
-                  </h1>
+                    {subtext && (
+                      <span className="text-[15px] font-semibold text-muted-foreground">
+                        {subtext}
+                      </span>
+                    )}
+                  </div>
                   {effectiveOnIntelClick && (
                     <button 
                       onClick={effectiveOnIntelClick}

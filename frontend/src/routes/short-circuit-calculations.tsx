@@ -1540,7 +1540,7 @@ function ShortCircuitCalculationsPage() {
           <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg py-0.5">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
-                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Short Circuit Calculator</h1>
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Short Circuit Calculations</h1>
                 <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} {rows.length === 1 ? "segment" : "segments"}</span>
                 {flaggedCount > 0 && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
@@ -1548,7 +1548,7 @@ function ShortCircuitCalculationsPage() {
                   </span>
                 )}
               </div>
-              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/short-circuit-calculations" calculatorTitle="Short Circuit Calculator" />
+              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/short-circuit-calculations" calculatorTitle="Short Circuit Calculations" />
             </div>
 
             <div className="flex items-center gap-2">

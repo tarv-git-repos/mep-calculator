@@ -807,7 +807,9 @@ function BusbarVoltageDropPage() {
 
   return (
     <AppShell 
-      title="Busbar Voltage Drop Calculations" 
+      title="Busbar Voltage Drop" 
+      spaceCount={rows.length}
+      spaceCountUnit={rows.length === 1 ? "run" : "runs"}
       subtitle="Calculate busbar voltage drop with resistive and reactive components."
       actions={
         <div className="flex gap-2">

@@ -932,7 +932,10 @@ function CapacitorBankSizingPage() {
         {/* Breadcrumbs & Page Header */}
         <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg z-10 py-1">
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-[28px] font-bold tracking-tight text-foreground">Capacitor Bank Sizing</h1>
+            <div className="flex items-baseline gap-2">
+              <h1 className="text-[28px] font-bold tracking-tight text-foreground">Capacitor Bank Sizing</h1>
+              <span className="text-[15px] font-semibold text-muted-foreground">{panels.length} {panels.length === 1 ? "panel" : "panels"}</span>
+            </div>
             <button
               onClick={() => setIntelOpen(!intelOpen)}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border transition-all cursor-pointer shadow-2xs ${
