@@ -25,6 +25,12 @@ import { VersionManager } from "@/components/workspace/VersionManager";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { TBtn } from "@/components/workspace/Button";
+import {
+  type PresetOption,
+  computeFM200Calculations
+} from "@/lib/calc-plumbing-fm200";
+import { exportFM200PDF } from "@/lib/exportFM200PDF";
+
 
 export const Route = createFileRoute("/plumbing-fm200")({
   head: () => ({
@@ -36,7 +42,7 @@ export const Route = createFileRoute("/plumbing-fm200")({
   component: FM200SizerPage,
 });
 
-type PresetOption = "class_a" | "class_b" | "class_c" | "custom";
+
 
 function FM200SizerPage() {
   const { project, activeProjectId, isReadOnly } = useWorkspace();
@@ -473,397 +479,40 @@ function FM200SizerPage() {
 
   // Sizer math calculation
   const calcResults = useMemo(() => {
-    const isSI = unitSystem === "si";
-    const areaVal = area === "" ? 0 : area;
-    const heightVal = height === "" ? 0 : height;
-    const customConcVal = customConc === "" ? 0 : customConc;
-    const tempVal = temp === "" ? 0 : temp;
-    const safetyFactorVal = safetyFactor === "" ? 1.0 : safetyFactor;
-
-    // Enclosure Volume
-    const volume = areaVal * heightVal;
-
-    // Concentration (C)
-    let C = 6.857; // Default Class A
-    if (preset === "class_b") {
-      C = 8.7;
-    } else if (preset === "class_c") {
-      C = 7.0;
-    } else if (preset === "custom") {
-      C = customConcVal;
-    }
-
-    // Specific Volume (S)
-    let S = 0.1473;
-    if (useStandardS) {
-      // Standard constant
-      if (isSI) {
-        S = 0.1473; // mÂ³/kg
-      } else {
-        // IP equivalent of 0.1473 mÂ³/kg is approx 2.3595 ftÂ³/lb
-        S = 2.3595; // ftÂ³/lb
-      }
-    } else {
-      // Temperature-dependent Specific Volume per NFPA 2001 formula
-      if (isSI) {
-        // T is in Celsius
-        S = 0.1269 + 0.000513 * tempVal;
-      } else {
-        // T is in Fahrenheit
-        S = 1.885 + 0.0046 * tempVal;
-      }
-    }
-
-    // Agent Weight calculation (W)
-    // W = (V / S) * (C / (100 - C)) * SafetyFactor
-    let weight = 0;
-    if (S > 0 && 100 - C > 0) {
-      weight = (volume / S) * (C / (100 - C)) * safetyFactorVal;
-    }
-
-    // Warnings and limits based on NFPA 2001 guidelines
-    const warnings: string[] = [];
-    if (C > 9.0) {
-      warnings.push("Design concentration exceeds the human exposure NOAEL limit of 9.0%. For occupied spaces, limit exposure time per NFPA 2001.");
-    }
-    if (C > 10.5) {
-      warnings.push("Design concentration exceeds the human exposure LOAEL limit of 10.5%. Strictly restrict occupancy or ensure rapid evacuation.");
-    }
-    if (C < 5.8) {
-      warnings.push("Design concentration is below the minimum UL/FM listing concentration of 5.8% for HFC-227ea systems.");
-    }
-    if (areaVal <= 0 || heightVal <= 0) {
-      warnings.push("Area and height must be positive, non-zero values.");
-    }
-
-    return {
-      volume,
-      C,
-      S,
-      weight,
-      warnings
-    };
+    return computeFM200Calculations(area, height, preset, customConc, temp, useStandardS, safetyFactor, unitSystem);
   }, [area, height, preset, customConc, temp, useStandardS, safetyFactor, unitSystem]);
 
   const areaVal = typeof area === "number" ? area : 0;
   const heightVal = typeof height === "number" ? height : 0;
   const safetyFactorVal = typeof safetyFactor === "number" ? safetyFactor : 1.0;
 
-  // Export to PDF handler (Exact formatting, color palette, and logic parity with Ventilation)
-  const exportPdf = async () => {
-    try {
-      const isSI = unitSystem === "si";
-      const JsPDFClass = typeof jsPDF === "function" ? jsPDF : (jsPDF as any).default;
-      const doc = new JsPDFClass("portrait", "mm", "a4");
-
-      const callAutoTable = (pdfDoc: any, options: any) => {
-        if (typeof autoTable === "function") {
-          autoTable(pdfDoc, options);
-        } else if (typeof (autoTable as any)?.default === "function") {
-          (autoTable as any).default(pdfDoc, options);
-        } else if (typeof pdfDoc.autoTable === "function") {
-          pdfDoc.autoTable(options);
-        } else {
-          console.error("autoTable function not available");
-        }
-      };
-
-      const calcNo = (project as any)?.calcNo || "TRV-CAL-FM200-01";
-      const today = formatDateStr(new Date().toISOString()) || new Date().toLocaleDateString("en-GB");
-      const projectNo = project?.code || (project as any)?.projectNo || "P000";
-      const projectName = project?.name || (project as any)?.projectName || "";
-      const clientName = project?.client || "";
-      const endUser = (project as any)?.endUser || (project as any)?.location || "";
-
-      // Header Title (matching Ventilation)
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("FM-200 Clean Agent Suppression Sizing Report", 14, 14);
-
-      // Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
-      doc.setFontSize(9);
-      doc.setLineWidth(0.3);
-      doc.rect(14, 18, 182, 18); // Outer box for metadata
-
-      // Vertical line to separate left/right metadata
-      doc.line(105, 18, 105, 36);
-
-      // Horizontal lines
-      doc.line(14, 24, 196, 24);
-      doc.line(14, 30, 196, 30);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Calculation No.:", 16, 22);
-      doc.setFont("helvetica", "normal");
-      doc.text(calcNo, 45, 22);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Date:", 107, 22);
-      doc.setFont("helvetica", "normal");
-      doc.text(today, 120, 22);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Project No.:", 16, 28);
-      doc.setFont("helvetica", "normal");
-      doc.text(projectNo, 40, 28);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Client:", 107, 28);
-      doc.setFont("helvetica", "normal");
-      doc.text(clientName, 120, 28);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Project Name:", 16, 34);
-      doc.setFont("helvetica", "normal");
-      doc.text(projectName, 42, 34);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("End User:", 107, 34);
-      doc.setFont("helvetica", "normal");
-      doc.text(endUser, 125, 34);
-
-      // Color palette matching Ventilation
-      const primaryFill = [217, 217, 217] as [number, number, number]; // Gray for standard headers
-      const blueFill = [218, 233, 248] as [number, number, number];    // Blue for key calculated totals
-
-      const hazardLabelMap: Record<string, string> = {
-        class_a: "Class A - Surface Fire (6.857%)",
-        class_c: "Class C - Electrical Hazards (7.00%)",
-        class_b: "Class B - Flammable Liquid (8.70%)",
-        custom: `Custom Concentration (${calcResults.C.toFixed(2)}%)`
-      };
-      const hazardLabel = hazardLabelMap[preset] || preset.replace("_", " ").toUpperCase();
-
-      // Table 1: Design Parameters & Enclosure Layout
-      const inputTableBody = [
-        ["1", "Protected Enclosure Floor Area", areaVal.toFixed(2), isSI ? "mÂ²" : "ftÂ²", "Architectural Layout"],
-        ["2", "Protected Enclosure Clear Height", heightVal.toFixed(2), isSI ? "m" : "ft", "Architectural Section"],
-        ["3", "Flooded Gross Enclosure Volume (V)", calcResults.volume.toFixed(2), isSI ? "mÂ³" : "ftÂ³", "V = Floor Area Ã— Height"],
-        ["4", "Hazard Classification", hazardLabel, "-", "NFPA 2001 Chapter 5"],
-        ["5", "Minimum Design Concentration (C)", `${calcResults.C.toFixed(3)} %`, "%", "NFPA 2001 Table 5.4.2"],
-        ["6", "Minimum Enclosure Design Temperature (T)", `${typeof temp === "number" ? temp.toFixed(1) : "20.0"} ${isSI ? "Â°C" : "Â°F"}`, isSI ? "Â°C" : "Â°F", "Project Environmental Data"],
-        ["7", "Specific Vapor Volume (S)", `${calcResults.S.toFixed(4)} ${isSI ? "mÂ³/kg" : "ftÂ³/lb"}`, isSI ? "mÂ³/kg" : "ftÂ³/lb", useStandardS ? "Standard Default (0.1473 mÂ³/kg)" : "S = k1 + k2 Ã— T"],
-        ["8", "Safety Margin Factor", `${safetyFactorVal.toFixed(2)}x`, "-", safetyFactorVal > 1.0 ? "NFPA Recommended Margin" : "Standard Base Sizing"]
-      ];
-
-      callAutoTable(doc, {
-        startY: 42,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          fontSize: 7.5,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 2.2, bottom: 2.2, left: 1.2, right: 1.2 },
-          minCellHeight: 6
-        },
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold",
-          cellPadding: { top: 2.2, bottom: 2.2, left: 1, right: 1 }
-        },
-        columnStyles: {
-          0: { cellWidth: 10 },
-          1: { halign: "left", cellWidth: 68, fontStyle: "bold" },
-          2: { cellWidth: 38, fontStyle: "bold" },
-          3: { cellWidth: 20 },
-          4: { halign: "left", cellWidth: 46 }
-        },
-        head: [
-          [
-            { content: "No.", styles: { fillColor: primaryFill } },
-            { content: "Design Parameter Description", styles: { fillColor: primaryFill } },
-            { content: "Value", styles: { fillColor: primaryFill } },
-            { content: "Unit", styles: { fillColor: primaryFill } },
-            { content: "Standard / Code Reference", styles: { fillColor: primaryFill } }
-          ]
-        ],
-        body: inputTableBody
-      });
-
-      let nextY = (doc as any).lastAutoTable?.finalY ?? 110;
-
-      // Table 2: NFPA 2001 Sizing Results & Agent Weight
-      const resultsTableBody = [
-        ["A", "Total Flooding Net Enclosure Volume", `${calcResults.volume.toFixed(2)} ${isSI ? "mÂ³" : "ftÂ³"}`, "V = Area Ã— Height"],
-        ["B", "Specific Vapor Volume of Superheated FM-200 (S)", `${calcResults.S.toFixed(4)} ${isSI ? "mÂ³/kg" : "ftÂ³/lb"}`, isSI ? "k1 = 0.1269, k2 = 0.000513" : "k1 = 1.885, k2 = 0.0046"],
-        ["C", "Volumetric Expansion Term [ C / (100 - C) ]", (calcResults.C / (100 - calcResults.C)).toFixed(5), "NFPA 2001 Equation 5.5.1"],
-        ["D", "Safety Margin Multiplier Applied", `${safetyFactorVal.toFixed(2)}x`, "Engineering Safety Factor"],
-        [
-          "E",
-          "REQUIRED FM-200 AGENT NET WEIGHT (W)",
-          `${calcResults.weight.toFixed(2)} ${isSI ? "kg" : "lb"}`,
-          "W = (V / S) Ã— [ C / (100 - C) ] Ã— Safety Factor"
-        ],
-        ["F", "Maximum Targeted Discharge Duration", "10.0 Seconds", "NFPA 2001 Clause 5.7.1.2"],
-        ["G", "Minimum Enclosure Hold / Retention Time", "10.0 Minutes", "Door Fan Integrity Test Requirement"],
-        [
-          "H",
-          "Occupational Safety Status",
-          calcResults.C <= 9.0 ? "COMPLIANT (Below 9.0% NOAEL limit for occupied spaces)" : "WARNING: Concentration exceeds NOAEL threshold",
-          "NFPA 2001 Toxicity Evaluation"
-        ]
-      ];
-
-      callAutoTable(doc, {
-        startY: nextY + 6,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          fontSize: 7.5,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 2.2, bottom: 2.2, left: 1.2, right: 1.2 },
-          minCellHeight: 6
-        },
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold"
-        },
-        columnStyles: {
-          0: { cellWidth: 10 },
-          1: { halign: "left", cellWidth: 74, fontStyle: "bold" },
-          2: { cellWidth: 46, fontStyle: "bold" },
-          3: { halign: "left", cellWidth: 52 }
-        },
-        head: [
-          [
-            { content: "Item", styles: { fillColor: primaryFill } },
-            { content: "Sizing Output Summary (NFPA 2001)", styles: { fillColor: primaryFill } },
-            { content: "Calculated Result", styles: { fillColor: blueFill } },
-            { content: "Engineering Basis & Notes", styles: { fillColor: primaryFill } }
-          ]
-        ],
-        body: resultsTableBody,
-        didParseCell: function (data: any) {
-          if (data.section === "body") {
-            // Highlight row E (Required FM-200 Agent Weight) in blueFill
-            if (data.row.index === 4) {
-              data.cell.styles.fontStyle = "bold";
-              data.cell.styles.fillColor = blueFill;
-              if (data.column.index === 2) {
-                data.cell.styles.fontSize = 8.5;
-              }
-            }
-          }
-        }
-      });
-
-      nextY = (doc as any).lastAutoTable?.finalY ?? 170;
-
-      // Table 3: System Design Guidelines & Compliance Notes
-      const notesTableBody = [
-        ["1", "Door Fan Integrity Test", "Room integrity fan pressurization testing per NFPA 2001 Annex C must be conducted to certify minimum 10-minute agent retention holding time."],
-        ["2", "Rapid Discharge Target", "System discharge must be completed within 10 seconds to rapidly extinguish flames and prevent thermal decomposition into Hydrogen Fluoride (HF)."],
-        ["3", "Pressure Relief Damper", "Enclosure must be evaluated for positive/negative pressure spikes during discharge and fitted with a pressure relief vent if required."],
-        ["4", "Safety & Life Protection", "Pre-discharge audio/visual alarms with minimum 30-second delay and manual abort stations must be provided at all enclosure exits."]
-      ];
-
-      callAutoTable(doc, {
-        startY: nextY + 5,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          fontSize: 7,
-          halign: "left",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 1.8, bottom: 1.8, left: 1.5, right: 1.5 }
-        },
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: 0,
-          fontStyle: "bold"
-        },
-        columnStyles: {
-          0: { halign: "center", cellWidth: 10 },
-          1: { cellWidth: 46, fontStyle: "bold" },
-          2: { cellWidth: 126 }
-        },
-        head: [
-          [
-            { content: "No.", styles: { fillColor: primaryFill, halign: "center" } },
-            { content: "Mandatory NFPA Guideline", styles: { fillColor: primaryFill } },
-            { content: "Compliance & Commissioning Requirement", styles: { fillColor: primaryFill } }
-          ]
-        ],
-        body: notesTableBody
-      });
-
-      const finalY = (doc as any).lastAutoTable?.finalY ?? 215;
-
-      // 3-Tier Signature Block (Originated by, Reviewed by, Approved by)
-      const {
-        originatedName,
-        originatedDate,
-        reviewerName,
-        reviewerDate,
-        approverName,
-        approverDate
-      } = getSignatureBlockDetails(project?.id || "default", "/plumbing-fm200", currentUserName);
-
-      callAutoTable(doc, {
-        startY: finalY + 6,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          fontSize: 8,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 2, bottom: 2, left: 1, right: 1 }
-        },
-        headStyles: {
-          fillColor: [255, 230, 204],
-          textColor: 0,
-          fontStyle: "bold"
-        },
-        head: [
-          [
-            { content: "" },
-            { content: "Originated by" },
-            { content: "Reviewed by" },
-            { content: "Approved by" }
-          ]
-        ],
-        body: [
-          [
-            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedName || "-", styles: { halign: "center" } },
-            { content: reviewerName || "-", styles: { halign: "center" } },
-            { content: approverName || "-", styles: { halign: "center" } }
-          ],
-          [
-            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedDate || "-", styles: { halign: "center" } },
-            { content: reviewerDate || "-", styles: { halign: "center" } },
-            { content: approverDate || "-", styles: { halign: "center" } }
-          ]
-        ],
-        columnStyles: {
-          0: { cellWidth: 32 },
-          1: { cellWidth: 50 },
-          2: { cellWidth: 50 },
-          3: { cellWidth: 50 }
-        }
-      });
-
-      const pdfBuffer = doc.output("arraybuffer");
-      await downloadFile(new Uint8Array(pdfBuffer), `FM200_Sizing_Report_${project?.code || "PROJ"}.pdf`, "PDF Document", ["pdf"]);
-      toast.success("FM-200 PDF report exported successfully!");
-    } catch (err: any) {
-      console.error("exportPdf error:", err);
-      toast.error(`Export PDF failed: ${err?.message || String(err)}`);
-    }
+  // Export to PDF handler (Standardized corporate PDF matching Ventilation / Preliminary)
+  const handleExportPDF = async () => {
+    await exportFM200PDF(
+      {
+        area,
+        height,
+        preset,
+        customConc,
+        temp,
+        useStandardS,
+        safetyFactor,
+        unitSystem,
+      },
+      calcResults,
+      {
+        calcNo: (project as any)?.calcNo || "TRV-CAL-FM200-R01",
+        projectName: project?.name || (project as any)?.projectName || "FM-200 Clean Agent Fire Suppression Sizing",
+        client: project?.client || (project as any)?.client || "Design Client",
+        projectNo: project?.code || (project as any)?.projectNo || "P000",
+        endUser: (project as any)?.endUser || (project as any)?.location || "Site Development",
+        date: formatDateStr(new Date().toISOString()) || new Date().toLocaleDateString("en-GB"),
+        userName: currentUserName,
+        reviewState: calcReviewState,
+      }
+    );
   };
+  const exportPdf = handleExportPDF;
 
   return (
     <AppShell
@@ -1299,71 +948,354 @@ function FM200SizerPage() {
                   </div>
               )}
 
-            {/* Tab: Design Summary */}
+            {/* TAB: STANDARDIZED REPORT VIEW (MATCHING PRELIMINARY / VENTILATION CORPORATE STANDARD) */}
             {tab === "report" && (
-              <div className="flex-1 min-h-0 overflow-y-auto p-6 bg-surface/30">
-                <div className="max-w-5xl mx-auto flex flex-col gap-6">
-                  <div className="border border-border rounded-3xl bg-background p-6 flex flex-col gap-5 shadow-sm">
-                    <div className="flex justify-between items-start border-b border-border pb-4">
+              <div className="flex flex-col h-full select-none">
+                {/* Top Action Bar matching Ventilation standard */}
+                <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50 no-print">
+                  <span className="text-[12px] text-muted-foreground font-semibold">
+                    Generated: <span className="text-foreground font-mono">{formatDateStr(new Date())}</span>
+                  </span>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <TBtn onClick={() => window.print()}>
+                      <Printer className="size-3.5" /> Print
+                    </TBtn>
+                    <TBtn primary onClick={handleExportPDF}>
+                      <FileText className="size-3.5" /> Export PDF
+                    </TBtn>
+                  </div>
+                </div>
+
+                {/* Main Report Document Sheet */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+                  <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6 font-sans">
+                    {/* Header Title and Meta */}
+                    <div className="flex justify-between items-start pb-4 border-b border-border">
                       <div>
-                        <h2 className="text-[16px] font-bold text-foreground">Clean Agent Design Sizing Sheet</h2>
-                        <p className="text-[12px] text-muted-foreground mt-0.5">Calculated parameters for room fire flooding protection</p>
+                        <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                          FM-200 Clean Agent Fire Suppression Sizing Report
+                        </h2>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">
+                          Total Flooding Clean Agent Fire Extinguishing System Sizing (NFPA 2001 / ISO 14520 / Superheated Vapor Physics)
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[11px] text-muted-foreground block mt-0.5 font-mono">Date: {formatDateStr(new Date())}</span>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-[13px] border-b border-border pb-5">
-                      <div className="flex justify-between py-1.5 border-b border-border/50">
-                        <span className="text-muted-foreground">Project Name</span>
-                        <span className="font-semibold text-foreground">{project?.name || "Default Project"}</span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-border/50">
-                        <span className="text-muted-foreground">Project Code</span>
-                        <span className="font-semibold font-mono text-foreground">{project?.code || "PROJ"}</span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-border/50">
-                        <span className="text-muted-foreground">Design Volume</span>
-                        <span className="font-semibold text-foreground">
-                          {calcResults.volume.toFixed(2)} {unitSystem === "si" ? "mÂ³" : "ftÂ³"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-border/50">
-                        <span className="text-muted-foreground">FM-200 Weight Required</span>
-                        <span className="font-semibold text-primary">
-                          {calcResults.weight.toFixed(2)} {unitSystem === "si" ? "kg" : "lb"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-border/50">
-                        <span className="text-muted-foreground">Concentration (C)</span>
-                        <span className="font-semibold text-foreground">{calcResults.C.toFixed(3)} %</span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-border/50">
-                        <span className="text-muted-foreground">Specific Volume (S)</span>
-                        <span className="font-semibold text-foreground">
-                          {calcResults.S.toFixed(4)} {unitSystem === "si" ? "mÂ³/kg" : "ftÂ³/lb"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-border/50">
-                        <span className="text-muted-foreground">Design Temp</span>
-                        <span className="font-semibold text-foreground">
-                          {temp} {unitSystem === "si" ? "Â°C" : "Â°F"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-border/50">
-                        <span className="text-muted-foreground">Safety Multiplier Factor</span>
-                        <span className="font-semibold text-foreground">{safetyFactorVal.toFixed(2)}</span>
+                    {/* Project Metadata Table 3x2 (Enclosed Corporate Header matching Ventilation / Preliminary) */}
+                    <div className="border border-border rounded-xl overflow-hidden text-xs">
+                      <div className="grid grid-cols-4 divide-x divide-y divide-border">
+                        <div className="p-2.5 font-bold bg-muted/20">Calculation No.:</div>
+                        <div className="p-2.5 font-mono">{(project as any)?.calcNo || "TRV-CAL-FM200-R01"}</div>
+                        <div className="p-2.5 font-bold bg-muted/20">Date:</div>
+                        <div className="p-2.5 font-mono">{formatDateStr(new Date())}</div>
+
+                        <div className="p-2.5 font-bold bg-muted/20">Project No.:</div>
+                        <div className="p-2.5 font-mono">{project?.code || (project as any)?.projectNo || "P000"}</div>
+                        <div className="p-2.5 font-bold bg-muted/20">Client:</div>
+                        <div className="p-2.5">{project?.client || (project as any)?.client || "Design Client"}</div>
+
+                        <div className="p-2.5 font-bold bg-muted/20">Project Name:</div>
+                        <div className="p-2.5">{project?.name || (project as any)?.projectName || "FM-200 Clean Agent Fire Suppression Sizing"}</div>
+                        <div className="p-2.5 font-bold bg-muted/20">End User:</div>
+                        <div className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "Site Development"}</div>
                       </div>
                     </div>
 
-                    <div className="text-[12.5px] text-muted-foreground flex flex-col gap-2.5">
-                      <div className="font-semibold text-foreground">Standard Notes:</div>
-                      <p>
-                        This report qualifies agent calculations per the **NFPA 2001 (Standard on Clean Agent Fire Extinguishing Systems)** equations.
-                        Calculations are validated based on standard superheated vapor specific volumes of HFC-227ea.
-                      </p>
-                      <p>
-                        Actual installation requires hydraulic pipe routing verification using manufacturer-specific software to check flow balancing, pipe size schedules, nozzle orifice diameters, and split-tee flow distributions.
-                      </p>
+                    {/* Table 1: Executive Design Parameters & Enclosure Layout */}
+                    <div className="space-y-2">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        1. Executive Design Parameters &amp; Enclosure Layout
+                      </h3>
+                      <div className="border border-border rounded-xl overflow-hidden text-xs">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                              <th className="p-2.5 w-12 text-center">No.</th>
+                              <th className="p-2.5">Executive Design Parameter Summary</th>
+                              <th className="p-2.5 text-center w-28">Value</th>
+                              <th className="p-2.5 text-center w-20">Unit</th>
+                              <th className="p-2.5">Engineering Design Basis / Code</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border font-sans">
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
+                              <td className="p-2.5 font-bold">Protected Enclosure Floor Area</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{areaVal.toFixed(2)}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{unitSystem === "si" ? "m²" : "ft²"}</td>
+                              <td className="p-2.5 text-muted-foreground">Architectural room plan dimensions</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
+                              <td className="p-2.5 font-bold">Protected Enclosure Clear Ceiling Height</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{heightVal.toFixed(2)}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{unitSystem === "si" ? "m" : "ft"}</td>
+                              <td className="p-2.5 text-muted-foreground">True slab-to-slab or ceiling barrier height</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
+                              <td className="p-2.5 font-bold">Flooded Gross Enclosure Volume (V)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{calcResults.volume.toFixed(2)}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{unitSystem === "si" ? "m³" : "ft³"}</td>
+                              <td className="p-2.5 text-muted-foreground">V = Floor Area × Clear Height</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
+                              <td className="p-2.5 font-bold">Fire Hazard Classification</td>
+                              <td className="p-2.5 text-center font-bold text-foreground">
+                                {preset === "class_a"
+                                  ? "Class A - Surface Fire (6.857%)"
+                                  : preset === "class_c"
+                                  ? "Class C - Electrical Hazards (7.00%)"
+                                  : preset === "class_b"
+                                  ? "Class B - Flammable Liquid (8.70%)"
+                                  : `Custom Concentration (${calcResults.C.toFixed(2)}%)`}
+                              </td>
+                              <td className="p-2.5 text-center text-muted-foreground">-</td>
+                              <td className="p-2.5 text-muted-foreground">NFPA 2001 Chapter 5 Hazard Category</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">5</td>
+                              <td className="p-2.5 font-bold">Minimum Enclosure Design Temperature (T)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{typeof temp === "number" ? temp.toFixed(1) : "20.0"}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{unitSystem === "si" ? "°C" : "°F"}</td>
+                              <td className="p-2.5 text-muted-foreground">Lowest anticipated ambient room temperature</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">6</td>
+                              <td className="p-2.5 font-bold">Specific Vapor Volume of HFC-227ea (S)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{calcResults.S.toFixed(4)}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{unitSystem === "si" ? "m³/kg" : "ft³/lb"}</td>
+                              <td className="p-2.5 text-muted-foreground">{useStandardS ? "Standard reference baseline (0.1473 m³/kg)" : "S = k1 + k2 × T (NFPA 2001 formula)"}</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">7</td>
+                              <td className="p-2.5 font-bold">Engineering Safety Factor</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{safetyFactorVal.toFixed(2)}x</td>
+                              <td className="p-2.5 text-center text-muted-foreground">-</td>
+                              <td className="p-2.5 text-muted-foreground">{safetyFactorVal > 1.0 ? "Contingency for room leakage / uncloseable openings" : "Standard base code sizing"}</td>
+                            </tr>
+                            {/* Highlighted Key Output: Concentration */}
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                              <td className="p-2.5 text-center font-mono">8</td>
+                              <td className="p-2.5 font-bold">Design Agent Concentration (C)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-primary">{calcResults.C.toFixed(3)}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">%</td>
+                              <td className="p-2.5">NFPA 2001 Table 5.4.2 minimum design concentration</td>
+                            </tr>
+                            {/* Highlighted Key Output: Net Agent Weight */}
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                              <td className="p-2.5 text-center font-mono">9</td>
+                              <td className="p-2.5 font-bold">Required FM-200 Net Agent Weight (W)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-primary">{calcResults.weight.toFixed(2)}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{unitSystem === "si" ? "kg" : "lb"}</td>
+                              <td className="p-2.5">W = (V / S) × [ C / (100 - C) ] × Safety Factor</td>
+                            </tr>
+                            {/* Highlighted Key Output: Discharge Duration */}
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                              <td className="p-2.5 text-center font-mono">10</td>
+                              <td className="p-2.5 font-bold">Target Maximum Discharge Duration</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-primary">10.0</td>
+                              <td className="p-2.5 text-center font-mono font-bold">Seconds</td>
+                              <td className="p-2.5">NFPA 2001 Clause 5.7.1.2 rapid total flooding extinction</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
+
+                    {/* Table 2: NFPA 2001 Volumetric Flooding & Hydraulic Sizing Schedule */}
+                    <div className="space-y-2 mt-6">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        2. NFPA 2001 Volumetric Flooding &amp; Hydraulic Sizing Schedule
+                      </h3>
+                      <div className="border border-border rounded-xl overflow-hidden text-xs">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                              <th className="p-2.5 w-12 text-center">No.</th>
+                              <th className="p-2.5">Clean Agent Flooding Calculation Parameter</th>
+                              <th className="p-2.5 text-center w-28">Value</th>
+                              <th className="p-2.5 text-center w-20">Unit</th>
+                              <th className="p-2.5">NFPA 2001 Engineering Requirement</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border font-sans">
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
+                              <td className="p-2.5 font-bold">Gross Enclosure Flooding Volume (V)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{calcResults.volume.toFixed(2)}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{unitSystem === "si" ? "m³" : "ft³"}</td>
+                              <td className="p-2.5 text-muted-foreground">Geometric room volume (V = Area × Height)</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
+                              <td className="p-2.5 font-bold">Superheated Specific Vapor Volume (S)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{calcResults.S.toFixed(4)}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{unitSystem === "si" ? "m³/kg" : "ft³/lb"}</td>
+                              <td className="p-2.5 text-muted-foreground">{unitSystem === "si" ? "k1 = 0.1269, k2 = 0.000513" : "k1 = 1.885, k2 = 0.0046"}</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
+                              <td className="p-2.5 font-bold">Volumetric Expansion Factor [C / (100 - C)]</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{(calcResults.C / (100 - calcResults.C)).toFixed(5)}</td>
+                              <td className="p-2.5 text-center text-muted-foreground">-</td>
+                              <td className="p-2.5 text-muted-foreground">NFPA 2001 Equation 5.5.1 concentration ratio</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
+                              <td className="p-2.5 font-bold">Average Agent Flooding Density (W / V)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{(calcResults.weight / (calcResults.volume || 1)).toFixed(3)}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{unitSystem === "si" ? "kg/m³" : "lb/ft³"}</td>
+                              <td className="p-2.5 text-muted-foreground">Total mass of agent per unit protected volume</td>
+                            </tr>
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                              <td className="p-2.5 text-center font-mono">5</td>
+                              <td className="p-2.5 font-bold">Total Net Extinguishing Agent Weight (W)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-primary">{calcResults.weight.toFixed(2)}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{unitSystem === "si" ? "kg" : "lb"}</td>
+                              <td className="p-2.5">Total liquid HFC-227ea stored in pressurized cylinders</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">6</td>
+                              <td className="p-2.5 font-bold">Minimum Hold / Retention Time Target</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">10.0</td>
+                              <td className="p-2.5 text-center font-mono font-bold">Minutes</td>
+                              <td className="p-2.5 text-muted-foreground">Door fan room integrity test holding period</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">7</td>
+                              <td className="p-2.5 font-bold">Maximum Targeted Discharge Duration</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">10.0</td>
+                              <td className="p-2.5 text-center font-mono font-bold">Seconds</td>
+                              <td className="p-2.5 text-muted-foreground">Prevents thermal decomposition into Hydrogen Fluoride (HF)</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Table 3: Occupational Safety & Toxicological Exposure Analysis */}
+                    <div className="space-y-2 mt-6">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        3. Occupational Safety &amp; Toxicological Exposure Analysis
+                      </h3>
+                      <div className="border border-border rounded-xl overflow-hidden text-xs">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                              <th className="p-2.5 w-12 text-center">No.</th>
+                              <th className="p-2.5">Toxicological Safety Parameter</th>
+                              <th className="p-2.5 text-center w-28">Evaluated Level</th>
+                              <th className="p-2.5 text-center w-20">Threshold</th>
+                              <th className="p-2.5">Safety Status &amp; Egress Constraint</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border font-sans">
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
+                              <td className="p-2.5 font-bold">No Observed Adverse Effect Level (NOAEL)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">9.00%</td>
+                              <td className="p-2.5 text-center font-mono font-bold">≤ 9.00%</td>
+                              <td className="p-2.5 text-muted-foreground">Safe for human exposure up to 5 minutes without health risks</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
+                              <td className="p-2.5 font-bold">Lowest Observed Adverse Effect Level (LOAEL)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">10.50%</td>
+                              <td className="p-2.5 text-center font-mono font-bold">≤ 10.50%</td>
+                              <td className="p-2.5 text-muted-foreground">Evacuation must occur before discharge commences</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
+                              <td className="p-2.5 font-bold">UL / FM Minimum Listing Concentration</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">5.80%</td>
+                              <td className="p-2.5 text-center font-mono font-bold">≥ 5.80%</td>
+                              <td className="p-2.5 text-muted-foreground">Certified minimum concentration for flame extinguishment</td>
+                            </tr>
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                              <td className="p-2.5 text-center font-mono">4</td>
+                              <td className="p-2.5 font-bold">Evaluated Enclosure Design Concentration</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-primary">{calcResults.C.toFixed(3)}%</td>
+                              <td className="p-2.5 text-center font-mono font-bold">NOAEL OK</td>
+                              <td className="p-2.5 font-bold">
+                                {calcResults.C <= 9.0
+                                  ? "COMPLIANT (Safe for normally occupied enclosures)"
+                                  : calcResults.C <= 10.5
+                                  ? "CAUTION (Evacuation within 5 min required)"
+                                  : "RESTRICTED (Unoccupied enclosures only)"}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Compliance Verification Banner */}
+                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
+                      <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <div className="text-xs space-y-1">
+                        <span className="font-bold text-emerald-800 dark:text-emerald-300">
+                          Clean Agent Suppression System Compliance Verification (NFPA 2001 / ISO 14520)
+                        </span>
+                        <p className="text-muted-foreground leading-relaxed">
+                          This clean agent total flooding fire suppression calculation complies with NFPA 2001 (Standard on Clean Agent Fire Extinguishing Systems, 2022 Edition) and ISO 14520. The selected concentration satisfies the minimum class design extinguishment requirements and remains below the NOAEL (9.0%) human safety exposure limit for normally occupied spaces.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Table 4: 4-Column Professional Review & Sign-Off Block */}
+                    {(() => {
+                      const sigDetails = getSignatureBlockDetails(
+                        project?.id || "default",
+                        "/plumbing-fm200",
+                        currentUserName,
+                        calcReviewState
+                      );
+                      return (
+                        <div className="space-y-2 mt-6">
+                          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                            4. Professional Review &amp; Sign-Off Block
+                          </h3>
+                          <div className="border border-border rounded-xl overflow-hidden text-xs">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                                  <th className="p-2.5 text-left w-1/4">Approval Role</th>
+                                  <th className="p-2.5 text-center w-1/4">Originated By</th>
+                                  <th className="p-2.5 text-center w-1/4">Reviewed By</th>
+                                  <th className="p-2.5 text-center w-1/4">Approved By</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border">
+                                <tr>
+                                  <td className="p-2.5 font-bold text-muted-foreground">Name:</td>
+                                  <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.originatedName || currentUserName}</td>
+                                  <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
+                                  <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
+                                </tr>
+                                <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                                  <td className="p-2.5 font-bold text-muted-foreground">Role / Status:</td>
+                                  <td className="p-2.5 text-center text-muted-foreground">Fire Protection Design Engineer</td>
+                                  <td className="p-2.5 text-center text-muted-foreground">Senior Fire Protection Lead</td>
+                                  <td className="p-2.5 text-center text-muted-foreground">Principal / MEP Director</td>
+                                </tr>
+                                <tr>
+                                  <td className="p-2.5 font-bold text-muted-foreground">Date:</td>
+                                  <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.originatedDate || formatDateStr(new Date())}</td>
+                                  <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
+                                  <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                   </div>
                 </div>
               </div>

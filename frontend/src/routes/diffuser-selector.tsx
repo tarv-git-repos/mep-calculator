@@ -4,6 +4,7 @@ import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
+import { EditDiffuserSpaceModal } from "@/components/workspace/EditDiffuserSpaceModal";
 import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
@@ -164,6 +165,7 @@ function DiffuserSelectorPage() {
   // Import Popover / Modal
   const [showSourceModal, setShowSourceModal] = useState<boolean>(false);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
+  const [editingRow, setEditingRow] = useState<DiffuserRowItem | null>(null);
 
   // Double-Click Detail & Overview Modals
   const [selectedDetailRow, setSelectedDetailRow] = useState<DiffuserRowItem | null>(null);
@@ -375,7 +377,7 @@ function DiffuserSelectorPage() {
   }, [project?.id, loadedProjectId, rows, unitSystem]);
 
   // Presets load/save
-  const [saves, setSaves] = useState<SavedCalculation[]>([]);
+  const [saves, setSaves] = useState<any[]>([]);
   const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
   const [showLoadModal, setShowLoadModal] = useState<boolean>(false);
   const [saveName, setSaveName] = useState<string>("");
@@ -391,7 +393,7 @@ function DiffuserSelectorPage() {
     }
   }, []);
 
-  const savePresets = (newSaves: SavedCalculation[]) => {
+  const savePresets = (newSaves: any[]) => {
     setSaves(newSaves);
     localStorage.setItem("mep_diffuser_selector_saves", JSON.stringify(newSaves));
   };
@@ -2425,7 +2427,7 @@ function DiffuserSelectorPage() {
                         </thead>
                         <tbody className="divide-y divide-border/60">
                           {computedRows.map((r, idx) => (
-                            <tr key={r.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                            <tr key={r.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 cursor-pointer" onDoubleClick={() => setEditingRow(r)}>
                               <td className="p-2 text-center text-muted-foreground font-mono">{idx + 1}</td>
                               <td className="p-2 font-semibold text-foreground">{r.name}</td>
                               <td className="p-2 text-center text-muted-foreground font-mono">{r.floor}</td>
@@ -2665,12 +2667,16 @@ function DiffuserSelectorPage() {
 
         {/* Modal: Interactive Double-Click Row Calculation Breakdown & Tuning */}
         {showDetailModal && selectedDetailRow && (() => {
-          const row = selectedDetailRow;
+          const row = rows.find(r => r.id === selectedDetailRow.id) || selectedDetailRow;
           const sizing = computeRowSizing(row, ip);
           const flowVal = row.airflow !== "" ? Number(row.airflow) : 0;
           const countVal = row.count !== "" && Number(row.count) > 0 ? Number(row.count) : 1;
           const kwVal = row.coolingKw !== "" ? Number(row.coolingKw) : 0;
           const dtVal = row.deltaT !== "" ? Number(row.deltaT) : 10;
+
+          const updateRowField = (field: string, val: string | number) => {
+            setRows(prev => prev.map(r => r.id === row.id ? { ...r, [field]: val } : r));
+          };
 
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
@@ -2682,159 +2688,183 @@ function DiffuserSelectorPage() {
                     </div>
                     <div>
                       <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-                        {row.name} â€” Diffuser Aerodynamic Breakdown
+                        {row.name} &mdash; {showDetailedCalcs ? "Calculation Preview" : "Properties & Tuning"}
                       </h3>
                       <p className="text-xs text-muted-foreground">
-                        Floor: {row.floor} â€¢ Zone: {row.zone} â€¢ Model: {DIFFUSER_NAMES[row.diffType]}
+                        Floor: {row.floor} &bull; Zone: {row.zone}
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setShowDetailModal(false)}
-                    className="text-muted-foreground hover:text-foreground text-sm font-bold p-1"
-                  >
-                    âœ•
-                  </button>
-                </div>
-
-                {/* 5-Step Derivation Cards */}
-                <div className="flex flex-col gap-3 font-sans">
-                  {/* Step 1: Thermal Sizing */}
-                  <div className="p-3.5 rounded-xl bg-surface-2/70 border border-border/80 flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-primary flex items-center gap-1.5">
-                        <Zap className="size-3.5" /> Step 1: Sensible Cooling Thermal Sizing (Q = á¹ Â· Cp Â· Î”T)
-                      </span>
-                      <span className="text-xs font-mono font-bold text-foreground">
-                        {kwVal > 0 ? `${kwVal} kW` : "Direct Airflow Input"}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground font-mono leading-relaxed">
-                      {kwVal > 0
-                        ? `á¹ = ${kwVal} kW Ã· (1.005 kJ/kgÂ·K Ã— ${dtVal}Â°C) = ${(kwVal / (1.005 * (dtVal || 10))).toFixed(3)} kg/s dry air mass flow`
-                        : "Airflow manually entered or transferred from space airflow schedule."}
-                    </p>
-                  </div>
-
-                  {/* Step 2: Total Volumetric Airflow */}
-                  <div className="p-3.5 rounded-xl bg-surface-2/70 border border-border/80 flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                        <Wind className="size-3.5 text-blue-500" /> Step 2: Total Room Supply Airflow Demand (V)
-                      </span>
-                      <span className="text-sm font-black font-mono text-primary">
-                        {flowVal} {flowUnit}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground font-mono">
-                      V_total = {flowVal} {flowUnit} supplied across {countVal} ceiling outlet(s)
-                    </p>
-                  </div>
-
-                  {/* Step 3: Terminal Airflow & Velocity */}
-                  <div className="p-3.5 rounded-xl bg-surface-2/70 border border-border/80 flex flex-col gap-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                        <Gauge className="size-3.5 text-indigo-500" /> Step 3: Flow per Diffuser & Neck Velocity
-                      </span>
-                      <span className="text-xs font-mono font-bold text-foreground">
-                        {sizing.flowPerDiff.toFixed(1)} {flowUnit} / diffuser
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 mt-1 pt-2 border-t border-border/60 text-center font-mono">
-                      <div>
-                        <span className="text-[10px] text-muted-foreground block">RECOMMENDED NECK</span>
-                        <span className="text-xs font-bold text-primary">{sizing.neckSize}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-muted-foreground block">DISCHARGE VELOCITY</span>
-                        <span className="text-xs font-bold text-foreground">{ip ? `${sizing.velocityFpm.toFixed(0)} FPM` : `${sizing.velocity.toFixed(2)} m/s`}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-muted-foreground block">THROW RADIUS (T50)</span>
-                        <span className="text-xs font-bold text-foreground">{sizing.throwVal}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Step 4: Acoustic & Comfort Compliance */}
-                  <div className="p-3.5 rounded-xl bg-surface-2/70 border border-border/80 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="size-4 text-emerald-500" />
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-foreground">Acoustic Noise Criteria (NC) & ADPI Comfort</span>
-                        <span className="text-[11px] text-muted-foreground">{sizing.adpi}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-black font-mono text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded">
-                        {sizing.nc}
-                      </span>
-                      <span className="text-xs font-bold text-emerald-600">PASS</span>
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowDetailedCalcs(!showDetailedCalcs)}
+                      className="px-3 py-1.5 bg-primary/10 text-primary font-bold rounded-lg text-xs hover:bg-primary/20 transition-colors cursor-pointer"
+                    >
+                      {showDetailedCalcs ? "Edit Properties" : "Calculation Preview"}
+                    </button>
+                    <button
+                      onClick={() => setShowDetailModal(false)}
+                      className="text-muted-foreground hover:bg-surface-2 hover:text-foreground text-sm font-bold p-1.5 rounded-full transition-colors cursor-pointer"
+                    >
+                      <X className="size-4" />
+                    </button>
                   </div>
                 </div>
 
-                {/* Live Adjustment Tuning Sliders */}
-                <div className="bg-primary/5 p-4 rounded-2xl border border-primary/20 flex flex-col gap-3">
-                  <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                    <Sliders className="size-3.5" /> Interactive Space Tuning Controls
-                  </span>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex justify-between text-xs font-semibold">
-                        <span>Diffuser Count:</span>
-                        <span className="font-mono font-bold text-primary">{row.count} Outlets</span>
+                {!showDetailedCalcs ? (
+                  <div className="flex flex-col gap-4 py-2">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-semibold text-muted-foreground">Diffuser Type</label>
+                        <select
+                          disabled={isApprovedLocked}
+                          value={row.diffType}
+                          onChange={e => updateRowField('diffType', e.target.value)}
+                          className="w-full bg-surface-2 border border-border/80 rounded-lg px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        >
+                          {Object.entries(DIFFUSER_NAMES).map(([k, v]) => (
+                            <option key={k} value={k}>{v}</option>
+                          ))}
+                        </select>
                       </div>
-                      <input
-                        type="range"
-                        min="1"
-                        max="16"
-                        step="1"
-                        value={row.count}
-                        onChange={e => {
-                          const val = Number(e.target.value);
-                          setRows(prev => prev.map(r => r.id === row.id ? { ...r, count: val } : r));
-                          setSelectedDetailRow(prev => prev ? { ...prev, count: val } : null);
-                        }}
-                        className="w-full accent-primary h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg cursor-pointer"
-                      />
+                      
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-semibold text-muted-foreground">Total Airflow ({flowUnit})</label>
+                        <input
+                          type="number"
+                          disabled={isApprovedLocked}
+                          value={row.airflow}
+                          onChange={e => updateRowField('airflow', e.target.value)}
+                          className="w-full bg-background border border-border/80 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-semibold text-muted-foreground">Diffuser Count</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="50"
+                          disabled={isApprovedLocked}
+                          value={row.count}
+                          onChange={e => updateRowField('count', e.target.value)}
+                          className="w-full bg-background border border-border/80 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-semibold text-muted-foreground">Sensible Cooling (kW)</label>
+                        <input
+                          type="number"
+                          disabled={isApprovedLocked}
+                          value={row.coolingKw}
+                          onChange={e => updateRowField('coolingKw', e.target.value)}
+                          className="w-full bg-background border border-border/80 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                          placeholder="Optional for derived airflow"
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-semibold text-muted-foreground">Delta T (°C)</label>
+                        <input
+                          type="number"
+                          disabled={isApprovedLocked}
+                          value={row.deltaT}
+                          onChange={e => updateRowField('deltaT', e.target.value)}
+                          className="w-full bg-background border border-border/80 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                      
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[11px] font-semibold text-muted-foreground">Space Name</label>
+                        <input
+                          type="text"
+                          disabled={isApprovedLocked}
+                          value={row.name}
+                          onChange={e => updateRowField('name', e.target.value)}
+                          className="w-full bg-background border border-border/80 rounded-lg px-3 py-2 text-xs font-sans focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3 font-sans">
+                    {/* Step 1: Thermal Sizing */}
+                    <div className="p-3.5 rounded-xl bg-surface-2/70 border border-border/80 flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-primary flex items-center gap-1.5">
+                          <Zap className="size-3.5" /> Step 1: Sensible Cooling Thermal Sizing (Q = m &bull; Cp &bull; Î”T)
+                        </span>
+                        <span className="text-xs font-mono font-bold text-foreground">
+                          {kwVal > 0 ? `${kwVal} kW` : "Direct Airflow Input"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground font-mono leading-relaxed">
+                        {kwVal > 0
+                          ? `m = ${kwVal} kW Ã· (1.005 kJ/kg&bull;K &times; ${dtVal}°C) = ${(kwVal / (1.005 * (dtVal || 10))).toFixed(3)} kg/s dry air mass flow`
+                          : "Airflow manually entered or transferred from space airflow schedule."}
+                      </p>
                     </div>
 
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex justify-between text-xs font-semibold">
-                        <span>Design Velocity Limit:</span>
-                        <span className="font-mono font-bold text-primary">{row.designVelocity} m/s</span>
+                    {/* Step 2: Total Volumetric Airflow */}
+                    <div className="p-3.5 rounded-xl bg-surface-2/70 border border-border/80 flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                          <Wind className="size-3.5 text-blue-500" /> Step 2: Total Room Supply Airflow Demand (V)
+                        </span>
+                        <span className="text-sm font-black font-mono text-primary">
+                          {flowVal} {flowUnit}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground font-mono">
+                        V_total = {flowVal} {flowUnit} supplied across {countVal} ceiling outlet(s)
+                      </p>
+                    </div>
+
+                    {/* Step 3: Terminal Airflow & Velocity */}
+                    <div className="p-3.5 rounded-xl bg-surface-2/70 border border-border/80 flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                          <Gauge className="size-3.5 text-indigo-500" /> Step 3: Flow per Diffuser & Neck Velocity
+                        </span>
+                        <span className="text-xs font-mono font-bold text-foreground">
+                          {sizing.flowPerDiff.toFixed(1)} {flowUnit} / diffuser
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 mt-1 pt-2 border-t border-border/60 text-center font-mono">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">RECOMMENDED NECK</span>
+                          <span className="text-xs font-bold text-primary">{sizing.neckSize}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">DISCHARGE VELOCITY</span>
+                          <span className="text-xs font-bold text-foreground">{ip ? `${sizing.velocityFpm.toFixed(0)} FPM` : `${sizing.velocity.toFixed(2)} m/s`}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-muted-foreground block">THROW RADIUS (T50)</span>
+                          <span className="text-xs font-bold text-foreground">{sizing.throwVal}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Step 4: Acoustic & Comfort Compliance */}
+                    <div className="p-3.5 rounded-xl bg-surface-2/70 border border-border/80 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="size-4 text-emerald-500" />
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold text-foreground">Acoustic Noise Criteria (NC) & ADPI Comfort</span>
+                          <span className="text-[11px] text-muted-foreground">{sizing.adpi}</span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {[2.0, 2.5].map(v => (
-                          <button
-                            key={v}
-                            type="button"
-                            onClick={() => {
-                              setRows(prev => prev.map(r => r.id === row.id ? { ...r, designVelocity: v } : r));
-                              setSelectedDetailRow(prev => prev ? { ...prev, designVelocity: v } : null);
-                            }}
-                            className={`flex-1 py-1 rounded-lg border text-xs font-bold transition cursor-pointer ${
-                              row.designVelocity === v
-                                ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                                : "bg-surface-2 text-muted-foreground border-border/80"
-                            }`}
-                          >
-                            {v === 2.0 ? "2.0 m/s (Quiet)" : "2.5 m/s (Standard)"}
-                          </button>
-                        ))}
+                        <span className="text-sm font-black font-mono text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded">
+                          {sizing.nc}
+                        </span>
+                        <span className="text-xs font-bold text-emerald-600">PASS</span>
                       </div>
                     </div>
                   </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-                  <TBtn onClick={() => setShowDetailModal(false)} className="h-8 text-xs font-bold bg-primary text-primary-foreground">
-                    Done
-                  </TBtn>
-                </div>
+                )}
               </div>
             </div>
           );
@@ -3372,6 +3402,23 @@ function DiffuserSelectorPage() {
         <DiffuserFormulaModal
           onClose={() => setShowFormulaModal(false)}
           unitSystem={unitSystem}
+        />
+      )}
+      {editingRow && (
+        <EditDiffuserSpaceModal
+          space={editingRow}
+          availableFloors={floorOrder}
+          onClose={() => setEditingRow(null)}
+          onPreviewCalculations={() => {
+            const computed = computeRowSizing(editingRow, unitSystem);
+            setActiveSizer(computed);
+            setShowFormulaModal(true);
+          }}
+          onSave={(updated) => {
+            setRows(prev => prev.map(r => r.id === updated.id ? updated : r));
+            setEditingRow(null);
+            if (!isApprovedLocked) dirtyStore.getState().markDirty();
+          }}
         />
       )}
     </AppShell>

@@ -13,9 +13,13 @@ export interface Extracted3DSpace {
   pressureAutoDetected: boolean;
   area: number;
   height: number;
+  length?: number;
+  width?: number;
   fixtures: string;
   multiplier: number;
   source: "3d-viewer" | "ifc-file" | "workspace";
+  lightFixtureCount?: number;
+  lightFixtureType?: string;
 }
 
 /**
@@ -366,6 +370,14 @@ export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
       const area = parseFloat(String(sp.area || sp.netArea || 0)) || 0;
       let height = parseFloat(String(sp.height || sp.unboundedHeight || 3.0)) || 3.0;
       if (height > 100) height = height / 1000;
+
+      let length = parseFloat(String(sp.length || 0)) || 0;
+      let width = parseFloat(String(sp.width || 0)) || 0;
+      if ((length <= 0 || width <= 0) && area > 0) {
+        length = parseFloat(Math.sqrt(area * 1.25).toFixed(2));
+        width = parseFloat((area / length).toFixed(2));
+      }
+
       const occupants = sp.occupants || sp.people || sp.fixtures || "";
 
       const predCat = sp.category ? { category: sp.category, confidence: 0.9 } : predictOccupancyCategory(rawName);
@@ -383,9 +395,13 @@ export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
         pressureAutoDetected: predPress.autoDetected,
         area: Math.round(area * 100) / 100,
         height: Math.round(height * 100) / 100,
+        length: length,
+        width: width,
         fixtures: occupants ? String(occupants) : "",
         multiplier: 1,
         source: "3d-viewer",
+        lightFixtureCount: sp.lightFixtureCount !== undefined ? sp.lightFixtureCount : undefined,
+        lightFixtureType: sp.lightFixtureType || "",
       });
     });
 
@@ -445,6 +461,21 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
       }
     });
 
+    // Extract light fixtures mapped to space IDs
+    const lightFixtureIds = parser.getIds(WEBIFC.IFCLIGHTFIXTURE);
+    const spaceLightsMap = new Map<number, { count: number; types: string[] }>();
+    lightFixtureIds.forEach((lId) => {
+      const spaceId = relMgr.getSpaceId(lId);
+      if (spaceId) {
+        const existing = spaceLightsMap.get(spaceId) || { count: 0, types: [] };
+        existing.count++;
+        const lLine = parser.getLine(lId);
+        const lName = String(lLine?.Name?.value || lLine?.ObjectType?.value || "").trim();
+        if (lName && !existing.types.includes(lName)) existing.types.push(lName);
+        spaceLightsMap.set(spaceId, existing);
+      }
+    });
+
     const spaces: Extracted3DSpace[] = [];
 
     spaceExpressIds.forEach((id, idx) => {
@@ -462,6 +493,28 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
       const area = parseFloat(String(quantities.Area || quantities.NetArea || quantities.GrossArea || 0)) || 0;
       let height = parseFloat(String(quantities.Height || quantities.UnboundedHeight || 3.0)) || 3.0;
       if (height > 100) height = height / 1000;
+
+      let length = parseFloat(String(quantities.Length || quantities.FootprintLength || 0)) || 0;
+      let width = parseFloat(String(quantities.Width || quantities.FootprintWidth || 0)) || 0;
+
+      if ((length <= 0 || width <= 0) && quantities.Perimeter && area > 0) {
+        const p = parseFloat(String(quantities.Perimeter));
+        const halfP = p / 2;
+        const disc = halfP * halfP - 4 * area;
+        if (disc >= 0) {
+          length = parseFloat(((halfP + Math.sqrt(disc)) / 2).toFixed(2));
+          width = parseFloat((area / length).toFixed(2));
+        }
+      }
+
+      if ((length <= 0 || width <= 0) && area > 0) {
+        length = parseFloat(Math.sqrt(area * 1.25).toFixed(2));
+        width = parseFloat((area / length).toFixed(2));
+      }
+
+      const lightData = spaceLightsMap.get(id);
+      const lightFixtureCount = lightData?.count || 0;
+      const lightFixtureType = lightData?.types.join(", ") || "";
 
       const occupants = quantities.Occupants || quantities.Count || quantities.People || "";
       
@@ -496,9 +549,13 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
         pressureAutoDetected: predPress.autoDetected,
         area: Math.round(area * 100) / 100,
         height: Math.round(height * 100) / 100,
+        length: length,
+        width: width,
         fixtures: occupants ? String(occupants) : "",
         multiplier: 1,
         source: "ifc-file",
+        lightFixtureCount: lightFixtureCount > 0 ? lightFixtureCount : undefined,
+        lightFixtureType: lightFixtureType || "",
       });
     });
 

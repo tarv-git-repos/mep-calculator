@@ -44,12 +44,24 @@ export class SpaceGeometryExtractor {
             for (const item of items) {
                 if (!item) continue;
                 
-                let offset = new Vector3();
+                let placementM = new Matrix4();
                 if (item.Position) {
                     const pos = this.parser.getLine(getVal(item.Position));
-                    if (pos && pos.Location) {
-                        const pt = this.parser.getLine(getVal(pos.Location));
-                        offset = new Vector3(getVal(pt?.Coordinates?.[0])||0, getVal(pt?.Coordinates?.[1])||0, getVal(pt?.Coordinates?.[2])||0);
+                    if (pos) {
+                        const parsePt = (pt: any) => new Vector3(getVal(pt?.Coordinates?.[0])||0, getVal(pt?.Coordinates?.[1])||0, getVal(pt?.Coordinates?.[2])||0);
+                        const parseDir = (dir: any, def: [number,number,number]) => new Vector3(getVal(dir?.DirectionRatios?.[0]) ?? def[0], getVal(dir?.DirectionRatios?.[1]) ?? def[1], getVal(dir?.DirectionRatios?.[2]) ?? def[2]);
+                        
+                        const z = pos.type === WEBIFC.IFCAXIS2PLACEMENT3D && pos.Axis ? parseDir(this.parser.getLine(getVal(pos.Axis)), [0,0,1]).normalize() : new Vector3(0,0,1);
+                        const x = pos.RefDirection ? parseDir(this.parser.getLine(getVal(pos.RefDirection)), [1,0,0]).normalize() : new Vector3(1,0,0);
+                        
+                        placementM.makeBasis(
+                            x.clone().crossVectors(new Vector3().crossVectors(z, x).normalize(), z).normalize(), 
+                            new Vector3().crossVectors(z, x).normalize(), 
+                            z
+                        );
+                        if (pos.Location) {
+                            placementM.setPosition(parsePt(this.parser.getLine(getVal(pos.Location))));
+                        }
                     }
                 }
 
@@ -74,7 +86,8 @@ export class SpaceGeometryExtractor {
                                 const x = extractNum(ptArray[0]);
                                 const y = extractNum(ptArray[1]);
                                 if (x !== null && y !== null) {
-                                    rawCoords.push({ x: x + offset.x, y: y + offset.y });
+                                    const v = new Vector3(x, y, 0).applyMatrix4(placementM);
+                                    rawCoords.push({ x: v.x, y: v.y });
                                 }
                             });
                         }
@@ -86,7 +99,8 @@ export class SpaceGeometryExtractor {
                                 const x = extractNum(coords[0]);
                                 const y = extractNum(coords[1]);
                                 if (x !== null && y !== null) {
-                                    rawCoords.push({ x: x + offset.x, y: y + offset.y });
+                                    const v = new Vector3(x, y, 0).applyMatrix4(placementM);
+                                    rawCoords.push({ x: v.x, y: v.y });
                                 }
                             }
                         }

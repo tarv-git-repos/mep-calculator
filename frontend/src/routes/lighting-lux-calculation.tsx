@@ -4,22 +4,29 @@ import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { 
   Plus, Download, Trash, Copy, Trash2, X, FileText, FileSpreadsheet, 
-  MessageSquare, Search, Filter, ArrowUpDown, Sparkles, Check, Sun, Edit3, Layers, Flag
+  MessageSquare, Search, Filter, ArrowUpDown, Sparkles, Check, Sun, Edit3, Layers, Flag,
+  Box, HelpCircle, Info, CheckCircle2, AlertTriangle, ArrowRight
 } from "lucide-react";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { 
+  type LuxRow, type LuxPreset, CIBSE_LUX_PRESETS, getLuxRowValidation, 
+  computeRowOutputs, getCalculationPreview, convertBimSpaceToLuxRow 
+} from "@/lib/calc-lighting-lux";
+import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile, type Extracted3DSpace } from "@/lib/bimViewerSpaceExtractor";
 import { CalculationPreviewModal, type CalculationPreviewData, type CalculationStep } from "@/components/calculator-framework/CalculationPreviewModal";
 import { toast } from "sonner";
 import ExcelJS from "exceljs";
@@ -38,113 +45,8 @@ export const Route = createFileRoute("/lighting-lux-calculation")({
   component: LightingLuxCalculationPage,
 });
 
-interface LuxRow {
-  id: string;
-  location: string;
-  lightType: string;
-  ipRating: string;
-  length: number;
-  width: number;
-  height: number;
-  roomIndex: number;
-  area: number;
-  reqLux: number;
-  lumen: number;
-  mf: number;
-  uf: number;
-  reqQty: number;
-  remarks: string;
-  flagged?: boolean;
-  comments?: any[];
-}
 
-interface LuxPreset {
-  category: string;
-  spaceType: string;
-  standardLux: number;
-  typicalLightType: string;
-  ipRating: string;
-  defaultMf: number;
-  defaultUf: number;
-  remarks: string;
-}
 
-const CIBSE_LUX_PRESETS: LuxPreset[] = [
-  { category: "Offices", spaceType: "General Office / Open Workspace", standardLux: 500, typicalLightType: "LED Panel 600x600", ipRating: "IP20", defaultMf: 0.8, defaultUf: 0.65, remarks: "CIBSE LG7 / EN 12464-1 standard" },
-  { category: "Offices", spaceType: "Executive / Manager Office", standardLux: 500, typicalLightType: "LED Panel 600x600", ipRating: "IP20", defaultMf: 0.8, defaultUf: 0.6, remarks: "Task lighting recommended" },
-  { category: "Offices", spaceType: "Conference / Meeting Room", standardLux: 500, typicalLightType: "LED Downlight 20W", ipRating: "IP20", defaultMf: 0.8, defaultUf: 0.55, remarks: "Dimmable controls suggested" },
-  { category: "Offices", spaceType: "Drawing / CAD / Technical Office", standardLux: 750, typicalLightType: "High CRI LED Panel", ipRating: "IP20", defaultMf: 0.8, defaultUf: 0.65, remarks: "High visual accuracy required" },
-  { category: "Circulation", spaceType: "Corridors & Passageways", standardLux: 150, typicalLightType: "LED Downlight 12W", ipRating: "IP20", defaultMf: 0.75, defaultUf: 0.5, remarks: "Emergency lighting route" },
-  { category: "Circulation", spaceType: "Stairways & Escalators", standardLux: 150, typicalLightType: "Linear LED Surface", ipRating: "IP44", defaultMf: 0.75, defaultUf: 0.5, remarks: "Uniform step illumination" },
-  { category: "Circulation", spaceType: "Entrance Hall / Reception", standardLux: 300, typicalLightType: "Architectural LED Linear", ipRating: "IP20", defaultMf: 0.8, defaultUf: 0.6, remarks: "Feature lighting" },
-  { category: "Services & Support", spaceType: "Pantry & Breakroom", standardLux: 300, typicalLightType: "LED Panel 300x1200", ipRating: "IP44", defaultMf: 0.75, defaultUf: 0.6, remarks: "Moisture resistant fitting" },
-  { category: "Services & Support", spaceType: "Toilets & Restrooms", standardLux: 200, typicalLightType: "IP65 Waterproof LED", ipRating: "IP65", defaultMf: 0.75, defaultUf: 0.55, remarks: "Vapor & splash proof" },
-  { category: "Services & Support", spaceType: "Server / IT Equipment Room", standardLux: 500, typicalLightType: "Linear LED Batten", ipRating: "IP20", defaultMf: 0.8, defaultUf: 0.65, remarks: "High illumination for maintenance" },
-  { category: "Services & Support", spaceType: "Electrical / Mechanical Plant Room", standardLux: 200, typicalLightType: "IP65 LED Batten", ipRating: "IP65", defaultMf: 0.75, defaultUf: 0.55, remarks: "Industrial heavy duty" },
-  { category: "Storage & Industrial", spaceType: "General Storage / Archive", standardLux: 100, typicalLightType: "LED Batten 40W", ipRating: "IP20", defaultMf: 0.75, defaultUf: 0.5, remarks: "Low occupancy space" },
-  { category: "Storage & Industrial", spaceType: "Warehouse / Highbay Racking", standardLux: 300, typicalLightType: "LED Highbay 150W", ipRating: "IP65", defaultMf: 0.75, defaultUf: 0.65, remarks: "High ceiling mounting" }
-];
-
-// Helper to validate row inputs & auto-flag issues
-function getLuxRowValidation(row: LuxRow) {
-  const warnings: string[] = [];
-  
-  if (!row.location || !row.location.trim()) {
-    warnings.push("Location name empty");
-  }
-  if (!row.length || row.length <= 0) {
-    warnings.push("Length (L) missing/zero");
-  }
-  if (!row.width || row.width <= 0) {
-    warnings.push("Width (W) missing/zero");
-  }
-  if (!row.reqLux || row.reqLux <= 0) {
-    warnings.push("Req Lux (LL) missing/zero");
-  }
-  if (!row.lumen || row.lumen <= 0) {
-    warnings.push("Lumen output 0");
-  }
-  
-  const hasWarnings = warnings.length > 0;
-  const isExplicitlyUnflagged = row.flagged === false;
-  const isExplicitlyFlagged = row.flagged === true;
-
-  // A row is flagged if user explicitly flagged it, or if it has auto warnings and wasn't explicitly unflagged
-  const isFlagged = isExplicitlyFlagged || (!isExplicitlyUnflagged && hasWarnings);
-  const isAutoFlagged = !isExplicitlyFlagged && hasWarnings && !isExplicitlyUnflagged;
-
-  return { isAutoFlagged, isManuallyFlagged: isExplicitlyFlagged, isFlagged, warnings };
-}
-
-// Helper to compute calculated fields
-function computeRowOutputs(row: LuxRow): LuxRow {
-  const L = row.length || 0;
-  const W = row.width || 0;
-  const H = row.height || 0; // Mounting Height
-  
-  const area = L * W;
-  let roomIndex = 0;
-  if (H > 0 && (L + W) > 0) {
-    roomIndex = (L * W) / (H * (L + W));
-  }
-
-  const LL = row.reqLux || 0;
-  const lumen = row.lumen || 0;
-  const mf = row.mf || 0;
-  const uf = row.uf || 0;
-  
-  let reqQty = 0;
-  if (lumen > 0 && mf > 0 && uf > 0) {
-    reqQty = Math.ceil((LL * area) / (lumen * mf * uf));
-  }
-
-  return {
-    ...row,
-    area: parseFloat(area.toFixed(2)),
-    roomIndex: parseFloat(roomIndex.toFixed(2)),
-    reqQty: reqQty
-  };
-}
 
 const DEFAULT_ROWS: LuxRow[] = [];
 
@@ -162,106 +64,6 @@ function pushToHistory(
   }
 }
 
-// Helper to construct step-by-step Calculation Preview for Lighting LUX
-function getCalculationPreview(row: LuxRow, unitSystem: "si" | "ip"): CalculationPreviewData {
-  const L = row.length || 0;
-  const W = row.width || 0;
-  const H = row.height || 0;
-  const area = row.area || (L * W);
-  const roomIndex = row.roomIndex || (H > 0 && (L + W) > 0 ? parseFloat(((L * W) / (H * (L + W))).toFixed(2)) : 0);
-  const reqLux = row.reqLux || 0;
-  const lumen = row.lumen || 0;
-  const mf = row.mf || 0.8;
-  const uf = row.uf || 0.6;
-  const reqQty = row.reqQty || (lumen > 0 && mf > 0 && uf > 0 ? Math.ceil((reqLux * area) / (lumen * mf * uf)) : 0);
-
-  const dimUnit = unitSystem === "ip" ? "ft" : "m";
-  const areaUnit = unitSystem === "ip" ? "sq ft" : "m²";
-  const luxUnit = unitSystem === "ip" ? "fc" : "Lux";
-
-  const totalRequiredLumen = (mf > 0 && uf > 0) ? (reqLux * area) / (mf * uf) : 0;
-  const totalInstalledLumen = reqQty * lumen;
-  const achievedLux = area > 0 ? (totalInstalledLumen * mf * uf) / area : 0;
-  const isSatisfied = achievedLux >= reqLux && reqQty > 0;
-
-  const steps: CalculationStep[] = [
-    {
-      stepNumber: 1,
-      label: "Room Surface Area (A)",
-      formula: "A = Length (L) × Width (W)",
-      substitution: `${L} ${dimUnit} × ${W} ${dimUnit} = ${area.toFixed(2)} ${areaUnit}`,
-      result: area.toFixed(2),
-      unit: areaUnit,
-      status: area > 0 ? "pass" : "warning",
-      description: area > 0 ? "Effective working plane surface area." : "Specify non-zero room length and width.",
-    },
-    {
-      stepNumber: 2,
-      label: "Room Index (RI / K)",
-      formula: "RI = (L × W) / [H × (L + W)]",
-      substitution: H > 0 && (L + W) > 0 ? `(${L} × ${W}) / [${H} × (${L} + ${W})] = ${roomIndex}` : "Mounting height or dimensions zero",
-      result: roomIndex,
-      status: roomIndex > 0 ? "pass" : "info",
-      description: "Geometric index of room proportions used to select the Utilization Factor (UF).",
-    },
-    {
-      stepNumber: 3,
-      label: "Total Luminous Flux Required (Φ_total)",
-      formula: "Φ_total = (E_req × A) / (MF × UF)",
-      substitution: mf > 0 && uf > 0 ? `(${reqLux} ${luxUnit} × ${area.toFixed(2)} ${areaUnit}) / (${mf} × ${uf}) = ${Math.round(totalRequiredLumen).toLocaleString()} lm` : "MF or UF is zero",
-      result: Math.round(totalRequiredLumen).toLocaleString(),
-      unit: "Lumens (lm)",
-      status: "info",
-      description: "Total raw lamp lumens required to maintain target illuminance under depreciation and room reflection losses.",
-    },
-    {
-      stepNumber: 4,
-      label: "Required Luminaire Quantity (N)",
-      formula: "N = ⌈ Φ_total / Φ_lamp ⌉",
-      substitution: lumen > 0 ? `⌈ ${Math.round(totalRequiredLumen).toLocaleString()} / ${lumen} lm ⌉ = ${reqQty}` : "Lumens per fitting missing",
-      result: reqQty,
-      unit: "Fittings",
-      status: reqQty > 0 ? "pass" : "warning",
-      description: "Luminaire count rounded up to the next integer for layout symmetry.",
-    },
-    {
-      stepNumber: 5,
-      label: "Maintained Illuminance Achieved (E_achieved)",
-      formula: "E_achieved = (N × Φ_lamp × MF × UF) / A",
-      substitution: area > 0 ? `(${reqQty} × ${lumen} × ${mf} × ${uf}) / ${area.toFixed(2)} = ${achievedLux.toFixed(1)} ${luxUnit}` : "Area is zero",
-      result: achievedLux.toFixed(1),
-      unit: luxUnit,
-      status: isSatisfied ? "pass" : reqQty === 0 ? "info" : "warning",
-      description: isSatisfied
-        ? `Meets target illuminance of ${reqLux} ${luxUnit} (+${(achievedLux - reqLux).toFixed(1)} margin).`
-        : `Target illuminance is ${reqLux} ${luxUnit}. Consider increasing luminaire count or lumen package.`,
-    }
-  ];
-
-  return {
-    title: "Lighting LUX Calculation Preview",
-    itemName: row.location || `Space ${row.id}`,
-    itemCode: `${row.lightType || "Standard Luminaire"} • ${row.ipRating || "IP20"}`,
-    standardReference: "CIBSE Code for Lighting / EN 12464-1 / IESNA",
-    inputs: [
-      { label: "Target Illuminance (LL)", value: reqLux, unit: luxUnit },
-      { label: "Room Length (L)", value: L, unit: dimUnit },
-      { label: "Room Width (W)", value: W, unit: dimUnit },
-      { label: "Mounting Height (H)", value: H, unit: dimUnit },
-      { label: "Fitting Lumen Output", value: lumen, unit: "lm" },
-      { label: "Maintenance Factor (MF)", value: mf },
-      { label: "Utilization Factor (UF)", value: uf },
-      { label: "Fitting IP Rating", value: row.ipRating || "IP20" },
-    ],
-    steps,
-    finalResultLabel: "Required Luminaire Quantity",
-    finalResultValue: `${reqQty} Units`,
-    finalResultUnit: row.lightType || "Luminaires",
-    complianceNote: isSatisfied
-      ? `COMPLIANT: Design satisfies the required illuminance of ${reqLux} ${luxUnit} with ${reqQty} luminaires yielding an average maintained illuminance of ${achievedLux.toFixed(0)} ${luxUnit}.`
-      : `ATTENTION: Specified luminaire layout yields ${achievedLux.toFixed(0)} ${luxUnit}, which is below the target ${reqLux} ${luxUnit}.`
-  };
-}
 
 function LightingLuxCalculationPage() {
   const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
@@ -316,6 +118,80 @@ function LightingLuxCalculationPage() {
   // Presets Modal State
   const [autoLuxModalOpen, setAutoLuxModalOpen] = useState(false);
   const [presetSearch, setPresetSearch] = useState("");
+
+  // 3-Source Automation & BIM IFC Integration States
+  const ifcFileInputRef = useRef<HTMLInputElement>(null);
+  const [showImportSourceModal, setShowImportSourceModal] = useState<boolean>(false);
+  const [showSourcesInfoModal, setShowSourcesInfoModal] = useState<boolean>(false);
+
+  const handleSyncFrom3DStudio = async () => {
+    try {
+      toast.loading("Scanning 3D Studio for spaces & luminaires...", { id: "lux-3d-sync" });
+      let extracted: Extracted3DSpace[] = extractSpacesFromActiveViewer();
+      toast.dismiss("lux-3d-sync");
+
+      if (extracted.length === 0) {
+        const win = typeof window !== "undefined" ? (window as any) : {};
+        const savedFile = win.__ACTIVE_IFC_FILE__ || win._currentLoadedFile;
+        if (savedFile instanceof File) {
+          toast.loading("Extracting 3D geometry & luminaires from IFC model...", { id: "lux-ifc-parse" });
+          extracted = await extractSpacesFromIFCFile(savedFile);
+          toast.dismiss("lux-ifc-parse");
+        }
+      }
+
+      if (extracted.length === 0) {
+        setShowImportSourceModal(true);
+        return;
+      }
+
+      const newRows: LuxRow[] = extracted.map((sp, idx) => convertBimSpaceToLuxRow(sp, idx));
+      
+      pushToHistory(rows, history, setHistory, setRedoStack);
+      setRows(newRows);
+      setSelected(new Set());
+      setActiveRowId(undefined);
+
+      toast.success(
+        `✨ Synced ${newRows.length} spaces from 3D Studio! 13 columns generated from 3D Geometry + CIBSE Standards + Real-Time Engine.`,
+        { duration: 5000 }
+      );
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to sync spaces from 3D Studio.");
+    }
+  };
+
+  const handleIFCFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      toast.loading(`Extracting 3D geometry & luminaires from "${file.name}"...`, { id: "lux-ifc-upload" });
+      const extracted = await extractSpacesFromIFCFile(file);
+      toast.dismiss("lux-ifc-upload");
+
+      if (extracted.length === 0) {
+        toast.error("No valid IFCSPACE elements found in the uploaded IFC file.");
+        return;
+      }
+
+      const newRows: LuxRow[] = extracted.map((sp, idx) => convertBimSpaceToLuxRow(sp, idx));
+      pushToHistory(rows, history, setHistory, setRedoStack);
+      setRows(newRows);
+      setSelected(new Set());
+      setActiveRowId(undefined);
+
+      toast.success(
+        `✨ Successfully imported ${newRows.length} spaces from "${file.name}" with full 3-Source automation!`
+      );
+    } catch (err) {
+      toast.dismiss("lux-ifc-upload");
+      console.error("IFC upload failed:", err);
+      toast.error("Failed to parse IFC file.");
+    } finally {
+      if (e.target) e.target.value = "";
+    }
+  };
 
   useEffect(() => {
     if (!project?.id) return;
@@ -465,6 +341,10 @@ function LightingLuxCalculationPage() {
   const applyPresetToSpace = (preset: LuxPreset, applyToSelectedOnly: boolean = false) => {
     pushToHistory(rows, history, setHistory, setRedoStack);
 
+    const isIp = unitSystem === "ip";
+    const luxFactor = isIp ? (1 / 10.7639) : 1;
+    const targetLux = isIp ? Math.round(preset.standardLux * luxFactor) : preset.standardLux;
+
     if (applyToSelectedOnly && selected.size > 0) {
       setRows(prev => prev.map(r => {
         if (selected.has(r.id)) {
@@ -472,7 +352,7 @@ function LightingLuxCalculationPage() {
             ...r,
             lightType: preset.typicalLightType,
             ipRating: preset.ipRating,
-            reqLux: preset.standardLux,
+            reqLux: targetLux,
             mf: preset.defaultMf,
             uf: preset.defaultUf,
             remarks: preset.remarks || r.remarks
@@ -483,17 +363,18 @@ function LightingLuxCalculationPage() {
       toast.success(`Applied ${preset.standardLux} lx preset to ${selected.size} selected space(s).`);
     } else {
       const newId = `lux_${Math.random().toString(36).slice(2, 9)}`;
+      const factor = isIp ? 3.28084 : 1;
       const newRow: LuxRow = {
         id: newId,
         location: preset.spaceType,
         lightType: preset.typicalLightType,
         ipRating: preset.ipRating,
-        length: 6,
-        width: 4,
-        height: 2.8,
+        length: Number((6 * factor).toFixed(2)),
+        width: Number((4 * factor).toFixed(2)),
+        height: Number((2.8 * factor).toFixed(2)),
         roomIndex: 0,
         area: 0,
-        reqLux: preset.standardLux,
+        reqLux: targetLux,
         lumen: 3200,
         mf: preset.defaultMf,
         uf: preset.defaultUf,
@@ -1631,8 +1512,34 @@ function LightingLuxCalculationPage() {
               </Popover>
             </div>
 
-            {/* Right Controls: Import, Export PDF, + New Space */}
+            {/* Right Controls: 3 Sources, Sync 3D Studio, Import, Export PDF, + New Space */}
             <div className="flex items-center gap-2">
+              <input
+                type="file"
+                ref={ifcFileInputRef}
+                accept=".ifc"
+                onChange={handleIFCFileUpload}
+                className="hidden"
+              />
+
+              <button
+                onClick={() => setShowSourcesInfoModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 transition-all cursor-pointer shadow-2xs"
+                title="View the 3 Sources Behind Automation (3D Geometry + CIBSE + Real-Time Engine)"
+              >
+                <Sparkles className="size-3.5 text-purple-500" />
+                <span className="hidden sm:inline">3 Sources</span>
+              </button>
+
+              <button
+                onClick={handleSyncFrom3DStudio}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 transition-all cursor-pointer shadow-2xs"
+                title="Sync 13 columns automatically from 3D Studio IFC model"
+              >
+                <Box className="size-3.5" />
+                <span>Sync 3D Studio</span>
+              </button>
+
               <ImportExcelBtn
                 columnMapping={{
                   "Location": "location",
@@ -1922,6 +1829,194 @@ function LightingLuxCalculationPage() {
         onClose={() => setPreviewRow(null)}
         data={activePreviewRow ? getCalculationPreview(activePreviewRow, unitSystem) : null}
       />
+
+      {/* Import Source Modal (Excel / 3D Studio) */}
+      <ImportSourceModal
+        isOpen={showImportSourceModal}
+        onClose={() => setShowImportSourceModal(false)}
+        onSelectExcel={() => {
+          document.querySelector<HTMLInputElement>('input[type="file"][accept*=".xlsx"]')?.click();
+        }}
+        onSelect3DViewer={handleSyncFrom3DStudio}
+      />
+
+      {/* 3 Sources Architecture Modal */}
+      {showSourcesInfoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div 
+            className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-surface-1/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                  <Sparkles className="size-5" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-lg text-foreground tracking-tight">The 3 Sources Behind the Automation</h2>
+                  <p className="text-xs text-muted-foreground">The 13 columns are automatically generated from 3 distinct engineering sources</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowSourcesInfoModal(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-2 transition cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {/* Content: 3 Sources Cards */}
+            <div className="p-6 overflow-y-auto space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Source 1: 3D IFC GEOMETRY */}
+                <div className="rounded-xl border border-blue-500/30 bg-blue-500/[0.04] p-4 flex flex-col gap-3 shadow-xs">
+                  <div className="flex items-center gap-2 pb-2 border-b border-blue-500/20">
+                    <span className="flex items-center justify-center size-6 rounded-md bg-blue-500/20 text-blue-600 dark:text-blue-400 font-bold text-xs">1</span>
+                    <div>
+                      <h3 className="font-bold text-xs text-blue-600 dark:text-blue-400 uppercase tracking-wider">3D IFC GEOMETRY</h3>
+                      <span className="text-[10px] text-muted-foreground">(Extracted by 3D Studio)</span>
+                    </div>
+                  </div>
+                  <ul className="space-y-2 text-xs">
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-blue-500"></span>
+                      <span>Location (Space Name)</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-blue-500"></span>
+                      <span>Length (L)</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-blue-500"></span>
+                      <span>Width (W)</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-blue-500"></span>
+                      <span>Height (H)</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-blue-500"></span>
+                      <span>Area (m²)</span>
+                    </li>
+                  </ul>
+                  <div className="mt-auto pt-2 border-t border-blue-500/15 text-[11px] text-muted-foreground">
+                    Parsed from <code>IfcSpace</code> boundaries, base quantities, and coordinate geometry.
+                  </div>
+                </div>
+
+                {/* Source 2: AI & CIBSE STANDARDS */}
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] p-4 flex flex-col gap-3 shadow-xs">
+                  <div className="flex items-center gap-2 pb-2 border-b border-amber-500/20">
+                    <span className="flex items-center justify-center size-6 rounded-md bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold text-xs">2</span>
+                    <div>
+                      <h3 className="font-bold text-xs text-amber-600 dark:text-amber-400 uppercase tracking-wider">AI & CIBSE STANDARDS</h3>
+                      <span className="text-[10px] text-muted-foreground">(Built-in MEP Presets)</span>
+                    </div>
+                  </div>
+                  <ul className="space-y-2 text-xs">
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-amber-500"></span>
+                      <span>Type of Light</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-amber-500"></span>
+                      <span>IP Rating</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-amber-500"></span>
+                      <span>Req. Lux (LL)</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-amber-500"></span>
+                      <span>Lumen Output</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-amber-500"></span>
+                      <span>Maintenance Factor (MF)</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-amber-500"></span>
+                      <span>Utilization Factor (UF)</span>
+                    </li>
+                  </ul>
+                  <div className="mt-auto pt-2 border-t border-amber-500/15 text-[11px] text-muted-foreground">
+                    Matched from room semantics using CIBSE Code for Lighting / EN 12464-1 standards.
+                  </div>
+                </div>
+
+                {/* Source 3: REAL-TIME ENGINE */}
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-4 flex flex-col gap-3 shadow-xs">
+                  <div className="flex items-center gap-2 pb-2 border-b border-emerald-500/20">
+                    <span className="flex items-center justify-center size-6 rounded-md bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold text-xs">3</span>
+                    <div>
+                      <h3 className="font-bold text-xs text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">REAL-TIME ENGINE</h3>
+                      <span className="text-[10px] text-muted-foreground">(Automated Formulas)</span>
+                    </div>
+                  </div>
+                  <ul className="space-y-2 text-xs">
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-emerald-500"></span>
+                      <span>Room Index (RI)</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-emerald-500"></span>
+                      <span>Required Qty (Nos.)</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-emerald-500"></span>
+                      <span>Actual Lux (Achieved)</span>
+                    </li>
+                    <li className="flex items-center gap-2 font-medium">
+                      <span className="size-1.5 rounded-full bg-emerald-500"></span>
+                      <span>Flag / Remarks</span>
+                    </li>
+                  </ul>
+                  <div className="mt-auto pt-2 border-t border-emerald-500/15 text-[11px] text-muted-foreground">
+                    Formula: N = ⌈ (LL × A) / (Lumen × MF × UF) ⌉. Auto-flags under-lit spaces in red.
+                  </div>
+                </div>
+              </div>
+
+              {/* 3D Fixture Audit & Flagging Notice */}
+              <div className="rounded-xl border border-border bg-surface-2 p-4 flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5">
+                  <Info className="size-4" />
+                </div>
+                <div className="text-xs space-y-1">
+                  <h4 className="font-semibold text-foreground">3D Fixture Comparison & Auto-Flagging</h4>
+                  <p className="text-muted-foreground leading-relaxed">
+                    When importing an IFC model with <code>IfcLightFixture</code> elements, the engine compares installed fixtures against calculated required quantities. Under-lit spaces are automatically tagged with a <b>Red Flag</b> and a deficit warning in Remarks.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3 border-t border-border bg-surface-1/50 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground font-mono">13 Columns • 3 Sources • 1-Click Sync</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setShowSourcesInfoModal(false);
+                    handleSyncFrom3DStudio();
+                  }}
+                  className="px-4 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:bg-primary/90 transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                >
+                  <Box className="size-3.5" />
+                  Sync from 3D Studio Now
+                </button>
+                <button
+                  onClick={() => setShowSourcesInfoModal(false)}
+                  className="px-3 py-1.5 border border-border text-foreground text-xs font-medium rounded-lg hover:bg-surface-2 transition cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

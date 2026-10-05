@@ -7,7 +7,7 @@ import {
   Plus, Download, Upload, Filter, Columns3, GroupIcon, Pin,
   ChevronDown, ChevronUp, Trash2, Edit3, Copy, X, Bookmark, Wrench,
   Sparkles, AlertTriangle, CheckCircle2, Info, Gauge, FileText, Printer, FileSpreadsheet,
-  FolderKanban, ArrowUpDown, GripVertical, Check, Flag, ChevronsUpDown, MessageSquare,
+  FolderKanban, ArrowUpDown, GripVertical, Check, Flag, ChevronsUpDown, MessageSquare, MapPin,
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
@@ -24,8 +24,10 @@ import { getProjectIfcFile } from "@/lib/projectIfcStorage";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { EquipmentPlacementModal } from "@/components/workspace/EquipmentPlacementModal";
 import { CategorySelect } from "@/components/workspace/CategorySelect";
 import { getOccupancyCategories, getOccupancyData, getCategoryDisplayName } from "@/lib/ashrae-data";
+import { getEquipmentTierAndDimensions } from "@/lib/ahu-dimensions-data";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import {
   ContextMenu,
@@ -4533,7 +4535,7 @@ function ZonesView() {
       } else {
         const zid = Array.from(selectedZones)[0] ?? null;
         console.log("setAssignZoneEquipOpen single zid=", zid);
-        if (zid) { setAllocZoneId(zid); setZoneAllocOpen(true); }
+        if (zid) { setAllocZoneId(zid); setZoneAllocOpen(true); } else { setAllocZoneId(null); setZoneAllocOpen(true); }
       }
     } else { setZoneAllocOpen(false); }
   };
@@ -5188,6 +5190,14 @@ function ZonesView() {
           options={uniquePressures}
         />
         <div className="ml-auto flex items-center gap-1">
+          <TBtn
+            disabled={isEffectiveReadOnly}
+            onClick={() => {
+              setAssignZoneEquipOpen(true);
+            }}
+          >
+            <Plus className="size-3.5" /> Assign Equipment
+          </TBtn>
           <TBtn
             primary
             disabled={isEffectiveReadOnly || isApprovedLocked}
@@ -6132,6 +6142,12 @@ function EquipmentView() {
   const onOpenSizer = (equipId: string) => { setSizerEquipId(equipId); setSizerShowAdd(false); setSizerOpen(true); };
 
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [placementModalOpen, setPlacementModalOpen] = useState(false);
+  const [placementTargetEquip, setPlacementTargetEquip] = useState<Equipment | null>(null);
+  const handleOpenPlacement = (equip: Equipment) => {
+    setPlacementTargetEquip(equip);
+    setPlacementModalOpen(true);
+  };
   const [selectedEquips, setSelectedEquips] = useState<Set<string>>(new Set());
 
   const [lastClickedEquipIndex, setLastClickedEquipIndex] = useState<number | null>(null);
@@ -6238,6 +6254,71 @@ function EquipmentView() {
       key: "totalEA", header: "Extract Load (L/s)", width: 150, align: "center", render: (r) => (
         <span className="font-mono text-[12.5px]">{(r.totalEA || 0).toLocaleString()}</span>
       )
+    },
+
+
+    {
+      key: "tierDimensions",
+      header: "Tier & Dimensions (L×B×W)",
+      width: 240,
+      align: "center",
+      render: (r) => {
+        const sizing = getEquipmentTierAndDimensions(r.totalFA || 0, r.totalEA || 0);
+        if (!sizing) {
+          return <span className="text-muted-foreground/40 text-[11px] italic font-normal">Unassigned</span>;
+        }
+        return (
+          <div className="flex items-center justify-center gap-2 text-[11.5px]">
+            <span
+              className={`px-2 py-0.5 rounded-full text-[9.5px] font-black uppercase border shrink-0 ${
+                sizing.tierType === "single_tier"
+                  ? "bg-primary/10 border-primary/25 text-primary"
+                  : "bg-purple-500/10 border-purple-500/25 text-purple-600 dark:text-purple-400"
+              }`}
+            >
+              {sizing.tierName}
+            </span>
+            <span
+              className="font-mono text-foreground font-bold text-[11.5px] truncate"
+              title={`Sizing Bracket: Sr. No. ${sizing.srNo} (${sizing.matchedLoadLs} L/s / ${sizing.matchedCfm} CFM)`}
+            >
+              {sizing.formattedDimensions}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      key: "placementSpace",
+      header: "3D Placement Space",
+      width: 210,
+      render: (r) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleOpenPlacement(r);
+          }}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold transition-all cursor-pointer border max-w-full truncate ${
+            r.locationSpaceName
+              ? "bg-primary/10 border-primary/25 text-primary hover:bg-primary/20"
+              : "bg-surface-2 border-border/80 text-muted-foreground hover:bg-surface-3 hover:text-foreground border-dashed"
+          }`}
+          title={r.locationSpaceName ? `Placed in ${r.locationSpaceName} (${r.locationFloor || 'Unspecified Floor'})` : "Click to select 3D placement space"}
+        >
+          <MapPin className="size-3.5 shrink-0 text-primary" />
+          <span className="truncate">
+            {r.locationSpaceName ? (
+              <>
+                <span className="font-bold">{r.locationSpaceName}</span>
+                {r.locationFloor && <span className="text-[10px] opacity-75 ml-1">({r.locationFloor})</span>}
+              </>
+            ) : (
+              <span className="italic font-normal">+ Select Placement Space</span>
+            )}
+          </span>
+        </button>
+      ),
     },
   ];
 
@@ -6393,6 +6474,13 @@ function EquipmentView() {
         <span>Manage Assignments</span>
       </ContextMenuItem>
       <ContextMenuItem
+        onClick={() => handleOpenPlacement(e)}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+      >
+        <MapPin className="size-3.5 text-primary" />
+        <span>Set 3D Placement Space</span>
+      </ContextMenuItem>
+      <ContextMenuItem
         onClick={() => {
           if (isReadOnly) {
             toast.info("Workspace is in Read-Only mode. Adding comments is locked.", { id: "readonly-notice" });
@@ -6515,6 +6603,29 @@ function EquipmentView() {
           setSizerOpen(false);
           setSizerEquipId(null);
           setSizerShowAdd(false);
+        }}
+      />
+      <EquipmentPlacementModal
+        isOpen={placementModalOpen}
+        equipment={placementTargetEquip}
+        onClose={() => {
+          setPlacementModalOpen(false);
+          setPlacementTargetEquip(null);
+        }}
+        onSave={(equipId, locationFloor, locationSpaceId, locationSpaceName) => {
+          const updated = equipment.map((eq) => {
+            if (eq.id === equipId) {
+              return {
+                ...eq,
+                locationFloor,
+                locationSpaceId,
+                locationSpaceName,
+              };
+            }
+            return eq;
+          });
+          updateEquipment(updated);
+          toast.success(`3D placement set to ${locationSpaceName}${locationFloor ? ` (${locationFloor})` : ''}`);
         }}
       />
       {/* Assign Comment Modal overlay */}

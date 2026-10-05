@@ -1,49 +1,131 @@
 import React, { useState, useMemo } from "react";
-import { X, Info, CheckCircle, AlertTriangle, Droplets, Calculator, Building2 } from "lucide-react";
-import { FU_FIXTURES_META, IP_FIXTURE_UNITS, getRecommendedWaterPipe } from "@/routes/plumbing-fixture-unit";
+import { X, Info, CheckCircle, AlertTriangle, Droplets, Calculator, Building2, Sliders, Layers } from "lucide-react";
+import {
+  FU_FIXTURES_META,
+  IP_FIXTURE_UNITS,
+  type StandardPreset,
+  STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY,
+  STANDARD_FIXTURE_WEIGHTS,
+  DEFAULT_CATEGORY_FOR_PRESET,
+  getFlowLPS,
+  getRecommendedPipeSize
+} from "@/lib/calc-plumbing-fixture-unit";
+
+export function getStandardFormulaLabel(standard: StandardPreset): string {
+  switch (standard) {
+    case "as_nzs_3500":
+      return "AS/NZS 3500 Lookup Table";
+    case "barrie":
+      return "Barrie's Book Lookup Table";
+    case "bs_806":
+      return "BS 806 / BS EN 806 Lookup Table";
+    case "bs_8558":
+    case "iop_bs":
+    case "iop_low":
+    case "iop_med":
+    case "iop_high":
+      return "BS 8558 / IoP Nomogram";
+    case "din_res":
+      return "DIN 1988-300 Residential (Q = 1.48×LU⁰˙¹⁹ - 0.94)";
+    case "din_hosp":
+      return "DIN 1988-300 Hospital (Q = 0.75×LU⁰˙⁴⁴ - 0.18)";
+    case "din_hotel":
+      return "DIN 1988-300 Hotel (Q = 0.70×LU⁰˙⁴⁸ - 0.13)";
+    case "din_school":
+      return "DIN 1988-300 School (Q = 0.91×LU⁰˙³¹ - 0.38)";
+    case "din_office":
+      return "DIN 1988-300 Office (Q = 0.91×LU⁰˙³¹ - 0.38)";
+    case "din_assisted":
+      return "DIN 1988-300 Assisted Living (Q = 1.48×LU⁰˙¹⁹ - 0.94)";
+    case "din_nursing":
+      return "DIN 1988-300 Nursing Home (Q = 1.40×LU⁰˙¹⁴ - 0.92)";
+    case "ipc":
+    case "ipc_upc":
+      return "IPC Table E103.3(2) Lookup";
+    case "upc":
+      return "UPC Lookup Table";
+    case "dubai":
+      return "Dubai DBC (Q = 0.10 × √(Total WSFU))";
+    case "abudhabi":
+      return "Abu Dhabi ADM Table 6-9 Lookup";
+    default:
+      return "Standard Plumbing Lookup";
+  }
+}
 
 export interface EditFixtureUnitRowModalProps {
   space: {
     id: number;
     desc: string;
     floor: string;
-    std: string;
+    std?: string;
     qty?: number;
+    floorQty?: number;
     fixtures: Record<string, number>;
   };
   rowIndex?: number;
   floorName?: string;
-  weightOverrides: Record<string, number>;
+  standardPreset?: StandardPreset;
+  weightOverrides?: Record<string, number>;
+  activeWeights?: Record<string, number>;
   unitSystem?: "si" | "ip";
+  showSpaceQty?: boolean;
+  showFloorsCol?: boolean;
   onClose: () => void;
-  onSave: (updated: { desc: string; floor: string; std: string; qty: number; fixtures: Record<string, number> }) => void;
+  onSave: (updated: {
+    desc: string;
+    floor: string;
+    std: string;
+    qty: number;
+    floorQty: number;
+    fixtures: Record<string, number>;
+  }) => void;
 }
 
 export function EditFixtureUnitRowModal({
   space,
   rowIndex = 1,
   floorName = "1F",
-  weightOverrides,
+  standardPreset = "ipc_upc",
+  weightOverrides = {},
+  activeWeights,
   unitSystem = "si",
+  showSpaceQty = true,
+  showFloorsCol = true,
   onClose,
   onSave,
 }: EditFixtureUnitRowModalProps) {
   const [desc, setDesc] = useState(space.desc || "");
   const [floor, setFloor] = useState(space.floor || floorName || "1F");
-  const [std, setStd] = useState(space.std || "ipc-total");
+  const [std, setStd] = useState(space.std || DEFAULT_CATEGORY_FOR_PRESET[standardPreset] || "ipc_total");
   const [qty, setQty] = useState<number>(space.qty || 1);
+  const [floorQty, setFloorQty] = useState<number>(space.floorQty || 1);
   const [fixtures, setFixtures] = useState<Record<string, number>>({ ...space.fixtures });
   const [showPreview, setShowPreview] = useState(true);
 
-  // Calculate Unit WSFU for this space
+  const isWsfu = standardPreset === "abudhabi" || standardPreset === "ipc_upc" || standardPreset === "ipc" || standardPreset === "upc";
+  const unitLabel = isWsfu ? "WSFU" : "LU";
+
+  // Compute active weights for this category
+  const resolvedWeights = useMemo(() => {
+    if (activeWeights && Object.keys(activeWeights).length > 0) {
+      return activeWeights;
+    }
+    const catDict = STANDARD_FIXTURE_WEIGHTS_BY_CATEGORY[standardPreset];
+    const defaultCat = DEFAULT_CATEGORY_FOR_PRESET[standardPreset];
+    const baseWeights = catDict?.[std] || catDict?.[defaultCat] || STANDARD_FIXTURE_WEIGHTS[standardPreset] || {};
+    return { ...baseWeights, ...weightOverrides };
+  }, [standardPreset, std, weightOverrides, activeWeights]);
+
+  // Calculate Unit WSFU breakdown for this space
   const unitWSFUBreakdown = useMemo(() => {
-    const activeItems: Array<{ id: string; short: string; count: number; unitFU: number; totalFU: number }> = [];
+    const activeItems: Array<{ id: string; short: string; label: string; count: number; unitFU: number; totalFU: number }> = [];
     let sumUnit = 0;
 
     FU_FIXTURES_META.forEach((f) => {
       const count = Number(fixtures[f.id]) || 0;
-      const unitFU = weightOverrides[f.id] !== undefined
-        ? weightOverrides[f.id]
+      const unitFU = resolvedWeights[f.id] !== undefined
+        ? resolvedWeights[f.id]
         : (IP_FIXTURE_UNITS[f.id]?.[std] ?? 1);
 
       if (count > 0) {
@@ -52,6 +134,7 @@ export function EditFixtureUnitRowModal({
         activeItems.push({
           id: f.id,
           short: f.short,
+          label: f.label,
           count,
           unitFU,
           totalFU: itemTotal,
@@ -59,11 +142,13 @@ export function EditFixtureUnitRowModal({
       }
     });
 
-    const totalWSFU = sumUnit * Math.max(1, qty || 1);
+    const spaceMultiplier = showSpaceQty ? Math.max(1, qty || 1) : 1;
+    const floorMultiplier = showFloorsCol ? Math.max(1, floorQty || 1) : 1;
+    const totalWSFU = sumUnit * spaceMultiplier * floorMultiplier;
 
     const formulaStr = activeItems.length > 0
       ? activeItems.map((item) => `${item.count} (${item.short}) × ${item.unitFU}`).join(" + ")
-      : "0 WSFU (No fixtures assigned)";
+      : `0 ${unitLabel} (No fixtures assigned)`;
 
     return {
       sumUnit,
@@ -71,11 +156,21 @@ export function EditFixtureUnitRowModal({
       formulaStr,
       items: activeItems,
     };
-  }, [fixtures, weightOverrides, std, qty]);
+  }, [fixtures, resolvedWeights, std, qty, floorQty, showSpaceQty, showFloorsCol, unitLabel]);
 
+  // Pipe Sizing Recommendation based on Loading Unit sizing table
   const pipeRecommendation = useMemo(() => {
-    return getRecommendedWaterPipe(unitWSFUBreakdown.totalWSFU);
-  }, [unitWSFUBreakdown.totalWSFU]);
+    const flowLPS = getFlowLPS(unitWSFUBreakdown.totalWSFU, standardPreset);
+    const flowGPM = flowLPS * 15.8503;
+    const sizing = getRecommendedPipeSize(unitWSFUBreakdown.totalWSFU, flowLPS);
+    const sizeInch = sizing.sizeMM <= 15 ? "½\"" : sizing.sizeMM <= 20 ? "¾\"" : sizing.sizeMM <= 25 ? "1\"" : sizing.sizeMM <= 32 ? "1¼\"" : sizing.sizeMM <= 40 ? "1½\"" : sizing.sizeMM <= 50 ? "2\"" : sizing.sizeMM <= 65 ? "2½\"" : sizing.sizeMM <= 80 ? "3\"" : sizing.sizeMM <= 100 ? "4\"" : sizing.sizeMM <= 150 ? "6\"" : "8\"";
+    return {
+      sizeMM: sizing.sizeMM,
+      sizeInch,
+      flowLPS,
+      flowGPM
+    };
+  }, [unitWSFUBreakdown.totalWSFU, standardPreset]);
 
   const handleFixtureCountChange = (fixtureId: string, val: number) => {
     setFixtures((prev) => ({
@@ -90,6 +185,7 @@ export function EditFixtureUnitRowModal({
       floor,
       std,
       qty: Math.max(1, qty || 1),
+      floorQty: Math.max(1, floorQty || 1),
       fixtures,
     });
     onClose();
@@ -118,7 +214,7 @@ export function EditFixtureUnitRowModal({
               </span>
             </div>
             <p className="text-[11.5px] text-neutral-500 dark:text-neutral-400 font-normal mt-0.5 truncate">
-              Configure fixture counts, usage standard category, space multiplier, and view live WSFU calculation breakdown.
+              {getStandardFormulaLabel(standardPreset)} · Multiplier: Space Qty × No. of Floors
             </p>
           </div>
           
@@ -158,8 +254,8 @@ export function EditFixtureUnitRowModal({
                 </h3>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="sm:col-span-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div className="sm:col-span-4">
                   <label className={labelClass}>
                     <span>Description / Space Name</span>
                     <span className="text-red-500 font-bold">*</span>
@@ -173,7 +269,7 @@ export function EditFixtureUnitRowModal({
                   />
                 </div>
 
-                <div>
+                <div className="sm:col-span-2">
                   <label className={labelClass}>
                     <span>Floor Section</span>
                   </label>
@@ -186,25 +282,25 @@ export function EditFixtureUnitRowModal({
                   />
                 </div>
 
-                <div>
+                <div className="sm:col-span-2">
                   <label className={labelClass}>
-                    <span>Usage Standard</span>
+                    <span>Standard Category</span>
                   </label>
                   <select
                     value={std}
                     onChange={(e) => setStd(e.target.value)}
                     className="w-full h-9 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-xl text-[12px] font-semibold outline-none transition-all cursor-pointer"
                   >
-                    <option value="ipc-total">Total WSFU (IPC/UPC)</option>
-                    <option value="ipc-cold">Cold Water WSFU</option>
-                    <option value="ipc-hot">Hot Water WSFU</option>
+                    <option value="ipc_total">Total WSFU (IPC/UPC)</option>
+                    <option value="ipc_cold">Cold Water WSFU</option>
+                    <option value="ipc_hot">Hot Water WSFU</option>
                     <option value="low">Low Demand (Residential)</option>
                     <option value="med">Medium Demand (Commercial)</option>
-                    <option value="high">High Demand (Public/Congested)</option>
+                    <option value="high">High Demand (Public / Congested)</option>
                   </select>
                 </div>
 
-                <div>
+                <div className="sm:col-span-2">
                   <label className={labelClass}>
                     <span>Space Multiplier (Qty)</span>
                   </label>
@@ -213,6 +309,19 @@ export function EditFixtureUnitRowModal({
                     min="1"
                     value={qty}
                     onChange={(e) => setQty(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full h-9 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-xl text-[12px] font-bold outline-none transition-all text-foreground"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className={labelClass}>
+                    <span>No. of Floors (Floors Qty)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={floorQty}
+                    onChange={(e) => setFloorQty(Math.max(1, parseInt(e.target.value) || 1))}
                     className="w-full h-9 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-xl text-[12px] font-bold outline-none transition-all text-foreground"
                   />
                 </div>
@@ -236,8 +345,8 @@ export function EditFixtureUnitRowModal({
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {FU_FIXTURES_META.map((f) => {
                   const currentCount = fixtures[f.id] || 0;
-                  const unitWeight = weightOverrides[f.id] !== undefined
-                    ? weightOverrides[f.id]
+                  const unitWeight = resolvedWeights[f.id] !== undefined
+                    ? resolvedWeights[f.id]
                     : (IP_FIXTURE_UNITS[f.id]?.[std] ?? 1);
 
                   return (
@@ -250,11 +359,11 @@ export function EditFixtureUnitRowModal({
                       }`}
                     >
                       <div className="flex items-center justify-between gap-1 mb-1">
-                        <label className="text-[11px] font-semibold text-neutral-700 dark:text-neutral-300 truncate" title={f.short}>
+                        <label className="text-[11px] font-semibold text-neutral-700 dark:text-neutral-300 truncate" title={f.label || f.short}>
                           {f.short}
                         </label>
                         <span className="text-[9.5px] font-bold px-1.5 py-0.2 rounded font-mono bg-[#0A7BC7]/10 text-[#0A7BC7]">
-                          {unitWeight} WSFU
+                          {unitWeight} {unitLabel}
                         </span>
                       </div>
                       <input
@@ -285,23 +394,36 @@ export function EditFixtureUnitRowModal({
               {/* Total Summary Cards */}
               <div className="space-y-2">
                 <div className="p-3 bg-card border border-border/80 rounded-xl flex items-center justify-between">
-                  <span className="text-[11.5px] font-semibold text-muted-foreground">Unit WSFU (1 Space):</span>
+                  <span className="text-[11.5px] font-semibold text-muted-foreground">Unit {unitLabel} (1 Space):</span>
                   <span className="text-sm font-bold font-mono text-foreground">
-                    {unitWSFUBreakdown.sumUnit.toFixed(1)} WSFU
+                    {unitWSFUBreakdown.sumUnit.toFixed(1)} {unitLabel}
                   </span>
                 </div>
 
                 <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl flex items-center justify-between">
-                  <span className="text-[11.5px] font-bold text-primary">Total WSFU (×{qty}):</span>
+                  <span className="text-[11.5px] font-bold text-primary">
+                    Total {unitLabel} (×{qty} ×{floorQty}):
+                  </span>
                   <span className="text-base font-extrabold font-mono text-primary">
-                    {unitWSFUBreakdown.totalWSFU.toFixed(1)} WSFU
+                    {unitWSFUBreakdown.totalWSFU.toFixed(1)} {unitLabel}
                   </span>
                 </div>
 
                 <div className="p-3 bg-card border border-border/80 rounded-xl flex items-center justify-between">
-                  <span className="text-[11.5px] font-semibold text-muted-foreground">Recommended Branch:</span>
+                  <span className="text-[11.5px] font-semibold text-muted-foreground">Estimated Flow:</span>
+                  <span className="text-xs font-bold font-mono text-primary">
+                    {unitSystem === "ip"
+                      ? `${pipeRecommendation.flowGPM.toFixed(1)} GPM`
+                      : `${pipeRecommendation.flowLPS.toFixed(3)} L/s`}
+                  </span>
+                </div>
+
+                <div className="p-3 bg-card border border-border/80 rounded-xl flex items-center justify-between">
+                  <span className="text-[11.5px] font-semibold text-muted-foreground">Recommended Pipe:</span>
                   <span className="text-xs font-bold font-mono text-foreground">
-                    {unitSystem === "ip" ? pipeRecommendation.sizeInch : `DN${pipeRecommendation.sizeMM} mm`}
+                    {unitSystem === "ip"
+                      ? pipeRecommendation.sizeInch
+                      : `DN${pipeRecommendation.sizeMM} mm (${pipeRecommendation.sizeInch})`}
                   </span>
                 </div>
               </div>
@@ -312,10 +434,10 @@ export function EditFixtureUnitRowModal({
                   Formula Breakdown
                 </label>
                 <div className="p-3 bg-slate-100/70 dark:bg-slate-900/60 rounded-xl border border-border/60 text-[11px] font-mono text-muted-foreground leading-relaxed break-words">
-                  {unitWSFUBreakdown.formulaStr} = <strong className="text-foreground">{unitWSFUBreakdown.sumUnit.toFixed(1)} WSFU</strong>
-                  {qty > 1 && (
+                  {unitWSFUBreakdown.formulaStr} = <strong className="text-foreground">{unitWSFUBreakdown.sumUnit.toFixed(1)} {unitLabel}</strong>
+                  {(qty > 1 || floorQty > 1) && (
                     <div className="mt-1 text-primary font-bold">
-                      × {qty} Spaces = {unitWSFUBreakdown.totalWSFU.toFixed(1)} Total WSFU
+                      × {qty} (Qty) × {floorQty} (Floors) = {unitWSFUBreakdown.totalWSFU.toFixed(1)} Total {unitLabel}
                     </div>
                   )}
                 </div>
@@ -334,7 +456,7 @@ export function EditFixtureUnitRowModal({
                       <div key={it.id} className="flex items-center justify-between text-[11px] py-1 border-b border-border/40 font-mono">
                         <span className="text-foreground">{it.short} ({it.count}×{it.unitFU})</span>
                         <span className="font-bold text-primary">
-                          +{it.totalFU.toFixed(1)} WSFU
+                          +{it.totalFU.toFixed(1)} {unitLabel}
                         </span>
                       </div>
                     ))}

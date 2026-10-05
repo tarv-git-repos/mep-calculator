@@ -6,7 +6,7 @@ import {
   Download, ChevronDown, ChevronRight, ChevronUp, Save, Sparkles, Eye,
   MessageSquare, CheckCircle2, AlertTriangle, Activity, Gauge, Zap,
   Droplets, ShieldCheck, Check, X, SlidersHorizontal, Sliders, TrendingDown,
-  Info, ArrowRight, RefreshCw, RotateCcw, Layers, FileText, FileSpreadsheet, Calculator
+  Info, ArrowRight, RefreshCw, RotateCcw, Layers, FileText, Printer, Calculator
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -16,15 +16,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { exportPumpSizingPDF } from "@/lib/exportPumpSizingPDF";
+
 import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass } from "@/components/workspace/CalculationReviewBar";
 import { dirtyStore } from "@/lib/dirty-store";
-import { IP_FIXTURE_UNITS } from "./plumbing-fixture-unit";
+import { IP_FIXTURE_UNITS } from "@/lib/calc-plumbing-fixture-unit";
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { CalculationPreviewModal, CalculationPreviewData } from "@/components/calculator-framework/CalculationPreviewModal";
@@ -38,67 +38,13 @@ import {
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
 import { useCalculatorFramework } from "@/components/calculator-framework";
+import {
+  ipcTable,
+  wsfuToGPM,
+  wsfuToLPS,
+  computePumpSizingCalculations
+} from "@/lib/calc-plumbing-pump-sizing";
 
-const ipcTable = [
-  { wsfu: 0, gpm: 0 },
-  { wsfu: 1, gpm: 3 },
-  { wsfu: 2, gpm: 5 },
-  { wsfu: 3, gpm: 6.5 },
-  { wsfu: 5, gpm: 9.4 },
-  { wsfu: 10, gpm: 14.6 },
-  { wsfu: 15, gpm: 17.5 },
-  { wsfu: 20, gpm: 19.6 },
-  { wsfu: 25, gpm: 21.5 },
-  { wsfu: 30, gpm: 23.3 },
-  { wsfu: 40, gpm: 26.3 },
-  { wsfu: 50, gpm: 29.1 },
-  { wsfu: 60, gpm: 32 },
-  { wsfu: 70, gpm: 35 },
-  { wsfu: 80, gpm: 38 },
-  { wsfu: 90, gpm: 41 },
-  { wsfu: 100, gpm: 43.5 },
-  { wsfu: 120, gpm: 48 },
-  { wsfu: 140, gpm: 52.5 },
-  { wsfu: 160, gpm: 57 },
-  { wsfu: 180, gpm: 61 },
-  { wsfu: 200, gpm: 65 },
-  { wsfu: 225, gpm: 70 },
-  { wsfu: 250, gpm: 75 },
-  { wsfu: 275, gpm: 80 },
-  { wsfu: 300, gpm: 85 },
-  { wsfu: 400, gpm: 105 },
-  { wsfu: 500, gpm: 124 },
-  { wsfu: 750, gpm: 170 },
-  { wsfu: 1000, gpm: 208 },
-  { wsfu: 1250, gpm: 239 },
-  { wsfu: 1500, gpm: 269 },
-  { wsfu: 1750, gpm: 297 },
-  { wsfu: 2000, gpm: 325 },
-  { wsfu: 2500, gpm: 380 },
-  { wsfu: 3000, gpm: 433 },
-  { wsfu: 4000, gpm: 525 },
-  { wsfu: 5000, gpm: 593 }
-];
-
-function wsfuToGPM(wsfu: number) {
-  let val = Math.max(0, Math.min(wsfu, 5000));
-  for (let i = 0; i < ipcTable.length; i++) {
-    if (ipcTable[i].wsfu === val) return ipcTable[i].gpm;
-  }
-  for (let i = 0; i < ipcTable.length - 1; i++) {
-    const lower = ipcTable[i];
-    const upper = ipcTable[i + 1];
-    if (val > lower.wsfu && val < upper.wsfu) {
-      const ratio = (val - lower.wsfu) / (upper.wsfu - lower.wsfu);
-      return lower.gpm + ratio * (upper.gpm - lower.gpm);
-    }
-  }
-  return 0;
-}
-
-function wsfuToLPS(wsfu: number) {
-  return wsfuToGPM(wsfu) * 0.06309;
-}
 
 export const Route = createFileRoute("/plumbing-pump-sizing")({
   head: () => ({
@@ -125,6 +71,7 @@ function PumpSizingPage() {
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Intelligence Drawer State
+  const [activeTab, setActiveTab] = useState<"sizing" | "report">("sizing");
   const [intelOpen, setIntelOpen] = useState<boolean>(false);
 
   // Inputs
@@ -487,77 +434,8 @@ function PumpSizingPage() {
 
   // Calculations
   const results = useMemo(() => {
-    const vert = parseFloat(pipeVert) || 0;
-    const horiz = parseFloat(pipeHoriz) || 0;
-    const ff = parseFloat(fricFactor) || 0.4;
-    
-    const elbows = (vert + horiz) * 0.3;
-    const valves = (vert + horiz) * 0.3;
-    const L_sum = vert + horiz + elbows + valves;
-    const equivLen = Math.ceil((L_sum * 1.05) / 10) * 10;
-    const frictionLoss = equivLen * (ff / 100);
-    
-    let filterLoss = 0;
-    if (pumpType === "transfer") {
-      if (filtCarbon) filterLoss += 0.8;
-      if (filtMM) filterLoss += 0.8;
-      if (filtCuAg) filterLoss += 0.2;
-      if (filtSoftener) filterLoss += 0.8;
-    }
-    
-    const staticH = parseFloat(staticHead) || 0;
-    const outletH = parseFloat(presidHead) || 0;
-    const suctionH = parseFloat(suctionHead) || 0;
-    const safetyMargin = (parseFloat(sfHead) || 0) / 100;
-    
-    const rawHead = Math.max(0, (frictionLoss + staticH + outletH) - suctionH) + filterLoss;
-    const calcHead = rawHead * (1 + safetyMargin);
-    const selHead = parseFloat(selectedHead) || calcHead;
-    
-    let flowLps = parseFloat(manualFlow) || 0;
-    const wPumps = parseInt(workingPumps) || 1;
-    
-    if (pumpType === "booster" || pumpType === "transfer-booster") {
-       const wsfu = parseFloat(wsfuVal) || 0;
-       if (wsfu > 0) {
-         flowLps = wsfuToLPS(wsfu) / Math.max(1, wPumps);
-       }
-    } else if (pumpType === "transfer") {
-       const req = parseFloat(reqVolume) || 0;
-       const time = parseFloat(fillTime) || 0;
-       if (req > 0 && time > 0) {
-         flowLps = req / (time * 3600);
-       }
-    }
-    
-    const liftKpa = selHead * 100;
-    const pEff = (parseFloat(effPump) || 70) / 100;
-    const mEff = (parseFloat(effMotor) || 85) / 100;
-    
-    const shaftPower = pEff > 0 ? (flowLps * liftKpa) / (1000 * pEff) : 0;
-    const motorPower = mEff > 0 ? shaftPower / mEff : 0;
-    const hp = motorPower * 1.34102;
-    
-    return {
-      elbows,
-      valves,
-      totalLen: L_sum,
-      equivLen,
-      frictionLoss,
-      filterLoss,
-      calcHead,
-      selectedHead: selHead,
-      flowLps,
-      liftKpa,
-      shaftPower,
-      motorPower,
-      hp,
-    };
-  }, [
-    pipeVert, pipeHoriz, fricFactor, pumpType, filtCarbon, filtMM, filtCuAg, filtSoftener,
-    staticHead, presidHead, suctionHead, sfHead, selectedHead, manualFlow,
-    effPump, effMotor, wsfuVal, reqVolume, fillTime, workingPumps
-  ]);
+    return computePumpSizingCalculations(pipeVert, pipeHoriz, fricFactor, pumpType, filtCarbon, filtMM, filtCuAg, filtSoftener, staticHead, presidHead, suctionHead, sfHead, selectedHead, manualFlow, effPump, effMotor, wsfuVal, reqVolume, fillTime, workingPumps);
+  }, [pipeVert, pipeHoriz, fricFactor, pumpType, filtCarbon, filtMM, filtCuAg, filtSoftener, staticHead, presidHead, suctionHead, sfHead, selectedHead, manualFlow, effPump, effMotor, wsfuVal, reqVolume, fillTime, workingPumps]);
 
   // Step-by-Step Formula Preview Data for Framework Modal
   const calculationPreviewData: CalculationPreviewData = useMemo(() => {
@@ -638,124 +516,42 @@ function PumpSizingPage() {
     pumpType, results, pipeVert, pipeHoriz, fricFactor, staticHead, presidHead, suctionHead, effPump, effMotor, sfHead
   ]);
 
-  const handleExportPDF = () => {
-    try {
-      const JsPDFClass = typeof jsPDF === "function" ? jsPDF : (jsPDF as any).default;
-      const doc = new JsPDFClass("portrait", "mm", "a4");
-
-      const callAutoTable = (pdfDoc: any, options: any) => {
-        if (typeof autoTable === "function") {
-          autoTable(pdfDoc, options);
-        } else if (typeof (autoTable as any)?.default === "function") {
-          (autoTable as any).default(pdfDoc, options);
-        } else if (typeof pdfDoc.autoTable === "function") {
-          pdfDoc.autoTable(options);
-        }
-      };
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.setTextColor(10, 123, 199);
-      doc.text("PUMP SIZING CALCULATION REPORT", 14, 18);
-
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(100, 116, 139);
-      doc.text(`Project: ${project?.name || "General Project"} | Date: ${new Date().toLocaleDateString()}`, 14, 24);
-
-      const flowDisp = isSI ? `${results.flowLps.toFixed(2)} L/s` : `${(results.flowLps * 15.8503).toFixed(2)} GPM`;
-      const headDisp = isSI ? `${results.calcHead.toFixed(2)} bar` : `${(results.calcHead * 14.5038).toFixed(2)} psi`;
-      const staticDisp = isSI ? `${staticHead} bar` : `${staticHead} psi`;
-      const vertDisp = isSI ? `${pipeVert} m` : `${pipeVert} ft`;
-      const horizDisp = isSI ? `${pipeHoriz} m` : `${pipeHoriz} ft`;
-
-      const tableData = [
-        ["Pump Application Type", pumpType.toUpperCase()],
-        ["Total Fixture Units (WSFU)", wsfuVal || "-"],
-        ["Working / Standby Pumps", `${workingPumps} working / ${standbyPumps} standby`],
-        ["Vertical / Horizontal Pipe Length", `${vertDisp} vert / ${horizDisp} horiz`],
-        ["Major + Minor Friction Loss", isSI ? `${results.frictionLoss.toFixed(3)} bar` : `${(results.frictionLoss * 14.5038).toFixed(3)} psi`],
-        ["Static Head", staticDisp],
-        ["DESIGN FLOW RATE", flowDisp],
-        ["CALCULATED DYNAMIC HEAD", headDisp],
-        ["REQUIRED MOTOR POWER", `${results.motorPower.toFixed(2)} kW (${results.hp.toFixed(2)} HP)`],
-      ];
-
-      callAutoTable(doc, {
-        startY: 30,
-        head: [["Parameter", "Design Value"]],
-        body: tableData,
-        theme: "striped",
-        headStyles: { fillColor: [10, 123, 199], textColor: [255, 255, 255], fontStyle: "bold" },
-        styles: { fontSize: 9, cellPadding: 3.5 },
-      });
-
-      const finalY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 12 : 120;
-      addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "plumbing-pump-sizing");
-
-      doc.save(`Pump_Sizing_${Date.now()}.pdf`);
-      toast.success("PDF Report generated successfully!");
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to generate PDF report.");
-    }
-  };
-
-  const handleExportExcel = async () => {
-    try {
-      const ExcelJS = (await import("exceljs")).default;
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet("Pump Sizing Calculation");
-
-      worksheet.columns = [
-        { header: "Parameter", key: "param", width: 36 },
-        { header: "Design Value", key: "val", width: 28 },
-        { header: "Unit", key: "unit", width: 16 },
-        { header: "Notes / Standard", key: "notes", width: 44 },
-      ];
-
-      const headerRow = worksheet.getRow(1);
-      headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-      headerRow.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FF0A7BC7" },
-      };
-
-      const rows = [
-        { param: "Pump Application Type", val: pumpType.toUpperCase(), unit: "-", notes: "Selected pump configuration" },
-        { param: "Water Supply Fixture Units (WSFU)", val: wsfuVal || "-", unit: "WSFU", notes: "IPC Table 604.3" },
-        { param: "Working / Standby Pumps", val: `${workingPumps}W + ${standbyPumps}S`, unit: "units", notes: "N+1 Redundancy Configuration" },
-        { param: "Vertical Pipe Height", val: pipeVert, unit: isSI ? "m" : "ft", notes: "Vertical riser lift" },
-        { param: "Horizontal Pipe Length", val: pipeHoriz, unit: isSI ? "m" : "ft", notes: "Horizontal distribution run" },
-        { param: "Equivalent Pipe Length", val: results.equivLen.toFixed(1), unit: isSI ? "m" : "ft", notes: "Includes elbows, valves & 5% margin" },
-        { param: "Friction Head Loss", val: results.frictionLoss.toFixed(3), unit: isSI ? "bar" : "psi", notes: `${fricFactor} bar/100m factor` },
-        { param: "Static Head", val: staticHead, unit: isSI ? "bar" : "psi", notes: "Building static height" },
-        { param: "Residual Outlet Pressure", val: presidHead, unit: isSI ? "bar" : "psi", notes: "Terminal fixture pressure" },
-        { param: "Suction Pressure", val: suctionHead, unit: isSI ? "bar" : "psi", notes: "Suction tank water level" },
-        { param: "Safety Margin", val: `${sfHead}%`, unit: "%", notes: "Aging & fouling allowance" },
-        { param: "DESIGN FLOW RATE", val: isSI ? results.flowLps.toFixed(2) : (results.flowLps * 15.8503).toFixed(2), unit: isSI ? "L/s" : "GPM", notes: "Required peak volumetric flow" },
-        { param: "CALCULATED DYNAMIC HEAD", val: isSI ? results.calcHead.toFixed(2) : (results.calcHead * 14.5038).toFixed(2), unit: isSI ? "bar" : "psi", notes: "Total dynamic pump head" },
-        { param: "REQUIRED SHAFT POWER", val: results.shaftPower.toFixed(2), unit: "kW", notes: `${effPump}% pump efficiency` },
-        { param: "ESTIMATED MOTOR RATING", val: results.motorPower.toFixed(2), unit: "kW", notes: `${effMotor}% motor efficiency` },
-        { param: "HORSEPOWER", val: results.hp.toFixed(2), unit: "HP", notes: "Mechanical output rating" },
-      ];
-
-      rows.forEach((r) => worksheet.addRow(r));
-
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `Pump_Sizing_${Date.now()}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("Excel Spreadsheet exported successfully!");
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to export Excel spreadsheet.");
-    }
+  const handleExportPDF = async () => {
+    await exportPumpSizingPDF(
+      {
+        pumpType,
+        wsfuVal,
+        manualFlow,
+        reqVolume,
+        fillTime,
+        workingPumps,
+        standbyPumps,
+        fricFactor,
+        pipeVert,
+        pipeHoriz,
+        filtCarbon,
+        filtMM,
+        filtCuAg,
+        filtSoftener,
+        staticHead,
+        presidHead,
+        suctionHead,
+        sfHead,
+        effPump,
+        effMotor,
+      },
+      results,
+      unitSystem,
+      {
+        projectName: (project as any)?.name || (project as any)?.projectName,
+        client: (project as any)?.client,
+        projectNo: (project as any)?.code || (project as any)?.projectNo,
+        calcNo: (project as any)?.calcNo,
+        endUser: (project as any)?.endUser || (project as any)?.location,
+        userName: currentUserName,
+        reviewState: calcReviewState,
+      }
+    );
   };
 
   const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
@@ -808,33 +604,64 @@ function PumpSizingPage() {
             }`}>
 
             {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50 gap-3 flex-wrap">
               <div className="flex items-center gap-2.5 flex-wrap">
-                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                  {(["booster", "transfer", "transfer-booster"] as const).map((t) => {
-                    const active = pumpType === t;
-                    return (
-                      <button
-                        key={t}
-                        onClick={() => setPumpType(t)}
-                        className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${active
-                          ? "bg-background text-foreground shadow-sm font-bold"
-                          : "text-muted-foreground hover:text-foreground"
-                          }`}
-                      >
-                        {t === "booster" ? "Booster Pump" : t === "transfer" ? "Transfer Pump" : "Dual Booster / Transfer"}
-                      </button>
-                    );
-                  })}
+                {/* Main Tab Switcher (Matching Ventilation & Fixture Unit format) */}
+                <div className="flex bg-slate-100 dark:bg-zinc-800/70 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("sizing")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      activeTab === "sizing"
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Sizing &amp; Inputs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("report")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      activeTab === "report"
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Report
+                  </button>
                 </div>
 
-                {/* Formula Breakdown button placed right after the tabs on the left */}
-                <TBtn
-                  onClick={() => framework.openPreviewModal(calculationPreviewData)}
-                  title="View Step-by-Step Formula Breakdown"
-                >
-                  <Info className="size-3.5 text-primary" /> Formula Breakdown
-                </TBtn>
+                {/* Sizing Sub-pills (Pump Type selection) */}
+                {activeTab === "sizing" && (
+                  <>
+                    <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                      {(["booster", "transfer", "transfer-booster"] as const).map((t) => {
+                        const active = pumpType === t;
+                        return (
+                          <button
+                            key={t}
+                            onClick={() => setPumpType(t)}
+                            className={`px-3.5 py-1 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                              active
+                                ? "bg-background text-foreground shadow-xs font-bold"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {t === "booster" ? "Booster Pump" : t === "transfer" ? "Transfer Pump" : "Dual Booster / Transfer"}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <TBtn
+                      onClick={() => framework.openPreviewModal(calculationPreviewData)}
+                      title="View Step-by-Step Formula Breakdown"
+                    >
+                      <Info className="size-3.5 text-primary" /> Formula Breakdown
+                    </TBtn>
+                  </>
+                )}
               </div>
 
               {/* Action buttons on the right of tabs */}
@@ -848,8 +675,9 @@ function PumpSizingPage() {
               </div>
             </div>
 
-            {/* Sizing Parameters Grid and Results */}
-            <div
+            {/* Sizing Parameters Grid or Report View */}
+            {activeTab === "sizing" ? (
+              <div
               ref={scrollContainerRef}
               className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20"
             >
@@ -1281,6 +1109,38 @@ function PumpSizingPage() {
                 </div>
               </div>
             </div>
+            ) : (
+              <PumpSizingReportView
+                inputs={{
+                  pumpType,
+                  wsfuVal,
+                  manualFlow,
+                  reqVolume,
+                  fillTime,
+                  workingPumps,
+                  standbyPumps,
+                  fricFactor,
+                  pipeVert,
+                  pipeHoriz,
+                  filtCarbon,
+                  filtMM,
+                  filtCuAg,
+                  filtSoftener,
+                  staticHead,
+                  presidHead,
+                  suctionHead,
+                  sfHead,
+                  effPump,
+                  effMotor,
+                }}
+                results={results}
+                unitSystem={unitSystem}
+                project={project}
+                calcReviewState={calcReviewState}
+                currentUserName={currentUserName}
+                onExportPdf={handleExportPDF}
+              />
+            )}
           </div>
         </div>
 
@@ -1363,6 +1223,472 @@ function PumpSizingPage() {
         currentUserName={currentUserName}
       />
     </AppShell>
+  );
+}
+
+// ==========================================
+// PUMP SIZING REPORT VIEW COMPONENT (MATCHING VENTILATION DESIGN FORMAT)
+// ==========================================
+
+interface PumpSizingReportViewProps {
+  inputs: {
+    pumpType: "booster" | "transfer" | "transfer-booster";
+    wsfuVal: string;
+    manualFlow: string;
+    reqVolume: string;
+    fillTime: string;
+    workingPumps: string;
+    standbyPumps: string;
+    fricFactor: string;
+    pipeVert: string;
+    pipeHoriz: string;
+    filtCarbon: boolean;
+    filtMM: boolean;
+    filtCuAg: boolean;
+    filtSoftener: boolean;
+    staticHead: string;
+    presidHead: string;
+    suctionHead: string;
+    sfHead: string;
+    effPump: string;
+    effMotor: string;
+  };
+  results: {
+    elbows: number;
+    valves: number;
+    totalLen: number;
+    equivLen: number;
+    frictionLoss: number;
+    filterLoss: number;
+    calcHead: number;
+    selectedHead: number;
+    flowLps: number;
+    liftKpa: number;
+    shaftPower: number;
+    motorPower: number;
+    hp: number;
+  };
+  unitSystem: "si" | "ip";
+  project: any;
+  calcReviewState: any;
+  currentUserName: string;
+  onExportPdf: () => void;
+}
+
+function PumpSizingReportView({
+  inputs,
+  results,
+  unitSystem,
+  project,
+  calcReviewState,
+  currentUserName,
+  onExportPdf,
+}: PumpSizingReportViewProps) {
+  const isSI = unitSystem === "si";
+  const today = new Date().toLocaleDateString("en-GB");
+  const calcNo = project?.calcNo || "TRV-CAL-PMP-R01";
+  const projectNo = project?.code || project?.projectNo || "P000";
+  const projectName = project?.name || project?.projectName || "Domestic Water Pump Sizing";
+  const clientName = project?.client || "Design Client";
+  const endUser = project?.endUser || project?.location || "Site Development";
+
+  const pumpTypeLabel =
+    inputs.pumpType === "booster"
+      ? "Domestic Booster Pump Station"
+      : inputs.pumpType === "transfer"
+      ? "Roof Tank Transfer Pump"
+      : "Dual Booster / Transfer System";
+
+  const flowDisp = isSI
+    ? `${results.flowLps.toFixed(2)}`
+    : `${(results.flowLps * 15.8503).toFixed(2)}`;
+  const flowUnit = isSI ? "L/s" : "GPM";
+
+  const headDisp = isSI
+    ? `${results.calcHead.toFixed(2)}`
+    : `${(results.calcHead * 14.5038).toFixed(2)}`;
+  const headUnit = isSI ? "bar" : "psi";
+
+  const lenUnit = isSI ? "m" : "ft";
+
+  const sigDetails = getSignatureBlockDetails(
+    project?.id || "default",
+    "/plumbing-pump-sizing",
+    currentUserName,
+    calcReviewState
+  );
+
+  return (
+    <div className="flex flex-col h-full select-none">
+      {/* Top Action Bar matching Ventilation standard */}
+      <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50">
+        <span className="text-[12px] text-muted-foreground font-semibold">
+          Generated: <span className="text-foreground font-mono">{formatDateStr(new Date())}</span>
+        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <TBtn onClick={() => window.print()}>
+            <Printer className="size-3.5" /> Print
+          </TBtn>
+          <TBtn primary onClick={onExportPdf}>
+            <FileText className="size-3.5" /> Export PDF
+          </TBtn>
+        </div>
+      </div>
+
+      {/* Main Report Page Layout matching Ventilation styling */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+        <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6 font-sans">
+          
+          {/* Header Title and Meta */}
+          <div className="flex justify-between items-start pb-4 border-b border-border">
+            <div>
+              <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                Pump Sizing Calculation Report
+              </h2>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Domestic Water Booster &amp; Transfer Station Hydraulic Analysis &amp; Motor Sizing (IPC Table 604.3 / BS EN 806 / CIBSE Guide W)
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="text-[11px] text-muted-foreground block mt-0.5 font-mono">Date: {today}</span>
+            </div>
+          </div>
+
+          {/* Project Metadata Table 3x2 (Enclosed Corporate Header matching Ventilation) */}
+          <div className="border border-border rounded-xl overflow-hidden text-xs">
+            <div className="grid grid-cols-4 divide-x divide-y divide-border">
+              <div className="p-2.5 font-bold bg-muted/20">Calculation No.:</div>
+              <div className="p-2.5 font-mono">{calcNo}</div>
+              <div className="p-2.5 font-bold bg-muted/20">Date:</div>
+              <div className="p-2.5 font-mono">{today}</div>
+
+              <div className="p-2.5 font-bold bg-muted/20">Project No.:</div>
+              <div className="p-2.5 font-mono">{projectNo}</div>
+              <div className="p-2.5 font-bold bg-muted/20">Client:</div>
+              <div className="p-2.5">{clientName}</div>
+
+              <div className="p-2.5 font-bold bg-muted/20">Project Name:</div>
+              <div className="p-2.5">{projectName}</div>
+              <div className="p-2.5 font-bold bg-muted/20">End User:</div>
+              <div className="p-2.5">{endUser}</div>
+            </div>
+          </div>
+
+          {/* Table 1: Executive Design Parameters & Pump Duty Summary */}
+          <div className="space-y-2">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              1. Executive Design Parameters &amp; Pump Duty Summary
+            </h3>
+            <div className="border border-border rounded-xl overflow-hidden text-xs">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2.5 w-12 text-center">No.</th>
+                    <th className="p-2.5">Executive Design Parameter Summary</th>
+                    <th className="p-2.5 text-center w-28">Value</th>
+                    <th className="p-2.5 text-center w-20">Unit</th>
+                    <th className="p-2.5">Engineering Design Basis / Code</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
+                    <td className="p-2.5 font-bold">Pump Application Type</td>
+                    <td className="p-2.5 text-center font-bold text-foreground">{pumpTypeLabel}</td>
+                    <td className="p-2.5 text-center text-muted-foreground">-</td>
+                    <td className="p-2.5 text-muted-foreground">Domestic Water Distribution System</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
+                    <td className="p-2.5 font-bold">Pump Station Configuration</td>
+                    <td className="p-2.5 text-center font-bold text-foreground">{inputs.workingPumps}W + {inputs.standbyPumps}S</td>
+                    <td className="p-2.5 text-center text-muted-foreground">units</td>
+                    <td className="p-2.5 text-muted-foreground">Standard N+1 duty and standby arrangement</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
+                    <td className="p-2.5 font-bold">
+                      {inputs.pumpType === "transfer" ? "Storage Tank Volume & Fill Time" : "Water Supply Fixture Units (WSFU)"}
+                    </td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">
+                      {inputs.pumpType === "transfer" ? `${inputs.reqVolume} L in ${inputs.fillTime} hrs` : (inputs.wsfuVal || "-")}
+                    </td>
+                    <td className="p-2.5 text-center text-muted-foreground">
+                      {inputs.pumpType === "transfer" ? "L / hr" : "WSFU"}
+                    </td>
+                    <td className="p-2.5 text-muted-foreground">
+                      {inputs.pumpType === "transfer" ? "Storage refill duty cycle" : "IPC Table 604.3 / Hunter's Curve demand"}
+                    </td>
+                  </tr>
+                  {/* Highlighted Duty Parameter: Design Flow Rate (Matching Ventilation standard #DAE9F8) */}
+                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                    <td className="p-2.5 text-center font-mono">4</td>
+                    <td className="p-2.5 font-bold">Design Flow Rate per Pump (Q)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-primary">{flowDisp}</td>
+                    <td className="p-2.5 text-center font-mono font-bold">{flowUnit}</td>
+                    <td className="p-2.5">Peak simultaneous demand flow requirement</td>
+                  </tr>
+                  {/* Highlighted Duty Parameter: Total Dynamic Head (Matching Ventilation standard #DAE9F8) */}
+                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                    <td className="p-2.5 text-center font-mono">5</td>
+                    <td className="p-2.5 font-bold">Calculated Total Dynamic Head (TDH)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-primary">{headDisp}</td>
+                    <td className="p-2.5 text-center font-mono font-bold">{headUnit}</td>
+                    <td className="p-2.5">Static head + friction + residual pressure + {inputs.sfHead}% margin</td>
+                  </tr>
+                  {/* Highlighted Duty Parameter: Motor Power (Matching Ventilation standard #DAE9F8) */}
+                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                    <td className="p-2.5 text-center font-mono">6</td>
+                    <td className="p-2.5 font-bold">Estimated Motor Rating Demand</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-primary">{results.motorPower.toFixed(2)}</td>
+                    <td className="p-2.5 text-center font-mono font-bold">kW</td>
+                    <td className="p-2.5">Equivalent: {results.hp.toFixed(2)} HP (Pump η: {inputs.effPump}%, Motor η: {inputs.effMotor}%)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Table 2: Detailed Hydraulic Piping & Friction Loss Schedule */}
+          <div className="space-y-2 mt-6">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              2. Hydraulic Piping &amp; Friction Loss Schedule
+            </h3>
+            <div className="border border-border rounded-xl overflow-hidden text-xs">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2.5 w-12 text-center">No.</th>
+                    <th className="p-2.5">Piping &amp; Hydraulic Loss Parameter</th>
+                    <th className="p-2.5 text-center w-28">Value</th>
+                    <th className="p-2.5 text-center w-20">Unit</th>
+                    <th className="p-2.5">Engineering Calculation Basis</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
+                    <td className="p-2.5 font-bold">Vertical Pipe Height (Riser Lift)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.pipeVert}</td>
+                    <td className="p-2.5 text-center">{lenUnit}</td>
+                    <td className="p-2.5 text-muted-foreground">Geometric vertical lift to highest fixture / roof tank</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
+                    <td className="p-2.5 font-bold">Horizontal Pipe Distribution Run</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.pipeHoriz}</td>
+                    <td className="p-2.5 text-center">{lenUnit}</td>
+                    <td className="p-2.5 text-muted-foreground">Horizontal distribution header and branch length</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
+                    <td className="p-2.5 font-bold">Fittings &amp; Valves Equivalent Allowance</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{(results.elbows + results.valves).toFixed(1)}</td>
+                    <td className="p-2.5 text-center">{lenUnit}</td>
+                    <td className="p-2.5 text-muted-foreground">30% elbows + 30% valves standard empirical allowance</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
+                    <td className="p-2.5 font-bold">Total Equivalent Pipe Length (L_equiv)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{results.equivLen.toFixed(1)}</td>
+                    <td className="p-2.5 text-center">{lenUnit}</td>
+                    <td className="p-2.5 text-muted-foreground">Developed length with 5% safety margin rounded to 10m</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">5</td>
+                    <td className="p-2.5 font-bold">Unit Friction Factor (Loss / 100m)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.fricFactor}</td>
+                    <td className="p-2.5 text-center">{isSI ? "bar/100m" : "psi/100ft"}</td>
+                    <td className="p-2.5 text-muted-foreground">Hazen-Williams / Darcy-Weisbach standard friction loss rate</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">6</td>
+                    <td className="p-2.5 font-bold">Calculated Pipe Friction Loss</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{isSI ? results.frictionLoss.toFixed(3) : (results.frictionLoss * 14.5038).toFixed(3)}</td>
+                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
+                    <td className="p-2.5 text-muted-foreground">L_equiv * (Friction Factor / 100)</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">7</td>
+                    <td className="p-2.5 font-bold">Water Filtration &amp; Treatment Loss</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{isSI ? results.filterLoss.toFixed(2) : (results.filterLoss * 14.5038).toFixed(2)}</td>
+                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
+                    <td className="p-2.5 text-muted-foreground">Active carbon / sand / softener / Cu-Ag ionization filter head loss</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Table 3: Pressure Head Components & Total Dynamic Head (TDH) */}
+          <div className="space-y-2 mt-6">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              3. Pressure Head Components &amp; Total Dynamic Head Breakdown
+            </h3>
+            <div className="border border-border rounded-xl overflow-hidden text-xs">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2.5 w-12 text-center">No.</th>
+                    <th className="p-2.5">Head &amp; Pressure Component</th>
+                    <th className="p-2.5 text-center w-28">Value</th>
+                    <th className="p-2.5 text-center w-20">Unit</th>
+                    <th className="p-2.5">System Pressure Basis</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
+                    <td className="p-2.5 font-bold">Static Elevation Head (H_static)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.staticHead}</td>
+                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
+                    <td className="p-2.5 text-muted-foreground">Building elevation height differential</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
+                    <td className="p-2.5 font-bold">Residual Terminal Pressure (P_res)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.presidHead}</td>
+                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
+                    <td className="p-2.5 text-muted-foreground">Minimum required pressure at remotest outlet fixture</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
+                    <td className="p-2.5 font-bold">Suction Tank Inflow / Head Credit (H_suct)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.suctionHead}</td>
+                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
+                    <td className="p-2.5 text-muted-foreground">Positive suction head from elevated supply reservoir</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
+                    <td className="p-2.5 font-bold">Aging &amp; Fouling Safety Margin</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.sfHead}</td>
+                    <td className="p-2.5 text-center">%</td>
+                    <td className="p-2.5 text-muted-foreground">Engineering contingency margin</td>
+                  </tr>
+                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                    <td className="p-2.5 text-center font-mono">5</td>
+                    <td className="p-2.5 font-bold">Total Dynamic Calculation Head (TDH)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-primary">{headDisp}</td>
+                    <td className="p-2.5 text-center font-mono font-bold">{headUnit}</td>
+                    <td className="p-2.5">((H_fric + H_static + P_res) - H_suct + H_filt) * (1 + Safety Margin)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Table 4: Motor & Energy Power Analysis */}
+          <div className="space-y-2 mt-6">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              4. Motor &amp; Energy Demand Analysis
+            </h3>
+            <div className="border border-border rounded-xl overflow-hidden text-xs">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2.5 w-12 text-center">No.</th>
+                    <th className="p-2.5">Power &amp; Efficiency Parameter</th>
+                    <th className="p-2.5 text-center w-28">Value</th>
+                    <th className="p-2.5 text-center w-20">Unit</th>
+                    <th className="p-2.5">Efficiency &amp; Mechanical Rating</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
+                    <td className="p-2.5 font-bold">Hydraulic Lift Pressure Differential</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{results.liftKpa.toFixed(1)}</td>
+                    <td className="p-2.5 text-center">kPa</td>
+                    <td className="p-2.5 text-muted-foreground">Calculated pressure differential = TDH * 100</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
+                    <td className="p-2.5 font-bold">Pump Hydraulic Efficiency (η_pump)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.effPump}</td>
+                    <td className="p-2.5 text-center">%</td>
+                    <td className="p-2.5 text-muted-foreground">Centrifugal pump hydraulic efficiency curve</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
+                    <td className="p-2.5 font-bold">Calculated Shaft Power (P_shaft)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{results.shaftPower.toFixed(2)}</td>
+                    <td className="p-2.5 text-center">kW</td>
+                    <td className="p-2.5 text-muted-foreground">P_shaft = (Q * ΔP) / (1000 * η_pump)</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
+                    <td className="p-2.5 font-bold">Electric Motor Efficiency (η_motor)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.effMotor}</td>
+                    <td className="p-2.5 text-center">%</td>
+                    <td className="p-2.5 text-muted-foreground">IEC Premium Efficiency (IE3 / IE4) induction motor</td>
+                  </tr>
+                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                    <td className="p-2.5 text-center font-mono">5</td>
+                    <td className="p-2.5 font-bold">Required Motor Power (P_motor)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-primary">{results.motorPower.toFixed(2)}</td>
+                    <td className="p-2.5 text-center font-mono font-bold">kW</td>
+                    <td className="p-2.5">P_motor = P_shaft / η_motor ({results.hp.toFixed(2)} HP duty)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Compliance Verification Banner */}
+          <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
+            <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1">
+              <span className="font-bold text-emerald-800 dark:text-emerald-300">
+                Hydraulic Duty &amp; Motor Power Compliance Verification
+              </span>
+              <p className="text-muted-foreground leading-relaxed">
+                This pump sizing calculation complies with IPC Table 604.3, CIBSE Guide W, and IEC electric motor standards for domestic water booster/transfer pump systems. Total Dynamic Head includes static elevation, equivalent pipe friction, active filtration losses, and a {inputs.sfHead}% contingency margin.
+              </p>
+            </div>
+          </div>
+
+          {/* Table 5: 4-Column Professional Review & Sign-Off Block */}
+          <div className="space-y-2 mt-6">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              5. Professional Review &amp; Sign-Off Block
+            </h3>
+            <div className="border border-border rounded-xl overflow-hidden text-xs">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2.5 text-left w-1/4">Approval Role</th>
+                    <th className="p-2.5 text-center w-1/4">Originated By</th>
+                    <th className="p-2.5 text-center w-1/4">Reviewed By</th>
+                    <th className="p-2.5 text-center w-1/4">Approved By</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="p-2.5 font-bold text-muted-foreground">Name:</td>
+                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.originatedName}</td>
+                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
+                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 font-bold text-muted-foreground">Role / Status:</td>
+                    <td className="p-2.5 text-center text-muted-foreground">MEP Design Engineer</td>
+                    <td className="p-2.5 text-center text-muted-foreground">Senior Plumbing Lead</td>
+                    <td className="p-2.5 text-center text-muted-foreground">Principal / MEP Director</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2.5 font-bold text-muted-foreground">Date:</td>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.originatedDate || today}</td>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
   );
 }
 

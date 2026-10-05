@@ -6,7 +6,7 @@ import {
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
-import { SEWAGE_PRESETS, type SewagePresetKey } from "@/routes/plumbing-sewage-pump";
+import { SEWAGE_PRESETS, type SewagePresetKey } from "@/lib/calc-plumbing-sewage-pump";
 import { cn } from "@/lib/utils";
 
 const presetIcons: Record<SewagePresetKey, React.ComponentType<{ className?: string }>> = {

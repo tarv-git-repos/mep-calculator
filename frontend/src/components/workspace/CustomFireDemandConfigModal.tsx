@@ -3,7 +3,7 @@ import {
   X, Check, SlidersHorizontal, Flame, Droplets, Gauge,
   Clock, ShieldAlert, RotateCcw, Building2, Building, Factory, Layers, Info
 } from "lucide-react";
-import { HAZARD_PRESETS, type HazardPresetKey } from "@/routes/plumbing-fire-water-demand";
+import { HAZARD_PRESETS, type HazardPresetKey } from "@/lib/calc-plumbing-fire-water-demand";
 import { toast } from "sonner";
 
 interface CustomFireDemandConfigModalProps {

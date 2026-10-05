@@ -3,7 +3,7 @@ import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import ExcelJS from 'exceljs';
 import fileSaver from 'file-saver';
 const saveAs = (fileSaver as any)?.saveAs || fileSaver;
-import { LpdProject } from '../routes/lpd-calculation';
+import { LpdProject, LpdGroup, LpdSpace } from './calc-lpd-calculation';
 import { getLicenseWatermark } from './license';
 
 const getColLetter = (colIndex: number) => {
@@ -44,8 +44,8 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
 
   const activeGroups = project.type === "Internal" ? project.internalGroups : project.externalGroups;
   let maxFixtures = 1; // Dynamically scale based on actual usage instead of forcing 3
-  activeGroups.forEach(g => {
-    g.spaces.forEach(s => {
+  activeGroups.forEach((g: LpdGroup) => {
+    g.spaces.forEach((s: LpdSpace) => {
       if (s.fixtures.length > maxFixtures) maxFixtures = s.fixtures.length;
     });
   });
@@ -54,7 +54,7 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
 
   // Calculate total rows
   let totalRows = 4; // headers and meta
-  activeGroups.forEach(g => {
+  activeGroups.forEach((g: LpdGroup) => {
     totalRows++; // Group row
     totalRows += g.spaces.length; // Space rows
   });
@@ -171,7 +171,7 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
   let currentRow = 5;
   let globalSrNo = 1;
 
-  activeGroups.forEach(group => {
+  activeGroups.forEach((group: LpdGroup) => {
     // Group row
     const gRow = sheet.getRow(currentRow);
     gRow.getCell(2).value = group.name;
@@ -180,7 +180,7 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
     currentRow++;
 
     // Spaces
-    group.spaces.forEach(space => {
+    group.spaces.forEach((space: LpdSpace) => {
       const row = sheet.getRow(currentRow);
       row.getCell(1).value = globalSrNo++;
       row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
@@ -189,7 +189,7 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
       // If areaType is selected, append it in brackets to preserve data!
       let spaceStr = space.name;
       if (space.areaType) {
-         spaceStr += `\n(${space.areaType.replace(/\b\w/g, l => l.toUpperCase())})`;
+         spaceStr += `\n(${space.areaType.replace(/\b\w/g, (l: string) => l.toUpperCase())})`;
       }
       row.getCell(2).value = spaceStr;
       row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };

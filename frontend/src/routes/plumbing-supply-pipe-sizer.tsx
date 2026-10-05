@@ -7,12 +7,13 @@ import { TBtn } from "@/components/workspace/Button";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
+import { exportSupplyPipePDF } from "@/lib/exportSupplyPipePDF";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
   Flame, Info, Download, MessageSquare, Check, ShieldCheck,
-  AlertTriangle, Copy, RotateCcw, CheckCircle2, X, Gauge, Cylinder, Sparkles, FileText,
+  AlertTriangle, Copy, RotateCcw, CheckCircle2, X, Gauge, Cylinder, Sparkles, FileText, Printer,
   TrendingUp, Layers, HelpCircle, Activity, Zap, Building2, Home, ArrowUpRight, CheckCircle, ChevronDown
 } from "lucide-react";
 import {
@@ -25,6 +26,14 @@ import {
 import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import {
+  type SupplyPipeInputs,
+  type PipeSize,
+  PIPE_SIZES,
+  DEFAULT_INPUTS,
+  computeSupplyPipeCalculations
+} from "@/lib/calc-plumbing-supply-pipe-sizer";
+
 
 export const Route = createFileRoute("/plumbing-supply-pipe-sizer")({
   head: () => ({
@@ -35,45 +44,6 @@ export const Route = createFileRoute("/plumbing-supply-pipe-sizer")({
   }),
   component: SupplyPipeSizerPage,
 });
-
-export interface SupplyPipeInputs {
-  flow: number; // L/s (SI) or GPM (IP)
-  pAvail: number; // kPa (SI) or psi (IP)
-  pResid: number; // kPa (SI) or psi (IP)
-  length: number; // m (SI) or ft (IP)
-  fittingAllowance: number; // %
-  elevation: number; // m (SI) or ft (IP)
-  pipeMaterial: string; // C-Factor: "150", "130", "120"
-  unitSystem: "SI" | "IP";
-}
-
-export interface PipeSize {
-  nps: string;
-  dn: string;
-  id: number; // inches
-}
-
-export const PIPE_SIZES: PipeSize[] = [
-  { nps: '¾"', dn: '20 mm', id: 0.811 },
-  { nps: '1"', dn: '25 mm', id: 1.055 },
-  { nps: '1¼"', dn: '32 mm', id: 1.265 },
-  { nps: '1½"', dn: '40 mm', id: 1.505 },
-  { nps: '2"', dn: '50 mm', id: 2.009 },
-  { nps: '2½"', dn: '65 mm', id: 2.495 },
-  { nps: '3"', dn: '80 mm', id: 3.035 },
-  { nps: '4"', dn: '100 mm', id: 4.009 }
-];
-
-const DEFAULT_INPUTS: SupplyPipeInputs = {
-  flow: 1.58, // L/s (approx 25 GPM)
-  pAvail: 413.7, // kPa (60 psi)
-  pResid: 137.9, // kPa (20 psi)
-  length: 36.6, // m (120 ft)
-  fittingAllowance: 20, // %
-  elevation: 6.1, // m (20 ft)
-  pipeMaterial: "150", // Copper Type L (C = 150)
-  unitSystem: "SI",
-};
 
 export function SupplyPipeSizerPage() {
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
@@ -190,339 +160,27 @@ export function SupplyPipeSizerPage() {
 
   // Hydraulic Calculations Engine (Hazen-Williams & Continuity Equation)
   const calculations = useMemo(() => {
-    const flowVal = Number(inputs.flow) || 0;
-    const pAvailVal = Number(inputs.pAvail) || 0;
-    const pResidVal = Number(inputs.pResid) || 0;
-    const lengthVal = Number(inputs.length) || 0;
-    const elevVal = Number(inputs.elevation) || 0;
-    const fitPct = (Number(inputs.fittingAllowance) || 0) / 100;
-    const C = Number(inputs.pipeMaterial) || 150;
-
-    const Q_gpm = isIP ? flowVal : flowVal * 15.8503;
-    const pAvail_psi = isIP ? pAvailVal : pAvailVal / 6.89476;
-    const pResid_psi = isIP ? pResidVal : pResidVal / 6.89476;
-    const L_ft = isIP ? lengthVal : lengthVal * 3.28084;
-    const elev_ft = isIP ? elevVal : elevVal * 3.28084;
-
-    const Leff = L_ft * (1 + fitPct);
-    const elevLoss_psi = elev_ft / 2.31;
-    const elevLoss_kpa = elevLoss_psi * 6.89476;
-
-    const rows = PIPE_SIZES.map((s) => {
-      // Hazen-Williams head loss equation:
-      // hf (psi) = 4.52 * Leff * (Q^1.85) / (C^1.85 * d^4.87)
-      const hf_psi = Q_gpm > 0 && s.id > 0
-        ? (4.52 * Leff * Math.pow(Q_gpm, 1.85)) / (Math.pow(C, 1.85) * Math.pow(s.id, 4.87))
-        : 0;
-      const hf_kpa = hf_psi * 6.89476;
-
-      // Velocity: v = Q / A
-      const A_sqft = Math.PI * Math.pow(s.id / 12, 2) / 4;
-      const v_fps = A_sqft > 0 ? (Q_gpm / 448.8) / A_sqft : 0;
-      const v_ms = v_fps * 0.3048;
-
-      // Residual Pressure at remote fixture:
-      const resid_psi = pAvail_psi - hf_psi - elevLoss_psi;
-      const resid_kpa = resid_psi * 6.89476;
-
-      const isPressureOk = resid_psi >= pResid_psi;
-      const isVelocityOk = v_fps >= 1.0 && v_fps <= 8.0; // 0.3 m/s to 2.4 m/s (IPC/ASPE)
-      const ok = isPressureOk && isVelocityOk;
-
-      return {
-        ...s,
-        hf_psi,
-        hf_kpa,
-        v_fps,
-        v_ms,
-        resid_psi,
-        resid_kpa,
-        ok,
-        isPressureOk,
-        isVelocityOk,
-      };
-    });
-
-    // Find recommended size: smallest size that passes pressure and velocity, else smallest size that passes pressure
-    const rec = rows.find((r) => r.ok) || rows.find((r) => r.isPressureOk) || rows[rows.length - 1];
-
-    return {
-      flowVal,
-      pAvailVal,
-      pResidVal,
-      lengthVal,
-      elevVal,
-      Q_gpm,
-      pAvail_psi,
-      pResid_psi,
-      L_ft,
-      Leff,
-      C,
-      elev_ft,
-      elevLoss_psi,
-      elevLoss_kpa,
-      rows,
-      rec,
-    };
+    return computeSupplyPipeCalculations(inputs, isIP);
   }, [inputs, isIP]);
 
   const isAdequate = Boolean(calculations.rec && calculations.rec.ok);
 
-  // PDF Export Functionality (Preliminary Engineering Report Standard)
+  // PDF Export Functionality (Matching Ventilation Standard)
   const handleExportPdf = async () => {
-    try {
-      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const primaryFill = [217, 217, 217] as [number, number, number];
-      const blueFill = [218, 233, 248] as [number, number, number];
-
-      const callAutoTable = (autoTable as any).default || autoTable;
-
-      const calcNo = `CALC-WSP-${project?.code || "001"}`;
-      const projectNo = project?.code || "PRJ-001";
-      const projectName = project?.name || "Water Supply Pipe Sizing Project";
-      const clientName = (project as any)?.client || "Client Representative";
-      const endUser = (project as any)?.endUser || "Building Facilities / MEP Department";
-      const today = formatDateStr(new Date().toISOString());
-
-      // Document Header
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(14);
-      doc.text("WATER SUPPLY PIPE SIZING PRELIMINARY REPORT", 14, 15);
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(100, 100, 100);
-      doc.text("Design Standards: IPC / ASPE Table 604.4 / BS EN 806 / Hazen-Williams Friction Loss", 14, 20);
-
-      doc.setFont("helvetica", "bold");
-      doc.text(`Date: ${today}`, 196, 20, { align: "right" });
-
-      let currentY = 24;
-
-      // Metadata Enclosed Grid
-      callAutoTable(doc, {
-        startY: currentY,
-        head: [],
-        body: [
-          [
-            { content: "Calculation No.:", styles: { fontStyle: "bold", cellWidth: 32 } },
-            { content: calcNo, styles: { cellWidth: 60 } },
-            { content: "Date:", styles: { fontStyle: "bold", cellWidth: 32 } },
-            { content: today, styles: { cellWidth: 58 } },
-          ],
-          [
-            { content: "Project No.:", styles: { fontStyle: "bold" } },
-            { content: projectNo },
-            { content: "Client:", styles: { fontStyle: "bold" } },
-            { content: clientName },
-          ],
-          [
-            { content: "Project Name:", styles: { fontStyle: "bold" } },
-            { content: projectName },
-            { content: "End User:", styles: { fontStyle: "bold" } },
-            { content: endUser },
-          ],
-        ],
-        theme: "grid",
-        styles: { fontSize: 8, textColor: [40, 40, 40], cellPadding: 2 },
-        alternateRowStyles: { fillColor: [250, 250, 250] },
-      });
-
-      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 48;
-
-      // Section 1 Header
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9.5);
-      doc.setTextColor(0, 0, 0);
-      doc.text("1. Hydraulic Design Parameters & Pipe Run Constraints", 14, currentY);
-
-      // Table 1: Design Parameters
-      const paramBody = [
-        ["Design Flow Rate (Q)", `${inputs.flow.toFixed(2)} ${flowUnit}`, `${calculations.Q_gpm.toFixed(1)} GPM`, "Continuous fixture demand flow"],
-        ["Pipe Material & Roughness", inputs.pipeMaterial === "150" ? "Copper Type L / CPVC" : inputs.pipeMaterial === "130" ? "PEX Tubing" : "Galvanized Steel", `C = ${calculations.C}`, "Hazen-Williams friction coefficient"],
-        ["Available Supply Pressure", `${inputs.pAvail.toFixed(1)} ${pressUnit}`, `${calculations.pAvail_psi.toFixed(1)} psi`, "Mains / Booster pump discharge pressure"],
-        ["Required Residual Pressure", `${inputs.pResid.toFixed(1)} ${pressUnit}`, `${calculations.pResid_psi.toFixed(1)} psi`, "Minimum allowable pressure at remote fixture"],
-        ["Total Pipe Run Length", `${inputs.length.toFixed(1)} ${lenUnit}`, `${calculations.L_ft.toFixed(1)} ft`, "Physical linear pipe length"],
-        ["Fittings Loss Allowance", `${inputs.fittingAllowance}%`, `+${(calculations.L_ft * (inputs.fittingAllowance / 100)).toFixed(1)} ft`, "Equivalent length allowance for valves & fittings"],
-        ["Total Effective Length (Leff)", `${(calculations.Leff * (isIP ? 1 : 0.3048)).toFixed(1)} ${lenUnit}`, `${calculations.Leff.toFixed(1)} ft`, "Leff = Length × (1 + Fittings% / 100)"],
-        ["Elevation Static Head Loss", `${(isIP ? calculations.elevLoss_psi : calculations.elevLoss_kpa).toFixed(2)} ${pressUnit}`, `${calculations.elevLoss_psi.toFixed(2)} psi`, `Elevation rise: ${inputs.elevation} ${lenUnit} (ΔP = h / 2.31)`],
-      ];
-
-      callAutoTable(doc, {
-        startY: currentY + 2.5,
-        head: [["Parameter Description", "Design Value", "IP Equivalent", "Engineering Notes / Standard Reference"]],
-        body: paramBody,
-        theme: "grid",
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          fontSize: 8.5,
-          halign: "center",
-        },
-        bodyStyles: {
-          fontSize: 8,
-          textColor: [40, 40, 40],
-        },
-        alternateRowStyles: {
-          fillColor: [248, 249, 250],
-        },
-        columnStyles: {
-          0: { cellWidth: 55, fontStyle: "bold" },
-          1: { cellWidth: 38, halign: "center", fontStyle: "bold" },
-          2: { cellWidth: 38, halign: "center" },
-          3: { cellWidth: 51, halign: "left" },
-        },
-      });
-
-      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 95;
-
-      // Section 2 Header
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9.5);
-      doc.setTextColor(0, 0, 0);
-      doc.text("2. Complete Pipe Sizing Schedule & Hydraulic Performance", 14, currentY);
-
-      // Table 2: Pipe Sizing Schedule
-      const scheduleBody = calculations.rows.map((r, idx) => {
-        const isRec = r.nps === calculations.rec.nps;
-        const velDisp = (isIP ? r.v_fps : r.v_ms).toFixed(2);
-        const fricDisp = (isIP ? r.hf_psi : r.hf_kpa).toFixed(2);
-        const residDisp = (isIP ? r.resid_psi : r.resid_kpa).toFixed(1);
-        const statusText = isRec ? "RECOMMENDED (PASS)" : r.ok ? "PASS" : r.resid_psi < calculations.pResid_psi ? "LOW PRESSURE" : "VELOCITY EXCEEDED";
-
-        return [
-          { content: String(idx + 1), styles: { halign: "center" } },
-          { content: r.nps, styles: { fontStyle: "bold", halign: "center", fillColor: isRec ? blueFill : undefined } },
-          { content: r.dn, styles: { halign: "center", fillColor: isRec ? blueFill : undefined } },
-          { content: `${velDisp} ${velUnit}`, styles: { halign: "right", fontStyle: "bold", fillColor: isRec ? blueFill : undefined } },
-          { content: `${fricDisp} ${pressUnit}`, styles: { halign: "right", fillColor: isRec ? blueFill : undefined } },
-          { content: `${residDisp} ${pressUnit}`, styles: { halign: "right", fontStyle: "bold", fillColor: isRec ? blueFill : undefined } },
-          { content: statusText, styles: { halign: "center", fontStyle: "bold", textColor: r.ok ? [16, 185, 129] : [239, 68, 68], fillColor: isRec ? blueFill : undefined } },
-        ];
-      });
-
-      callAutoTable(doc, {
-        startY: currentY + 2.5,
-        head: [["Sr.", "Nominal (NPS)", "Metric (DN)", `Velocity (${velUnit})`, `Friction Loss (${pressUnit})`, `Residual Press (${pressUnit})`, "Compliance Status"]],
-        body: scheduleBody,
-        theme: "grid",
-        headStyles: {
-          fillColor: blueFill,
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          fontSize: 8.5,
-          halign: "center",
-        },
-        bodyStyles: {
-          fontSize: 8,
-          textColor: [40, 40, 40],
-        },
-        alternateRowStyles: {
-          fillColor: [248, 249, 250],
-        },
-        columnStyles: {
-          0: { cellWidth: 12 },
-          1: { cellWidth: 26 },
-          2: { cellWidth: 26 },
-          3: { cellWidth: 30 },
-          4: { cellWidth: 32 },
-          5: { cellWidth: 32 },
-          6: { cellWidth: 24 },
-        },
-      });
-
-      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 170;
-
-      // Status Verification Banner
-      doc.setFontSize(9);
-      doc.setLineWidth(0.3);
-      if (isAdequate) {
-        doc.setFillColor(236, 253, 245);
-        doc.setDrawColor(16, 185, 129);
-      } else {
-        doc.setFillColor(254, 242, 242);
-        doc.setDrawColor(239, 68, 68);
+    await exportSupplyPipePDF(
+      inputs,
+      calculations,
+      inputs.unitSystem,
+      {
+        projectName: (project as any)?.name || (project as any)?.projectName,
+        client: (project as any)?.client,
+        projectNo: (project as any)?.code || (project as any)?.projectNo,
+        calcNo: (project as any)?.calcNo,
+        endUser: (project as any)?.endUser || (project as any)?.location,
+        userName: currentUserName,
+        reviewState: calcReviewState,
       }
-      doc.rect(14, currentY, 182, 13, "FD");
-
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(isAdequate ? 5 : 185, isAdequate ? 150 : 28, isAdequate ? 105 : 28);
-      doc.text(isAdequate ? "HYDRAULIC SIZING VERIFICATION: PASSED (COMPLIANT)" : "HYDRAULIC SIZING VERIFICATION: WARNING (INADEQUATE)", 18, currentY + 5);
-
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(60, 60, 60);
-      doc.setFontSize(8);
-      const recSizeStr = `${calculations.rec.nps} NPS (${calculations.rec.dn})`;
-      const recResidStr = `${(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${pressUnit}`;
-      const recVelStr = `${(isIP ? calculations.rec.v_fps : calculations.rec.v_ms).toFixed(2)} ${velUnit}`;
-      const adequacyMsg = isAdequate
-        ? `The selected pipe size of ${recSizeStr} achieves a velocity of ${recVelStr} (within allowable limits) and delivers ${recResidStr} residual pressure at the remote fixture, exceeding the minimum requirement (${inputs.pResid} ${pressUnit}).`
-        : `The system cannot achieve the required ${inputs.pResid} ${pressUnit} residual pressure under current supply constraints. Available residual: ${recResidStr}. Consider increasing supply pressure or reducing pipe length.`;
-      doc.text(adequacyMsg, 18, currentY + 9.5);
-
-      // Signature Block (Table 3)
-      currentY = currentY + 17;
-      const reviewDetails = getSignatureBlockDetails(calcReviewState, currentUserName);
-      const originatedDate = reviewDetails?.originatedDate || formatDateStr(new Date().toISOString());
-      const reviewerDate = reviewDetails?.reviewerDate || "-";
-      const approverDate = reviewDetails?.approverDate || "-";
-
-      callAutoTable(doc, {
-        startY: currentY,
-        head: [["Approvals", "Originated By", "Reviewed By", "Approved By"]],
-        body: [
-          [
-            { content: "Name / Role:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: reviewDetails.originator?.name || reviewDetails.originatedName || currentUserName || "-", styles: { halign: "center" } },
-            { content: reviewDetails.reviewer?.name || reviewDetails.reviewerName || "-", styles: { halign: "center" } },
-            { content: reviewDetails.approver?.name || reviewDetails.approverName || "-", styles: { halign: "center" } },
-          ],
-          [
-            { content: "Status:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: reviewDetails.originator?.status || "Signed", styles: { halign: "center" } },
-            { content: reviewDetails.reviewer?.status || (reviewDetails.reviewerName ? "Reviewed" : "Pending"), styles: { halign: "center" } },
-            { content: reviewDetails.approver?.status || (reviewDetails.approverName ? "Approved" : "Pending"), styles: { halign: "center" } },
-          ],
-          [
-            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedDate, styles: { halign: "center" } },
-            { content: reviewerDate, styles: { halign: "center" } },
-            { content: approverDate, styles: { halign: "center" } },
-          ],
-        ],
-        theme: "grid",
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          fontSize: 8.5,
-          halign: "center",
-        },
-        bodyStyles: {
-          fontSize: 8,
-          textColor: [40, 40, 40],
-        },
-        columnStyles: {
-          0: { cellWidth: 32 },
-          1: { cellWidth: 50 },
-          2: { cellWidth: 50 },
-          3: { cellWidth: 50 },
-        },
-      });
-
-      const pdfBuffer = doc.output("arraybuffer");
-      await downloadFile(
-        new Uint8Array(pdfBuffer),
-        `Water_Supply_Pipe_Sizing_${project?.code || "P001"}.pdf`,
-        "PDF Document",
-        ["pdf"]
-      );
-      toast.success("Water Supply Pipe Sizing PDF report exported successfully!");
-    } catch (err: any) {
-      console.error("PDF generation failed", err);
-      toast.error(`Failed generating PDF report: ${err?.message || String(err)}`);
-    }
+    );
   };
 
   const copyToClipboard = (val: string | number) => {
@@ -656,7 +314,7 @@ export function SupplyPipeSizerPage() {
   return (
     <AppShell title="Water Supply Pipe Sizer" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-hidden h-full">
           
           {/* Page Header & Actions */}
           <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
@@ -688,7 +346,7 @@ export function SupplyPipeSizerPage() {
           </div>
 
           {/* Main Content Card Container */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+          <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
             : calcReviewState?.status === "REJECTED"
@@ -744,12 +402,12 @@ export function SupplyPipeSizerPage() {
             {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               {tab === "calculator" ? (
-                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-8">
+                <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-y-hidden p-4 md:p-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
                     
                     {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
-                    <div className="lg:col-span-5 space-y-5">
-                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
+                    <div className="lg:col-span-5 space-y-4">
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4.5 space-y-4">
                         
                         {/* Header */}
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
@@ -994,15 +652,38 @@ export function SupplyPipeSizerPage() {
                         </ContextMenu>
 
                       </div>
+
+                      {/* Hydraulic Pipe Sizing Verification Banner */}
+                      <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
+                        isAdequate
+                          ? "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/50 text-emerald-900 dark:text-emerald-200"
+                          : "bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800/50 text-amber-900 dark:text-amber-200"
+                      }`}>
+                        {isAdequate ? (
+                          <CheckCircle2 className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                        ) : (
+                          <AlertTriangle className="size-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                        )}
+                        <div>
+                          <strong className="text-[12px] block">
+                            {isAdequate ? "Hydraulic Pipe Sizing Verified:" : "Hydraulic Inadequacy Warning:"}
+                          </strong>
+                          <p className="mt-0.5 leading-relaxed text-[11.5px]">
+                            {isAdequate
+                              ? `Selected pipe size ${calculations.rec.nps} NPS (${calculations.rec.dn}) delivers ${(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${pressUnit} residual pressure at remote fixture (exceeding ${inputs.pResid} ${pressUnit} requirement) with velocity of ${(isIP ? calculations.rec.v_fps : calculations.rec.v_ms).toFixed(2)} ${velUnit}.`
+                              : `The calculated residual pressure ${(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${pressUnit} is below the required ${inputs.pResid} ${pressUnit}. Please increase supply pressure or reduce run length.`}
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
                     {/* RIGHT COLUMN: CALCULATION RESULTS SUMMARY (lg:col-span-7) */}
-                    <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
+                    <div className="lg:col-span-7 space-y-4 lg:sticky lg:top-0 self-start">
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
                           <div
                             id="card-calculation-results"
-                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 transition-all hover:border-slate-300 dark:hover:border-zinc-700"
+                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4.5 space-y-4 transition-all hover:border-slate-300 dark:hover:border-zinc-700"
                           >
                             
                             {/* Header */}
@@ -1070,12 +751,12 @@ export function SupplyPipeSizerPage() {
                                 <table className="w-full text-[11px] font-sans text-left border-collapse">
                                   <thead>
                                     <tr className="bg-slate-100 dark:bg-slate-900 font-bold text-foreground border-b border-border/60">
-                                      <th className="p-2.5 text-center">NPS</th>
-                                      <th className="p-2.5 text-center">DN</th>
-                                      <th className="p-2.5 text-right">Velocity</th>
-                                      <th className="p-2.5 text-right">Friction Drop</th>
-                                      <th className="p-2.5 text-right">Residual Press</th>
-                                      <th className="p-2.5 text-center">Status</th>
+                                      <th className="py-1.5 px-2.5 text-center">NPS</th>
+                                      <th className="py-1.5 px-2.5 text-center">DN</th>
+                                      <th className="py-1.5 px-2.5 text-right">Velocity</th>
+                                      <th className="py-1.5 px-2.5 text-right">Friction Drop</th>
+                                      <th className="py-1.5 px-2.5 text-right">Residual Press</th>
+                                      <th className="py-1.5 px-2.5 text-center">Status</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-border/40 font-mono">
@@ -1087,14 +768,14 @@ export function SupplyPipeSizerPage() {
 
                                       return (
                                         <tr key={r.nps} className={`hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors ${isChosen ? "bg-primary/10 font-bold" : ""}`}>
-                                          <td className="p-2.5 text-center font-bold font-sans">{r.nps}</td>
-                                          <td className="p-2.5 text-center">{r.dn}</td>
-                                          <td className="p-2.5 text-right">{showVel.toFixed(2)} {velUnit}</td>
-                                          <td className="p-2.5 text-right">{showFric.toFixed(2)} {pressUnit}</td>
-                                          <td className={`p-2.5 text-right font-bold ${r.isPressureOk ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
+                                          <td className="py-1.5 px-2.5 text-center font-bold font-sans">{r.nps}</td>
+                                          <td className="py-1.5 px-2.5 text-center">{r.dn}</td>
+                                          <td className="py-1.5 px-2.5 text-right">{showVel.toFixed(2)} {velUnit}</td>
+                                          <td className="py-1.5 px-2.5 text-right">{showFric.toFixed(2)} {pressUnit}</td>
+                                          <td className={`py-1.5 px-2.5 text-right font-bold ${r.isPressureOk ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
                                             {showResid.toFixed(1)} {pressUnit}
                                           </td>
-                                          <td className="p-2.5 text-center font-sans">
+                                          <td className="py-1.5 px-2.5 text-center font-sans">
                                             {r.ok ? (
                                               <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold px-2 py-0.5 rounded text-[10px] inline-flex items-center gap-1">
                                                 <Check className="size-3" /> {isChosen ? "RECOMMENDED" : "PASS"}
@@ -1110,29 +791,6 @@ export function SupplyPipeSizerPage() {
                                     })}
                                   </tbody>
                                 </table>
-                              </div>
-                            </div>
-
-                            {/* Storage / Hydraulic Verification Banner */}
-                            <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
-                              isAdequate
-                                ? "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/50 text-emerald-900 dark:text-emerald-200"
-                                : "bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800/50 text-amber-900 dark:text-amber-200"
-                            }`}>
-                              {isAdequate ? (
-                                <CheckCircle2 className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
-                              ) : (
-                                <AlertTriangle className="size-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-                              )}
-                              <div>
-                                <strong className="text-[12px] block">
-                                  {isAdequate ? "Hydraulic Pipe Sizing Verified:" : "Hydraulic Inadequacy Warning:"}
-                                </strong>
-                                <p className="mt-0.5 leading-relaxed text-[11.5px]">
-                                  {isAdequate
-                                    ? `Selected pipe size ${calculations.rec.nps} NPS (${calculations.rec.dn}) delivers ${(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${pressUnit} residual pressure at remote fixture (exceeding ${inputs.pResid} ${pressUnit} requirement) with velocity of ${(isIP ? calculations.rec.v_fps : calculations.rec.v_ms).toFixed(2)} ${velUnit}.`
-                                    : `The calculated residual pressure ${(isIP ? calculations.rec.resid_psi : calculations.rec.resid_kpa).toFixed(1)} ${pressUnit} is below the required ${inputs.pResid} ${pressUnit}. Please increase supply pressure or reduce run length.`}
-                                </p>
                               </div>
                             </div>
 
@@ -1180,6 +838,7 @@ export function SupplyPipeSizerPage() {
                   lenUnit={lenUnit}
                   velUnit={velUnit}
                   isAdequate={isAdequate}
+                  onExportPdf={handleExportPdf}
                 />
               )}
             </div>

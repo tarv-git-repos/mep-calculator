@@ -25,6 +25,10 @@ const saveAs = saveAsPkg.saveAs || saveAsPkg;
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import {
+  type LoadRow,
+  computeUpsSizing
+} from "@/lib/calc-ups-sizing-calculation";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -44,17 +48,6 @@ export const Route = createFileRoute("/ups-sizing-calculation")({
   }),
   component: UpsSizingCalculationPage,
 });
-
-interface LoadRow {
-  id: string;
-  description: string;
-  qtySingle: number;
-  qtyTwin: number;
-  equipmentLoad: number; // Watts
-  remarks: string;
-  isFlagged?: boolean;
-  flagReason?: string;
-}
 
 interface InlineInputProps {
   value: string | number;
@@ -225,34 +218,7 @@ function UpsSizingCalculationPage() {
 
   // Sizing Calculations Engine
   const calculatedData = useMemo(() => {
-    let totalConnectedW = 0;
-
-    loadRows.forEach((r) => {
-      const single = r.qtySingle || 0;
-      const twin = r.qtyTwin || 0;
-      const load = r.equipmentLoad || 0;
-
-      // Connected Load = (Qty Single + 2 * Qty Twin) * Equipment Load
-      const totalOutlets = single + (2 * twin);
-      const rowConnected = totalOutlets * load;
-
-      totalConnectedW += rowConnected;
-    });
-
-    const totalConnectedKw = totalConnectedW / 1000;
-    const totalLoadAfterDiversityKw = totalConnectedKw * diversityFactor;
-    
-    const safePF = powerFactor <= 0 ? 0.8 : powerFactor;
-    const upsRatingKva = totalLoadAfterDiversityKw / safePF;
-
-    const finalRecommendedKva = upsRatingKva * (1 + spareCapacity / 100);
-
-    return {
-      totalConnectedKw,
-      totalLoadAfterDiversityKw,
-      upsRatingKva,
-      finalRecommendedKva
-    };
+    return computeUpsSizing(loadRows, diversityFactor, powerFactor, spareCapacity);
   }, [loadRows, diversityFactor, powerFactor, spareCapacity]);
 
   // Schedule Actions

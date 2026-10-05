@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { X, Info, CheckCircle, AlertTriangle, Droplets, Calculator, Sliders, Layers, Building2 } from "lucide-react";
-import { StandardPreset, getFlowLPS } from "@/routes/plumbing-loading-unit";
+import { type StandardPreset, getFlowLPS } from "@/lib/calc-plumbing-loading-unit";
 
 export const LU_FIXTURES_META = [
   { id: 'wc', short: 'W/C', label: 'Water Closet (W/C)' },
@@ -26,12 +26,15 @@ export interface EditLoadingUnitRowModalProps {
   };
   rowIndex?: number;
   floorName?: string;
+  floor?: string;
   standardPreset?: StandardPreset;
-  activeWeights: Record<string, number>;
+  activeWeights?: Record<string, number>;
+  currentWeights?: Record<string, number>;
   showSpaceQty?: boolean;
   showFloorsCol?: boolean;
   onClose: () => void;
   onSave: (updated: { desc: string; fixtures: Record<string, number>; qty: number; floorQty: number }) => void;
+  onDelete?: () => void;
 }
 
 export function getStandardFormulaLabel(standard: StandardPreset): string {
@@ -80,13 +83,18 @@ export function EditLoadingUnitRowModal({
   space,
   rowIndex = 1,
   floorName = "GROUND FLOOR",
+  floor,
   standardPreset = "dubai",
   activeWeights,
+  currentWeights,
   showSpaceQty = true,
   showFloorsCol = true,
   onClose,
   onSave,
+  onDelete,
 }: EditLoadingUnitRowModalProps) {
+  const effectiveWeights = activeWeights || currentWeights || {};
+  const effectiveFloor = floor || floorName || space.floor || "GROUND FLOOR";
   const [desc, setDesc] = useState(space.desc || "");
   const [qty, setQty] = useState<number>(space.qty || 1);
   const [floorQty, setFloorQty] = useState<number>(space.floorQty || 1);
@@ -102,7 +110,7 @@ export function EditLoadingUnitRowModal({
 
     LU_FIXTURES_META.forEach((f) => {
       const count = Number(fixtures[f.id]) || 0;
-      const weight = Number(activeWeights[f.id]) || 0;
+      const weight = Number(effectiveWeights[f.id]) || 0;
       if (count > 0) {
         const itemTotal = count * weight;
         sum += itemTotal;
@@ -126,7 +134,7 @@ export function EditLoadingUnitRowModal({
       formulaStr,
       items: activeItems,
     };
-  }, [fixtures, activeWeights]);
+  }, [fixtures, effectiveWeights]);
 
   // Live calculations for space & project total
   const calcDetails = useMemo(() => {
@@ -285,7 +293,7 @@ export function EditLoadingUnitRowModal({
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {LU_FIXTURES_META.map((f) => {
-                  const weight = activeWeights[f.id] ?? 0;
+                  const weight = effectiveWeights[f.id] ?? 0;
                   const count = fixtures[f.id] || 0;
                   return (
                     <div key={f.id} className="p-2.5 bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 rounded-xl space-y-1">

@@ -19,6 +19,21 @@ import {
 import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import {
+  type SewagePresetKey,
+  type SewagePresetConfig,
+  SEWAGE_PRESETS,
+  STANDARD_MOTOR_HP,
+  GPM_TO_LPS,
+  GPM_TO_LMIN,
+  FT_TO_M,
+  IN_TO_MM,
+  GAL_TO_M3,
+  GAL_TO_L,
+  HP_TO_KW,
+  computeSewagePumpCalculations
+} from "@/lib/calc-plumbing-sewage-pump";
+
 import { toast } from "sonner";
 import { TBtn } from "@/components/workspace/Button";
 import { SewagePresetSelect } from "@/components/workspace/SewagePresetSelect";
@@ -39,135 +54,6 @@ export const Route = createFileRoute("/plumbing-sewage-pump")({
   }),
   component: SewagePumpPage,
 });
-
-export type SewagePresetKey =
-  | "residential_basement"
-  | "commercial_building"
-  | "restaurant_kitchen"
-  | "high_rise_basement"
-  | "heavy_duty_station"
-  | "custom";
-
-export interface SewagePresetConfig {
-  key: SewagePresetKey;
-  label: string;
-  category: string;
-  description: string;
-  inflow: number; // GPM
-  cycle: number; // minutes
-  starts: number; // max starts/hr
-  lift: number; // ft
-  pipeDia: number; // inches
-  pipeLen: number; // ft
-  fittingsHead: number; // ft
-  safetyFactor: number; // %
-  basinDia: number; // inches
-}
-
-export const SEWAGE_PRESETS: Record<SewagePresetKey, SewagePresetConfig> = {
-  residential_basement: {
-    key: "residential_basement",
-    label: "Residential Basement",
-    category: "IPC / Residential Ejector",
-    description: "Single-family or multi-family basement sanitary fixture drainage (WC, basin, laundry).",
-    inflow: 20,
-    cycle: 5,
-    starts: 6,
-    lift: 15,
-    pipeDia: 2.0,
-    pipeLen: 35,
-    fittingsHead: 3.5,
-    safetyFactor: 15,
-    basinDia: 24,
-  },
-  commercial_building: {
-    key: "commercial_building",
-    label: "Commercial Office / Retail",
-    category: "ASPE / Commercial",
-    description: "Multi-fixture public basement restrooms with duplex alternating sewage ejectors.",
-    inflow: 50,
-    cycle: 6,
-    starts: 6,
-    lift: 25,
-    pipeDia: 3.0,
-    pipeLen: 65,
-    fittingsHead: 6.0,
-    safetyFactor: 15,
-    basinDia: 36,
-  },
-  restaurant_kitchen: {
-    key: "restaurant_kitchen",
-    label: "Restaurant / Commercial Kitchen",
-    category: "IPC / High Solids & Grease",
-    description: "Grease-laden waste & high-temperature kitchen discharge requiring high-torque solids handling.",
-    inflow: 65,
-    cycle: 5,
-    starts: 8,
-    lift: 20,
-    pipeDia: 3.0,
-    pipeLen: 50,
-    fittingsHead: 5.5,
-    safetyFactor: 20,
-    basinDia: 42,
-  },
-  high_rise_basement: {
-    key: "high_rise_basement",
-    label: "High-Rise Deep Basement",
-    category: "ASPE / High Head",
-    description: "Deep subterranean parking levels (B3–B5) requiring high-head discharge to street sewer.",
-    inflow: 75,
-    cycle: 8,
-    starts: 6,
-    lift: 55,
-    pipeDia: 4.0,
-    pipeLen: 120,
-    fittingsHead: 10.0,
-    safetyFactor: 15,
-    basinDia: 48,
-  },
-  heavy_duty_station: {
-    key: "heavy_duty_station",
-    label: "Heavy-Duty Wet Well Station",
-    category: "Municipal / ASPE Chapter 7",
-    description: "Large commercial complex or hotel central wet well with large non-clog solids-handling pumps.",
-    inflow: 150,
-    cycle: 10,
-    starts: 6,
-    lift: 35,
-    pipeDia: 4.0,
-    pipeLen: 150,
-    fittingsHead: 12.0,
-    safetyFactor: 20,
-    basinDia: 60,
-  },
-  custom: {
-    key: "custom",
-    label: "Custom Configuration",
-    category: "Custom Engineering",
-    description: "Custom user-defined sewage pump hydraulic configuration.",
-    inflow: 50,
-    cycle: 6,
-    starts: 6,
-    lift: 20,
-    pipeDia: 3.0,
-    pipeLen: 50,
-    fittingsHead: 5.0,
-    safetyFactor: 15,
-    basinDia: 36,
-  },
-};
-
-// Standard Motor Ratings (HP)
-const STANDARD_MOTOR_HP = [0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 25.0, 30.0];
-
-// Conversion Constants
-const GPM_TO_LPS = 0.0630902;
-const GPM_TO_LMIN = 3.78541;
-const FT_TO_M = 0.3048;
-const IN_TO_MM = 25.4;
-const GAL_TO_M3 = 0.00378541;
-const GAL_TO_L = 3.78541;
-const HP_TO_KW = 0.7457;
 
 export function SewagePumpPage() {
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
@@ -248,7 +134,7 @@ export function SewagePumpPage() {
       if (storedComments) {
         setCommentsMap(JSON.parse(storedComments));
       }
-    } catch (e) {}
+    } catch (e) { }
     setLoadedProjectId(project.id);
   }, [project?.id, loadedProjectId]);
 
@@ -390,120 +276,8 @@ export function SewagePumpPage() {
   // HYDRAULIC & SEWAGE SIZING CALCULATIONS
   // ==========================================
   const calcResults = useMemo(() => {
-    const qIn = typeof inflow === "number" ? inflow : 50;
-    const mult = typeof flowMultiplier === "number" ? flowMultiplier : 2.0;
-    const tCycle = typeof cycle === "number" ? cycle : 6;
-    const maxStarts = typeof starts === "number" ? starts : 6;
-    const hStatic = typeof lift === "number" ? lift : 25;
-    const dPipe = typeof pipeDia === "number" ? pipeDia : 3.0;
-    const lPipe = typeof pipeLen === "number" ? pipeLen : 65;
-    const hFittings = typeof fittingsHead === "number" ? fittingsHead : 6.0;
-    const sf = typeof safetyFactor === "number" ? safetyFactor : 15;
-    const dBasin = typeof basinDia === "number" ? basinDia : 36;
-    const effP = typeof pumpEfficiency === "number" ? pumpEfficiency / 100 : 0.6;
-    const effM = typeof motorEfficiency === "number" ? motorEfficiency / 100 : 0.85;
-
-    // 1. Pump Duty Flow Rate (Q_pump)
-    const dutyFlowPerPump = qIn * mult;
-    const totalWorkingFlow = pumpCountMode === "2W_1S" ? dutyFlowPerPump * 2 : dutyFlowPerPump;
-
-    // 2. Discharge Pipe Velocity (v)
-    const pipeAreaSqFt = (Math.PI * Math.pow(dPipe / 24, 2));
-    const flowCfs = (dutyFlowPerPump * 0.13368) / 60;
-    const velocityFps = pipeAreaSqFt > 0 ? flowCfs / pipeAreaSqFt : 0;
-    const velocityMs = velocityFps * FT_TO_M;
-
-    // 3. Friction Head Loss (H_f) via Hazen-Williams (C=120 for PVC/Cast Iron)
-    const C = 120;
-    const frictionHead =
-      dPipe > 0
-        ? 0.002083 * lPipe * Math.pow(100 / C, 1.852) * (Math.pow(dutyFlowPerPump, 1.852) / Math.pow(dPipe, 4.8655))
-        : 0;
-
-    // 4. Total Dynamic Head (TDH)
-    const totalDynamicLosses = hStatic + frictionHead + hFittings;
-    const tdh = totalDynamicLosses * (1 + sf / 100);
-
-    // 5. Active Wet Well Storage Volume (V_active)
-    const activeVolGal = (dutyFlowPerPump * tCycle) / 4;
-    const activeVolM3 = activeVolGal * GAL_TO_M3;
-    const activeVolL = activeVolGal * GAL_TO_L;
-
-    // 6. Basin Liquid Depth & Geometry
-    const basinRadiusFt = dBasin / 24;
-    const basinAreaSqFt = Math.PI * Math.pow(basinRadiusFt, 2);
-    const activeVolCuFt = activeVolGal * 0.13368;
-    const activeDepthFt = basinAreaSqFt > 0 ? activeVolCuFt / basinAreaSqFt : 0;
-    const activeDepthInches = activeDepthFt * 12;
-    const totalBasinDepthInches = activeDepthInches + 24;
-
-    // 7. Power Requirements & Motor Selection
-    const waterHP = (dutyFlowPerPump * tdh) / 3960;
-    const bhp = effP > 0 ? waterHP / effP : waterHP / 0.6;
-    const motorKW = effM > 0 ? (bhp * HP_TO_KW) / effM : bhp * HP_TO_KW;
-
-    let recommendedMotorHP = STANDARD_MOTOR_HP[0];
-    for (const stdHP of STANDARD_MOTOR_HP) {
-      if (stdHP >= bhp) {
-        recommendedMotorHP = stdHP;
-        break;
-      }
-      recommendedMotorHP = stdHP;
-    }
-    const recommendedMotorKW = recommendedMotorHP * HP_TO_KW;
-
-    // 8. Checks & Verification
-    const isScouringCompliant = velocityFps >= 2.0;
-    const isMaxVelocityCompliant = velocityFps <= 8.0;
-    const isSolidsCompliant = dPipe >= 2.0;
-    const calculatedStartsPerHour = tCycle > 0 ? 60 / tCycle : 0;
-
-    return {
-      qIn,
-      mult,
-      tCycle,
-      dutyFlowPerPump,
-      totalWorkingFlow,
-      velocityFps,
-      velocityMs,
-      frictionHead,
-      hStatic,
-      hFittings,
-      tdh,
-      sf,
-      activeVolGal,
-      activeVolM3,
-      activeVolL,
-      dBasin,
-      dPipe,
-      activeDepthInches,
-      totalBasinDepthInches,
-      waterHP,
-      bhp,
-      motorKW,
-      recommendedMotorHP,
-      recommendedMotorKW,
-      isScouringCompliant,
-      isMaxVelocityCompliant,
-      isSolidsCompliant,
-      calculatedStartsPerHour,
-      maxStarts,
-    };
-  }, [
-    inflow,
-    flowMultiplier,
-    cycle,
-    starts,
-    lift,
-    pipeDia,
-    pipeLen,
-    fittingsHead,
-    safetyFactor,
-    basinDia,
-    pumpEfficiency,
-    motorEfficiency,
-    pumpCountMode,
-  ]);
+    return computeSewagePumpCalculations(inflow, flowMultiplier, cycle, starts, lift, pipeDia, pipeLen, fittingsHead, safetyFactor, basinDia, pumpEfficiency, motorEfficiency, pumpCountMode);
+  }, [inflow, flowMultiplier, cycle, starts, lift, pipeDia, pipeLen, fittingsHead, safetyFactor, basinDia, pumpEfficiency, motorEfficiency, pumpCountMode]);
 
   // Export to PDF (Preliminary Engineering Report Standard)
   const exportPdf = async () => {
@@ -784,11 +558,10 @@ export function SewagePumpPage() {
         <ContextMenuTrigger asChild>
           <div
             id={`field-${fieldId}`}
-            className={`p-3 rounded-xl border transition-all relative ${
-              isHighlighted
-                ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
-                : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
-            }`}
+            className={`p-3 rounded-xl border transition-all relative ${isHighlighted
+              ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
+              : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
+              }`}
           >
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-foreground tracking-tight">
@@ -884,11 +657,10 @@ export function SewagePumpPage() {
         <ContextMenuTrigger asChild>
           <div
             id={`field-${fieldId}`}
-            className={`p-3 rounded-xl border transition-all relative ${
-              isHighlighted
-                ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
-                : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
-            }`}
+            className={`p-3 rounded-xl border transition-all relative ${isHighlighted
+              ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
+              : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
+              }`}
           >
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-foreground tracking-tight">
@@ -971,11 +743,10 @@ export function SewagePumpPage() {
         <ContextMenuTrigger asChild>
           <div
             id="field-pumpingArrangement"
-            className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-2 text-xs relative ${
-              isHighlighted
-                ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
-                : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
-            }`}
+            className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-2 text-xs relative ${isHighlighted
+              ? "ring-2 ring-primary bg-blue-50/40 dark:bg-blue-950/30 border-primary"
+              : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
+              }`}
           >
             <div>
               <div className="flex items-center gap-2">
@@ -1001,11 +772,10 @@ export function SewagePumpPage() {
                   setPumpCountMode("1W_1S");
                   saveState({ pumpCountMode: "1W_1S" });
                 }}
-                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                  pumpCountMode === "1W_1S"
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${pumpCountMode === "1W_1S"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+                  }`}
               >
                 Duplex (1W+1S)
               </button>
@@ -1016,11 +786,10 @@ export function SewagePumpPage() {
                   setPumpCountMode("2W_1S");
                   saveState({ pumpCountMode: "2W_1S" });
                 }}
-                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                  pumpCountMode === "2W_1S"
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${pumpCountMode === "2W_1S"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+                  }`}
               >
                 Triplex (2W+1S)
               </button>
@@ -1066,22 +835,21 @@ export function SewagePumpPage() {
   return (
     <AppShell title="Sewage Pump Sizing" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-hidden h-full">
+
           {/* Page Header & Actions */}
           <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sewage Pump Sizing</h1>
-              
+
               {/* Intelligence Trigger Button */}
-              <button 
+              <button
                 type="button"
                 onClick={() => setIntelOpen((v) => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                  intelOpen
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
                 title="Toggle Sewage Pump Sizing Intelligence"
               >
                 <Sparkles className="size-3.5" />
@@ -1098,37 +866,34 @@ export function SewagePumpPage() {
           </div>
 
           {/* Main Content Card Container */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            calcReviewState?.status === "APPROVED" 
-            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+          <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED"
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
             : calcReviewState?.status === "REJECTED"
-            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-            : calcReviewState?.status === "REVIEWED"
-            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-          }`}>
-            
+              ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+              : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            }`}>
+
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
               <div className="flex items-center gap-2.5 flex-wrap">
                 <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                   <button
                     onClick={() => setTab("solver")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "solver"
-                        ? "bg-background text-foreground shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${tab === "solver"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
                     Pump Sizer
                   </button>
                   <button
                     onClick={() => setTab("report")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "report"
-                        ? "bg-background text-foreground shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${tab === "report"
+                      ? "bg-background text-foreground shadow-sm font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
                     Report
                   </button>
@@ -1166,13 +931,13 @@ export function SewagePumpPage() {
             {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               {tab === "solver" ? (
-                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-8">
-                    
+                <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-y-hidden p-4 md:p-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+
                     {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
-                    <div className="lg:col-span-5 space-y-5">
-                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
-                        
+                    <div className="lg:col-span-5 space-y-4">
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4.5 space-y-4">
+
                         {/* Header */}
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                           <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
@@ -1265,11 +1030,10 @@ export function SewagePumpPage() {
                                       setPumpCountMode("1W_1S");
                                       saveState({ pumpCountMode: "1W_1S" });
                                     }}
-                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                                      pumpCountMode === "1W_1S"
-                                        ? "bg-white dark:bg-zinc-700 text-foreground shadow-xs font-bold"
-                                        : "text-muted-foreground hover:text-foreground"
-                                    }`}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${pumpCountMode === "1W_1S"
+                                      ? "bg-white dark:bg-zinc-700 text-foreground shadow-xs font-bold"
+                                      : "text-muted-foreground hover:text-foreground"
+                                      }`}
                                   >
                                     Duplex (1W+1S)
                                   </button>
@@ -1280,11 +1044,10 @@ export function SewagePumpPage() {
                                       setPumpCountMode("2W_1S");
                                       saveState({ pumpCountMode: "2W_1S" });
                                     }}
-                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
-                                      pumpCountMode === "2W_1S"
-                                        ? "bg-white dark:bg-zinc-700 text-foreground shadow-xs font-bold"
-                                        : "text-muted-foreground hover:text-foreground"
-                                    }`}
+                                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${pumpCountMode === "2W_1S"
+                                      ? "bg-white dark:bg-zinc-700 text-foreground shadow-xs font-bold"
+                                      : "text-muted-foreground hover:text-foreground"
+                                      }`}
                                   >
                                     Triplex (2W+1S)
                                   </button>
@@ -1557,14 +1320,14 @@ export function SewagePumpPage() {
                     </div>
 
                     {/* RIGHT COLUMN: CALCULATION RESULTS SUMMARY (lg:col-span-7) */}
-                    <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
+                    <div className="lg:col-span-7 space-y-4 lg:sticky lg:top-0 self-start">
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
                           <div
                             id="card-calculation-results"
-                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 transition-all hover:border-slate-300 dark:hover:border-zinc-700"
+                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4.5 space-y-4 transition-all hover:border-slate-300 dark:hover:border-zinc-700"
                           >
-                            
+
                             {/* Header */}
                             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                               <div className="flex items-center gap-2">
@@ -1574,11 +1337,10 @@ export function SewagePumpPage() {
                               </div>
 
                               {/* Status Badge */}
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                calcResults.isScouringCompliant && calcResults.isSolidsCompliant
-                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                  : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                              }`}>
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${calcResults.isScouringCompliant && calcResults.isSolidsCompliant
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                                }`}>
                                 {calcResults.isScouringCompliant ? <ShieldCheck className="size-3.5" /> : <AlertTriangle className="size-3.5" />}
                                 <span>{calcResults.isScouringCompliant ? "Self-Scouring (≥ 2.0 ft/s)" : "Low Velocity (< 2 ft/s)"}</span>
                               </span>
@@ -1586,7 +1348,7 @@ export function SewagePumpPage() {
 
                             {/* 4 Colorful Top Metric Tiles (Matching Pump Sizing) */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                              
+
                               {/* Tile 1: Duty Flow (Blue) */}
                               <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 flex flex-col justify-between">
                                 <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Design Duty Flow</div>
@@ -1688,11 +1450,10 @@ export function SewagePumpPage() {
                             </div>
 
                             {/* Verification Banner */}
-                            <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
-                              calcResults.isScouringCompliant && calcResults.isSolidsCompliant
-                                ? "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/50 text-emerald-900 dark:text-emerald-200"
-                                : "bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800/50 text-amber-900 dark:text-amber-200"
-                            }`}>
+                            <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${calcResults.isScouringCompliant && calcResults.isSolidsCompliant
+                              ? "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/50 text-emerald-900 dark:text-emerald-200"
+                              : "bg-amber-50/80 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800/50 text-amber-900 dark:text-amber-200"
+                              }`}>
                               {calcResults.isScouringCompliant && calcResults.isSolidsCompliant ? (
                                 <CheckCircle2 className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
                               ) : (
@@ -1760,9 +1521,8 @@ export function SewagePumpPage() {
 
         {/* Intelligence Drawer (Collapsible Right Side Panel) */}
         <div
-          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
-          }`}
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+            }`}
         >
           {intelOpen && (
             <SewagePumpIntelligenceDrawer
@@ -1872,7 +1632,7 @@ function SewagePumpReportView({
       {/* Main Report Document Sheet */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
         <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6 font-sans">
-          
+
           {/* Header Title & Date */}
           <div className="flex justify-between items-start pb-4 border-b border-border">
             <div>
@@ -2071,11 +1831,10 @@ function SewagePumpReportView({
           </div>
 
           {/* Status Verification Banner */}
-          <div className={`p-4 rounded-xl border flex items-start gap-3 text-xs ${
-            isPassed
-              ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200"
-              : "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 text-red-900 dark:text-red-200"
-          }`}>
+          <div className={`p-4 rounded-xl border flex items-start gap-3 text-xs ${isPassed
+            ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200"
+            : "bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 text-red-900 dark:text-red-200"
+            }`}>
             <CheckCircle className={`size-5 shrink-0 ${isPassed ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"} mt-0.5`} />
             <div>
               <strong className="text-sm block">
@@ -2178,7 +1937,7 @@ function SewagePumpIntelligenceDrawer({
       </div>
 
       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-        
+
         {/* Section 1: IPC & ASPE Compliance Audit */}
         <div className="border border-border/80 rounded-xl overflow-hidden shadow-2xs">
           <button
@@ -2262,11 +2021,10 @@ function SewagePumpIntelligenceDrawer({
                   <div
                     key={key}
                     onClick={() => onSelectPreset(key)}
-                    className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-                      isSelected
-                        ? "border-primary bg-primary/10 shadow-xs"
-                        : "border-border/60 hover:bg-muted/30"
-                    }`}
+                    className={`p-2.5 rounded-xl border transition-all cursor-pointer ${isSelected
+                      ? "border-primary bg-primary/10 shadow-xs"
+                      : "border-border/60 hover:bg-muted/30"
+                      }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-foreground text-[11.5px]">{p.label}</span>
@@ -2351,7 +2109,7 @@ function SewagePumpFormulaModal({
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-card border border-border rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        
+
         {/* Header */}
         <div className="p-4 border-b border-border flex items-center justify-between bg-primary/5">
           <div className="flex items-center gap-2">
@@ -2371,7 +2129,7 @@ function SewagePumpFormulaModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4 text-xs text-foreground">
-          
+
           {/* Equation 1: Pump Duty Flow */}
           <div className="p-3.5 rounded-xl border border-border bg-slate-50 dark:bg-zinc-900 space-y-1.5">
             <div className="font-bold text-foreground flex items-center gap-2">
@@ -2385,7 +2143,7 @@ function SewagePumpFormulaModal({
               Q_pump = Q_inflow × Drawdown_Factor
             </div>
             <p className="text-muted-foreground text-[11px] font-mono">
-              Q_pump = {calcResults.qIn.toFixed(1)} GPM × {calcResults.mult.toFixed(2)} = {calcResults.dutyFlowPerPump.toFixed(1)} GPM ({ (calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2) } L/s)
+              Q_pump = {calcResults.qIn.toFixed(1)} GPM × {calcResults.mult.toFixed(2)} = {calcResults.dutyFlowPerPump.toFixed(1)} GPM ({(calcResults.dutyFlowPerPump * GPM_TO_LPS).toFixed(2)} L/s)
             </p>
           </div>
 
@@ -2419,7 +2177,7 @@ function SewagePumpFormulaModal({
               H_f = 0.002083 × L × (100 / C)^1.852 × (Q^1.852 / d^4.8655)
             </div>
             <p className="text-muted-foreground text-[11px] font-mono">
-              H_f = {calcResults.frictionHead.toFixed(2)} ft ({ (calcResults.frictionHead * FT_TO_M).toFixed(2) } m)
+              H_f = {calcResults.frictionHead.toFixed(2)} ft ({(calcResults.frictionHead * FT_TO_M).toFixed(2)} m)
             </p>
           </div>
 

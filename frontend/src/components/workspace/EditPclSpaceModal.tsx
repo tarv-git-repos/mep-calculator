@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import { X, Info, Flame, Zap, Shield, CheckCircle2, AlertTriangle, Sparkles, Flag } from "lucide-react";
 import { PclCategorySelect } from "./PclCategorySelect";
-import { inferTypeFromName } from "@/routes/preliminary-cooling-load";
+import { inferTypeFromName } from "@/lib/calc-preliminary-cooling-load";
 
 export interface PclSpace {
   id: string;

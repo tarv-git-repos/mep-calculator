@@ -337,9 +337,13 @@ function LiftwellPressurizationPage() {
             disabled={isEffectiveReadOnly}
             className="w-full appearance-none bg-surface-2 border border-border/70 rounded-md py-1 pl-2.5 pr-7 text-xs font-semibold text-foreground outline-none focus:border-primary cursor-pointer disabled:opacity-60 transition"
           >
-            {(Object.keys(DOOR_TYPES_CONFIG) as DoorTypeKey[]).map(k => (
-              <option key={k} value={k}>{DOOR_TYPES_CONFIG[k].name}</option>
-            ))}
+            {(Object.keys(DOOR_TYPES_CONFIG) as DoorTypeKey[])
+              .filter((k) => k === "lift_landing")
+              .map((k) => (
+                <option key={k} value={k}>
+                  {DOOR_TYPES_CONFIG[k].name}
+                </option>
+              ))}
           </select>
           <ChevronDown className="absolute right-2 size-3.5 text-muted-foreground pointer-events-none" />
         </div>
@@ -1482,9 +1486,13 @@ function EditLiftwellModal({ liftwell, unitSystem, isReadOnly, onClose, onSave }
                 disabled={isReadOnly}
                 className="w-full h-8 px-2.5 rounded-lg border border-border bg-surface-1 focus:border-primary outline-none text-xs font-semibold cursor-pointer"
               >
-                {(Object.keys(DOOR_TYPES_CONFIG) as DoorTypeKey[]).map(k => (
-                  <option key={k} value={k}>{DOOR_TYPES_CONFIG[k].name}</option>
-                ))}
+                {(Object.keys(DOOR_TYPES_CONFIG) as DoorTypeKey[])
+                  .filter((k) => k === "lift_landing")
+                  .map((k) => (
+                    <option key={k} value={k}>
+                      {DOOR_TYPES_CONFIG[k].name}
+                    </option>
+                  ))}
               </select>
             </div>
           </div>

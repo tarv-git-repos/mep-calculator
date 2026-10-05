@@ -3,7 +3,7 @@ import {
   X, Check, SlidersHorizontal, Droplets, Gauge,
   Clock, ShieldAlert, RotateCcw, Building2, Building, Factory, Home, Utensils, Zap, Cylinder, Info, ArrowUpRight, ShieldCheck, Activity
 } from "lucide-react";
-import { SEWAGE_PRESETS, type SewagePresetKey } from "@/routes/plumbing-sewage-pump";
+import { SEWAGE_PRESETS, type SewagePresetKey } from "@/lib/calc-plumbing-sewage-pump";
 import { toast } from "sonner";
 
 interface CustomSewagePumpConfigModalProps {

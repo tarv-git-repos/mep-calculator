@@ -63,7 +63,6 @@ export class CacheManager {
                 if (line?.type === WEBIFC.IFCSPACE) {
                     const spaceGeom = this.spaceGeometryExtractor.getSpacePolygonAndCenter(id);
                     const baseM = this.propertyManager.getMatrix(getVal(line?.ObjectPlacement), matrixCache);
-                    baseM.premultiply(coordMatrix);
 
                     if (spaceGeom.polygon && spaceGeom.polygon.length > 0) {
                         polygon = spaceGeom.polygon.map(pt => {
@@ -78,7 +77,6 @@ export class CacheManager {
 
                     m.multiply(new Matrix4().makeTranslation(spaceGeom.center.x, spaceGeom.center.y, spaceGeom.center.z));
                 }
-                m.premultiply(coordMatrix);
 
                 elements[id] = {
                     expressId: id,

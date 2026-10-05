@@ -1045,6 +1045,13 @@ export function Viewport3D() {
                             let height = parseFloat(String(fullSpace.quantities?.Height || fullSpace.quantities?.UnboundedHeight || sp.quantities?.Height || sp.height || 3.0)) || 3.0;
                             if (height > 100) height = height / 1000;
 
+                            let length = parseFloat(String(fullSpace.quantities?.Length || sp.quantities?.Length || 0)) || 0;
+                            let width = parseFloat(String(fullSpace.quantities?.Width || sp.quantities?.Width || 0)) || 0;
+                            if ((length <= 0 || width <= 0) && area > 0) {
+                                length = parseFloat(Math.sqrt(area * 1.25).toFixed(2));
+                                width = parseFloat((area / length).toFixed(2));
+                            }
+
                             rawExtracted.push({
                                 id: `bim-${sp.expressId}`,
                                 name: displayName,
@@ -1052,6 +1059,8 @@ export function Viewport3D() {
                                 zone: "Default",
                                 area: Math.round(area * 100) / 100,
                                 height: Math.round(height * 100) / 100,
+                                length: length,
+                                width: width,
                                 fixtures: String(fullSpace.quantities?.Occupants || sp.quantities?.Occupants || ""),
                             });
                         });

@@ -3,7 +3,7 @@ import { Check, ChevronsUpDown, SlidersHorizontal, Building2, Building, Factory,
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
-import { HAZARD_PRESETS, type HazardPresetKey } from "@/routes/plumbing-fire-water-demand";
+import { HAZARD_PRESETS, type HazardPresetKey } from "@/lib/calc-plumbing-fire-water-demand";
 import { cn } from "@/lib/utils";
 
 const presetIcons: Record<HazardPresetKey, React.ComponentType<{ className?: string }>> = {

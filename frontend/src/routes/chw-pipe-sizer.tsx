@@ -1,6 +1,7 @@
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { exportCHWPipePDF } from "@/lib/exportCHWPipePDF";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -28,6 +29,7 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { CalculationPreviewModal, type CalculationPreviewData } from "@/components/calculator-framework/CalculationPreviewModal";
+import { pipeTable, GLYCOL_VISC, GLYCOL_DENS, PIPE_MATERIALS, CHWModePill, CHWPreset, CHW_PRESETS, colebrook, waterDens, waterVisc, fToC, calculateCHWPipeSize } from "@/lib/calc-chw-pipe";
 
 export const Route = createFileRoute("/chw-pipe-sizer")({
   head: () => ({
@@ -38,128 +40,6 @@ export const Route = createFileRoute("/chw-pipe-sizer")({
   }),
   component: ChwPipeSizerPage,
 });
-
-const pipeTable: Record<string, number> = {
-  0.5: 15.80, 0.75: 20.93, 1.0: 26.64, 1.25: 35.05, 1.5: 40.89,
-  2.0: 52.50, 2.5: 62.71, 3.0: 77.93, 3.5: 90.12, 4.0: 102.26,
-  5.0: 128.19, 6.0: 154.05, 8.0: 202.72, 10.0: 254.46, 12.0: 303.23
-};
-
-const GLYCOL_VISC: Record<string, number> = { chw: 1, cw: 1, g25: 1.8, g40: 2.6 };
-const GLYCOL_DENS: Record<string, number> = { chw: 1, cw: 1, g25: 1.03, g40: 1.05 };
-
-const PIPE_MATERIALS: Record<string, { label: string; roughness: number }> = {
-  steel: { label: "Carbon Steel", roughness: 0.000046 },
-  copper: { label: "Copper", roughness: 0.0000015 },
-  stainless: { label: "Stainless Steel", roughness: 0.000015 },
-  galvanized: { label: "Galvanized Steel", roughness: 0.00015 },
-};
-
-export type CHWModePill = "primary_chw" | "secondary_chw" | "condenser_cw" | "district_cooling" | "glycol_loop";
-
-interface CHWPreset {
-  id: CHWModePill;
-  name: string;
-  flowRateSI: number;
-  flowRateIP: number;
-  fluidType: "chw" | "cw" | "g25" | "g40";
-  tempSI: number;
-  tempIP: number;
-  targetDpSI: number;
-  targetDpIP: number;
-  material: "steel" | "copper" | "stainless" | "galvanized";
-}
-
-const CHW_PRESETS: Record<CHWModePill, CHWPreset> = {
-  primary_chw: {
-    id: "primary_chw",
-    name: "Primary CHW Loop",
-    flowRateSI: 5.0,
-    flowRateIP: 80.0,
-    fluidType: "chw",
-    tempSI: 6.7,
-    tempIP: 44.0,
-    targetDpSI: 40,
-    targetDpIP: 4.0,
-    material: "steel",
-  },
-  secondary_chw: {
-    id: "secondary_chw",
-    name: "Secondary Riser",
-    flowRateSI: 12.0,
-    flowRateIP: 190.0,
-    fluidType: "chw",
-    tempSI: 6.7,
-    tempIP: 44.0,
-    targetDpSI: 50,
-    targetDpIP: 3.5,
-    material: "steel",
-  },
-  condenser_cw: {
-    id: "condenser_cw",
-    name: "Condenser Water",
-    flowRateSI: 40.0,
-    flowRateIP: 634.0,
-    fluidType: "cw",
-    tempSI: 32.0,
-    tempIP: 89.6,
-    targetDpSI: 45,
-    targetDpIP: 3.0,
-    material: "steel",
-  },
-  district_cooling: {
-    id: "district_cooling",
-    name: "District Cooling",
-    flowRateSI: 60.0,
-    flowRateIP: 951.0,
-    fluidType: "chw",
-    tempSI: 5.5,
-    tempIP: 41.9,
-    targetDpSI: 25,
-    targetDpIP: 1.8,
-    material: "steel",
-  },
-  glycol_loop: {
-    id: "glycol_loop",
-    name: "Glycol Loop",
-    flowRateSI: 8.0,
-    flowRateIP: 127.0,
-    fluidType: "g25",
-    tempSI: 4.0,
-    tempIP: 39.2,
-    targetDpSI: 60,
-    targetDpIP: 4.0,
-    material: "steel",
-  },
-};
-
-function colebrook(Re: number, relR: number): number {
-  if (Re <= 0) return 0.1;
-  if (Re < 2300) return 64 / Re;
-  let f = 0.25 / Math.pow(Math.log(relR / 3.7 + 5.74 / Math.pow(Re, 0.9)) / Math.LN10, 2);
-  for (let i = 0; i < 80; i++) {
-    const r = -2 * Math.log((relR / 3.7) + (2.51 / (Re * Math.sqrt(f)))) / Math.LN10;
-    const fn = 1 / (r * r);
-    if (Math.abs(fn - f) < 1e-10) {
-      f = fn;
-      break;
-    }
-    f = fn;
-  }
-  return f;
-}
-
-function waterDens(tC: number): number {
-  return 999.842594 + 6.793952e-2 * tC - 9.09529e-3 * Math.pow(tC, 2) + 1.001685e-4 * Math.pow(tC, 3) - 1.120083e-6 * Math.pow(tC, 4) + 6.536332e-9 * Math.pow(tC, 5);
-}
-
-function waterVisc(tC: number): number {
-  return 2.414e-5 * Math.pow(10, 247.8 / (tC + 406.15));
-}
-
-function fToC(f: number): number {
-  return (f - 32) * 5 / 9;
-}
 
 function ChwPipeSizerPage() {
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
@@ -172,6 +52,15 @@ function ChwPipeSizerPage() {
   const [intelOpen, setIntelOpen] = useState<boolean>(false);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
+  const handleReset = () => {
+    saveParams({
+      flowRate: '10',
+      fluidType: 'chw',
+      temperature: isSI ? '6.7' : '44',
+      pipeMaterial: 'steel',
+      targetDp: isSI ? '250' : '2.5'
+    }, unitSystem);
+  };
   const [activeMode, setActiveMode] = useState<CHWModePill>("primary_chw");
 
   // Input states matching parameter list: Flow Rate, Fluid Type, Fluid Temp, Pipe Material, Target ΔP
@@ -325,87 +214,7 @@ function ChwPipeSizerPage() {
   };
 
   // Calculation logic
-  const calculatedData = useMemo(() => {
-    const flowVal = parseFloat(String(sizingParams.flowRate));
-    const tRaw = parseFloat(String(sizingParams.temperature));
-    const dpRaw = parseFloat(String(sizingParams.targetDp));
-
-    const isValid = !isNaN(flowVal) && flowVal > 0 && !isNaN(tRaw) && !isNaN(dpRaw) && dpRaw > 0;
-
-    if (!isValid) {
-      return {
-        isValid: false,
-        flowVal: 0,
-        tRaw: 0,
-        dpRaw: 0,
-        chosen: null,
-        allPipes: [],
-        rho: 1000,
-        mu: 0.001
-      };
-    }
-
-    const Q = ip ? flowVal * 6.30902e-5 : flowVal * 1e-3; // m³/s
-    const tC = ip ? fToC(tRaw) : tRaw;
-    const eps = PIPE_MATERIALS[sizingParams.pipeMaterial]?.roughness || 0.000046;
-    const targetDpPaM = ip ? dpRaw * 29.89 : dpRaw; // 1 ft w.g./100ft ≈ 29.89 Pa/m
-
-    const rho = waterDens(tC) * GLYCOL_DENS[sizingParams.fluidType];
-    const mu = waterVisc(tC) * GLYCOL_VISC[sizingParams.fluidType];
-
-    let chosen: any = null;
-    const allPipes: any[] = [];
-
-    for (const [nps, idMm] of Object.entries(pipeTable)) {
-      const D = idMm / 1000; // m
-      const A = (Math.PI * D * D) / 4; // m²
-      const v = Q / A; // m/s
-      const Re = (rho * v * D) / mu;
-      const f = colebrook(Re, eps / D);
-      const dpPaM = (f * rho * v * v) / (2 * D); // Pa/m
-      const dpFt = dpPaM / 29.89; // ft w.g. / 100ft
-      const vFps = v / 0.3048;
-      const idIn = idMm / 25.4;
-      const isCompliant = dpPaM <= targetDpPaM * 1.05;
-
-      const rowObj = {
-        nps: Number(nps),
-        idMm,
-        idIn,
-        D,
-        A,
-        v,
-        vFps,
-        Re,
-        f,
-        dpPaM,
-        dpFt,
-        isCompliant,
-        regime: Re > 4000 ? "Turbulent" : "Laminar"
-      };
-      allPipes.push(rowObj);
-
-      if (!chosen && isCompliant) {
-        chosen = rowObj;
-      }
-    }
-
-    if (!chosen && allPipes.length > 0) {
-      chosen = allPipes[allPipes.length - 1];
-    }
-
-    return {
-      isValid: true,
-      flowVal,
-      tRaw,
-      tC,
-      dpRaw,
-      rho,
-      mu,
-      chosen,
-      allPipes
-    };
-  }, [sizingParams, unitSystem, ip]);
+  const calculatedData = useMemo(() => calculateCHWPipeSize(sizingParams, unitSystem, ip), [sizingParams, unitSystem, ip]);
 
   // Step-by-step Formula Breakdown Data for Modal
   const calculationPreviewData: CalculationPreviewData = useMemo(() => {
@@ -481,57 +290,20 @@ function ChwPipeSizerPage() {
   }, [calculatedData, sizingParams, ip]);
 
   const handleExportPDF = async () => {
-    try {
-      const jsPDFModule = await import('jspdf');
-      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
-      const autoTableModule = await import('jspdf-autotable');
-      const autoTable = autoTableModule.default || autoTableModule;
-
-      const doc = new jsPDF("p", "mm", "a4");
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.setTextColor(10, 123, 199);
-      doc.text("CHW PIPE SIZING REPORT", 14, 18);
-
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(100, 116, 139);
-      doc.text(`Project: ${project?.name || "General Project"} | Date: ${new Date().toLocaleDateString()}`, 14, 24);
-
-      const p = calculatedData.chosen;
-      const tableData = [
-        ["Flow Rate", `${calculatedData.flowVal} ${ip ? "GPM" : "L/s"}`],
-        ["Fluid Type", sizingParams.fluidType.toUpperCase()],
-        ["Operating Temperature", `${calculatedData.tRaw} ${ip ? "°F" : "°C"}`],
-        ["Pipe Material", PIPE_MATERIALS[sizingParams.pipeMaterial]?.label || "Steel"],
-        ["Target ΔP", `${calculatedData.dpRaw} ${ip ? "ft w.g./100ft" : "Pa/m"}`],
-        ["SELECTED PIPE SIZE", p ? `NPS ${p.nps}" / DN ${p.idMm} mm` : "-"],
-        ["Internal Diameter", p ? (ip ? `${p.idIn.toFixed(3)} in` : `${p.idMm} mm`) : "-"],
-        ["Velocity", p ? (ip ? `${p.vFps.toFixed(2)} fps` : `${p.v.toFixed(2)} m/s`) : "-"],
-        ["Pressure Drop", p ? (ip ? `${p.dpFt.toFixed(2)} ft/100ft` : `${p.dpPaM.toFixed(1)} Pa/m`) : "-"],
-        ["Reynolds Number", p ? Math.round(p.Re).toLocaleString() : "-"],
-        ["Flow Regime", p ? p.regime : "-"],
-      ];
-
-      autoTable(doc, {
-        startY: 30,
-        head: [["Parameter", "Design Value"]],
-        body: tableData,
-        theme: "striped",
-        headStyles: { fillColor: [10, 123, 199], textColor: [255, 255, 255], fontStyle: "bold" },
-        styles: { fontSize: 9, cellPadding: 3.5 },
-      });
-
-      const finalY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 12 : 120;
-      addPdfSignatureBlock(doc, finalY, currentUserName, project?.id || "default", "chw-pipe-sizer");
-
-      doc.save(`CHW_Pipe_Sizing_${Date.now()}.pdf`);
-      toast.success("PDF Report generated successfully!");
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to generate PDF report.");
-    }
+    await exportCHWPipePDF(
+      sizingParams,
+      calculatedData,
+      unitSystem,
+      {
+        projectName: (project as any)?.name || (project as any)?.projectName,
+        client: (project as any)?.client,
+        projectNo: (project as any)?.code || (project as any)?.projectNo,
+        calcNo: (project as any)?.calcNo,
+        endUser: (project as any)?.endUser || (project as any)?.location,
+        userName: currentUserName,
+        reviewState: calcReviewState,
+      }
+    );
   };
 
   const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs font-normal focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
@@ -638,191 +410,311 @@ function ChwPipeSizerPage() {
 
             {/* TAB CONTENT: REPORT VIEW OR CALCULATOR VIEW */}
             {activeTab === "report" ? (
-              /* REPORT VIEW SECTION */
-              <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
-                  
-                  {/* Report Header */}
-                  <div className="flex justify-between items-start pb-4 border-b border-border">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-primary/10 text-primary px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider">
-                          Calculation Report
-                        </span>
-                        <span className="text-xs text-muted-foreground font-mono">Ref: ASHRAE Fundamentals / Colebrook-White</span>
-                      </div>
-                      <h2 className="text-2xl font-bold text-foreground mt-2 tracking-tight">
-                        Chilled Water Pipe Sizing &amp; Hydraulic Analysis Report
-                      </h2>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Project: <span className="font-semibold text-foreground">{project?.name || "General Project"}</span> | Author: <span className="font-semibold text-foreground">{currentUserName}</span> | Date: <span className="font-semibold text-foreground">{new Date().toLocaleDateString()}</span>
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 no-print">
-                      <TBtn onClick={handleExportPDF} title="Export PDF Document">
-                        <FileText className="size-3.5" /> Export PDF
-                      </TBtn>
-                      <TBtn onClick={() => window.print()} title="Print Document">
-                        <Printer className="size-3.5" /> Print
-                      </TBtn>
-                    </div>
+              /* REPORT VIEW SECTION (MATCHING VENTILATION DESIGN FORMAT) */
+              <div className="flex flex-col h-full select-none">
+                {/* Top Action Bar matching Ventilation standard */}
+                <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50 no-print">
+                  <span className="text-[12px] text-muted-foreground font-semibold">
+                    Generated: <span className="text-foreground font-mono">{formatDateStr(new Date())}</span>
+                  </span>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <TBtn onClick={() => window.print()}>
+                      <Printer className="size-3.5" /> Print
+                    </TBtn>
+                    <TBtn primary onClick={handleExportPDF}>
+                      <FileText className="size-3.5" /> Export PDF
+                    </TBtn>
                   </div>
+                </div>
 
-                  {/* Section 1: Executive Summary */}
-                  <div className="bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-900/50 rounded-xl p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
-                        ⚡ Selected Pipe Specification Summary
-                      </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                        calculatedData.chosen?.isCompliant ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-red-500/15 text-red-600 dark:text-red-400"
-                      }`}>
-                        {calculatedData.chosen?.isCompliant ? "✓ COMPLIANT WITH DESIGN CRITERIA" : "⚠ EXCEEDS PRESSURE DROP LIMIT"}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1">
+                {/* Main Report Document Sheet */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+                  <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6 font-sans">
+                    
+                    {/* Header Title and Meta */}
+                    <div className="flex justify-between items-start pb-4 border-b border-border">
                       <div>
-                        <div className="text-[11px] text-muted-foreground font-medium">Selected Pipe Size</div>
-                        <div className="text-xl font-bold font-mono text-foreground mt-0.5">
-                          {calculatedData.chosen ? `NPS ${calculatedData.chosen.nps}"` : "-"}{" "}
-                          <span className="text-xs text-muted-foreground font-normal">{calculatedData.chosen ? `(DN ${calculatedData.chosen.idMm})` : ""}</span>
-                        </div>
+                        <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                          Chilled Water Pipe Sizing Calculation Report
+                        </h2>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">
+                          Hydronic Pipe Sizing &amp; Hydrodynamic Analysis (ASHRAE Fundamentals Ch. 22 / Colebrook-White Friction Model)
+                        </p>
                       </div>
-                      <div>
-                        <div className="text-[11px] text-muted-foreground font-medium font-sans">Flow Velocity</div>
-                        <div className="text-xl font-bold font-mono text-foreground mt-0.5">
-                          {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.v.toFixed(2)} m/s` : `${calculatedData.chosen.vFps.toFixed(2)} fps`) : "-"}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[11px] text-muted-foreground font-medium font-sans">Pressure Drop Gradient</div>
-                        <div className="text-xl font-bold font-mono text-foreground mt-0.5">
-                          {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.dpPaM.toFixed(1)} Pa/m` : `${calculatedData.chosen.dpFt.toFixed(2)} ft/100ft`) : "-"}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[11px] text-muted-foreground font-medium font-sans">Reynolds No. &amp; Regime</div>
-                        <div className="text-xl font-bold font-mono text-foreground mt-0.5">
-                          {calculatedData.chosen ? Math.round(calculatedData.chosen.Re).toLocaleString() : "-"}{" "}
-                          <span className="text-xs text-muted-foreground font-normal">({calculatedData.chosen?.regime})</span>
-                        </div>
+                      <div className="text-right">
+                        <span className="text-[11px] text-muted-foreground block mt-0.5 font-mono">Date: {new Date().toLocaleDateString("en-GB")}</span>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Section 2: Design Input Parameters */}
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <span>📥 1. Design Input Parameters</span>
-                    </h3>
+                    {/* Project Metadata Table 3x2 (Enclosed Corporate Header matching Ventilation) */}
                     <div className="border border-border rounded-xl overflow-hidden text-xs">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-muted/50 font-bold border-b border-border text-foreground">
-                            <th className="p-2.5">Parameter Name</th>
-                            <th className="p-2.5">Design Input Value</th>
-                            <th className="p-2.5">Standard Reference / Remarks</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          <tr>
-                            <td className="p-2.5 font-medium">System Flow Rate (Q)</td>
-                            <td className="p-2.5 font-mono font-bold">{calculatedData.flowVal} {isSI ? "L/s" : "GPM"}</td>
-                            <td className="p-2.5 text-muted-foreground">Hydronic loop design flow capacity</td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-medium">Fluid Type &amp; Concentration</td>
-                            <td className="p-2.5 font-mono font-bold">{sizingParams.fluidType.toUpperCase()} ({sizingParams.fluidType === "chw" ? "Chilled Water" : sizingParams.fluidType === "cw" ? "Condenser Water" : sizingParams.fluidType === "g25" ? "25% Ethylene Glycol" : "40% Ethylene Glycol"})</td>
-                            <td className="p-2.5 text-muted-foreground">Specific heat &amp; viscosity adjusted</td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-medium">Operating Temperature (T)</td>
-                            <td className="p-2.5 font-mono font-bold">{calculatedData.tRaw} {isSI ? "°C" : "°F"} ({calculatedData.tC.toFixed(1)} °C)</td>
-                            <td className="p-2.5 text-muted-foreground">Density ρ = {calculatedData.rho.toFixed(1)} kg/m³, Viscosity μ = {calculatedData.mu.toExponential(2)} Pa·s</td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-medium">Pipe Material &amp; Roughness (ε)</td>
-                            <td className="p-2.5 font-mono font-bold">{PIPE_MATERIALS[sizingParams.pipeMaterial]?.label || "Steel"} (ε = {(PIPE_MATERIALS[sizingParams.pipeMaterial]?.roughness * 1000).toFixed(4)} mm)</td>
-                            <td className="p-2.5 text-muted-foreground">Commercial pipe absolute roughness</td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-medium">Target Max Friction Loss (ΔP/L)</td>
-                            <td className="p-2.5 font-mono font-bold">{calculatedData.dpRaw} {isSI ? "Pa/m" : "ft w.g./100ft"}</td>
-                            <td className="p-2.5 text-muted-foreground">ASHRAE recommended upper friction limit</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                      <div className="grid grid-cols-4 divide-x divide-y divide-border">
+                        <div className="p-2.5 font-bold bg-muted/20">Calculation No.:</div>
+                        <div className="p-2.5 font-mono">{project?.calcNo || "TRV-CAL-CHW-R01"}</div>
+                        <div className="p-2.5 font-bold bg-muted/20">Date:</div>
+                        <div className="p-2.5 font-mono">{new Date().toLocaleDateString("en-GB")}</div>
 
-                  {/* Section 3: Piping Sizing Schedule Comparison */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
-                        📊 2. Pipe Sizing Schedule &amp; Hydrodynamic Analysis
+                        <div className="p-2.5 font-bold bg-muted/20">Project No.:</div>
+                        <div className="p-2.5 font-mono">{project?.code || project?.projectNo || "P000"}</div>
+                        <div className="p-2.5 font-bold bg-muted/20">Client:</div>
+                        <div className="p-2.5">{project?.client || "Design Client"}</div>
+
+                        <div className="p-2.5 font-bold bg-muted/20">Project Name:</div>
+                        <div className="p-2.5">{project?.name || project?.projectName || "Chilled Water Pipe Sizing"}</div>
+                        <div className="p-2.5 font-bold bg-muted/20">End User:</div>
+                        <div className="p-2.5">{project?.endUser || project?.location || "Site Development"}</div>
+                      </div>
+                    </div>
+
+                    {/* Table 1: Executive Design Parameters & Pipe Specification Summary */}
+                    <div className="space-y-2">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        1. Executive Design Parameters &amp; Pipe Specification Summary
                       </h3>
-                      <span className="text-[11px] text-muted-foreground">Colebrook-White Friction Evaluation</span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setScheduleModalOpen(true)}
-                      className="w-full flex items-center justify-between p-4 bg-muted/40 hover:bg-muted/70 border border-border rounded-xl transition-colors text-xs font-semibold cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-primary/10 rounded-xl text-primary">
-                          <FileSpreadsheet className="size-5" />
-                        </div>
-                        <div className="text-left">
-                          <div className="font-bold text-foreground group-hover:text-primary transition-colors text-sm">
-                            Piping Sizing Schedule Table
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            Click to open full hydronic pipe schedule &amp; friction comparison popup
-                          </div>
-                        </div>
+                      <div className="border border-border rounded-xl overflow-hidden text-xs">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                              <th className="p-2.5 w-12 text-center">No.</th>
+                              <th className="p-2.5">Executive Design Parameter Summary</th>
+                              <th className="p-2.5 text-center w-28">Value</th>
+                              <th className="p-2.5 text-center w-20">Unit</th>
+                              <th className="p-2.5">Engineering Design Basis / Code</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
+                              <td className="p-2.5 font-bold">Hydronic System Service</td>
+                              <td className="p-2.5 text-center font-bold text-foreground">Chilled Water Closed Loop</td>
+                              <td className="p-2.5 text-center text-muted-foreground">-</td>
+                              <td className="p-2.5 text-muted-foreground">Primary/secondary chilled water distribution</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
+                              <td className="p-2.5 font-bold">Circulating Fluid Type</td>
+                              <td className="p-2.5 text-center font-bold text-foreground">
+                                {sizingParams.fluidType === "chw" ? "Chilled Water" : sizingParams.fluidType === "cw" ? "Condenser Water" : sizingParams.fluidType === "g25" ? "25% Ethylene Glycol" : "40% Ethylene Glycol"}
+                              </td>
+                              <td className="p-2.5 text-center text-muted-foreground">-</td>
+                              <td className="p-2.5 text-muted-foreground">Specific heat &amp; viscosity adjusted for operating temp</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
+                              <td className="p-2.5 font-bold">Design Flow Rate (Q)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{calculatedData.flowVal}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{isSI ? "L/s" : "GPM"}</td>
+                              <td className="p-2.5 text-muted-foreground">Hydronic loop design flow capacity</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
+                              <td className="p-2.5 font-bold">Operating Fluid Temperature</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{calculatedData.tRaw}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{isSI ? "°C" : "°F"}</td>
+                              <td className="p-2.5 text-muted-foreground">Density: {calculatedData.rho.toFixed(1)} kg/m³, Viscosity: {calculatedData.mu.toExponential(2)} Pa·s</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">5</td>
+                              <td className="p-2.5 font-bold">Target Max Friction Loss (ΔP/L)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{calculatedData.dpRaw}</td>
+                              <td className="p-2.5 text-center font-mono font-bold">{isSI ? "Pa/m" : "ft/100ft"}</td>
+                              <td className="p-2.5 text-muted-foreground">ASHRAE recommended upper friction limit</td>
+                            </tr>
+                            {/* Highlighted Key Output: Selected Pipe Size */}
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                              <td className="p-2.5 text-center font-mono">6</td>
+                              <td className="p-2.5 font-bold">Recommended Pipe Diameter (NPS / DN)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-primary">
+                                {calculatedData.chosen ? calculatedData.chosen.nps + '" (DN ' + calculatedData.chosen.idMm + ')' : "-"}
+                              </td>
+                              <td className="p-2.5 text-center font-mono font-bold">NPS (DN)</td>
+                              <td className="p-2.5">Smallest diameter satisfying ΔP/L ≤ target limit</td>
+                            </tr>
+                            {/* Highlighted Key Output: Velocity */}
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                              <td className="p-2.5 text-center font-mono">7</td>
+                              <td className="p-2.5 font-bold">Calculated Flow Velocity (v)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-primary">
+                                {calculatedData.chosen ? (isSI ? calculatedData.chosen.v.toFixed(2) : calculatedData.chosen.vFps.toFixed(2)) : "-"}
+                              </td>
+                              <td className="p-2.5 text-center font-mono font-bold">{isSI ? "m/s" : "fps"}</td>
+                              <td className="p-2.5">Within ASHRAE recommended range (0.9 - 2.4 m/s)</td>
+                            </tr>
+                            {/* Highlighted Key Output: Friction Gradient */}
+                            <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                              <td className="p-2.5 text-center font-mono">8</td>
+                              <td className="p-2.5 font-bold">Calculated Friction Head Loss Gradient</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-primary">
+                                {calculatedData.chosen ? (isSI ? calculatedData.chosen.dpPaM.toFixed(1) : calculatedData.chosen.dpFt.toFixed(2)) : "-"}
+                              </td>
+                              <td className="p-2.5 text-center font-mono font-bold">{isSI ? "Pa/m" : "ft/100ft"}</td>
+                              <td className="p-2.5">Colebrook-White friction model (f = {calculatedData.chosen?.f.toFixed(4) || "-"})</td>
+                            </tr>
+                          </tbody>
+                        </table>
                       </div>
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg font-bold text-xs shadow-xs">
-                        <span>View Schedule</span>
-                        <Eye className="size-3.5" />
+                    </div>
+
+                    {/* Table 2: Complete Pipe Sizing Schedule & Hydrodynamic Comparison */}
+                    <div className="space-y-2 mt-6">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        2. Complete Pipe Sizing Schedule &amp; Hydrodynamic Comparison
+                      </h3>
+                      <div className="border border-border rounded-xl overflow-hidden text-xs">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                              <th className="p-2.5 w-10 text-center">Sr.</th>
+                              <th className="p-2.5 text-center w-28">Nominal (NPS)</th>
+                              <th className="p-2.5 text-center w-28">Metric (DN)</th>
+                              <th className="p-2.5 text-right w-32">Velocity ({isSI ? "m/s" : "fps"})</th>
+                              <th className="p-2.5 text-right w-36">Friction Loss ({isSI ? "Pa/m" : "ft/100ft"})</th>
+                              <th className="p-2.5 text-right w-36">Reynolds No. (Re)</th>
+                              <th className="p-2.5 text-center w-36">Compliance Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border font-sans">
+                            {calculatedData.allPipes.map((pipe: any, idx: number) => {
+                              const isChosen = calculatedData.chosen?.nps === pipe.nps;
+                              const showVel = (isSI ? pipe.v : pipe.vFps).toFixed(2);
+                              const showDp = (isSI ? pipe.dpPaM : pipe.dpFt).toFixed(isSI ? 1 : 2);
+                              const showRe = Math.round(pipe.Re).toLocaleString();
+                              const statusText = isChosen ? "✓ RECOMMENDED (PASS)" : pipe.isCompliant ? "✓ PASS" : "EXCEEDS ΔP LIMIT";
+
+                              return (
+                                <tr
+                                  key={pipe.nps}
+                                  className={isChosen ? "bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold text-slate-900 dark:text-slate-100 border-y border-border" : "hover:bg-muted/30"}
+                                >
+                                  <td className="p-2.5 text-center font-mono text-muted-foreground">{idx + 1}</td>
+                                  <td className="p-2.5 text-center font-bold font-mono">{pipe.nps}"</td>
+                                  <td className="p-2.5 text-center font-mono">{pipe.idMm} mm</td>
+                                  <td className="p-2.5 text-right font-mono">{showVel}</td>
+                                  <td className="p-2.5 text-right font-mono">{showDp}</td>
+                                  <td className="p-2.5 text-right font-mono">{showRe}</td>
+                                  <td className="p-2.5 text-center">
+                                    {pipe.isCompliant ? (
+                                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                                        {statusText}
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground/70 font-semibold">
+                                        {statusText}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
-                    </button>
-                  </div>
-
-                  {/* Section 4: Mathematical Method & Standards */}
-                  <div className="bg-slate-50 dark:bg-zinc-900 border border-border rounded-xl p-5 space-y-3 text-xs">
-                    <h3 className="font-bold text-foreground uppercase tracking-wider">
-                      📘 3. Calculation Methodology &amp; Standards Compliance
-                    </h3>
-                    <ul className="space-y-2 text-muted-foreground leading-relaxed">
-                      <li>
-                        • <strong>Darcy-Weisbach Equation:</strong> Pressure gradient is calculated as ΔP/L = (f · ρ · v²) / (2 · D), where f is solved via numerical Colebrook-White iterative convergence.
-                      </li>
-                      <li>
-                        • <strong>Colebrook-White Friction Model:</strong> 1 / √f = -2 log10((ε/D)/3.7 + 2.51 / (Re √f)), valid for turbulent hydronic flow (Re &gt; 4000).
-                      </li>
-                      <li>
-                        • <strong>ASHRAE Hydronic Guidelines:</strong> Fluid velocities are evaluated against maximum noise and erosion limits (v ≤ 2.4 m/s / 8 fps for hydronic headers).
-                      </li>
-                    </ul>
-                  </div>
-
-                  {/* Section 5: Signature Block */}
-                  <div className="pt-4 border-t border-border flex justify-between items-center text-xs text-muted-foreground">
-                    <div>
-                      Calculated by: <span className="font-bold text-foreground">{currentUserName}</span> ({profile?.role || "Mechanical Engineer"})
                     </div>
-                    <div>
-                      MEP Calculation Report | Official Document
-                    </div>
-                  </div>
 
+                    {/* Table 3: Thermodynamic & Fluid Physical Properties */}
+                    <div className="space-y-2 mt-6">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        3. Thermodynamic &amp; Fluid Physical Properties
+                      </h3>
+                      <div className="border border-border rounded-xl overflow-hidden text-xs">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                              <th className="p-2.5 w-12 text-center">No.</th>
+                              <th className="p-2.5">Thermodynamic Parameter</th>
+                              <th className="p-2.5 text-center w-28">Value</th>
+                              <th className="p-2.5 text-center w-20">Unit</th>
+                              <th className="p-2.5">Calculation Model / Physical Reference</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
+                              <td className="p-2.5 font-bold">Operating Fluid Density (ρ)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{calculatedData.rho.toFixed(1)}</td>
+                              <td className="p-2.5 text-center">kg/m³</td>
+                              <td className="p-2.5 text-muted-foreground">Temperature adjusted polynomial equation</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
+                              <td className="p-2.5 font-bold">Dynamic Viscosity (μ)</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{calculatedData.mu.toExponential(2)}</td>
+                              <td className="p-2.5 text-center">Pa·s</td>
+                              <td className="p-2.5 text-muted-foreground">Vogel temperature-viscosity relationship</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
+                              <td className="p-2.5 font-bold">Flow Regime &amp; Reynolds Number</td>
+                              <td className="p-2.5 text-center font-mono font-bold text-foreground">{calculatedData.chosen ? Math.round(calculatedData.chosen.Re).toLocaleString() : "-"}</td>
+                              <td className="p-2.5 text-center">{calculatedData.chosen?.regime || "Turbulent"}</td>
+                              <td className="p-2.5 text-muted-foreground">Re = (ρ · v · D) / μ (Turbulent flow Re &gt; 4,000)</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Compliance Verification Banner */}
+                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
+                      <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <div className="text-xs space-y-1">
+                        <span className="font-bold text-emerald-800 dark:text-emerald-300">
+                          ASHRAE Hydronic Pipe Sizing Compliance Verification
+                        </span>
+                        <p className="text-muted-foreground leading-relaxed">
+                          This hydronic sizing calculation complies with ASHRAE Fundamentals Chapter 22 and CIBSE Guide C. The selected pipe size maintains fluid velocity within permissible acoustic and erosion limits and achieves a friction loss gradient within the maximum target design threshold.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Table 4: 4-Column Professional Review & Sign-Off Block */}
+                    <div className="space-y-2 mt-6">
+                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+                        4. Professional Review &amp; Sign-Off Block
+                      </h3>
+                      <div className="border border-border rounded-xl overflow-hidden text-xs">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                              <th className="p-2.5 text-left w-1/4">Approval Role</th>
+                              <th className="p-2.5 text-center w-1/4">Originated By</th>
+                              <th className="p-2.5 text-center w-1/4">Reviewed By</th>
+                              <th className="p-2.5 text-center w-1/4">Approved By</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            <tr>
+                              <td className="p-2.5 font-bold text-muted-foreground">Name:</td>
+                              <td className="p-2.5 text-center font-bold text-foreground">{currentUserName}</td>
+                              <td className="p-2.5 text-center font-bold text-foreground">Pending Review</td>
+                              <td className="p-2.5 text-center font-bold text-foreground">Pending Approval</td>
+                            </tr>
+                            <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                              <td className="p-2.5 font-bold text-muted-foreground">Role / Status:</td>
+                              <td className="p-2.5 text-center text-muted-foreground">MEP Design Engineer</td>
+                              <td className="p-2.5 text-center text-muted-foreground">Senior HVAC Lead</td>
+                              <td className="p-2.5 text-center text-muted-foreground">Principal / MEP Director</td>
+                            </tr>
+                            <tr>
+                              <td className="p-2.5 font-bold text-muted-foreground">Date:</td>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">{new Date().toLocaleDateString("en-GB")}</td>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">—</td>
+                              <td className="p-2.5 text-center font-mono text-muted-foreground">—</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                  </div>
                 </div>
               </div>
             ) : (
-              /* CALCULATOR VIEW SECTION */
+/* CALCULATOR VIEW SECTION */
               <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              <ContextMenu>
+                <ContextMenuTrigger>
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 
                 {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
                 <div className="lg:col-span-5 space-y-5">
@@ -926,7 +818,11 @@ function ChwPipeSizerPage() {
 
                 {/* RIGHT COLUMN: CALCULATION RESULTS (lg:col-span-7) */}
                 <div className="lg:col-span-7 space-y-5">
-                  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6">
+                  <div 
+                    onDoubleClick={() => setFormulaModalOpen(true)}
+                    title="Double-click to view detailed calculations"
+                    className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6 cursor-pointer hover:border-primary/40 transition-colors"
+                  >
                     <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                       <span className="text-xs font-semibold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
                         ⚡ Sizing Results Summary
@@ -1001,6 +897,17 @@ function ChwPipeSizerPage() {
                 </div>
 
               </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="w-48">
+                  <ContextMenuItem onClick={() => handleReset()}>
+                    <RefreshCw className="size-4 mr-2" /> Reset to Defaults
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={() => setFormulaModalOpen(true)}>
+                    <Info className="size-4 mr-2" /> View Detailed Calcs
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             </div>
             )}
 
@@ -1008,7 +915,6 @@ function ChwPipeSizerPage() {
 
         </div>
 
-        {/* Collapsible Intelligence Drawer */}
         <div
           className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
             intelOpen

@@ -25,8 +25,23 @@ import {
 import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import {
+  GPM_TO_LPS,
+  FT_TO_M,
+  IN_TO_MM,
+  GAL_TO_M3,
+  GAL_TO_L,
+  HP_TO_KW,
+  PSI_TO_BAR,
+  type SumpPresetKey,
+  type SumpPresetConfig,
+  SUMP_PRESETS,
+  computeSumpPumpCalculations
+} from "@/lib/calc-plumbing-sump-pump";
+
 import { toast } from "sonner";
 import { TBtn } from "@/components/workspace/Button";
+import { exportSumpPumpPDF } from "@/lib/exportSumpPumpPDF";
 
 export const Route = createFileRoute("/plumbing-sump-pump")({
   head: () => ({
@@ -37,157 +52,6 @@ export const Route = createFileRoute("/plumbing-sump-pump")({
   }),
   component: SumpPumpPage,
 });
-
-const GPM_TO_LPS = 0.0630902;
-const FT_TO_M = 0.3048;
-const IN_TO_MM = 25.4;
-const GAL_TO_M3 = 0.00378541;
-const GAL_TO_L = 3.78541;
-const HP_TO_KW = 0.7457;
-const PSI_TO_BAR = 0.0689476;
-
-export type SumpPresetKey =
-  | "basement_seepage"
-  | "parking_ramp"
-  | "elevator_pit"
-  | "industrial_effluent"
-  | "custom";
-
-export interface SumpPresetConfig {
-  key: SumpPresetKey;
-  label: string;
-  category: string;
-  description: string;
-  req: number; // L
-  time: number; // hrs
-  flow: number; // L/s
-  pitFlow: number; // L/s
-  pitHold: number; // min
-  longestPipe: number; // m
-  propSide: number; // m
-  pipeVert: number; // m
-  pipeHoriz: number; // m
-  fricFactor: number; // bar/100m
-  staticHead: number; // bar
-  presid: number; // bar
-  suction: number; // bar
-  sfHead: number; // %
-  effPump: number; // %
-  effMotor: number; // %
-}
-
-export const SUMP_PRESETS: Record<SumpPresetKey, SumpPresetConfig> = {
-  basement_seepage: {
-    key: "basement_seepage",
-    label: "Basement Groundwater & Seepage",
-    category: "IPC 1113 / Sub-soil Drainage",
-    description: "Perimeter foundation weeping tile and sub-soil infiltration dewatering for residential / commercial basements.",
-    req: 1000,
-    time: 1,
-    flow: 0,
-    pitFlow: 5,
-    pitHold: 5,
-    longestPipe: 15,
-    propSide: 2,
-    pipeVert: 5,
-    pipeHoriz: 20,
-    fricFactor: 0.4,
-    staticHead: 5,
-    presid: 1,
-    suction: 0,
-    sfHead: 10,
-    effPump: 70,
-    effMotor: 85,
-  },
-  parking_ramp: {
-    key: "parking_ramp",
-    label: "Parking Ramp / Storm Surge",
-    category: "Stormwater / High Flow",
-    description: "Subterranean parking garage entrance ramp stormwater interception sump station.",
-    req: 5000,
-    time: 0.5,
-    flow: 0,
-    pitFlow: 15,
-    pitHold: 5,
-    longestPipe: 25,
-    propSide: 2.5,
-    pipeVert: 8,
-    pipeHoriz: 35,
-    fricFactor: 0.5,
-    staticHead: 8,
-    presid: 1,
-    suction: 0,
-    sfHead: 15,
-    effPump: 70,
-    effMotor: 85,
-  },
-  elevator_pit: {
-    key: "elevator_pit",
-    label: "Elevator Pit Drainage",
-    category: "ASME A17.1 / Elevator Sump",
-    description: "Dedicated elevator shaft subterranean drainage pit with 50 GPM (3.0 L/s) minimum discharge capacity.",
-    req: 500,
-    time: 0.5,
-    flow: 0,
-    pitFlow: 3.2,
-    pitHold: 3,
-    longestPipe: 10,
-    propSide: 1.2,
-    pipeVert: 4,
-    pipeHoriz: 15,
-    fricFactor: 0.35,
-    staticHead: 4,
-    presid: 0.8,
-    suction: 0,
-    sfHead: 10,
-    effPump: 65,
-    effMotor: 85,
-  },
-  industrial_effluent: {
-    key: "industrial_effluent",
-    label: "Industrial Plant Effluent Station",
-    category: "Industrial / Heavy Duty",
-    description: "Heavy-duty manufacturing or plant subterranean washdown and process drainage collection.",
-    req: 10000,
-    time: 1.5,
-    flow: 0,
-    pitFlow: 25,
-    pitHold: 10,
-    longestPipe: 35,
-    propSide: 3.0,
-    pipeVert: 10,
-    pipeHoriz: 50,
-    fricFactor: 0.6,
-    staticHead: 10,
-    presid: 1.5,
-    suction: 0,
-    sfHead: 15,
-    effPump: 72,
-    effMotor: 88,
-  },
-  custom: {
-    key: "custom",
-    label: "Custom Configuration",
-    category: "Custom Engineering",
-    description: "User-defined sump pump hydraulic and physical pit parameters.",
-    req: 1000,
-    time: 1,
-    flow: 0,
-    pitFlow: 5,
-    pitHold: 5,
-    longestPipe: 15,
-    propSide: 2,
-    pipeVert: 5,
-    pipeHoriz: 20,
-    fricFactor: 0.4,
-    staticHead: 5,
-    presid: 1,
-    suction: 0,
-    sfHead: 10,
-    effPump: 70,
-    effMotor: 85,
-  },
-};
 
 function SumpPumpPage() {
   const { project, activeProjectId } = useWorkspace();
@@ -343,48 +207,11 @@ function SumpPumpPage() {
 
   // Calculations
   const calcResults = useMemo(() => {
-    const r = typeof req === "number" ? req : 0;
-    const t = typeof time === "number" ? time : 0;
-    const f = typeof flow === "number" ? flow : 0;
-    const pf = typeof pitFlow === "number" ? pitFlow : 0;
-    const ph = typeof pitHold === "number" ? pitHold : 0;
-    const lp = typeof longestPipe === "number" ? longestPipe : 0;
-    const ps = typeof propSide === "number" ? propSide : 0;
-    const pv = typeof pipeVert === "number" ? pipeVert : 0;
-    const phz = typeof pipeHoriz === "number" ? pipeHoriz : 0;
-    const ff = typeof fricFactor === "number" ? fricFactor : 0;
-    const sh = typeof staticHead === "number" ? staticHead : 0;
-    const pr = typeof presid === "number" ? presid : 0;
-    const suc = typeof suction === "number" ? suction : 0;
-    const sfH = typeof sfHead === "number" ? sfHead : 0;
-    const eP = typeof effPump === "number" ? effPump : 70;
-    const eM = typeof effMotor === "number" ? effMotor : 85;
-
-    const Q_flow = (f > 0) ? f : ((r > 0 && t > 0) ? r / (t * 3600) : 0);
-    const pitVol = (pf * ph * 60) / 1000;
-    const invertVal = lp > 0 ? (Math.ceil((lp / 90) * 100) / 100) + 0.16 : 0;
-
-    let propDepth = 0;
-    if (ps > 0) {
-      const waterDepthRaw = pitVol / (ps * ps);
-      const waterDepth = waterDepthRaw < 1.0 ? 1.0 : waterDepthRaw;
-      propDepth = Math.ceil((waterDepth + invertVal + 0.25) * 100) / 100;
-    }
-
-    const L_elbows = (pv + phz) * 0.3;
-    const L_valves = (pv + phz) * 0.3;
-    const L_sum = pv + phz + L_elbows + L_valves;
-    const L_equiv = Math.ceil((L_sum * 1.05) / 10) * 10;
-    const H_loss = L_equiv * (ff / 100);
-
-    const H_pump_calc = (Math.max(0, (H_loss + sh + pr) - suc)) * (1 + sfH / 100);
-    const selHead = typeof selectedHead === "number" && selectedHead > 0 ? selectedHead : H_pump_calc;
-
-    const P_shaft = (Q_flow * selHead * 100) / (1000 * (eP / 100));
-    const P_motor = P_shaft / (eM / 100);
-    const HP = P_motor * 1.34102;
-
-    return { Q_flow, pitVol, invertVal, propDepth, pv, phz, ff, L_elbows, L_valves, L_sum, L_equiv, H_loss, H_pump_calc, selHead, P_motor, HP };
+    return computeSumpPumpCalculations(
+      req, time, flow, pitFlow, pitHold, longestPipe, propSide,
+      pipeVert, pipeHoriz, fricFactor, staticHead, presid, suction,
+      sfHead, selectedHead, effPump, effMotor
+    );
   }, [req, time, flow, pitFlow, pitHold, longestPipe, propSide, pipeVert, pipeHoriz, fricFactor, staticHead, presid, suction, sfHead, selectedHead, effPump, effMotor]);
 
   const handleUnitSystemChange = (next: "ip" | "si") => {
@@ -553,216 +380,44 @@ function SumpPumpPage() {
     );
   };
 
-  const exportPdf = async () => {
-    try {
-      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const primaryFill = [217, 217, 217] as [number, number, number];
-      const blueFill = [218, 233, 248] as [number, number, number];
-
-      const callAutoTable = (autoTable as any).default || autoTable;
-
-      const calcNo = `CALC-SMP-${project?.code || "001"}`;
-      const projectNo = project?.code || "PRJ-001";
-      const projectName = project?.name || "Sump Pit Drainage Sizing Station";
-      const clientName = (project as any)?.client || "Client Representative";
-      const endUser = (project as any)?.endUser || "Building Facilities / MEP Department";
-      const today = formatDateStr(new Date().toISOString());
-
-      // Document Header
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(14);
-      doc.text("SUMP PUMP SIZING PRELIMINARY REPORT", 14, 15);
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(100, 100, 100);
-      doc.text("Design Standards: IPC 1113 / ASPE Chapter 7 Sump Pit & Sump Pump Sizing", 14, 20);
-
-      doc.setFont("helvetica", "bold");
-      doc.text(`Date: ${today}`, 196, 20, { align: "right" });
-
-      let currentY = 24;
-
-      // Metadata Enclosed Grid
-      callAutoTable(doc, {
-        startY: currentY,
-        head: [],
-        body: [
-          [
-            { content: "Calculation No.:", styles: { fontStyle: "bold", cellWidth: 32 } },
-            { content: calcNo, styles: { cellWidth: 60 } },
-            { content: "Date:", styles: { fontStyle: "bold", cellWidth: 32 } },
-            { content: today, styles: { cellWidth: 58 } },
-          ],
-          [
-            { content: "Project No.:", styles: { fontStyle: "bold" } },
-            { content: projectNo },
-            { content: "Client:", styles: { fontStyle: "bold" } },
-            { content: clientName },
-          ],
-          [
-            { content: "Project Name:", styles: { fontStyle: "bold" } },
-            { content: projectName },
-            { content: "End User:", styles: { fontStyle: "bold" } },
-            { content: endUser },
-          ],
-        ],
-        theme: "grid",
-        styles: { fontSize: 8, textColor: [40, 40, 40], cellPadding: 2 },
-        alternateRowStyles: { fillColor: [250, 250, 250] },
-      });
-
-      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 48;
-
-      // Section 1: Parameters
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9.5);
-      doc.setTextColor(0, 0, 0);
-      doc.text("1. Input Parameters & Hydraulic Criteria", 14, currentY);
-
-      const flow = isSI ? calcResults.Q_flow : calcResults.Q_flow / GPM_TO_LPS;
-      const flowUnit = isSI ? "L/s" : "GPM";
-      const pitV = isSI ? calcResults.pitVol : calcResults.pitVol / GAL_TO_M3;
-      const pitVUnit = isSI ? "m³" : "Gal";
-      const h_loss = isSI ? calcResults.H_loss : calcResults.H_loss / PSI_TO_BAR;
-      const l_equiv = isSI ? calcResults.L_equiv : calcResults.L_equiv / FT_TO_M;
-      const l_unit = isSI ? "m" : "ft";
-      const tdh = isSI ? calcResults.H_pump_calc : calcResults.H_pump_calc / PSI_TO_BAR;
-      const tdhUnit = isSI ? "bar" : "psi";
-
-      const paramTableBody = [
-        ["1", "Required Drainage Volume", isSI ? `${req} L` : `${(Number(req) / GAL_TO_L).toFixed(0)} Gal`, isSI ? `${(Number(req) / GAL_TO_L).toFixed(0)} Gal` : `${req} L`, "Total storage / inflow requirement"],
-        ["2", "Target Drawdown Time", `${time} hrs`, `${(Number(time) * 60).toFixed(0)} mins`, "Allowable pit drawdown interval"],
-        ["3", "Inflow Rate to Sump Pit", isSI ? `${pitFlow} L/s` : `${(Number(pitFlow) / GPM_TO_LPS).toFixed(1)} GPM`, isSI ? `${(Number(pitFlow) / GPM_TO_LPS).toFixed(1)} GPM` : `${pitFlow} L/s`, "Peak sub-soil / storm inflow draw"],
-        ["4", "Holding / Retention Duration", `${pitHold} min`, `${(Number(pitHold) * 60).toFixed(0)} sec`, "Retention time before pump activation"],
-        ["5", "Static Lift Elevation", isSI ? `${staticHead} bar (${(Number(staticHead) * 10.197).toFixed(1)} m)` : `${(Number(staticHead) / PSI_TO_BAR).toFixed(1)} psi`, isSI ? `${(Number(staticHead) / PSI_TO_BAR).toFixed(1)} psi` : `${staticHead} bar`, "Basin floor to gravity discharge level"],
-        ["6", "Residual Pressure Required", isSI ? `${presid} bar` : `${(Number(presid) / PSI_TO_BAR).toFixed(1)} psi`, isSI ? `${(Number(presid) / PSI_TO_BAR).toFixed(1)} psi` : `${presid} bar`, "Terminal discharge residual head"],
-        ["7", "Longest Branch Run", isSI ? `${longestPipe} m` : `${(Number(longestPipe) / FT_TO_M).toFixed(1)} ft`, isSI ? `${(Number(longestPipe) / FT_TO_M).toFixed(1)} ft` : `${longestPipe} m`, "Piping invert calculation length"],
-      ];
-
-      callAutoTable(doc, {
-        startY: currentY + 2.5,
-        head: [["Sr.", "Parameter Description", "Design Value", "Equivalent", "Standard / Code Reference"]],
-        body: paramTableBody,
-        theme: "grid",
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          fontSize: 8.5,
-          halign: "center",
-        },
-        bodyStyles: { fontSize: 8, textColor: [40, 40, 40] },
-        alternateRowStyles: { fillColor: [248, 249, 250] },
-        columnStyles: {
-          0: { cellWidth: 10, halign: "center" },
-          1: { cellWidth: 56, fontStyle: "bold" },
-          2: { cellWidth: 36, halign: "center", fontStyle: "bold" },
-          3: { cellWidth: 32, halign: "center" },
-          4: { cellWidth: 48, halign: "left" },
-        },
-      });
-
-      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 100;
-
-      // Section 2: Outputs
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9.5);
-      doc.setTextColor(0, 0, 0);
-      doc.text("2. Sump Pit Sizing & Hydraulic Results", 14, currentY);
-
-      const resultsTableBody = [
-        ["1", "Calculated Pump Duty Flow (Q)", `${flow.toFixed(2)} ${flowUnit}`, "Duty Flow", "Q = Volume / Drawdown Time"],
-        ["2", "Sump Pit Active Storage Volume", `${pitV.toFixed(2)} ${pitVUnit}`, "Pit Volume", "V = Inflow Rate × Holding Time"],
-        ["3", "Total Dynamic Head (TDH)", `${tdh.toFixed(3)} ${tdhUnit}`, "Dynamic Head", "(H_static + H_loss + H_res) × (1 + SF)"],
-        ["4", "Total Equivalent Pipe Length", `${l_equiv.toFixed(1)} ${l_unit}`, "Piping Run", "Vertical + Horizontal + Fittings Loss"],
-        ["5", "Friction Head Loss (H_fric)", `${h_loss.toFixed(3)} ${tdhUnit}`, "Friction", "Equivalent Length × Friction Factor"],
-        ["6", "Recommended Motor Power Rating", isSI ? `${calcResults.P_motor.toFixed(2)} kW (${calcResults.HP.toFixed(2)} HP)` : `${calcResults.HP.toFixed(2)} HP (${calcResults.P_motor.toFixed(2)} kW)`, "Motor Rating", "Electrical submersible motor rating"],
-      ];
-
-      callAutoTable(doc, {
-        startY: currentY + 2.5,
-        head: [["Sr.", "Metric / Sizing Parameter", "Calculated Value", "Allocation", "Formula & Code Reference"]],
-        body: resultsTableBody,
-        theme: "grid",
-        headStyles: {
-          fillColor: blueFill,
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          fontSize: 8.5,
-          halign: "center",
-        },
-        bodyStyles: { fontSize: 8, textColor: [40, 40, 40] },
-        alternateRowStyles: { fillColor: [248, 249, 250] },
-        columnStyles: {
-          0: { cellWidth: 10, halign: "center" },
-          1: { cellWidth: 58, fontStyle: "bold" },
-          2: { cellWidth: 42, halign: "center", fontStyle: "bold" },
-          3: { cellWidth: 26, halign: "center" },
-          4: { cellWidth: 46, halign: "left" },
-        },
-      });
-
-      currentY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 160;
-
-      // Status Verification Banner
-      doc.setDrawColor(16, 185, 129);
-      doc.setFillColor(240, 253, 244);
-      doc.roundedRect(14, currentY, 182, 14, 2, 2, "FD");
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      doc.setTextColor(5, 150, 105);
-      doc.text("✔ Sump Pit Storage & Submersible Hydraulics Satisfy IPC 1113 & ASPE", 20, currentY + 6);
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(7.5);
-      doc.setTextColor(70, 70, 70);
-      doc.text(`Active pit volume of ${pitV.toFixed(2)} ${pitVUnit} with dynamic lift of ${tdh.toFixed(2)} ${tdhUnit} verified for reliable continuous dewatering.`, 20, currentY + 10.5);
-
-      currentY += 20;
-
-      // Sign-off
-      const sigDetails = getSignatureBlockDetails(project?.id || "default", "/plumbing-sump-pump", currentUserName, calcReviewState);
-
-      callAutoTable(doc, {
-        startY: currentY,
-        head: [["Approval Role", "Engineers Name", "Status / Role Title", "Signature / Date"]],
-        body: [
-          ["Originator / Prepared By", sigDetails.originatedName, "MEP Design Engineer", sigDetails.originatedDate],
-          ["Reviewer / Checked By", sigDetails.reviewerName || "Pending Review", "Senior Plumbing Lead", sigDetails.reviewerDate || "—"],
-          ["Approver / Verified By", sigDetails.approverName || "Pending Approval", "Principal / MEP Director", sigDetails.approverDate || "—"],
-        ],
-        theme: "grid",
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          fontSize: 8.5,
-          halign: "center",
-        },
-        bodyStyles: { fontSize: 8, textColor: [40, 40, 40] },
-        columnStyles: {
-          0: { cellWidth: 44, fontStyle: "bold" },
-          1: { cellWidth: 50, halign: "center" },
-          2: { cellWidth: 46, halign: "center" },
-          3: { cellWidth: 42, halign: "center" },
-        },
-      });
-
-      const pdfBuffer = doc.output("arraybuffer");
-      downloadFile(new Uint8Array(pdfBuffer), `Sump_Pump_Report_${project?.code || "CALC"}.pdf`, "PDF Document", ["pdf"]);
-      toast.success("Preliminary Engineering PDF Report exported successfully!");
-    } catch (err: any) {
-      console.error("exportPdf error:", err);
-      toast.error(`Export PDF failed: ${err?.message || String(err)}`);
-    }
+  const handleExportPDF = () => {
+    exportSumpPumpPDF({
+      calcResults,
+      req,
+      time,
+      flow,
+      pitFlow,
+      pitHold,
+      longestPipe,
+      propSide,
+      pipeVert,
+      pipeHoriz,
+      fricFactor,
+      staticHead,
+      presid,
+      suction,
+      sfHead,
+      effPump,
+      effMotor,
+      unitSystem,
+      preset,
+      meta: {
+        projectName: project?.name,
+        client: (project as any)?.client,
+        projectNo: project?.code,
+        calcNo: `TRV-CAL-SMP-${project?.code || "001"}`,
+        date: formatDateStr(new Date().toISOString()),
+        endUser: (project as any)?.endUser,
+        userName: currentUserName,
+        reviewState: calcReviewState,
+      },
+    });
   };
 
   return (
     <AppShell title="Sump Pump Sizing" onIntelClick={() => setIntelOpen((v) => !v)} intelOpen={intelOpen} hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-hidden h-full">
 
           {/* Page Header & Actions */}
           <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
@@ -793,7 +448,7 @@ function SumpPumpPage() {
           </div>
 
           {/* Main Content Card Container */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED"
+          <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED"
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
             : calcReviewState?.status === "REJECTED"
               ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
@@ -836,8 +491,8 @@ function SumpPumpPage() {
 
               {/* Right Side Action Button: Export */}
               <div className="flex items-center gap-2 select-none shrink-0">
-                <TBtn onClick={exportPdf}>
-                  <FileText className="size-3.5" /> Export
+                <TBtn primary onClick={handleExportPDF} title="Export Sump Pump Calculation as PDF">
+                  <FileText className="size-3.5" /> Export PDF
                 </TBtn>
               </div>
             </div>
@@ -845,12 +500,12 @@ function SumpPumpPage() {
             {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               {tab === "solver" ? (
-                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-8">
+                <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-y-hidden p-4 md:p-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
 
                     {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
-                    <div className="lg:col-span-5 space-y-5">
-                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
+                    <div className="lg:col-span-5 space-y-4">
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4.5 space-y-4">
 
                         {/* Header */}
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
@@ -1366,12 +1021,12 @@ function SumpPumpPage() {
                     </div>
 
                     {/* RIGHT COLUMN: CALCULATION RESULTS SUMMARY (lg:col-span-7) */}
-                    <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
+                    <div className="lg:col-span-7 space-y-4 lg:sticky lg:top-0 self-start">
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
                           <div
                             id="card-calculation-results"
-                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 transition-all hover:border-slate-300 dark:hover:border-zinc-700"
+                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4.5 space-y-4 transition-all hover:border-slate-300 dark:hover:border-zinc-700"
                           >
 
                             {/* Header */}
@@ -1515,11 +1170,11 @@ function SumpPumpPage() {
                           </ContextMenuItem>
                           <ContextMenuSeparator className="h-px bg-border my-1" />
                           <ContextMenuItem
-                            onClick={exportPdf}
+                            onClick={handleExportPDF}
                             className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary text-[13px]"
                           >
                             <FileText className="size-3.5" />
-                            <span>Export PDF Report</span>
+                            <span>Export PDF</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1542,7 +1197,7 @@ function SumpPumpPage() {
                   calcReviewState={calcReviewState}
                   currentUserName={currentUserName}
                   isSI={isSI}
-                  onExportPdf={exportPdf}
+                  onExportPdf={handleExportPDF}
                 />
               )}
             </div>
@@ -1635,7 +1290,7 @@ function SumpPumpReportView({
   isSI: boolean;
   onExportPdf: () => void;
 }) {
-  const calcNo = `CALC-SMP-${project?.code || "001"}`;
+  const calcNo = `TRV-CAL-SMP-${project?.code || "001"}`;
   const projectNo = project?.code || "PRJ-001";
   const projectName = project?.name || "Sump Pit Drainage Sizing Station";
   const clientName = (project as any)?.client || "Client Representative";
@@ -1662,16 +1317,11 @@ function SumpPumpReportView({
         <div className="flex justify-between items-start pb-4 border-b border-border">
           <div>
             <h2 className="text-xl font-bold tracking-tight text-foreground uppercase">
-              Sump Pump Sizing Preliminary Report
+              Sump Pump Sizing Preliminary Calculation
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
               Design Standards: IPC 1113 / ASPE Chapter 7 Sump Pit &amp; Sump Pump Sizing
             </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <TBtn onClick={onExportPdf}>
-              <FileText className="size-3.5" /> Export PDF
-            </TBtn>
           </div>
         </div>
 
@@ -1703,7 +1353,7 @@ function SumpPumpReportView({
           <div className="border border-border rounded-xl overflow-hidden text-xs">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-200/80 dark:bg-zinc-800 font-bold border-b border-border">
+                <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-slate-900 dark:text-slate-100 font-bold border-b border-border">
                   <th className="p-2.5 w-12 text-center">Sr.</th>
                   <th className="p-2.5">Parameter Description</th>
                   <th className="p-2.5 text-center">Design Value</th>
@@ -1765,7 +1415,7 @@ function SumpPumpReportView({
           <div className="border border-border rounded-xl overflow-hidden text-xs">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-blue-100 dark:bg-blue-950/60 font-bold border-b border-border">
+                <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-slate-900 dark:text-slate-100 font-bold border-b border-border">
                   <th className="p-2.5 w-12 text-center">Sr.</th>
                   <th className="p-2.5">Metric / Sizing Parameter</th>
                   <th className="p-2.5 text-center">Calculated Value</th>
@@ -1774,47 +1424,47 @@ function SumpPumpReportView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                <tr className="bg-blue-50/50 dark:bg-blue-950/20 font-bold">
+                <tr className="bg-blue-50/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 font-bold">
                   <td className="p-2.5 text-center font-mono">1</td>
-                  <td className="p-2.5 text-primary">Calculated Pump Duty Flow (Q)</td>
-                  <td className="p-2.5 text-center font-mono text-sm text-primary">{flow.toFixed(2)} {flowUnit}</td>
+                  <td className="p-2.5">Calculated Pump Duty Flow (Q)</td>
+                  <td className="p-2.5 text-center font-mono text-sm">{flow.toFixed(2)} {flowUnit}</td>
                   <td className="p-2.5 text-center">Duty Flow</td>
-                  <td className="p-2.5 text-muted-foreground">Q = Volume / Drawdown Time</td>
+                  <td className="p-2.5 text-muted-foreground font-normal">Q = Volume / Drawdown Time</td>
                 </tr>
-                <tr>
+                <tr className="bg-blue-50/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 font-bold">
                   <td className="p-2.5 text-center font-mono">2</td>
-                  <td className="p-2.5 font-semibold">Sump Pit Active Storage Volume</td>
-                  <td className="p-2.5 text-center font-mono font-bold">{pitV.toFixed(2)} {pitVUnit}</td>
+                  <td className="p-2.5">Sump Pit Active Storage Volume</td>
+                  <td className="p-2.5 text-center font-mono">{pitV.toFixed(2)} {pitVUnit}</td>
                   <td className="p-2.5 text-center">Pit Volume</td>
-                  <td className="p-2.5 text-muted-foreground">V = Inflow Rate × Holding Time</td>
+                  <td className="p-2.5 text-muted-foreground font-normal">V = Inflow Rate × Holding Time</td>
                 </tr>
-                <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                <tr className="bg-blue-50/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 font-bold">
                   <td className="p-2.5 text-center font-mono">3</td>
-                  <td className="p-2.5 font-semibold">Total Dynamic Head (TDH)</td>
-                  <td className="p-2.5 text-center font-mono font-bold">{tdh.toFixed(3)} {tdhUnit}</td>
+                  <td className="p-2.5">Total Dynamic Head (TDH)</td>
+                  <td className="p-2.5 text-center font-mono">{tdh.toFixed(3)} {tdhUnit}</td>
                   <td className="p-2.5 text-center">Dynamic Head</td>
-                  <td className="p-2.5 text-muted-foreground">(H_static + H_loss + H_res) × (1 + SF)</td>
+                  <td className="p-2.5 text-muted-foreground font-normal">(H_static + H_loss + H_res) × (1 + SF)</td>
                 </tr>
                 <tr>
                   <td className="p-2.5 text-center font-mono">4</td>
                   <td className="p-2.5 font-semibold">Total Equivalent Pipe Length</td>
                   <td className="p-2.5 text-center font-mono font-bold">{l_equiv.toFixed(1)} {l_unit}</td>
                   <td className="p-2.5 text-center">Piping Run</td>
-                  <td className="p-2.5 text-muted-foreground">Vertical + Horizontal + Fittings Loss</td>
+                  <td className="p-2.5 text-muted-foreground font-normal">Vertical + Horizontal + Fittings Loss</td>
                 </tr>
                 <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
                   <td className="p-2.5 text-center font-mono">5</td>
                   <td className="p-2.5 font-semibold">Friction Head Loss (H_fric)</td>
                   <td className="p-2.5 text-center font-mono font-bold">{h_loss.toFixed(3)} {tdhUnit}</td>
                   <td className="p-2.5 text-center">Friction</td>
-                  <td className="p-2.5 text-muted-foreground">Equivalent Length × Friction Factor</td>
+                  <td className="p-2.5 text-muted-foreground font-normal">Equivalent Length × Friction Factor</td>
                 </tr>
-                <tr>
+                <tr className="bg-blue-50/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 font-bold">
                   <td className="p-2.5 text-center font-mono">6</td>
-                  <td className="p-2.5 font-semibold">Recommended Motor Power Rating</td>
-                  <td className="p-2.5 text-center font-mono font-bold">{isSI ? `${calcResults.P_motor.toFixed(2)} kW (${calcResults.HP.toFixed(2)} HP)` : `${calcResults.HP.toFixed(2)} HP (${calcResults.P_motor.toFixed(2)} kW)`}</td>
+                  <td className="p-2.5">Recommended Motor Power Rating</td>
+                  <td className="p-2.5 text-center font-mono">{isSI ? `${calcResults.P_motor.toFixed(2)} kW (${calcResults.HP.toFixed(2)} HP)` : `${calcResults.HP.toFixed(2)} HP (${calcResults.P_motor.toFixed(2)} kW)`}</td>
                   <td className="p-2.5 text-center">Motor Rating</td>
-                  <td className="p-2.5 text-muted-foreground">Electrical submersible motor rating</td>
+                  <td className="p-2.5 text-muted-foreground font-normal">Electrical submersible motor rating</td>
                 </tr>
               </tbody>
             </table>
@@ -1838,7 +1488,7 @@ function SumpPumpReportView({
           <div className="border border-border rounded-xl overflow-hidden text-xs">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-200/80 dark:bg-zinc-800 font-bold border-b border-border">
+                <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-slate-900 dark:text-slate-100 font-bold border-b border-border">
                   <th className="p-2.5">Approval Role</th>
                   <th className="p-2.5 text-center">Engineers Name</th>
                   <th className="p-2.5 text-center">Status / Role Title</th>

@@ -3,7 +3,7 @@ import { Check, ChevronsUpDown, SlidersHorizontal, Building2, Home, GraduationCa
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator } from "@/components/ui/command";
-import { HEATING_PRESETS, type HeatingPresetKey } from "@/routes/heating-load";
+import { HEATING_PRESETS, type HeatingPresetKey } from "@/lib/calc-heating-load";
 import { cn } from "@/lib/utils";
 
 const SQFT_TO_SQM = 0.092903;

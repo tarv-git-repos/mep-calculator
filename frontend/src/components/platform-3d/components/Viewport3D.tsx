@@ -180,6 +180,15 @@ document.addEventListener('drop', async e => {
         const model = await fragments.core.load(fragBytes, { modelId: `model-${Date.now()}` });
         model.useCamera(world.camera.three);
 
+        let modelCoordMatrix = new THREE.Matrix4();
+        if (model.coordinationMatrix) {
+            modelCoordMatrix.fromArray(model.coordinationMatrix);
+        } else if (typeof model.getCoordinationMatrix === 'function') {
+            const m = await model.getCoordinationMatrix();
+            if (m) modelCoordMatrix.copy(m);
+        }
+        (window as any)._modelCoordMatrix = modelCoordMatrix;
+
         const bbox = new THREE.Box3().setFromObject(model.object);
         const size = new THREE.Vector3();
         bbox.getSize(size);
@@ -1249,13 +1258,16 @@ document.addEventListener('drop', async e => {
 
             // Construct 2D Space Boundary Overlay
             if (s.polygon && Array.isArray(s.polygon) && s.polygon.length > 2) {
+                const modelCoordMatrix = (window as any)._modelCoordMatrix || new THREE.Matrix4();
                 let actualPos: THREE.Vector3;
                 if (spaceCenters.has(s.expressId)) {
                     actualPos = spaceCenters.get(s.expressId)!.clone();
                 } else if (s.spaceCenter) {
-                    actualPos = localToWorld(s.spaceCenter.x, s.spaceCenter.y, s.spaceCenter.z);
+                    const sc = new THREE.Vector3(s.spaceCenter.x, s.spaceCenter.y, s.spaceCenter.z).applyMatrix4(modelCoordMatrix);
+                    actualPos = localToWorld(sc.x, sc.y, sc.z);
                 } else if (s.placement?.position) {
-                    actualPos = localToWorld(s.placement.position.x, s.placement.position.y, s.placement.position.z);
+                    const sp = new THREE.Vector3(s.placement.position.x, s.placement.position.y, s.placement.position.z).applyMatrix4(modelCoordMatrix);
+                    actualPos = localToWorld(sp.x, sp.y, sp.z);
                 } else {
                     actualPos = new THREE.Vector3(0, 0, 0);
                 }
@@ -1274,9 +1286,13 @@ document.addEventListener('drop', async e => {
                 const worldXZ: { x: number, z: number }[] = [];
 
                 s.polygon.forEach((pt: any, idx: number) => {
-                    const pWorld = localToWorld(pt.x, pt.y, 0);
-                    const wx = pWorld.x + PLANE_OFFSET_X;
-                    const wz = pWorld.z + PLANE_OFFSET_Z;
+                    const v = new THREE.Vector3(pt.x, pt.y, 0).applyMatrix4(modelCoordMatrix);
+                    const pWorld = localToWorld(v.x, v.y, 0);
+                    if (model.object && model.object.matrixWorld) {
+                        pWorld.applyMatrix4(model.object.matrixWorld);
+                    }
+                    const wx = pWorld.x;
+                    const wz = pWorld.z;
 
                     if (idx === 0) shape.moveTo(wx, wz);
                     else shape.lineTo(wx, wz);

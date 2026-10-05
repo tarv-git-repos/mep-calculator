@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { X, Info, CheckCircle, AlertTriangle, Droplets, Calculator, Building2 } from "lucide-react";
-import { DU_FIXTURES_META } from "@/routes/plumbing-discharge-unit";
+import { DU_FIXTURES_META } from "@/lib/calc-plumbing-discharge-unit";
 
 export interface EditDischargeUnitRowModalProps {
   space: {

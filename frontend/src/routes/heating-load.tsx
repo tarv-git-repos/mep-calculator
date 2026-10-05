@@ -1,4 +1,21 @@
-import { calculateHeatingLoad, SQFT_TO_SQM, SQM_TO_SQFT, FT_TO_M, M_TO_FT, U_IP_TO_SI, U_SI_TO_IP, CFM_TO_LPS, LPS_TO_CFM, BTU_HR_TO_KW, KW_TO_BTU_HR } from "@/lib/calc-heating-load";
+import {
+  calculateHeatingLoad,
+  SQFT_TO_SQM,
+  SQM_TO_SQFT,
+  FT_TO_M,
+  M_TO_FT,
+  U_IP_TO_SI,
+  U_SI_TO_IP,
+  CFM_TO_LPS,
+  LPS_TO_CFM,
+  BTU_HR_TO_KW,
+  KW_TO_BTU_HR,
+  HEATING_PRESETS,
+  type HeatingPresetKey,
+  type HeatingPresetConfig,
+} from "@/lib/calc-heating-load";
+
+export { HEATING_PRESETS, type HeatingPresetKey, type HeatingPresetConfig };
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
@@ -45,155 +62,6 @@ export const Route = createFileRoute("/heating-load")({
   }),
   component: HeatingLoadPage,
 });
-
-export type HeatingPresetKey =
-  | "commercial_office"
-  | "residential_house"
-  | "educational_school"
-  | "healthcare_clinic"
-  | "retail_showroom"
-  | "warehouse_storage"
-  | "custom";
-
-export interface HeatingPresetConfig {
-  key: HeatingPresetKey;
-  label: string;
-  category: string;
-  description: string;
-  area: number; // sq ft
-  height: number; // ft
-  uWall: number; // BTU/hr·ft²·°F
-  uRoof: number; // BTU/hr·ft²·°F
-  uGlaz: number; // BTU/hr·ft²·°F
-  glazArea: number; // sq ft
-  oat: number; // °F (Outdoor design temp)
-  iat: number; // °F (Indoor setpoint)
-  ach: number; // Infiltration ACH
-  ventCfm: number; // Ventilation fresh air CFM
-  safetyMargin: number; // %
-}
-
-export const HEATING_PRESETS: Record<HeatingPresetKey, HeatingPresetConfig> = {
-  commercial_office: {
-    key: "commercial_office",
-    label: "Commercial Office",
-    category: "ASHRAE 90.1 / Office",
-    description: "Multi-story commercial office building with insulated curtain wall and fresh air ventilation.",
-    area: 5000,
-    height: 10,
-    uWall: 0.065,
-    uRoof: 0.035,
-    uGlaz: 0.32,
-    glazArea: 600,
-    oat: 20,
-    iat: 70,
-    ach: 0.35,
-    ventCfm: 450,
-    safetyMargin: 15,
-  },
-  residential_house: {
-    key: "residential_house",
-    label: "Residential Home / Villa",
-    category: "IECC / Residential",
-    description: "Modern single/multi-family residence with thermal double-glazed windows and insulated roof.",
-    area: 2500,
-    height: 9,
-    uWall: 0.055,
-    uRoof: 0.028,
-    uGlaz: 0.30,
-    glazArea: 350,
-    oat: 15,
-    iat: 68,
-    ach: 0.45,
-    ventCfm: 120,
-    safetyMargin: 15,
-  },
-  educational_school: {
-    key: "educational_school",
-    label: "School / Classrooms",
-    category: "ASHRAE 62.1 / School",
-    description: "Educational facility with high outdoor air ventilation requirement for indoor air quality.",
-    area: 8000,
-    height: 12,
-    uWall: 0.060,
-    uRoof: 0.032,
-    uGlaz: 0.35,
-    glazArea: 900,
-    oat: 25,
-    iat: 72,
-    ach: 0.50,
-    ventCfm: 1200,
-    safetyMargin: 20,
-  },
-  healthcare_clinic: {
-    key: "healthcare_clinic",
-    label: "Healthcare Clinic",
-    category: "ASHRAE 170 / Health",
-    description: "Outpatient clinical facility with continuous 100% fresh air ventilation and tight temperature control.",
-    area: 4000,
-    height: 10,
-    uWall: 0.050,
-    uRoof: 0.030,
-    uGlaz: 0.28,
-    glazArea: 400,
-    oat: 20,
-    iat: 72,
-    ach: 0.60,
-    ventCfm: 800,
-    safetyMargin: 20,
-  },
-  retail_showroom: {
-    key: "retail_showroom",
-    label: "Retail Showroom",
-    category: "Commercial / High Glazing",
-    description: "Commercial retail shop or vehicle showroom with large storefront perimeter glazing.",
-    area: 6000,
-    height: 14,
-    uWall: 0.070,
-    uRoof: 0.040,
-    uGlaz: 0.38,
-    glazArea: 1800,
-    oat: 25,
-    iat: 70,
-    ach: 0.40,
-    ventCfm: 600,
-    safetyMargin: 15,
-  },
-  warehouse_storage: {
-    key: "warehouse_storage",
-    label: "Warehouse / Storage",
-    category: "Industrial / Low Infiltration",
-    description: "High-ceiling storage facility or logistics center with basic envelope insulation and minimal glazing.",
-    area: 15000,
-    height: 20,
-    uWall: 0.090,
-    uRoof: 0.050,
-    uGlaz: 0.45,
-    glazArea: 300,
-    oat: 20,
-    iat: 60,
-    ach: 0.25,
-    ventCfm: 300,
-    safetyMargin: 20,
-  },
-  custom: {
-    key: "custom",
-    label: "Custom Configuration",
-    category: "Custom Engineering",
-    description: "User-defined building geometries, envelope thermal properties, and climate criteria.",
-    area: 5000,
-    height: 10,
-    uWall: 0.065,
-    uRoof: 0.035,
-    uGlaz: 0.32,
-    glazArea: 600,
-    oat: 20,
-    iat: 70,
-    ach: 0.35,
-    ventCfm: 450,
-    safetyMargin: 15,
-  },
-};
 
 function HeatingLoadPage() {
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();

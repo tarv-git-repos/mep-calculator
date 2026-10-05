@@ -497,7 +497,7 @@ function GeneratorSizingPage() {
     let largestMotorKw = 0;
     let largestMotorStarter = "-";
 
-    rows.forEach((r) => {
+    (rows || []).forEach((r) => {
       const rKw = Number(r.kwPerUnit) || 0;
       const rSb = Number(r.standby) || 0;
       const rEm = r.excludeEmergency ? 0 : Number(r.emergency) || 0;
@@ -717,7 +717,7 @@ function GeneratorSizingPage() {
 
     let rowIndex = 7; // Data starts at row 7
 
-    rows.forEach((r, idx) => {
+    (rows || []).forEach((r, idx) => {
       const rUnit = Number(r.unit) || 0;
       const rKw = Number(r.kwPerUnit) || 0;
       const rSb = Number(r.standby) || 0;
@@ -1884,7 +1884,7 @@ function GeneratorSizingPage() {
                                       onClick={() => {
                                         const targets = selectedRows.has(r.id) ? Array.from(selectedRows) : [r.id];
                                         const newClones: GenRow[] = [];
-                                        rows.forEach((row) => {
+                                        (rows || []).forEach((row) => {
                                           if (targets.includes(row.id)) {
                                             newClones.push({
                                               ...row,

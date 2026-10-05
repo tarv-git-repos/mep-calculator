@@ -8,7 +8,7 @@ import {
   DRAINAGE_PRESETS,
   type DrainagePresetKey,
   type FixtureRowItem,
-} from "@/routes/plumbing-drainage";
+} from "@/lib/calc-plumbing-drainage";
 import { toast } from "sonner";
 
 interface CustomDrainageConfigModalProps {

@@ -5,7 +5,7 @@ import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
-import { Trash2, Plus, Download, Save, Info, Droplet, Building2, Layers, Globe, Sparkles, FileSpreadsheet, MessageSquare, Copy, Calculator, X, FileText, SlidersHorizontal, Check, Filter, ArrowUpDown, Search, Flag, Gauge, RefreshCw, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { Trash2, Plus, Download, Save, Info, Droplet, Building2, Layers, Globe, Sparkles, FileSpreadsheet, MessageSquare, Copy, Calculator, X, FileText, Printer, SlidersHorizontal, Check, Filter, ArrowUpDown, Search, Flag, Gauge, RefreshCw, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, ContextMenuShortcut } from "@/components/ui/context-menu";
 import { TBtn } from "@/components/workspace/Button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -20,12 +20,20 @@ import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { exportWaterDemandPDF } from "@/lib/exportWaterDemandPDF";
+import {
+  type OverheadTank,
+  type WDRow,
+  type IrrRow,
+  WD_TYPE_MAP,
+  IRR_TYPE_MAP,
+  PRESET_STANDARDS,
+  type AutoDetectResult,
+  detectAshraeOccupancy,
+  type Tab,
+  computeWaterDemandCalculations
+} from "@/lib/calc-plumbing-water-demand";
 
-interface OverheadTank {
-  id: number;
-  name: string;
-  splitPct: number;
-}
 
 export const Route = createFileRoute("/plumbing-water-demand")({
   head: () => ({
@@ -36,298 +44,6 @@ export const Route = createFileRoute("/plumbing-water-demand")({
   }),
   component: WaterDemandPage,
 });
-
-interface WDRow {
-  id: number;
-  name: string;
-  ppl: number;
-  cat: string;
-  lpd: number;
-  multiplier?: number;
-  autoDetected?: boolean;
-  flagged?: boolean;
-  comments?: any[];
-}
-
-interface IrrRow {
-  id: number;
-  area: number;
-  vegType: string;
-  lpd: number;
-  flagged?: boolean;
-  comments?: any[];
-}
-
-const WD_TYPE_MAP: Record<string, number> = {
-  // Residential
-  "Residential buildings (flat)": 300,
-  "Villas": 350,
-  "Mixed used residential": 350,
-  "Labour accommodation": 150,
-  // Office & Commercial
-  "Offices": 60,
-  "Headquarters": 80,
-  "Commercial buildings": 100,
-  "Mixed used commercial": 80,
-  "Logistic, academic & business center": 75,
-  // Retail & Leisure
-  "Local plaza / retail / town center": 82,
-  "Shops": 60,
-  "Club house / recreation": 100,
-  "Entertainment & leisure / theater": 60,
-  "Theatre": 50,
-  "Events": 50,
-  // Hospitality
-  "Hotels (per guest)": 300,
-  "Hotels (per employee)": 80,
-  "Restaurant (per meal)": 15,
-  "Visitors": 40,
-  // Education
-  "Schools / university": 60,
-  "Nursery / child care centre": 70,
-  // Medical & Healthcare
-  "Medical (per bed)": 450,
-  "Day clinic (per medical practitioner) incl. visitors": 450,
-  "Laboratory": 80,
-  // Industrial
-  "Manufacturing / mineral": 80,
-  "Industrial (workshops / machinery / warehouse)": 80,
-  "Guardhouse": 75,
-  // Public & Assembly
-  "Mosques": 60,
-  "Public amenities": 50,
-  // Custom
-  "Custom Rate / Category": 100,
-};
-
-const IRR_TYPE_MAP: Record<string, number> = {
-  "Palm Trees": 150,
-  "Small Palm Tree": 75,
-  "Ornamental trees": 80,
-  "Mix Vegetation / Mixed Planting": 30,
-  "Mix Vegetarian": 30,
-  "Shrubs & hedges": 15,
-  "Ground cover and succulents": 12,
-  "Seasonal flowers and creepers": 12,
-  "Lawn with pop-up sprays": 10,
-};
-
-const PRESET_STANDARDS = {
-  dewa: {
-    name: "DEWA / Dubai Municipality Guidelines",
-    desc: "Standard Middle East domestic consumption rates (Flat: 300 LPD, Villa: 350 LPD, Office: 60 LPD).",
-    multiplier: 1.0,
-  },
-  addc: {
-    name: "ADDC / Abu Dhabi RSB Guidelines",
-    desc: "Abu Dhabi Distribution Co. consumption standards (Flat: 270 LPD, Villa: 320 LPD, Office: 55 LPD).",
-    multiplier: 0.9,
-  },
-  ipc: {
-    name: "ASHRAE / IPC (International Plumbing Code)",
-    desc: "US/International standard occupancy demand rates.",
-    multiplier: 0.85,
-  },
-  cibse: {
-    name: "BS 8558 / CIBSE Guide G Guidelines",
-    desc: "UK & European CIBSE water supply & storage standards.",
-    multiplier: 0.8,
-  },
-};
-
-interface AutoDetectResult {
-  people: number;
-  cat?: string;
-  autoDetected: boolean;
-}
-
-function detectAshraeOccupancy(desc: string): AutoDetectResult | null {
-  if (!desc) return null;
-  const clean = desc.trim().toLowerCase();
-
-  let qty = 1;
-  const qtyMatch = clean.match(/^(\d+)\s*(?:x|nos|no|units|flats|apartments|rooms|beds|seats|offices|classrooms|toilets|restrooms)?\s+/i);
-  let textToScan = clean;
-
-  if (qtyMatch) {
-    const parsedQty = parseInt(qtyMatch[1], 10);
-    if (!isNaN(parsedQty) && parsedQty > 0) {
-      qty = parsedQty;
-      textToScan = clean.substring(qtyMatch[0].length).trim();
-    }
-  }
-
-  // Healthcare / Medical / Clinic / Lab
-  if (textToScan.includes("day clinic") || textToScan.includes("practitioner") || textToScan.includes("polyclinic")) {
-    return { people: qty * 5, cat: "Day clinic (per medical practitioner) incl. visitors", autoDetected: true };
-  }
-  if (
-    textToScan.includes("hospital") ||
-    textToScan.includes("clinic") ||
-    textToScan.includes("patient room") ||
-    textToScan.includes("bed") ||
-    textToScan.includes("ward") ||
-    textToScan.includes("medical")
-  ) {
-    return { people: qty * 2, cat: "Medical (per bed)", autoDetected: true };
-  }
-  if (textToScan.includes("lab") || textToScan.includes("laboratory") || textToScan.includes("diagnostic")) {
-    return { people: qty * 15, cat: "Laboratory", autoDetected: true };
-  }
-
-  // Education
-  if (
-    textToScan.includes("classroom") ||
-    textToScan.includes("class room") ||
-    textToScan.includes("school") ||
-    textToScan.includes("university") ||
-    textToScan.includes("college") ||
-    textToScan.includes("institute") ||
-    textToScan.includes("lecture")
-  ) {
-    return { people: qty * 30, cat: "Schools / university", autoDetected: true };
-  }
-  if (
-    textToScan.includes("nursery") ||
-    textToScan.includes("child care") ||
-    textToScan.includes("daycare") ||
-    textToScan.includes("creche") ||
-    textToScan.includes("kindergarten") ||
-    textToScan.includes("kg")
-  ) {
-    return { people: qty * 20, cat: "Nursery / child care centre", autoDetected: true };
-  }
-
-  // Hospitality & Dining
-  if (
-    textToScan.includes("hotel room") ||
-    textToScan.includes("hotel guest") ||
-    textToScan.includes("guest room") ||
-    textToScan.includes("hotel") ||
-    textToScan.includes("resort")
-  ) {
-    return { people: qty * 2, cat: "Hotels (per guest)", autoDetected: true };
-  }
-  if (textToScan.includes("hotel staff") || textToScan.includes("hotel employee") || textToScan.includes("staff quarter")) {
-    return { people: qty * 10, cat: "Hotels (per employee)", autoDetected: true };
-  }
-  if (
-    textToScan.includes("restaurant") ||
-    textToScan.includes("dining") ||
-    textToScan.includes("cafeteria") ||
-    textToScan.includes("cafe") ||
-    textToScan.includes("food court") ||
-    textToScan.includes("bistro") ||
-    textToScan.includes("eatery")
-  ) {
-    return { people: qty * 40, cat: "Restaurant (per meal)", autoDetected: true };
-  }
-  if (textToScan.includes("visitor") || textToScan.includes("lobby") || textToScan.includes("reception") || textToScan.includes("waiting")) {
-    return { people: qty * 20, cat: "Visitors", autoDetected: true };
-  }
-
-  // Industrial & Workshops
-  if (textToScan.includes("manufacturing") || textToScan.includes("factory") || textToScan.includes("production") || textToScan.includes("mill")) {
-    return { people: qty * 15, cat: "Manufacturing / mineral", autoDetected: true };
-  }
-  if (
-    textToScan.includes("workshop") ||
-    textToScan.includes("warehouse") ||
-    textToScan.includes("depot") ||
-    textToScan.includes("plant room") ||
-    textToScan.includes("substation") ||
-    textToScan.includes("mechanical room") ||
-    textToScan.includes("pump room") ||
-    textToScan.includes("industrial")
-  ) {
-    return { people: qty * 10, cat: "Industrial (workshops / machinery / warehouse)", autoDetected: true };
-  }
-
-  // Security / Guardhouse
-  if (textToScan.includes("guard") || textToScan.includes("guardhouse") || textToScan.includes("security") || textToScan.includes("gatehouse")) {
-    return { people: qty * 2, cat: "Guardhouse", autoDetected: true };
-  }
-
-  // Mosque & Public
-  if (textToScan.includes("mosque") || textToScan.includes("prayer room") || textToScan.includes("masjid") || textToScan.includes("musalla")) {
-    return { people: qty * 50, cat: "Mosques", autoDetected: true };
-  }
-
-  // Residential Studio / BHK / Villas
-  if (textToScan.includes("studio")) {
-    return { people: qty * 2, cat: "Residential buildings (flat)", autoDetected: true };
-  }
-
-  const bhkMatch = textToScan.match(/(\d+)\s*(?:bhk|bed|bedroom|br)\b/i);
-  if (bhkMatch && bhkMatch[1]) {
-    const bedrooms = parseInt(bhkMatch[1], 10);
-    if (!isNaN(bedrooms) && bedrooms > 0) {
-      const isVilla = clean.includes("villa") || clean.includes("house");
-      return {
-        people: qty * (bedrooms * 2),
-        cat: isVilla ? "Villas" : "Residential buildings (flat)",
-        autoDetected: true,
-      };
-    }
-  }
-
-  if (textToScan.includes("villa") || textToScan.includes("townhouse") || textToScan.includes("duplex")) {
-    return { people: qty * 6, cat: "Villas", autoDetected: true };
-  }
-
-  if (textToScan.includes("flat") || textToScan.includes("apartment") || textToScan.includes("residential") || textToScan.includes("residence")) {
-    return { people: qty * 4, cat: "Residential buildings (flat)", autoDetected: true };
-  }
-
-  if (textToScan.includes("labour") || textToScan.includes("labor") || textToScan.includes("worker") || textToScan.includes("camp")) {
-    return { people: qty * 20, cat: "Labour accommodation", autoDetected: true };
-  }
-
-  // Restroom / Changing Room / Toilet / Amenities
-  if (
-    textToScan.includes("rest room") ||
-    textToScan.includes("restroom") ||
-    textToScan.includes("changing room") ||
-    textToScan.includes("toilet") ||
-    textToScan.includes("washroom") ||
-    textToScan.includes("bathroom") ||
-    textToScan.includes("wc")
-  ) {
-    return { people: qty * 15, cat: "Public amenities", autoDetected: true };
-  }
-
-  // Offices & Commercial
-  if (textToScan.includes("office") || textToScan.includes("workstation") || textToScan.includes("desk") || textToScan.includes("cubicle")) {
-    return { people: qty * 10, cat: "Offices", autoDetected: true };
-  }
-  if (textToScan.includes("headquarter") || textToScan.includes("hq")) {
-    return { people: qty * 50, cat: "Headquarters", autoDetected: true };
-  }
-  if (textToScan.includes("commercial")) {
-    return { people: qty * 25, cat: "Commercial buildings", autoDetected: true };
-  }
-
-  // Retail & Leisure
-  if (textToScan.includes("shop") || textToScan.includes("retail") || textToScan.includes("store") || textToScan.includes("boutique") || textToScan.includes("supermarket")) {
-    return { people: qty * 8, cat: "Shops", autoDetected: true };
-  }
-  if (textToScan.includes("plaza") || textToScan.includes("mall") || textToScan.includes("town center")) {
-    return { people: qty * 100, cat: "Local plaza / retail / town center", autoDetected: true };
-  }
-  if (textToScan.includes("club") || textToScan.includes("recreation") || textToScan.includes("gym") || textToScan.includes("fitness")) {
-    return { people: qty * 30, cat: "Club house / recreation", autoDetected: true };
-  }
-  if (textToScan.includes("theater") || textToScan.includes("theatre") || textToScan.includes("cinema") || textToScan.includes("auditorium")) {
-    return { people: qty * 50, cat: "Theatre", autoDetected: true };
-  }
-  if (textToScan.includes("event") || textToScan.includes("exhibition") || textToScan.includes("banquet") || textToScan.includes("function hall")) {
-    return { people: qty * 50, cat: "Events", autoDetected: true };
-  }
-
-  return null;
-}
-
-type Tab = "demand" | "tanks" | "report";
 
 function WaterDemandPage() {
   const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
@@ -996,163 +712,12 @@ function WaterDemandPage() {
 
   const ip = unitSystem === "ip";
 
-  // Core Calculations
   const calculations = useMemo(() => {
-    // Domestic Total
-    let totalPeople = 0;
-    let totalWaterL = 0;
-    wdRows.forEach((r) => {
-      const mult = r.multiplier && r.multiplier > 0 ? r.multiplier : 1;
-      totalPeople += r.ppl * mult;
-      totalWaterL += r.ppl * r.lpd * mult;
-    });
-
-    // Irrigation Total
-    let totalIrrL = 0;
-    irrRows.forEach((r) => {
-      totalIrrL += r.area * r.lpd;
-    });
-
-    // Pool Total
-    const pAreaVal = Number(poolArea) || 0;
-    const pDepthVal = Number(poolDepth) || 0;
-    const poolVolL = pAreaVal * pDepthVal * 1000;
-    const poolDemandL = poolVolL * (poolEvap / 100);
-
-    // Fire Total
-    const fFlowGPM = Number(fireFlow) || 0;
-    const fireLPM = fFlowGPM * 3.78541;
-    const fireCapL = fireLPM * 60; // 60 mins reserve
-
-    // Grand Total Daily Demand (Domestic + Irrigation + Pool Makeup)
-    const grandTotalL = totalWaterL + totalIrrL + poolDemandL;
-
-    // Storage Tank Calculations
-    const reqStorageL = grandTotalL * (storageDays || 1);
-    const reqStorageM3 = reqStorageL / 1000;
-    const reqStorageGal = reqStorageL / 3.78541;
-
-    const totalOverheadPct = overheadTanks.reduce(
-      (sum, t) => sum + (Number(t.splitPct) || 0),
-      0
+    return computeWaterDemandCalculations(
+      wdRows, irrRows, poolArea, poolDepth, poolEvap, fireFlow,
+      storageDays, groundTankPct, overheadTanks, peakFactor, fillWindowHours, ip
     );
-    const groundPct = Number(groundTankPct) || 100;
-
-    const groundTankL = reqStorageL * (groundPct / 100);
-    const roofTankL = reqStorageL * (totalOverheadPct / 100);
-
-    // Dimensions helper (assuming rectangular cube with H ~ 2.2m for ground, H ~ 1.5m for roof)
-    const estimateDimensions = (volM3: number, hDefault: number) => {
-      if (volM3 <= 0) return { l: 0, w: 0, h: 0 };
-      const h = hDefault;
-      const baseArea = volM3 / h;
-      const w = Math.sqrt(baseArea / 1.5);
-      const l = w * 1.5;
-      return {
-        l: Math.round(l * 100) / 100,
-        w: Math.round(w * 100) / 100,
-        h: Math.round(h * 100) / 100,
-      };
-    };
-
-    const groundDim = estimateDimensions(groundTankL / 1000, 2.2);
-
-    // Unit Formatter
-    const formatVol = (liters: number) => {
-      if (ip) {
-        return `${Math.round(liters / 3.78541).toLocaleString()} gal`;
-      }
-      return `${Math.round(liters).toLocaleString()} L`;
-    };
-
-    const formatRate = (litersPerDay: number) => {
-      if (ip) {
-        return `${Math.round(litersPerDay / 3.78541).toLocaleString()} gal/day`;
-      }
-      return `${Math.round(litersPerDay).toLocaleString()} L/day`;
-    };
-
-    const overheadTanksCalculated = overheadTanks.map((t) => {
-      const pct = Number(t.splitPct) || 0;
-      const volL = reqStorageL * (pct / 100);
-      const dim = estimateDimensions(volL / 1000, 1.5);
-      return {
-        ...t,
-        volL,
-        sharePct: pct,
-        dim,
-        displayVol: formatVol(volL),
-      };
-    });
-
-    // Peak Demand & Transfer Pump Flow
-    const peakFactorVal = peakFactor || 2.5;
-    const peakHourlyFlowL = (totalWaterL * peakFactorVal) / 10; // Peak 10-hr operating window
-    const peakLPS = peakHourlyFlowL / 3600;
-    const peakGPM = (peakHourlyFlowL / 3.78541) / 60;
-
-    const fillHrs = fillWindowHours || 2;
-    const transferPumpFlowLPH = roofTankL > 0 ? roofTankL / fillHrs : totalWaterL / fillHrs;
-    const transferPumpLPS = transferPumpFlowLPH / 3600;
-    const transferPumpGPM = (transferPumpFlowLPH / 3.78541) / 60;
-
-    return {
-      totalPeople,
-      totalWaterL,
-      totalIrrL,
-      poolVolL,
-      poolDemandL,
-      fireLPM,
-      fireCapL,
-      grandTotalL,
-      reqStorageL,
-      reqStorageM3,
-      reqStorageGal,
-      totalOverheadPct,
-      groundPct,
-      groundTankL,
-      roofTankL,
-      groundDim,
-      overheadTanksCalculated,
-      peakHourlyFlowL,
-      peakLPS,
-      peakGPM,
-      transferPumpFlowLPH,
-      transferPumpLPS,
-      transferPumpGPM,
-      displayDomestic: formatRate(totalWaterL),
-      displayDomesticPeak: ip
-        ? `${Math.round(peakGPM).toLocaleString()} GPM`
-        : `${peakLPS.toFixed(2)} L/s`,
-      displayIrrigation: formatRate(totalIrrL),
-      displayPoolVol: formatVol(poolVolL),
-      displayPoolDemand: formatRate(poolDemandL),
-      displayFireLPM: `${fireLPM.toFixed(1)} L/min (${fFlowGPM} GPM)`,
-      displayFireCap: formatVol(fireCapL),
-      displayGrandTotal: formatRate(grandTotalL),
-      displayTotalStorage: ip
-        ? `${Math.round(reqStorageGal).toLocaleString()} gal (${(reqStorageM3 * 35.3147).toFixed(1)} ft³)`
-        : `${Math.round(reqStorageL).toLocaleString()} L (${reqStorageM3.toFixed(2)} m³)`,
-      displayGroundTank: formatVol(groundTankL),
-      displayRoofTank: formatVol(roofTankL),
-      displayTransferPump: ip
-        ? `${transferPumpGPM.toFixed(1)} GPM`
-        : `${transferPumpLPS.toFixed(2)} L/s (${Math.round(transferPumpFlowLPH)} L/hr)`,
-    };
-  }, [
-    wdRows,
-    irrRows,
-    poolArea,
-    poolDepth,
-    poolEvap,
-    fireFlow,
-    storageDays,
-    groundTankPct,
-    overheadTanks,
-    peakFactor,
-    fillWindowHours,
-    ip,
-  ]);
+  }, [wdRows, irrRows, poolArea, poolDepth, poolEvap, fireFlow, storageDays, groundTankPct, overheadTanks, peakFactor, fillWindowHours, ip]);
 
   // Domestic Handlers
   const handleAddWd = () => {
@@ -1359,265 +924,38 @@ function WaterDemandPage() {
     );
   };
 
-  // Helper for safe autoTable calling across bundler variations
-  const callAutoTable = (pdfDoc: any, options: any) => {
-    if (typeof autoTable === "function") {
-      autoTable(pdfDoc, options);
-    } else if (typeof (autoTable as any)?.default === "function") {
-      (autoTable as any).default(pdfDoc, options);
-    } else if (typeof pdfDoc.autoTable === "function") {
-      pdfDoc.autoTable(options);
-    } else {
-      console.error("autoTable function not available");
-    }
-  };
-
-  // PDF Exporter
-  const handleExportPDF = () => {
+  // PDF Exporter (Matching Ventilation & Preliminary Cooling Load Standard)
+  const handleExportPDF = async () => {
     try {
-      const JsPDFClass = typeof jsPDF === "function" ? jsPDF : (jsPDF as any).default;
-      const doc = new JsPDFClass("portrait", "mm", "a4");
-      const projId = project?.id || "default";
-
-      let currentY = addPdfHeader(
-        doc,
-        "Water Demand & Tank Sizing Calculation Report",
-        {
-          calcNo: project?.calcNo || "TRV-CAL-101-R01",
-          projectNo: project?.code || project?.projectNo || "P000",
-          projectName: project?.name || "MEP Calculator Project",
-          client: project?.client || "",
-          endUser: project?.endUser || project?.location || "",
+      await exportWaterDemandPDF({
+        calculations,
+        wdRows,
+        irrRows,
+        poolArea,
+        poolDepth,
+        poolEvap,
+        fireFlow,
+        storageDays,
+        groundTankPct,
+        overheadTanks,
+        fillWindowHours,
+        peakFactor,
+        unitSystem,
+        presetStandard,
+        meta: {
+          projectName: project?.name,
+          client: project?.client,
+          projectNo: project?.code || project?.projectNo,
+          calcNo: project?.calcNo,
+          endUser: project?.endUser || project?.location,
           date: formatDateStr(new Date().toISOString()),
-        }
-      );
-
-      // Section 1: Executive Summary Card Table
-      callAutoTable(doc, {
-        startY: currentY + 4,
-        margin: { left: 14, right: 14 },
-        head: [["Calculated Parameter", "Value", "Unit / Metric", "Engineering Standard"]],
-        body: [
-          ["Domestic Daily Water Demand", calculations.displayDomestic, ip ? "gal/day" : "L/day", PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name || "DEWA Guidelines"],
-          ["Domestic Peak Flow Rate", calculations.displayDomesticPeak, ip ? "GPM" : "L/s", `Peak Multiplier K = ${peakFactor}`],
-          ["Irrigation Daily Water Load", calculations.displayIrrigation, ip ? "gal/day" : "L/day", "Landscaping Area Schedule"],
-          ["Pool Daily Makeup Water", calculations.displayPoolDemand, ip ? "gal/day" : "L/day", `Evaporation Rate = ${poolEvap}%/day`],
-          ["GRAND TOTAL DAILY DEMAND", calculations.displayGrandTotal, ip ? "gal/day" : "L/day", "Combined Site Daily Load"],
-          ["Required Storage Tank Volume", calculations.displayTotalStorage, ip ? "gal" : "m³", `${storageDays} Day(s) Retention`],
-          ["Ground Water Tank (Break Tank)", calculations.displayGroundTank, ip ? "gal" : "L", `Ground Split: ${calculations.groundPct}%`],
-          ["Overhead Roof Tank Total", calculations.displayRoofTank, ip ? "gal" : "L", `Roof Split: ${calculations.totalOverheadPct}%`],
-          ["Transfer Pump Flow Rate", calculations.displayTransferPump, ip ? "GPM" : "L/s", `${fillWindowHours}-Hr Filling Window`],
-        ],
-        theme: "grid",
-        headStyles: { fillColor: [10, 123, 199], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8.5 },
-        bodyStyles: { fontSize: 8 },
-        columnStyles: { 0: { fontStyle: "bold", cellWidth: 55 }, 1: { fontStyle: "bold", textColor: [10, 123, 199] } },
+          userName: currentUserName,
+          reviewState: calcReviewState,
+        },
       });
-
-      currentY = (doc as any).lastAutoTable?.finalY || 100;
-
-      // Section 2: Domestic Schedule
-      doc.setFontSize(9.5);
-      doc.setFont("helvetica", "bold");
-      doc.text("Section 1: Domestic Water Demand Schedule", 14, currentY + 8);
-
-      callAutoTable(doc, {
-        startY: currentY + 11,
-        margin: { left: 14, right: 14 },
-        head: [["S.No", "Description", "People / Unit", "Qty / Multiplier", "Category", ip ? "Rate (gpd)" : "Rate (LPD)", ip ? "Total (gal)" : "Total (L)"]],
-        body: [
-          ...wdRows.map((r, idx) => [
-            idx + 1,
-            r.name,
-            r.ppl,
-            `×${r.multiplier || 1}`,
-            r.cat,
-            ip ? Math.round(r.lpd / 3.78541) : r.lpd,
-            ip ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541).toLocaleString() : (r.ppl * r.lpd * (r.multiplier || 1)).toLocaleString(),
-          ]),
-          ["", "TOTAL DOMESTIC LOAD", calculations.totalPeople, "", "", "", calculations.displayDomestic],
-        ],
-        theme: "striped",
-        headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontSize: 8.5 },
-        bodyStyles: { fontSize: 8 },
-      });
-
-      currentY = (doc as any).lastAutoTable?.finalY || 180;
-
-      // Section 3: Irrigation & Storage Dimensions
-      doc.setFontSize(9.5);
-      doc.setFont("helvetica", "bold");
-      doc.text("Section 2: Irrigation & Storage Tank Physical Sizing", 14, currentY + 8);
-
-      callAutoTable(doc, {
-        startY: currentY + 11,
-        margin: { left: 14, right: 14 },
-        head: [["Category", "Vegetation / Tank", "Area / Volume", "Rate / Ratio", "Total Output & Dimensions"]],
-        body: [
-          ...irrRows.map((r) => [
-            "Irrigation",
-            r.vegType,
-            `${r.area} ${ip ? "ft²" : "m²"}`,
-            ip ? `${(r.lpd / 40.7458).toFixed(2)} gal/ft²` : `${r.lpd} L/m²`,
-            ip ? `${Math.round((r.area * r.lpd) / 3.78541).toLocaleString()} gal` : `${(r.area * r.lpd).toLocaleString()} L`,
-          ]),
-          ["Ground Tank", "Reinforced Concrete / GRP", `${(calculations.groundTankL / 1000).toFixed(2)} m³`, `${calculations.groundPct}% Share`, `${calculations.groundDim.l}m L × ${calculations.groundDim.w}m W × ${calculations.groundDim.h}m H`],
-          ...calculations.overheadTanksCalculated.map((t) => [
-            t.name,
-            "Modular Sectional Tank",
-            `${(t.volL / 1000).toFixed(2)} m³`,
-            `${t.sharePct.toFixed(0)}% Share`,
-            `${t.dim.l}m L × ${t.dim.w}m W × ${t.dim.h}m H`,
-          ]),
-        ],
-        theme: "grid",
-        headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontSize: 8.5 },
-        bodyStyles: { fontSize: 8 },
-      });
-
-      currentY = (doc as any).lastAutoTable?.finalY || 240;
-
-      // Add signature block
-      const reviewDetails = resolveLatestReviewState(projId, "/plumbing-water-demand");
-      addPdfSignatureBlock(
-        doc,
-        currentY,
-        reviewDetails || currentUserName,
-        projId,
-        "/plumbing-water-demand"
-      );
-
-      doc.save(`Water_Demand_Report_${Date.now()}.pdf`);
-      toast.success("PDF calculation report generated successfully!");
     } catch (e) {
       console.error("PDF Export error:", e);
       toast.error("Failed to generate PDF report.");
-    }
-  };
-
-  // Excel Exporter using ExcelJS
-  const handleExportExcel = async () => {
-    try {
-      const workbook = new ExcelJS.Workbook();
-      const sheet = workbook.addWorksheet("Water Demand & Tank Sizing");
-
-      // Title Banner
-      sheet.mergeCells("A1:G1");
-      const titleCell = sheet.getCell("A1");
-      titleCell.value = "WATER DEMAND & STORAGE TANK SIZING REPORT";
-      titleCell.font = { name: "Arial", size: 14, bold: true, color: { argb: "FFFFFFFF" } };
-      titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0A7BC7" } };
-      titleCell.alignment = { horizontal: "center", vertical: "middle" };
-      sheet.getRow(1).height = 30;
-
-      sheet.addRow([]);
-
-      // Section 1: Executive Summary
-      sheet.addRow(["EXECUTIVE SIZING SUMMARY"]);
-      sheet.getRow(3).font = { name: "Arial", size: 11, bold: true, color: { argb: "FF0A7BC7" } };
-
-      const summaryHeaders = ["Parameter", "Calculated Value", "Unit System", "Design Standard / Code"];
-      const sRow = sheet.addRow(summaryHeaders);
-      sRow.font = { name: "Arial", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
-      sRow.eachCell((cell) => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF334155" } };
-      });
-
-      const summaryData = [
-        ["Domestic Daily Demand", calculations.displayDomestic, ip ? "gal/day" : "L/day", PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name || "DEWA"],
-        ["Domestic Peak Flow Rate", calculations.displayDomesticPeak, ip ? "GPM" : "L/s", `Peak Diversity Factor = ${peakFactor}`],
-        ["Irrigation Daily Load", calculations.displayIrrigation, ip ? "gal/day" : "L/day", "Landscaping Area Schedule"],
-        ["Pool Makeup Water", calculations.displayPoolDemand, ip ? "gal/day" : "L/day", `Evaporation Rate = ${poolEvap}%`],
-        ["GRAND TOTAL DAILY DEMAND", calculations.displayGrandTotal, ip ? "gal/day" : "L/day", "Combined Site Consumption"],
-        ["Total Storage Requirement", calculations.displayTotalStorage, ip ? "gal" : "m³", `${storageDays} Day(s) Retention`],
-        ["Ground Break Tank Capacity", calculations.displayGroundTank, ip ? "gal" : "L", `Split Allocation: ${calculations.groundPct}%`],
-        ...calculations.overheadTanksCalculated.map((t) => [
-          `${t.name} Capacity`,
-          t.displayVol,
-          ip ? "gal" : "L",
-          `Split Allocation: ${t.sharePct.toFixed(0)}%`,
-        ]),
-        ["Transfer Pump Duty Flow", calculations.displayTransferPump, ip ? "GPM" : "L/s", `${fillWindowHours}-Hour Roof Tank Filling Window`],
-      ];
-
-      summaryData.forEach((r) => sheet.addRow(r));
-      sheet.addRow([]);
-
-      // Section 2: Domestic Schedule Table
-      sheet.addRow(["DOMESTIC WATER DEMAND SCHEDULE"]);
-      const dTitleRow = sheet.getRow(sheet.rowCount);
-      dTitleRow.font = { name: "Arial", size: 11, bold: true, color: { argb: "FF0A7BC7" } };
-
-      const domHeaders = ["S.No", "Description", "No. of People", "Space Qty (Multiplier)", "Category", ip ? "Rate (gpd)" : "Rate (LPD)", ip ? "Total (gal/day)" : "Total (L/day)"];
-      const dHeaderRow = sheet.addRow(domHeaders);
-      dHeaderRow.font = { name: "Arial", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
-      dHeaderRow.eachCell((cell) => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF06456F" } };
-      });
-
-      wdRows.forEach((r, idx) => {
-        sheet.addRow([
-          idx + 1,
-          r.name,
-          r.ppl,
-          r.multiplier || 1,
-          r.cat,
-          ip ? Math.round(r.lpd / 3.78541) : r.lpd,
-          ip ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541) : r.ppl * r.lpd * (r.multiplier || 1),
-        ]);
-      });
-
-      sheet.addRow(["TOTAL", "DOMESTIC TOTAL", calculations.totalPeople, "", "", "", ip ? Math.round(calculations.totalWaterL / 3.78541) : calculations.totalWaterL]);
-      sheet.getRow(sheet.rowCount).font = { name: "Arial", size: 10, bold: true };
-      sheet.addRow([]);
-
-      // Section 3: Irrigation Schedule
-      sheet.addRow(["IRRIGATION SCHEDULE"]);
-      sheet.getRow(sheet.rowCount).font = { name: "Arial", size: 11, bold: true, color: { argb: "FF0A7BC7" } };
-
-      const irrHeaders = ["S.No", "Vegetation Type", ip ? "Area (ft²)" : "Area (m²)", ip ? "Rate (gal/ft²)" : "Rate (L/m²)", ip ? "Total Load (gal)" : "Total Load (L)"];
-      const iHeaderRow = sheet.addRow(irrHeaders);
-      iHeaderRow.font = { name: "Arial", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
-      iHeaderRow.eachCell((cell) => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF06456F" } };
-      });
-
-      irrRows.forEach((r, idx) => {
-        sheet.addRow([
-          idx + 1,
-          r.vegType,
-          r.area,
-          ip ? Number((r.lpd / 40.7458).toFixed(2)) : r.lpd,
-          ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd,
-        ]);
-      });
-
-      sheet.addRow(["TOTAL", "IRRIGATION TOTAL", "", "", ip ? Math.round(calculations.totalIrrL / 3.78541) : calculations.totalIrrL]);
-      sheet.getRow(sheet.rowCount).font = { name: "Arial", size: 10, bold: true };
-      sheet.addRow([]);
-
-      // Auto width
-      sheet.columns.forEach((col) => {
-        col.width = 25;
-      });
-
-      // Signature block
-      const sigRow = sheet.rowCount + 2;
-      addExcelSignatureBlock(
-        sheet,
-        sigRow,
-        currentUserName,
-        project?.id || "default",
-        "/plumbing-water-demand",
-        7
-      );
-
-      const buffer = await workbook.xlsx.writeBuffer();
-      saveAs(new Blob([buffer]), `Water_Demand_Report_${Date.now()}.xlsx`);
-      toast.success("Excel report generated successfully!");
-    } catch (e) {
-      console.error("Excel Export error:", e);
-      toast.error("Failed to export Excel report.");
     }
   };
 
@@ -3263,7 +2601,6 @@ function WaterDemandPage() {
               calcReviewState={calcReviewState}
               currentUserName={currentUserName}
               onExportPdf={handleExportPDF}
-              onExportExcel={handleExportExcel}
             />
           )}
         </div>
@@ -4148,7 +3485,7 @@ function WaterDemandPage() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// In-Browser Preliminary Engineering Report Component
+// In-Browser Preliminary Engineering Report Component (Matching Preliminary Cooling Load Standard)
 // ─────────────────────────────────────────────────────────────────────────────
 function WaterDemandReportView({
   calculations,
@@ -4169,7 +3506,6 @@ function WaterDemandReportView({
   calcReviewState,
   currentUserName,
   onExportPdf,
-  onExportExcel,
 }: {
   calculations: any;
   wdRows: WDRow[];
@@ -4189,378 +3525,456 @@ function WaterDemandReportView({
   calcReviewState: CalculationReviewState | null;
   currentUserName: string;
   onExportPdf: () => void;
-  onExportExcel: () => void;
 }) {
   const ip = unitSystem === "ip";
   const sigDetails = getSignatureBlockDetails(project?.id || "default", "/plumbing-water-demand", currentUserName, calcReviewState);
 
-  return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar">
-      {/* Action Header Banner */}
-      <div className="bg-card border border-border rounded-2xl p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 no-print">
-        <div>
-          <div className="flex items-center gap-2">
-            <FileText className="size-5 text-primary" />
-            <h2 className="text-base font-extrabold text-foreground tracking-tight">
-              Preliminary Engineering Sizing &amp; Compliance Report
-            </h2>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Formal engineering calculation sheet for domestic, irrigation, swimming pool makeup, storage tank volumes, and transfer pump duties.
-          </p>
-        </div>
+  // Group domestic rows by occupancy category
+  const groupedWd: Record<string, WDRow[]> = {};
+  wdRows.forEach((r) => {
+    const cat = r.cat || "General";
+    if (!groupedWd[cat]) groupedWd[cat] = [];
+    groupedWd[cat].push(r);
+  });
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            type="button"
-            onClick={onExportPdf}
-            className="h-9 px-4 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-xs"
-          >
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50 no-print">
+        <span className="text-[12px] text-muted-foreground font-semibold">
+          Generated: <span className="text-foreground font-mono">{new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <TBtn primary onClick={onExportPdf}>
             <FileText className="size-3.5" /> Export PDF
-          </button>
-          <button
-            type="button"
-            onClick={onExportExcel}
-            className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-xs"
-          >
-            <FileSpreadsheet className="size-3.5" /> Export Excel
-          </button>
+          </TBtn>
         </div>
       </div>
-
-      {/* Report Document Sheet */}
-      <div className="bg-card border border-border rounded-2xl p-6 md:p-8 space-y-6 shadow-sm">
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+      <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
         
-        {/* Document Header with Verification Badge */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-2">
+        {/* Document Header */}
+        <div className="flex justify-between items-start pb-4 border-b border-border">
           <div>
-            <h2 className="text-xl font-bold tracking-tight text-foreground uppercase">
-              Water Demand &amp; Storage Tank Sizing Report
+            <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+              Water Demand &amp; Storage Tank Sizing Calculation
             </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-[12px] text-muted-foreground mt-0.5">
               Comprehensive Water Consumption, Storage Autonomy &amp; Transfer Pumping Analysis
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold font-mono ${
-                calcReviewState?.status === "APPROVED"
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                  : "bg-primary/10 text-primary border border-primary/20"
-              }`}
-            >
-              {calcReviewState?.status === "APPROVED" ? (
-                <>
-                  <CheckCircle2 className="size-3.5" /> CALCULATION VERIFIED &amp; APPROVED
-                </>
-              ) : (
-                <>
-                  <Sparkles className="size-3.5" /> PRELIMINARY CALCULATION DRAFT
-                </>
-              )}
+          <div className="text-right">
+            <span className="text-[11px] text-muted-foreground block mt-0.5">
+              Date: {new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' })}
             </span>
           </div>
         </div>
 
-        {/* Engineering Document Metadata Table */}
-        <div className="overflow-x-auto border border-border rounded-xl">
-          <table className="w-full text-xs font-sans">
+        {/* Table 1: Design Parameters & Overall Summary */}
+        <div className="space-y-2">
+          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+            1. Executive Design Parameter Summary
+          </h3>
+          <table className="w-full text-[12px] border-collapse border border-border font-sans">
+            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+              <tr>
+                <th className="border border-border p-2 text-center w-12">No.</th>
+                <th className="border border-border p-2 text-left">Executive Design Parameter Summary</th>
+                <th className="border border-border p-2 text-center w-32">Value</th>
+                <th className="border border-border p-2 text-center w-24">Unit</th>
+                <th className="border border-border p-2 text-left">Standard / Code Reference</th>
+              </tr>
+            </thead>
             <tbody>
-              <tr className="border-b border-border/60 bg-muted/20">
-                <td className="py-2 px-3 font-bold text-muted-foreground w-1/4">Project Name:</td>
-                <td className="py-2 px-3 font-semibold text-foreground w-1/4">{project?.name || "MEP Calculator Project"}</td>
-                <td className="py-2 px-3 font-bold text-muted-foreground w-1/4">Document Ref:</td>
-                <td className="py-2 px-3 font-mono text-foreground w-1/4">{project?.calcNo || "TRV-CAL-101-R01"}</td>
-              </tr>
-              <tr className="border-b border-border/60">
-                <td className="py-2 px-3 font-bold text-muted-foreground">Project Code:</td>
-                <td className="py-2 px-3 font-mono text-foreground">{project?.code || project?.projectNo || "P000"}</td>
-                <td className="py-2 px-3 font-bold text-muted-foreground">Calculation Date:</td>
-                <td className="py-2 px-3 text-foreground">{formatDateStr(new Date().toISOString())}</td>
-              </tr>
-              <tr className="border-b border-border/60 bg-muted/20">
-                <td className="py-2 px-3 font-bold text-muted-foreground">Governing Standard:</td>
-                <td className="py-2 px-3 font-semibold text-primary">{PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name || "DEWA Guidelines"}</td>
-                <td className="py-2 px-3 font-bold text-muted-foreground">Revision Status:</td>
-                <td className="py-2 px-3 font-mono text-foreground">Rev 0 (Preliminary)</td>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                <td className="border border-border p-2 font-bold">Total Occupied Spaces</td>
+                <td className="border border-border p-2 text-center font-bold">{wdRows.length}</td>
+                <td className="border border-border p-2 text-center">spaces</td>
+                <td className="border border-border p-2 text-muted-foreground">Architectural Space Inventory</td>
               </tr>
               <tr>
-                <td className="py-2 px-3 font-bold text-muted-foreground">Calculation Engine:</td>
-                <td className="py-2 px-3 text-foreground">MEP Suite v2.4 (Water Sizing Module)</td>
-                <td className="py-2 px-3 font-bold text-muted-foreground">Unit System:</td>
-                <td className="py-2 px-3 font-bold text-primary">{ip ? "Imperial (IP / GPD)" : "Metric (SI / LPD)"}</td>
+                <td className="border border-border p-2 text-center text-muted-foreground">2</td>
+                <td className="border border-border p-2 font-bold">Total Occupancy Headcount</td>
+                <td className="border border-border p-2 text-center font-bold">{(calculations.totalPeople || 0).toLocaleString()}</td>
+                <td className="border border-border p-2 text-center">people</td>
+                <td className="border border-border p-2 text-muted-foreground">Scheduled Design Occupancy</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">3</td>
+                <td className="border border-border p-2 font-bold">Domestic Daily Water Demand</td>
+                <td className="border border-border p-2 text-center font-bold">
+                  {(ip ? Math.round((calculations.totalWaterL || 0) / 3.78541) : Math.round(calculations.totalWaterL || 0)).toLocaleString()}
+                </td>
+                <td className="border border-border p-2 text-center">{ip ? "gal/day" : "L/day"}</td>
+                <td className="border border-border p-2 text-muted-foreground">Governing Standard Allowance</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">4</td>
+                <td className="border border-border p-2 font-bold">Domestic Peak Flow Rate</td>
+                <td className="border border-border p-2 text-center font-bold">
+                  {ip ? Math.round(calculations.peakGPM || 0).toLocaleString() : (calculations.peakLPS || 0).toFixed(2)}
+                </td>
+                <td className="border border-border p-2 text-center">{ip ? "GPM" : "L/s"}</td>
+                <td className="border border-border p-2 text-muted-foreground">Peak Multiplier K = {peakFactor}</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">5</td>
+                <td className="border border-border p-2 font-bold">Irrigation Daily Water Load</td>
+                <td className="border border-border p-2 text-center font-bold">
+                  {(ip ? Math.round((calculations.totalIrrL || 0) / 3.78541) : Math.round(calculations.totalIrrL || 0)).toLocaleString()}
+                </td>
+                <td className="border border-border p-2 text-center">{ip ? "gal/day" : "L/day"}</td>
+                <td className="border border-border p-2 text-muted-foreground">Landscaping Vegetation Schedule</td>
+              </tr>
+              {poolArea && poolDepth && (
+                <tr>
+                  <td className="border border-border p-2 text-center text-muted-foreground">6</td>
+                  <td className="border border-border p-2 font-bold">Swimming Pool Makeup Water</td>
+                  <td className="border border-border p-2 text-center font-bold">
+                    {(ip ? Math.round((calculations.poolDemandL || 0) / 3.78541) : Math.round(calculations.poolDemandL || 0)).toLocaleString()}
+                  </td>
+                  <td className="border border-border p-2 text-center">{ip ? "gal/day" : "L/day"}</td>
+                  <td className="border border-border p-2 text-muted-foreground">Evaporation Loss {poolEvap}%/day + Backwash</td>
+                </tr>
+              )}
+              {fireFlow && (
+                <tr>
+                  <td className="border border-border p-2 text-center text-muted-foreground">7</td>
+                  <td className="border border-border p-2 font-bold">Fire Fighting Dedicated Reserve</td>
+                  <td className="border border-border p-2 text-center font-bold text-red-600 dark:text-red-400">
+                    {(ip ? Math.round((calculations.fireCapL || 0) / 3.78541) : Math.round(calculations.fireCapL || 0)).toLocaleString()}
+                  </td>
+                  <td className="border border-border p-2 text-center">{ip ? "gal" : "L"}</td>
+                  <td className="border border-border p-2 text-muted-foreground">60-Min Standard Duration (NFPA 13/14)</td>
+                </tr>
+              )}
+              <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
+                <td className="border border-border p-2 text-center text-muted-foreground">—</td>
+                <td className="border border-border p-2">TOTAL DAILY WATER DEMAND</td>
+                <td className="border border-border p-2 text-center text-pink-600 dark:text-pink-400 font-bold">
+                  {(ip ? Math.round((calculations.grandTotalL || 0) / 3.78541) : Math.round(calculations.grandTotalL || 0)).toLocaleString()}
+                </td>
+                <td className="border border-border p-2 text-center font-bold">{ip ? "gal/day" : "L/day"}</td>
+                <td className="border border-border p-2">Combined Site Daily Service Load</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">8</td>
+                <td className="border border-border p-2 font-bold">Total Storage Autonomy Retention</td>
+                <td className="border border-border p-2 text-center font-bold">
+                  {ip ? Math.round(calculations.reqStorageGal || 0).toLocaleString() : (calculations.reqStorageM3 || 0).toFixed(2)}
+                </td>
+                <td className="border border-border p-2 text-center">{ip ? "gal" : "m³"}</td>
+                <td className="border border-border p-2 text-muted-foreground">{storageDays} Day(s) Mandatory Storage Duration</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">9</td>
+                <td className="border border-border p-2 font-bold">Ground Water Break Tank</td>
+                <td className="border border-border p-2 text-center font-bold">
+                  {(ip ? Math.round((calculations.groundTankL || 0) / 3.78541) : Math.round(calculations.groundTankL || 0)).toLocaleString()}
+                </td>
+                <td className="border border-border p-2 text-center">{ip ? "gal" : "L"}</td>
+                <td className="border border-border p-2 text-muted-foreground">{calculations.groundPct}% Ground Split ({calculations.groundDim.l}m × {calculations.groundDim.w}m × {calculations.groundDim.h}m)</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">10</td>
+                <td className="border border-border p-2 font-bold">Transfer Pumping Duty Flow Rate</td>
+                <td className="border border-border p-2 text-center font-bold">
+                  {ip ? (calculations.transferPumpGPM || 0).toFixed(1) : (calculations.transferPumpLPS || 0).toFixed(2)}
+                </td>
+                <td className="border border-border p-2 text-center">{ip ? "GPM" : "L/s"}</td>
+                <td className="border border-border p-2 text-muted-foreground">Designed for {fillWindowHours}-Hour Roof Tank Filling Window</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        {/* Section 1: Executive Site Sizing Parameter Summary */}
-        <div className="space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
-            1. Executive Site Sizing Parameter Summary
+        {/* Table 2: Water Storage Tanks & Transfer Pump Physical Sizing */}
+        <div className="space-y-2">
+          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+            2. Water Storage Tanks &amp; Transfer Pump Physical Sizing
           </h3>
-          <div className="overflow-x-auto border border-border rounded-xl">
-            <table className="w-full border-collapse text-xs font-sans">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                  <th className="py-2 px-3 text-left">Calculated Parameter</th>
-                  <th className="py-2 px-3 text-right">Calculated Value</th>
-                  <th className="py-2 px-3 text-center">Unit</th>
-                  <th className="py-2 px-3 text-left">Engineering Design Basis</th>
+          <table className="w-full text-[12px] border-collapse border border-border font-sans">
+            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+              <tr>
+                <th className="border border-border p-2 text-center w-12">No.</th>
+                <th className="border border-border p-2 text-left">Facility / Equipment</th>
+                <th className="border border-border p-2 text-left">Specification &amp; Tank Type</th>
+                <th className="border border-border p-2 text-center w-24">Allocation</th>
+                <th className="border border-border p-2 text-right w-28">Effective Capacity</th>
+                <th className="border border-border p-2 text-center w-20">Unit</th>
+                <th className="border border-border p-2 text-left">Suggested Dimensions / Operating Duty</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                <td className="border border-border p-2 font-bold">Ground Water Break Tank</td>
+                <td className="border border-border p-2 text-muted-foreground">Reinforced Concrete / Sectional GRP</td>
+                <td className="border border-border p-2 text-center font-mono font-bold">{calculations.groundPct}%</td>
+                <td className="border border-border p-2 text-right font-mono font-bold">{calculations.displayGroundTank}</td>
+                <td className="border border-border p-2 text-center font-mono">{ip ? "gal" : "L"}</td>
+                <td className="border border-border p-2 font-mono text-muted-foreground">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H (+0.3m Freeboard)</td>
+              </tr>
+              {calculations.overheadTanksCalculated.map((t: any, idx: number) => (
+                <tr key={t.id}>
+                  <td className="border border-border p-2 text-center text-muted-foreground">{idx + 2}</td>
+                  <td className="border border-border p-2 font-bold">{t.name}</td>
+                  <td className="border border-border p-2 text-muted-foreground">Modular Sectional GRP / Polyethylene</td>
+                  <td className="border border-border p-2 text-center font-mono font-bold">{t.sharePct.toFixed(0)}%</td>
+                  <td className="border border-border p-2 text-right font-mono font-bold">{t.displayVol}</td>
+                  <td className="border border-border p-2 text-center font-mono">{ip ? "gal" : "L"}</td>
+                  <td className="border border-border p-2 font-mono text-muted-foreground">{t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H (+0.3m Freeboard)</td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
+              ))}
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">{calculations.overheadTanksCalculated.length + 2}</td>
+                <td className="border border-border p-2 font-bold">Roof Transfer Pump</td>
+                <td className="border border-border p-2 text-muted-foreground">Vertical Multistage Booster (1W + 1S)</td>
+                <td className="border border-border p-2 text-center font-mono font-bold">100% Roof</td>
+                <td className="border border-border p-2 text-right font-mono font-bold text-pink-600 dark:text-pink-400">{calculations.displayTransferPump}</td>
+                <td className="border border-border p-2 text-center font-mono">{ip ? "GPM" : "L/s"}</td>
+                <td className="border border-border p-2 text-muted-foreground">Designed for {fillWindowHours}-Hour Roof Tank Filling Window</td>
+              </tr>
+              <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
+                <td colSpan={3} className="border border-border p-2 text-center">TOTAL STORAGE RETENTION</td>
+                <td className="border border-border p-2 text-center font-mono">100%</td>
+                <td className="border border-border p-2 text-right font-mono text-pink-600 dark:text-pink-400">{calculations.displayTotalStorage}</td>
+                <td className="border border-border p-2 text-center">{ip ? "gal" : "m³"}</td>
+                <td className="border border-border p-2 text-muted-foreground">{storageDays} Day(s) Total Autonomy Reserve</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table 3: Comprehensive Space Water Demand Schedule */}
+        <div className="space-y-2">
+          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+            3. Comprehensive Space Water Demand Schedule
+          </h3>
+          <table className="w-full text-left text-[11px] border-collapse border border-border font-sans">
+            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+              <tr>
+                <th className="border border-border p-2 text-center w-12">No.</th>
+                <th className="border border-border p-2 text-left">Name of Space / Description</th>
+                <th className="border border-border p-2 text-center w-28">Occupancy (People)</th>
+                <th className="border border-border p-2 text-center w-20">Multiplier</th>
+                <th className="border border-border p-2 text-left">Type of Space / Category</th>
+                <th className="border border-border p-2 text-right w-28">Rate ({ip ? "gpd" : "LPD"})</th>
+                <th className="border border-border p-2 text-right w-32">Daily Demand ({ip ? "gal" : "L"})</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(() => {
+                let sNo = 1;
+                return (
+                  <>
+                    {Object.keys(groupedWd).sort().map((cat) => (
+                      <React.Fragment key={cat}>
+                        <tr className="bg-[#DCEFFB] dark:bg-blue-950/40 font-bold text-[#06456F] dark:text-blue-300">
+                          <td colSpan={7} className="border border-border p-2 font-sans">Occupancy Category: {cat}</td>
+                        </tr>
+                        {groupedWd[cat].map((r) => {
+                          const rowTotal = ip
+                            ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541)
+                            : Math.round(r.ppl * r.lpd * (r.multiplier || 1));
+                          const rowRate = ip ? Math.round(r.lpd / 3.78541) : r.lpd;
+                          return (
+                            <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                              <td className="border border-border p-2 text-center text-muted-foreground">{sNo++}</td>
+                              <td className="border border-border p-2 font-medium">{r.name}</td>
+                              <td className="border border-border p-2 text-center font-mono font-semibold">{r.ppl}</td>
+                              <td className="border border-border p-2 text-center font-mono text-muted-foreground">×{r.multiplier || 1}</td>
+                              <td className="border border-border p-2 text-muted-foreground">{r.cat}</td>
+                              <td className="border border-border p-2 text-right font-mono text-muted-foreground">{rowRate}</td>
+                              <td className="border border-border p-2 text-right font-mono font-bold text-foreground">{rowTotal.toLocaleString()}</td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
+                    <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
+                      <td colSpan={2} className="border border-border p-2 font-sans">TOTAL DOMESTIC DEMAND</td>
+                      <td className="border border-border p-2 text-center font-mono">{calculations.totalPeople}</td>
+                      <td colSpan={3} className="border border-border p-2"></td>
+                      <td className="border border-border p-2 text-right font-mono text-pink-600 dark:text-pink-400">{calculations.displayDomestic}</td>
+                    </tr>
+                  </>
+                );
+              })()}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table 4: Irrigation Landscaping Schedule */}
+        <div className="space-y-2">
+          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+            4. Irrigation Landscaping Schedule
+          </h3>
+          <table className="w-full text-left text-[11px] border-collapse border border-border font-sans">
+            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+              <tr>
+                <th className="border border-border p-2 text-center w-12">No.</th>
+                <th className="border border-border p-2 text-left">Vegetation / Plant Type</th>
+                <th className="border border-border p-2 text-center w-32">Landscaping Area ({ip ? "ft²" : "m²"})</th>
+                <th className="border border-border p-2 text-right w-36">Unit Rate ({ip ? "gal/ft²" : "L/m²"})</th>
+                <th className="border border-border p-2 text-right w-36">Daily Demand ({ip ? "gal" : "L"})</th>
+                <th className="border border-border p-2 text-left">Irrigation Method / Basis</th>
+              </tr>
+            </thead>
+            <tbody>
+              {irrRows.length === 0 ? (
                 <tr>
-                  <td className="py-2 px-3 font-semibold">Domestic Daily Water Load</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.displayDomestic}</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{ip ? "gal/day" : "L/day"}</td>
-                  <td className="py-2 px-3 text-muted-foreground">{wdRows.length} Occupancy Line Item(s)</td>
-                </tr>
-                <tr>
-                  <td className="py-2 px-3 font-semibold">Domestic Peak Flow Rate</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.displayDomesticPeak}</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{ip ? "GPM" : "L/s"}</td>
-                  <td className="py-2 px-3 text-muted-foreground">Peak Factor K = {peakFactor}</td>
-                </tr>
-                <tr>
-                  <td className="py-2 px-3 font-semibold">Irrigation Daily Water Load</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.displayIrrigation}</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{ip ? "gal/day" : "L/day"}</td>
-                  <td className="py-2 px-3 text-muted-foreground">{irrRows.length} Landscaping Vegetation Zone(s)</td>
-                </tr>
-                <tr>
-                  <td className="py-2 px-3 font-semibold">Swimming Pool Daily Makeup Water</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.displayPoolDemand}</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{ip ? "gal/day" : "L/day"}</td>
-                  <td className="py-2 px-3 text-muted-foreground">Evaporation Rate = {poolEvap}%</td>
-                </tr>
-                <tr className="bg-primary/5 dark:bg-primary/10 font-bold">
-                  <td className="py-2 px-3 text-primary">GRAND TOTAL DAILY WATER DEMAND</td>
-                  <td className="py-2 px-3 text-right font-mono font-black text-primary text-sm">{calculations.displayGrandTotal}</td>
-                  <td className="py-2 px-3 text-center font-mono text-primary">{ip ? "gal/day" : "L/day"}</td>
-                  <td className="py-2 px-3 text-primary">Combined Site Service Load</td>
-                </tr>
-                <tr>
-                  <td className="py-2 px-3 font-semibold">Total Required Storage Volume</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-foreground">{calculations.displayTotalStorage}</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{ip ? "gal" : "m³"}</td>
-                  <td className="py-2 px-3 text-muted-foreground">{storageDays} Day(s) Total Retention</td>
-                </tr>
-                <tr>
-                  <td className="py-2 px-3 font-semibold">Ground Water Break Tank</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-foreground">{calculations.displayGroundTank}</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{ip ? "gal" : "L"}</td>
-                  <td className="py-2 px-3 text-muted-foreground">
-                    {calculations.groundPct}% Share Allocation ({calculations.groundDim.l}m × {calculations.groundDim.w}m × {calculations.groundDim.h}m)
+                  <td colSpan={6} className="border border-border p-3 text-center text-muted-foreground italic">
+                    No landscaping / irrigation zones configured.
                   </td>
                 </tr>
-                {calculations.overheadTanksCalculated.map((t: any) => (
-                  <tr key={t.id}>
-                    <td className="py-2 px-3 font-semibold">{t.name}</td>
-                    <td className="py-2 px-3 text-right font-mono font-bold text-foreground">{t.displayVol}</td>
-                    <td className="py-2 px-3 text-center font-mono text-muted-foreground">{ip ? "gal" : "L"}</td>
-                    <td className="py-2 px-3 text-muted-foreground">
-                      {t.sharePct.toFixed(0)}% Share Allocation ({t.dim.l}m × {t.dim.w}m × {t.dim.h}m)
+              ) : (
+                irrRows.map((r, idx) => (
+                  <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                    <td className="border border-border p-2 text-center text-muted-foreground">{idx + 1}</td>
+                    <td className="border border-border p-2 font-medium">{r.vegType}</td>
+                    <td className="border border-border p-2 text-center font-mono font-semibold">{r.area}</td>
+                    <td className="border border-border p-2 text-right font-mono text-muted-foreground">
+                      {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)}
                     </td>
+                    <td className="border border-border p-2 text-right font-mono font-bold text-foreground">
+                      {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()}
+                    </td>
+                    <td className="border border-border p-2 text-muted-foreground">Automatic Drip / Spray System</td>
                   </tr>
-                ))}
-                <tr>
-                  <td className="py-2 px-3 font-semibold">Transfer Pump Duty Flow Rate</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.displayTransferPump}</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{ip ? "GPM" : "L/s"}</td>
-                  <td className="py-2 px-3 text-muted-foreground">{fillWindowHours}-Hour Roof Tank Filling Window</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                ))
+              )}
+              <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
+                <td colSpan={2} className="border border-border p-2 font-sans">TOTAL IRRIGATION DEMAND</td>
+                <td className="border border-border p-2 text-center font-mono">
+                  {irrRows.reduce((a, b) => a + (Number(b.area) || 0), 0)} {ip ? "ft²" : "m²"}
+                </td>
+                <td colSpan={1} className="border border-border p-2"></td>
+                <td className="border border-border p-2 text-right font-mono text-pink-600 dark:text-pink-400">{calculations.displayIrrigation}</td>
+                <td className="border border-border p-2 text-muted-foreground">Automated Irrigation Autonomy</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
-        {/* Section 2: Domestic Water Demand Schedule Table */}
-        <div className="space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
-            2. Domestic Water Demand Detailed Schedule
-          </h3>
-          <div className="overflow-x-auto border border-border rounded-xl">
-            <table className="w-full border-collapse text-xs font-sans">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                  <th className="py-2 px-2 text-center w-10">S.No</th>
-                  <th className="py-2 px-3 text-left">Description</th>
-                  <th className="py-2 px-3 text-center w-28">No. of People</th>
-                  <th className="py-2 px-3 text-center w-24">Multiplier</th>
-                  <th className="py-2 px-3 text-left">Occupancy Category</th>
-                  <th className="py-2 px-3 text-right w-32">Per Capita Rate</th>
-                  <th className="py-2 px-3 text-right w-36">Total Daily Load</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {wdRows.map((r, idx) => (
-                  <tr key={r.id} className={idx % 2 === 0 ? "bg-white dark:bg-slate-950" : "bg-slate-50/40 dark:bg-slate-900/20"}>
-                    <td className="py-1.5 px-2 text-center font-mono text-muted-foreground">{idx + 1}</td>
-                    <td className="py-1.5 px-3 font-semibold">{r.name}</td>
-                    <td className="py-1.5 px-3 text-center font-mono font-bold">{r.ppl}</td>
-                    <td className="py-1.5 px-3 text-center font-mono text-muted-foreground">×{r.multiplier || 1}</td>
-                    <td className="py-1.5 px-3 text-muted-foreground">{r.cat}</td>
-                    <td className="py-1.5 px-3 text-right font-mono text-muted-foreground">
-                      {(ip ? Math.round(r.lpd / 3.78541) : r.lpd).toLocaleString()} {ip ? "gpd" : "LPD"}
-                    </td>
-                    <td className="py-1.5 px-3 text-right font-mono font-bold text-primary">
-                      {(ip ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541) : r.ppl * r.lpd * (r.multiplier || 1)).toLocaleString()} {ip ? "gal" : "L"}
-                    </td>
-                  </tr>
-                ))}
-                <tr className="bg-slate-100/70 dark:bg-slate-900/50 font-bold">
-                  <td colSpan={2} className="py-2 px-3">TOTAL DOMESTIC DEMAND</td>
-                  <td className="py-2 px-3 text-center font-mono">{calculations.totalPeople} People</td>
-                  <td colSpan={3}></td>
-                  <td className="py-2 px-3 text-right font-mono text-primary">{calculations.displayDomestic}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Section 3: Irrigation Schedule Table */}
-        <div className="space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
-            3. Irrigation Landscaping Schedule
-          </h3>
-          <div className="overflow-x-auto border border-border rounded-xl">
-            <table className="w-full border-collapse text-xs font-sans">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                  <th className="py-2 px-2 text-center w-10">S.No</th>
-                  <th className="py-2 px-3 text-left">Vegetation / Plant Type</th>
-                  <th className="py-2 px-3 text-center w-32">Landscaping Area</th>
-                  <th className="py-2 px-3 text-right w-36">Irrigation Rate</th>
-                  <th className="py-2 px-3 text-right w-36">Total Daily Load</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {irrRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-center text-muted-foreground italic">No irrigation zones configured.</td>
-                  </tr>
-                ) : (
-                  irrRows.map((r, idx) => (
-                    <tr key={r.id} className={idx % 2 === 0 ? "bg-white dark:bg-slate-950" : "bg-slate-50/40 dark:bg-slate-900/20"}>
-                      <td className="py-1.5 px-2 text-center font-mono text-muted-foreground">{idx + 1}</td>
-                      <td className="py-1.5 px-3 font-semibold">{r.vegType}</td>
-                      <td className="py-1.5 px-3 text-center font-mono font-bold">{r.area} {ip ? "ft²" : "m²"}</td>
-                      <td className="py-1.5 px-3 text-right font-mono text-muted-foreground">
-                        {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)} {ip ? "gal/ft²" : "L/m²"}
-                      </td>
-                      <td className="py-1.5 px-3 text-right font-mono font-bold text-primary">
-                        {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()} {ip ? "gal" : "L"}
-                      </td>
-                    </tr>
-                  ))
-                )}
-                {irrRows.length > 0 && (
-                  <tr className="bg-slate-100/70 dark:bg-slate-900/50 font-bold">
-                    <td colSpan={2} className="py-2 px-3">TOTAL IRRIGATION DEMAND</td>
-                    <td colSpan={2}></td>
-                    <td className="py-2 px-3 text-right font-mono text-primary">{calculations.displayIrrigation}</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Section 4: Swimming Pool & Fire Fighting Reserve */}
+        {/* Table 5: Auxiliary Water Reserves (Swimming Pool & Fire Fighting) - if present */}
         {(poolArea || fireFlow) && (
-          <div className="space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
-              4. Auxiliary Water Reserves (Swimming Pool &amp; Fire Fighting)
+          <div className="space-y-2">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              5. Auxiliary Water Reserves (Swimming Pool &amp; Fire Fighting)
             </h3>
-            <div className="overflow-x-auto border border-border rounded-xl">
-              <table className="w-full border-collapse text-xs font-sans">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                    <th className="py-2 px-3 text-left">Auxiliary Facility</th>
-                    <th className="py-2 px-3 text-center">Design Parameters</th>
-                    <th className="py-2 px-3 text-right">Daily Demand / Reserve</th>
-                    <th className="py-2 px-3 text-left">Engineering Sizing Standard</th>
+            <table className="w-full text-left text-[11px] border-collapse border border-border font-sans">
+              <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                <tr>
+                  <th className="border border-border p-2 text-center w-12">No.</th>
+                  <th className="border border-border p-2 text-left">Auxiliary Facility</th>
+                  <th className="border border-border p-2 text-center w-48">Design Sizing Parameters</th>
+                  <th className="border border-border p-2 text-right w-36">Daily Demand / Reserve</th>
+                  <th className="border border-border p-2 text-left">Engineering Sizing Standard</th>
+                </tr>
+              </thead>
+              <tbody>
+                {poolArea && poolDepth && (
+                  <tr>
+                    <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                    <td className="border border-border p-2 font-medium">Swimming Pool Makeup</td>
+                    <td className="border border-border p-2 text-center font-mono">{poolArea} {ip ? "ft²" : "m²"} Area × {poolDepth} {ip ? "ft" : "m"} Depth</td>
+                    <td className="border border-border p-2 text-right font-mono font-bold text-foreground">{calculations.displayPoolDemand}</td>
+                    <td className="border border-border p-2 text-muted-foreground">Evaporation Rate {poolEvap}%/day + Filter Backwash Loss</td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {poolArea && poolDepth && (
-                    <tr>
-                      <td className="py-2 px-3 font-semibold">Swimming Pool Makeup</td>
-                      <td className="py-2 px-3 text-center font-mono">{poolArea} {ip ? "ft²" : "m²"} Area × {poolDepth} {ip ? "ft" : "m"} Depth</td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.displayPoolDemand}</td>
-                      <td className="py-2 px-3 text-muted-foreground">Evaporation Rate {poolEvap}%/day</td>
-                    </tr>
-                  )}
-                  {fireFlow && (
-                    <tr>
-                      <td className="py-2 px-3 font-semibold">Fire Fighting Dedicated Reserve</td>
-                      <td className="py-2 px-3 text-center font-mono">{fireFlow} USGPM Pump Flow</td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-red-600 dark:text-red-400">{calculations.displayFireCap}</td>
-                      <td className="py-2 px-3 text-muted-foreground">60-Min Standard Duration (NFPA 13/14)</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                )}
+                {fireFlow && (
+                  <tr>
+                    <td className="border border-border p-2 text-center text-muted-foreground">2</td>
+                    <td className="border border-border p-2 font-medium">Fire Fighting Dedicated Reserve</td>
+                    <td className="border border-border p-2 text-center font-mono">{fireFlow} USGPM Dedicated Pump Flow</td>
+                    <td className="border border-border p-2 text-right font-mono font-bold text-red-600 dark:text-red-400">{calculations.displayFireCap}</td>
+                    <td className="border border-border p-2 text-muted-foreground">60-Min Standard Duration (NFPA 13/14 Life Safety)</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         )}
 
-        {/* Status Verification Banner */}
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
-          <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-          <div className="text-xs space-y-1">
-            <span className="font-bold text-emerald-800 dark:text-emerald-300">
-              Engineering Calculation Compliance Verification
-            </span>
-            <p className="text-muted-foreground leading-relaxed">
-              This calculation conforms to {PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name || "DEWA Guidelines"} guidelines for domestic water demand, storage autonomy duration ({storageDays} day), and transfer pump sizing. All parameters have been evaluated with verified per capita occupancy rates.
-            </p>
-          </div>
+        {/* Table 6: Engineering Design Standards & Compliance Guidelines */}
+        <div className="space-y-2">
+          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+            {(poolArea || fireFlow) ? "6" : "5"}. Engineering Design Standards &amp; Compliance Guidelines
+          </h3>
+          <table className="w-full text-[12px] border-collapse border border-border font-sans">
+            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+              <tr>
+                <th className="border border-border p-2 text-center w-12">No.</th>
+                <th className="border border-border p-2 text-left w-60">Standard / Authority Reference</th>
+                <th className="border border-border p-2 text-left">Mandatory Engineering Compliance &amp; Criteria</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">1</td>
+                <td className="border border-border p-2 font-bold">DEWA / Dubai Municipality Guidelines</td>
+                <td className="border border-border p-2 text-muted-foreground">Mandatory domestic per capita daily consumption quotas and minimum 24-hour autonomy storage reserve for residential/commercial developments.</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">2</td>
+                <td className="border border-border p-2 font-bold">Uniform Plumbing Code (UPC) / IPC Section 604</td>
+                <td className="border border-border p-2 text-muted-foreground">Fixture unit diversity calculations, maximum transfer line fluid velocity limits (2.4 m/s), and backflow prevention isolation.</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">3</td>
+                <td className="border border-border p-2 font-bold">BS EN 806 / CIBSE Guide G (Public Health)</td>
+                <td className="border border-border p-2 text-muted-foreground">Cold water storage tank sizing methodology, dual compartment segregation, and turnover requirements to prevent water stagnation.</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 text-center text-muted-foreground">4</td>
+                <td className="border border-border p-2 font-bold">NFPA 13 / 14 &amp; Civil Defence Regulations</td>
+                <td className="border border-border p-2 text-muted-foreground">Dedicated hydraulic fire reserve allocation baffled or isolated from domestic water suction to ensure life safety continuity.</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
-        {/* Section 5: 3-Tier Professional Signature & Sign-Off Block */}
-        <div className="space-y-3 pt-2">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
-            5. Professional Engineering Review &amp; Sign-Off Block
+        {/* Table 7: Professional Engineering Review & Sign-Off Block */}
+        <div className="space-y-2">
+          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+            {(poolArea || fireFlow) ? "7" : "6"}. Professional Engineering Review &amp; Sign-Off Block
           </h3>
-          <div className="overflow-x-auto border border-border rounded-xl">
-            <table className="w-full border-collapse text-xs font-sans">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                  <th className="py-2.5 px-3 text-left w-1/4">Approval Role</th>
-                  <th className="py-2.5 px-3 text-center w-1/4">Engineer Name</th>
-                  <th className="py-2.5 px-3 text-center w-1/4">Status / Role Title</th>
-                  <th className="py-2.5 px-3 text-center w-1/4">Signature / Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50 font-sans">
-                <tr>
-                  <td className="py-2.5 px-3 font-bold text-foreground">Originator / Prepared By</td>
-                  <td className="py-2.5 px-3 text-center font-semibold text-foreground">{sigDetails.originatedName}</td>
-                  <td className="py-2.5 px-3 text-center text-muted-foreground">MEP Design Engineer</td>
-                  <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">{sigDetails.originatedDate}</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 font-bold text-foreground">Reviewer / Checked By</td>
-                  <td className="py-2.5 px-3 text-center font-semibold text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
-                  <td className="py-2.5 px-3 text-center text-muted-foreground">Senior Plumbing Lead</td>
-                  <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 font-bold text-foreground">Approver / Verified By</td>
-                  <td className="py-2.5 px-3 text-center font-semibold text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
-                  <td className="py-2.5 px-3 text-center text-muted-foreground">Principal / MEP Director</td>
-                  <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <table className="w-full text-[12px] border-collapse border border-border font-sans">
+            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+              <tr>
+                <th className="border border-border p-2 text-left w-1/4">Approval Role</th>
+                <th className="border border-border p-2 text-center w-1/4">Engineer Name</th>
+                <th className="border border-border p-2 text-center w-1/4">Status / Role Title</th>
+                <th className="border border-border p-2 text-center w-1/4">Signature / Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border border-border p-2 font-bold text-foreground">Originator / Prepared By</td>
+                <td className="border border-border p-2 text-center font-medium text-foreground">{sigDetails.originatedName}</td>
+                <td className="border border-border p-2 text-center text-muted-foreground">MEP Design Engineer</td>
+                <td className="border border-border p-2 text-center font-mono text-muted-foreground">{sigDetails.originatedDate}</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 font-bold text-foreground">Reviewer / Checked By</td>
+                <td className="border border-border p-2 text-center font-medium text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
+                <td className="border border-border p-2 text-center text-muted-foreground">Senior Plumbing Lead</td>
+                <td className="border border-border p-2 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
+              </tr>
+              <tr>
+                <td className="border border-border p-2 font-bold text-foreground">Approver / Verified By</td>
+                <td className="border border-border p-2 text-center font-medium text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
+                <td className="border border-border p-2 text-center text-muted-foreground">Principal / MEP Director</td>
+                <td className="border border-border p-2 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
       </div>
     </div>
+  </div>
   );
 }
 

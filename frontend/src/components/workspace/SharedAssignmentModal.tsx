@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
-import { X, Search, ChevronDown, ChevronUp, ChevronRight, Plus, Fan, Check, Edit3 } from "lucide-react";
+import { X, Search, ChevronDown, ChevronUp, ChevronRight, Plus, Fan, Check, Edit3, Save } from "lucide-react";
 import { useWorkspace, type Equipment, type Zone } from "@/lib/workspace-store";
 import { calculateVentilation } from "@/lib/ventilation-calc";
-import { usePrompt } from "@/hooks/use-confirm";
 
 export function getEquipVentMode(e: Equipment): string {
   const t = e.mode as string | undefined;
@@ -35,10 +34,11 @@ export function SharedAssignmentModal({
   onClose,
 }: SharedAssignmentModalProps) {
   const { spaces, zones, equipment, setWorkspaceState } = useWorkspace();
-  const prompt = usePrompt();
 
   const [selectedEquipId, setSelectedEquipId] = useState<string | null>(null);
-  const [selectedInstances, setSelectedInstances] = useState<Set<string>>(new Set()); // `${zoneId}_${instanceIndex}`
+  // Multi-equipment staging state: equipmentId -> Set of instance keys ("${zoneId}_${instanceIndex}")
+  const [stagedAssignments, setStagedAssignments] = useState<Record<string, Set<string>>>({});
+
   const [searchEquip, setSearchEquip] = useState("");
   const [searchZone, setSearchZone] = useState("");
   const [expandedZones, setExpandedZones] = useState<Set<string>>(new Set());
@@ -83,34 +83,37 @@ export function SharedAssignmentModal({
     }
     if (isOpen && !prevIsOpenRef.current) {
       setShowAddEquip(!!initialShowAddEquip);
+
+      // Populate stagedAssignments map for all equipment
+      const initialStaged: Record<string, Set<string>> = {};
+      equipment.forEach((eq) => {
+        initialStaged[eq.id] = getAssignedInstancesForEquip(eq);
+      });
+      setStagedAssignments(initialStaged);
+
       if (initialEquipmentId) {
         setSelectedEquipId(initialEquipmentId);
-        const eq = equipment.find((e) => e.id === initialEquipmentId);
-        if (eq) {
-          setSelectedInstances(getAssignedInstancesForEquip(eq));
-        } else {
-          setSelectedInstances(new Set());
-        }
       } else if (initialZoneId || (initialZoneIds && initialZoneIds.length > 0)) {
-        setSelectedEquipId(null);
+        setSelectedEquipId(equipment[0]?.id || null);
         const targetIds = initialZoneIds && initialZoneIds.length > 0 ? Array.from(initialZoneIds) : initialZoneId ? [initialZoneId] : [];
         const expanded = new Set<string>(targetIds);
         setExpandedZones(expanded);
-        setSelectedInstances(new Set());
       } else {
-        setSelectedEquipId(null);
-        setSelectedInstances(new Set());
+        setSelectedEquipId(equipment[0]?.id || null);
       }
     }
     prevIsOpenRef.current = isOpen;
-  }, [isOpen, initialEquipmentId, initialZoneId, initialZoneIds, initialShowAddEquip]);
+  }, [isOpen, initialEquipmentId, initialZoneId, initialZoneIds, initialShowAddEquip, equipment, zones]);
+
+  // Current active selections for currently highlighted equipment
+  const selectedInstances = useMemo(() => {
+    if (!selectedEquipId) return new Set<string>();
+    return stagedAssignments[selectedEquipId] || new Set<string>();
+  }, [stagedAssignments, selectedEquipId]);
 
   // Handle equipment selection
   const handleEquipSelect = (eqId: string) => {
     setSelectedEquipId(eqId);
-    const eq = equipment.find((e) => e.id === eqId);
-    if (!eq) return;
-    setSelectedInstances(getAssignedInstancesForEquip(eq));
   };
 
   const selectedEquipment = useMemo(
@@ -151,31 +154,84 @@ export function SharedAssignmentModal({
     });
   };
 
+  // Toggle single instance selection in staging map with automatic conflict resolution
   const toggleInstance = (zoneId: string, instanceIndex: number, checked: boolean) => {
-    setSelectedInstances((prev) => {
-      const next = new Set(prev);
-      const key = `${zoneId}_${instanceIndex}`;
+    if (!selectedEquipId || !selectedEquipment) return;
+    const currentMode = getEquipVentMode(selectedEquipment);
+    const key = `${zoneId}_${instanceIndex}`;
+
+    setStagedAssignments((prev) => {
+      const next = { ...prev };
+      const currentSet = new Set(next[selectedEquipId] || []);
+
       if (checked) {
-        next.add(key);
+        currentSet.add(key);
+
+        // Resolve conflict: if current equipment handles Fresh Air, uncheck key from other Fresh Air equipment
+        // if current equipment handles Exhaust Air, uncheck key from other Exhaust Air equipment
+        equipment.forEach((otherEq) => {
+          if (otherEq.id === selectedEquipId) return;
+          const otherMode = getEquipVentMode(otherEq);
+          const otherSet = next[otherEq.id];
+          if (!otherSet || !otherSet.has(key)) return;
+
+          const conflictsFA = (currentMode === "Fresh Air Only" || currentMode === "Fresh + Exhaust") &&
+                              (otherMode === "Fresh Air Only" || otherMode === "Fresh + Exhaust");
+          const conflictsEA = (currentMode === "Exhaust Air Only" || currentMode === "Fresh + Exhaust") &&
+                              (otherMode === "Exhaust Air Only" || otherMode === "Fresh + Exhaust");
+
+          if (conflictsFA || conflictsEA) {
+            const updatedOtherSet = new Set(otherSet);
+            updatedOtherSet.delete(key);
+            next[otherEq.id] = updatedOtherSet;
+          }
+        });
       } else {
-        next.delete(key);
+        currentSet.delete(key);
       }
+
+      next[selectedEquipId] = currentSet;
       return next;
     });
   };
 
+  // Toggle all instances for a zone
   const toggleZoneAll = (zone: Zone, checked: boolean) => {
+    if (!selectedEquipId || !selectedEquipment) return;
+    const currentMode = getEquipVentMode(selectedEquipment);
     const mult = zone.multiplier || 1;
-    setSelectedInstances((prev) => {
-      const next = new Set(prev);
+
+    setStagedAssignments((prev) => {
+      const next = { ...prev };
+      const currentSet = new Set(next[selectedEquipId] || []);
+
       for (let idx = 1; idx <= mult; idx++) {
         const key = `${zone.id}_${idx}`;
         if (checked) {
-          next.add(key);
+          currentSet.add(key);
+          equipment.forEach((otherEq) => {
+            if (otherEq.id === selectedEquipId) return;
+            const otherMode = getEquipVentMode(otherEq);
+            const otherSet = next[otherEq.id];
+            if (!otherSet || !otherSet.has(key)) return;
+
+            const conflictsFA = (currentMode === "Fresh Air Only" || currentMode === "Fresh + Exhaust") &&
+                                (otherMode === "Fresh Air Only" || otherMode === "Fresh + Exhaust");
+            const conflictsEA = (currentMode === "Exhaust Air Only" || currentMode === "Fresh + Exhaust") &&
+                                (otherMode === "Exhaust Air Only" || otherMode === "Fresh + Exhaust");
+
+            if (conflictsFA || conflictsEA) {
+              const updatedOtherSet = new Set(otherSet);
+              updatedOtherSet.delete(key);
+              next[otherEq.id] = updatedOtherSet;
+            }
+          });
         } else {
-          next.delete(key);
+          currentSet.delete(key);
         }
       }
+
+      next[selectedEquipId] = currentSet;
       return next;
     });
   };
@@ -196,6 +252,26 @@ export function SharedAssignmentModal({
     };
   };
 
+  // Track modified equipment units that have unapplied staged changes
+  const modifiedEquipIds = useMemo(() => {
+    const modified = new Set<string>();
+    equipment.forEach((eq) => {
+      const initial = getAssignedInstancesForEquip(eq);
+      const staged = stagedAssignments[eq.id] || new Set();
+      if (initial.size !== staged.size) {
+        modified.add(eq.id);
+      } else {
+        for (const item of staged) {
+          if (!initial.has(item)) {
+            modified.add(eq.id);
+            break;
+          }
+        }
+      }
+    });
+    return modified;
+  }, [equipment, zones, stagedAssignments]);
+
   const zonesAffectedCount = useMemo(() => {
     const affected = new Set<string>();
     selectedInstances.forEach((key) => {
@@ -206,7 +282,6 @@ export function SharedAssignmentModal({
   }, [selectedInstances]);
 
   const instancesSelectedCount = selectedInstances.size;
-  const isDoneDisabled = !selectedEquipId || instancesSelectedCount === 0;
 
   const handleAddEquipment = () => {
     if (!newTag.trim()) {
@@ -239,14 +314,17 @@ export function SharedAssignmentModal({
       equipment: balanced.equipment,
     });
     setSelectedEquipId(newEquip.id);
+    setStagedAssignments((prev) => ({
+      ...prev,
+      [newEquip.id]: new Set(),
+    }));
     setShowAddEquip(false);
     setNewTag("");
     setNewCapacity(2500);
   };
 
-  const handleSave = () => {
-    if (!selectedEquipment) return;
-    const mode = getEquipVentMode(selectedEquipment);
+  // Apply all staged changes across all equipment to workspace
+  const handleApplyAll = (closeModal: boolean = false) => {
     const hasTargetZone = !!initialZoneId || (!!initialZoneIds && initialZoneIds.length > 0);
     const targetIds = initialZoneIds && initialZoneIds.length > 0 ? Array.from(initialZoneIds) : initialZoneId ? [initialZoneId] : [];
 
@@ -274,29 +352,33 @@ export function SharedAssignmentModal({
           inst = { ...inst };
         }
 
-        const isSelected = selectedInstances.has(key);
         let faId = inst.faEquipId;
         let eaId = inst.eaEquipId;
 
-        if (isSelected) {
-          if (mode === "Fresh Air Only") {
-            faId = selectedEquipment.id;
-          } else if (mode === "Exhaust Air Only") {
-            eaId = selectedEquipment.id;
-          } else if (mode === "Fresh + Exhaust") {
-            faId = selectedEquipment.id;
-            eaId = selectedEquipment.id;
+        equipment.forEach((eq) => {
+          const mode = getEquipVentMode(eq);
+          const isStaged = stagedAssignments[eq.id]?.has(key);
+
+          if (isStaged) {
+            if (mode === "Fresh Air Only") {
+              faId = eq.id;
+            } else if (mode === "Exhaust Air Only") {
+              eaId = eq.id;
+            } else if (mode === "Fresh + Exhaust") {
+              faId = eq.id;
+              eaId = eq.id;
+            }
+          } else {
+            if (mode === "Fresh Air Only" && inst.faEquipId === eq.id) {
+              faId = null;
+            } else if (mode === "Exhaust Air Only" && inst.eaEquipId === eq.id) {
+              eaId = null;
+            } else if (mode === "Fresh + Exhaust") {
+              if (inst.faEquipId === eq.id) faId = null;
+              if (inst.eaEquipId === eq.id) eaId = null;
+            }
           }
-        } else {
-          if (mode === "Fresh Air Only" && inst.faEquipId === selectedEquipment.id) {
-            faId = null;
-          } else if (mode === "Exhaust Air Only" && inst.eaEquipId === selectedEquipment.id) {
-            eaId = null;
-          } else if (mode === "Fresh + Exhaust") {
-            if (inst.faEquipId === selectedEquipment.id) faId = null;
-            if (inst.eaEquipId === selectedEquipment.id) eaId = null;
-          }
-        }
+        });
 
         if (faId !== inst.faEquipId || eaId !== inst.eaEquipId) {
           changed = true;
@@ -345,7 +427,16 @@ export function SharedAssignmentModal({
       equipment: balanced.equipment,
     });
 
-    onClose();
+    const modifiedCount = modifiedEquipIds.size;
+    if (modifiedCount > 0) {
+      toast.success(`Applied equipment assignments for ${modifiedCount} unit(s)!`);
+    } else {
+      toast.success("Equipment assignments applied successfully.");
+    }
+
+    if (closeModal) {
+      onClose();
+    }
   };
 
   if (!isOpen) return null;
@@ -358,7 +449,7 @@ export function SharedAssignmentModal({
           <div className="flex flex-col gap-1">
             <h3 className="font-bold text-[16.5px] text-foreground tracking-tight">Equipment Assignment Sizer</h3>
             <p className="text-[11.5px] text-muted-foreground font-medium">
-              Select an equipment unit on the left and assign it to zone instances on the right.
+              Select equipment units on the left and assign them to zone instances on the right. Selections are preserved across equipment.
             </p>
           </div>
           <button
@@ -374,9 +465,12 @@ export function SharedAssignmentModal({
           {/* Left Panel: Equipment List */}
           <div className="w-[32%] flex flex-col bg-slate-50/50 dark:bg-zinc-950/20 min-h-0 p-4 gap-3">
             <div className="flex flex-col gap-2.5 flex-1 min-h-0">
-              <span className="text-[9.5px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-widest block">
-                Equipment ({filteredEquipment.length})
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-[9.5px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-widest block">
+                  Equipment ({filteredEquipment.length})
+                </span>
+              </div>
+
               <div className="relative shrink-0 select-none">
                 <Search className="absolute left-3.5 top-3 size-3.5 text-muted-foreground" />
                 <input
@@ -393,6 +487,7 @@ export function SharedAssignmentModal({
                 {filteredEquipment.map((eq) => {
                   const mode = getEquipVentMode(eq);
                   const isSelected = selectedEquipId === eq.id;
+                  const isModified = modifiedEquipIds.has(eq.id);
                   let iconColor = "text-primary";
                   if (mode === "Exhaust Air Only") {
                     iconColor = "text-pink-600 dark:text-pink-400";
@@ -421,7 +516,14 @@ export function SharedAssignmentModal({
                         <Fan className="size-4 animate-spin-slow" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-bold font-mono text-[13.5px] text-foreground truncate">{eq.tag}</div>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-bold font-mono text-[13.5px] text-foreground truncate">{eq.tag}</span>
+                          {isModified && (
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                              Modified
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10.5px] text-muted-foreground font-medium mt-0.5">{mode}</div>
                       </div>
                     </div>
@@ -449,86 +551,86 @@ export function SharedAssignmentModal({
                 {showAddEquip && (
                   <div className="border border-border/80 bg-card p-3.5 rounded-xl space-y-3 shrink-0 select-none shadow-[0_1px_3px_rgba(0,0,0,0.02)] mt-1 animate-scale-in">
                     <div className="space-y-2.5 text-[11px]">
-                    <div>
-                      <label className="block text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none">
-                        Equipment Tag
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. AHU-02"
-                        value={newTag}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setNewTag(val);
-                          const upper = val.toUpperCase();
-                          if (upper.includes("MAHU")) {
-                            setNewType("MAHU");
-                            setNewMode("Fresh Air Only");
-                          } else if (upper.includes("EAHU")) {
-                            setNewType("EAHU");
-                            setNewMode("Extract Air Only");
-                          } else if (upper.includes("FAHU")) {
-                            setNewType("FAHU");
-                          }
-                        }}
-                        className="w-full bg-background border border-border/70 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none">
-                        Equipment Type
-                      </label>
-                      <select
-                        value={newType}
-                        onChange={(e) => {
-                          const val = e.target.value as "FAHU" | "MAHU" | "EAHU";
-                          setNewType(val);
-                          if (val === "MAHU") setNewMode("Fresh Air Only");
-                          else if (val === "EAHU") setNewMode("Extract Air Only");
-                        }}
-                        className="w-full bg-background border border-border/70 rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150 cursor-pointer"
-                      >
-                        <option value="FAHU">FAHU (Fresh / Extract)</option>
-                        <option value="MAHU">MAHU (Fresh Air Only)</option>
-                        <option value="EAHU">EAHU (Extract Air Only)</option>
-                      </select>
-                    </div>
-                    {newType === "FAHU" && (
                       <div>
                         <label className="block text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none">
-                          Ventilation Mode
+                          Equipment Tag
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. AHU-02"
+                          value={newTag}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setNewTag(val);
+                            const upper = val.toUpperCase();
+                            if (upper.includes("MAHU")) {
+                              setNewType("MAHU");
+                              setNewMode("Fresh Air Only");
+                            } else if (upper.includes("EAHU")) {
+                              setNewType("EAHU");
+                              setNewMode("Extract Air Only");
+                            } else if (upper.includes("FAHU")) {
+                              setNewType("FAHU");
+                            }
+                          }}
+                          className="w-full bg-background border border-border/70 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none">
+                          Equipment Type
                         </label>
                         <select
-                          value={newMode}
-                          onChange={(e) =>
-                            setNewMode(e.target.value as "Fresh Air Only" | "Extract Air Only" | "Fresh Air + Extract Air")
-                          }
+                          value={newType}
+                          onChange={(e) => {
+                            const val = e.target.value as "FAHU" | "MAHU" | "EAHU";
+                            setNewType(val);
+                            if (val === "MAHU") setNewMode("Fresh Air Only");
+                            else if (val === "EAHU") setNewMode("Extract Air Only");
+                          }}
                           className="w-full bg-background border border-border/70 rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150 cursor-pointer"
                         >
-                          <option value="Fresh Air Only">Fresh Air Only</option>
-                          <option value="Extract Air Only">Extract Air Only</option>
-                          <option value="Fresh Air + Extract Air">Fresh Air + Extract Air</option>
+                          <option value="FAHU">FAHU (Fresh / Extract)</option>
+                          <option value="MAHU">MAHU (Fresh Air Only)</option>
+                          <option value="EAHU">EAHU (Extract Air Only)</option>
                         </select>
                       </div>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-end gap-2 text-[11px] pt-1">
-                    <button
-                      onClick={() => {
-                        setNewTag("");
-                        setShowAddEquip(false);
-                      }}
-                      className="px-4 py-1.5 border border-border/80 hover:bg-surface-2 rounded-lg text-muted-foreground hover:text-foreground text-[11.5px] font-semibold transition-all duration-150 cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleAddEquipment}
-                      className="px-5 py-1.5 bg-primary text-primary-foreground font-bold rounded-lg hover:bg-primary/95 text-[11.5px] transition-all duration-150 cursor-pointer shadow-md shadow-primary/10"
-                    >
-                      Add
-                    </button>
-                  </div>
+                      {newType === "FAHU" && (
+                        <div>
+                          <label className="block text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none">
+                            Ventilation Mode
+                          </label>
+                          <select
+                            value={newMode}
+                            onChange={(e) =>
+                              setNewMode(e.target.value as "Fresh Air Only" | "Extract Air Only" | "Fresh Air + Extract Air")
+                            }
+                            className="w-full bg-background border border-border/70 rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-semibold transition-all duration-150 cursor-pointer"
+                          >
+                            <option value="Fresh Air Only">Fresh Air Only</option>
+                            <option value="Extract Air Only">Extract Air Only</option>
+                            <option value="Fresh Air + Extract Air">Fresh Air + Extract Air</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-end gap-2 text-[11px] pt-1">
+                      <button
+                        onClick={() => {
+                          setNewTag("");
+                          setShowAddEquip(false);
+                        }}
+                        className="px-4 py-1.5 border border-border/80 hover:bg-surface-2 rounded-lg text-muted-foreground hover:text-foreground text-[11.5px] font-semibold transition-all duration-150 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleAddEquipment}
+                        className="px-5 py-1.5 bg-primary text-primary-foreground font-bold rounded-lg hover:bg-primary/95 text-[11.5px] transition-all duration-150 cursor-pointer shadow-md shadow-primary/10"
+                      >
+                        Add
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -575,24 +677,28 @@ export function SharedAssignmentModal({
                   const mult = zone.multiplier || 1;
                   const isMulti = mult > 1;
                   const isExpanded = expandedZones.has(zone.id);
-                  const { allSelected, noneSelected, isIndeterminate } = getZoneSelectionState(zone);
+                  const { allSelected, isIndeterminate } = getZoneSelectionState(zone);
 
-                  // Collect assigned equipments for display on the collapsed zone item
-                  const assignedTags: string[] = [];
-                  const instances = zone.instances || [];
+                  // Collect assigned FA and EA equipment tags across instances of this zone
+                  const faEquipTagsSet = new Set<string>();
+                  const eaEquipTagsSet = new Set<string>();
+
                   for (let idx = 1; idx <= mult; idx++) {
-                    const inst = instances.find((i) => i.instanceIndex === idx);
-                    const faId = inst?.faEquipId ?? (idx === 1 ? zone.faAssignment : null);
-                    const eaId = inst?.eaEquipId ?? (idx === 1 ? zone.eaAssignment : null);
-                    if (faId) {
-                      const eq = equipment.find((e) => e.id === faId);
-                      if (eq && !assignedTags.includes(eq.tag)) assignedTags.push(eq.tag);
-                    }
-                    if (eaId) {
-                      const eq = equipment.find((e) => e.id === eaId);
-                      if (eq && !assignedTags.includes(eq.tag)) assignedTags.push(eq.tag);
-                    }
+                    const instKey = `${zone.id}_${idx}`;
+                    equipment.forEach((eq) => {
+                      if (stagedAssignments[eq.id]?.has(instKey)) {
+                        const m = getEquipVentMode(eq);
+                        if (m === "Fresh Air Only" || m === "Fresh + Exhaust") {
+                          faEquipTagsSet.add(eq.tag);
+                        }
+                        if (m === "Exhaust Air Only" || m === "Fresh + Exhaust") {
+                          eaEquipTagsSet.add(eq.tag);
+                        }
+                      }
+                    });
                   }
+                  const faTags = Array.from(faEquipTagsSet);
+                  const eaTags = Array.from(eaEquipTagsSet);
 
                   return (
                     <div
@@ -662,13 +768,26 @@ export function SharedAssignmentModal({
                           </div>
                         </div>
 
-                        {/* Collapsed assignments indicator */}
-                        {(!isExpanded || !isMulti) && assignedTags.length > 0 && (
+                        {/* Collapsed or single-instance assignments indicator */}
+                        {(!isExpanded || !isMulti) && (
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-[10.5px] text-slate-500 dark:text-zinc-400 font-bold uppercase tracking-wider">Assigned:</span>
-                            <span className="text-[10px] font-bold font-mono bg-surface-3 px-2 py-0.5 rounded text-foreground">
-                              {assignedTags.join(", ")}
-                            </span>
+                            {faTags.length > 0 && (
+                              <div className="flex items-center gap-1 text-[9.5px] px-2.5 py-0.5 bg-primary/10 border border-primary/20 text-primary rounded-full font-bold shadow-xs">
+                                <Fan className="size-2.5 shrink-0" />
+                                <span>FA: {faTags.join(", ")}</span>
+                              </div>
+                            )}
+                            {eaTags.length > 0 && (
+                              <div className="flex items-center gap-1 text-[9.5px] px-2.5 py-0.5 bg-pink-500/10 border border-pink-500/20 text-pink-600 dark:text-pink-400 rounded-full font-bold shadow-xs">
+                                <Fan className="size-2.5 shrink-0" />
+                                <span>EA: {eaTags.join(", ")}</span>
+                              </div>
+                            )}
+                            {faTags.length === 0 && eaTags.length === 0 && (
+                              <span className="text-[10px] text-muted-foreground font-semibold italic bg-surface-2 px-2.5 py-0.5 rounded-full select-none">
+                                Unassigned
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -681,33 +800,24 @@ export function SharedAssignmentModal({
                             const instIdx = o + 1;
                             const instKey = `${zone.id}_${instIdx}`;
                             const isInstSelected = selectedInstances.has(instKey);
-                            const inst = zone.instances?.find((i) => i.instanceIndex === instIdx);
-                            const faId = inst?.faEquipId ?? (instIdx === 1 ? zone.faAssignment : null);
-                            const eaId = inst?.eaEquipId ?? (instIdx === 1 ? zone.eaAssignment : null);
-                            const faEq = equipment.find((e) => e.id === faId);
-                            const eaEq = equipment.find((e) => e.id === eaId);
 
-                            let currentAssignText = "";
-                            if (selectedEquipment) {
-                              const mode = getEquipVentMode(selectedEquipment);
-                              if (mode === "Fresh Air Only" && faEq && faEq.id !== selectedEquipment.id) {
-                                currentAssignText = `Currently Assigned: ${faEq.tag}`;
-                              } else if (mode === "Exhaust Air Only" && eaEq && eaEq.id !== selectedEquipment.id) {
-                                currentAssignText = `Currently Assigned: ${eaEq.tag}`;
-                              } else if (mode === "Fresh + Exhaust") {
-                                const faText = faEq && faEq.id !== selectedEquipment.id ? `FA: ${faEq.tag}` : "";
-                                const eaText = eaEq && eaEq.id !== selectedEquipment.id ? `EA: ${eaEq.tag}` : "";
-                                if (faText && eaText) currentAssignText = `Currently Assigned: ${faText} + ${eaText}`;
-                                else if (faText || eaText) currentAssignText = `Currently Assigned: ${faText || eaText}`;
-                              }
-                            }
+                            // Find which equipment units are staged for this instance
+                            const stagedFAEquip = equipment.find((eq) => {
+                              const m = getEquipVentMode(eq);
+                              return (m === "Fresh Air Only" || m === "Fresh + Exhaust") && stagedAssignments[eq.id]?.has(instKey);
+                            });
+
+                            const stagedEAEquip = equipment.find((eq) => {
+                              const m = getEquipVentMode(eq);
+                              return (m === "Exhaust Air Only" || m === "Fresh + Exhaust") && stagedAssignments[eq.id]?.has(instKey);
+                            });
 
                             return (
-                                <div
-                                  key={instKey}
-                                  onClick={() => toggleInstance(zone.id, instIdx, !isInstSelected)}
-                                  className="relative flex items-center justify-between pl-11 pr-3 py-1.5 hover:bg-surface-2/80 transition-colors cursor-pointer text-[12px]"
-                                >
+                              <div
+                                key={instKey}
+                                onClick={() => toggleInstance(zone.id, instIdx, !isInstSelected)}
+                                className="relative flex items-center justify-between pl-11 pr-3 py-1.5 hover:bg-surface-2/80 transition-colors cursor-pointer text-[12px]"
+                              >
                                 <div className="absolute left-6 top-1/2 w-3.5 h-px bg-border/80 -translate-y-1/2" />
                                 <div className="flex items-center gap-3.5 select-none z-10">
                                   <input
@@ -723,24 +833,19 @@ export function SharedAssignmentModal({
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                  {currentAssignText && (
-                                    <span className="text-[10px] text-muted-foreground mr-2 select-none italic font-medium">
-                                      {currentAssignText}
-                                    </span>
-                                  )}
-                                  {faEq && (
-                                    <div className="flex items-center gap-1 text-[9.5px] px-2.5 py-0.5 bg-primary/5 border border-primary/20 text-primary rounded-full font-bold shadow-xs">
+                                  {stagedFAEquip && (
+                                    <div className="flex items-center gap-1 text-[9.5px] px-2.5 py-0.5 bg-primary/10 border border-primary/20 text-primary rounded-full font-bold shadow-xs">
                                       <Fan className="size-2.5 shrink-0" />
-                                      <span>FA: {faEq.tag}</span>
+                                      <span>FA: {stagedFAEquip.tag}</span>
                                     </div>
                                   )}
-                                  {eaEq && (
-                                    <div className="flex items-center gap-1 text-[9.5px] px-2.5 py-0.5 bg-pink-500/5 border border-pink-500/20 text-pink-600 dark:text-pink-400 rounded-full font-bold shadow-xs">
+                                  {stagedEAEquip && (
+                                    <div className="flex items-center gap-1 text-[9.5px] px-2.5 py-0.5 bg-pink-500/10 border border-pink-500/20 text-pink-600 dark:text-pink-400 rounded-full font-bold shadow-xs">
                                       <Fan className="size-2.5 shrink-0" />
-                                      <span>EA: {eaEq.tag}</span>
+                                      <span>EA: {stagedEAEquip.tag}</span>
                                     </div>
                                   )}
-                                  {!faEq && !eaEq && (
+                                  {!stagedFAEquip && !stagedEAEquip && (
                                     <span className="text-[10px] text-muted-foreground font-semibold italic bg-surface-2 px-2.5 py-0.5 rounded-full select-none">Unassigned</span>
                                   )}
                                 </div>
@@ -764,7 +869,7 @@ export function SharedAssignmentModal({
 
         {/* Footer */}
         <footer className="px-5 py-4 border-t border-border/50 flex items-center justify-between shrink-0 select-none bg-card/60 backdrop-blur-xs">
-          <div className="flex items-center gap-6 text-[12.5px] text-foreground font-medium">
+          <div className="flex items-center gap-5 text-[12.5px] text-foreground font-medium flex-wrap">
             <div>
               <span className="text-muted-foreground font-medium">Selected Equipment: </span>
               {selectedEquipment ? (
@@ -787,24 +892,30 @@ export function SharedAssignmentModal({
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={onClose}
               className="border border-border/80 text-xs px-4 py-2 rounded-xl hover:bg-surface-2 text-muted-foreground hover:text-foreground font-semibold cursor-pointer transition-all duration-150"
             >
               Cancel
             </button>
-            <button
-              onClick={handleSave}
-              disabled={isDoneDisabled}
-              className={`text-xs font-bold px-6 py-2 rounded-xl transition-all cursor-pointer shadow-sm ${
-                isDoneDisabled
-                  ? "bg-surface-3 text-muted-foreground border border-border cursor-not-allowed"
-                  : "bg-primary text-primary-foreground hover:bg-primary/95 shadow-md shadow-primary/10"
-              }`}
-            >
-              Done
-            </button>
+            {modifiedEquipIds.size > 0 ? (
+              <button
+                onClick={() => handleApplyAll(false)}
+                className="w-[135px] flex items-center justify-center gap-1.5 text-xs font-bold py-2 rounded-xl transition-all duration-150 cursor-pointer shadow-md bg-primary text-primary-foreground hover:bg-primary/95 shadow-primary/10 animate-scale-in"
+              >
+                <Save className="size-3.5" />
+                <span>Apply Changes</span>
+              </button>
+            ) : (
+              <button
+                onClick={onClose}
+                className="w-[135px] flex items-center justify-center gap-1.5 text-xs font-bold py-2 rounded-xl transition-all duration-150 cursor-pointer shadow-md bg-primary text-primary-foreground hover:bg-primary/95 shadow-primary/10 animate-scale-in"
+              >
+                <Check className="size-3.5" />
+                <span>Done</span>
+              </button>
+            )}
           </div>
         </footer>
       </div>

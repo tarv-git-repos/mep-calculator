@@ -5,6 +5,13 @@ import { EditBuildingModal } from "@/components/workspace/EditBuildingModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { exportFireWaterDemandPDF } from "@/lib/exportFireWaterDemandPDF";
+import {
+  OCCUPANCY_OPTIONS,
+  INITIAL_BUILDINGS,
+  computeFireWaterProjectSummary,
+  computeActiveTankSizing
+} from "@/lib/calc-plumbing-fire-water-demand";
+
 import { notifyCommentAssigned, dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
 import { api } from "@/services/api";
 import { createFileRoute } from "@tanstack/react-router";
@@ -64,82 +71,10 @@ export const Route = createFileRoute("/plumbing-fire-water-demand")({
 });
 
 // Occupancy Labels and Helpers
-export const OCCUPANCY_OPTIONS: { value: CivilDefenseOccupancy; label: string; desc: string }[] = [
-  { value: "residential", label: "Residential (Apartments / Labor / Staff)", desc: "Flats, staff accommodation, hostels, boarding houses" },
-  { value: "business", label: "Business (Offices / Banks / Professional)", desc: "Corporate offices, service providers, civic buildings" },
-  { value: "hotel", label: "Hotel & Hospitality", desc: "Hotels, motels, luxury furnished apartments, resorts" },
-  { value: "mercantile_ab", label: "Mercantile Class A & B (Retail / Malls)", desc: "Shopping malls, supermarkets, department stores" },
-  { value: "mercantile_c_kiosk", label: "Mercantile Class C / Kiosks", desc: "Small retail shops, kiosks, convenience booths" },
-  { value: "assembly", label: "Assembly (Cinemas / Auditoriums / Clubs)", desc: "Theaters, convention centers, places of worship" },
-  { value: "education", label: "Education (Schools / Universities)", desc: "Classrooms, libraries, laboratories, nurseries" },
-  { value: "healthcare_a", label: "Healthcare Group A (Hospitals / Inpatient)", desc: "Hospitals with sleeping accommodations, ICUs" },
-  { value: "healthcare_bc", label: "Healthcare Group B & C (Outpatient Clinics)", desc: "Day clinics, specialized medical consultation" },
-  { value: "day_care", label: "Day Care Centers", desc: "Infant and child day care facilities" },
-  { value: "detention", label: "Detention & Correctional", desc: "Prisons, correctional centers, reformatories" },
-  { value: "animal_housing", label: "Animal Housing / Veterinary", desc: "Stables, veterinary clinics, kennels" },
-  { value: "converted_villa", label: "Converted Existing G+1 Villa", desc: "Villas converted to commercial, educational, or medical use" },
-  { value: "mosque_with_commercial", label: "Commercial Outlet on Villa / Mosque", desc: "Shops, cafes, or pharmacies attached to villas or mosques" },
-];
+
 
 // Initial Demonstration Project Schedule
-const INITIAL_BUILDINGS: CivilDefenseBuilding[] = [
-  {
-    id: "bld-tower-a",
-    name: "Tower A (Super Highrise Hotel & Residences)",
-    height: 110,
-    floors: 32,
-    plotArea: 14000,
-    groundFloorArea: 1800,
-    occupancy: "hotel",
-    standpipeCount: 3,
-    hasInfraHydrants60m: true,
-    isSingleExitStair: false,
-    basementCount: 2,
-    notes: "Requires 1000 GPM @ 17 bar lowest pump + intermediate 1000 GPM @ 6.9 bar staging pump at +90m."
-  },
-  {
-    id: "bld-block-b",
-    name: "Block B (Highrise Commercial Offices)",
-    height: 65,
-    floors: 18,
-    plotArea: 18000,
-    groundFloorArea: 2200,
-    occupancy: "business",
-    standpipeCount: 2,
-    hasInfraHydrants60m: true,
-    isSingleExitStair: false,
-    basementCount: 2,
-    notes: "Standard Highrise Tier 1: 750 GPM @ 6.9 bar combined pump, 60-min dedicated water tank."
-  },
-  {
-    id: "bld-podium-c",
-    name: "Block C (Podium Retail Mall & Cineplex)",
-    height: 14,
-    floors: 3,
-    plotArea: 24000,
-    groundFloorArea: 4800,
-    occupancy: "mercantile_ab",
-    standpipeCount: 3,
-    hasInfraHydrants60m: false,
-    isSingleExitStair: false,
-    basementCount: 1,
-    notes: "Large plot (>20,000 mÂ²) without 60m infra hydrants: 1000 GPM @ 6.9 bar combined pump for yard hydrants."
-  },
-  {
-    id: "bld-staff-d",
-    name: "Block D (Staff Accommodation Lowrise)",
-    height: 18,
-    floors: 5,
-    plotArea: 3500,
-    groundFloorArea: 800,
-    occupancy: "residential",
-    standpipeCount: 1,
-    hasInfraHydrants60m: true,
-    isSingleExitStair: false,
-    basementCount: 0,
-    notes: "Midrise residential with GFA <= 900 mÂ²: 50 GPM @ 4.5 bar dry riser + hose reel system."
-  }
-];
+
 
 type ActiveTab = "schedule" | "staging" | "tanks" | "report";
 
@@ -152,7 +87,7 @@ export function FireWaterDemandPage() {
 
   const isApprovedLocked = useCalculationLock("/plumbing-fire-water-demand", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
-  
+
   const { getLockOwner, mySessionId, setActiveModule } = useCollaboration();
   const lockOwnerObj = getLockOwner("/plumbing-fire-water-demand");
   const isLockedByOther = Boolean(lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
@@ -298,7 +233,7 @@ export function FireWaterDemandPage() {
             }
           });
         }
-      } catch (e) {}
+      } catch (e) { }
     };
 
     // 1. Calculator specific comments storage
@@ -334,7 +269,7 @@ export function FireWaterDemandPage() {
             refreshAllComments();
           }
         };
-      } catch (e) {}
+      } catch (e) { }
     }
 
     return () => {
@@ -355,14 +290,14 @@ export function FireWaterDemandPage() {
       const cleanName = (targetName || "").toLowerCase().trim();
 
       const el = document.getElementById(targetId || "") ||
-                 document.getElementById(`building-row-${cleanRaw}`) ||
-                 document.getElementById(`building-row-${targetId}`) ||
-                 document.getElementById(`row-${cleanRaw}`) ||
-                 document.getElementById(`row-${targetId}`) ||
-                 document.querySelector(`[data-row-id="${cleanRaw}"]`) ||
-                 document.querySelector(`[data-row-id="${targetId}"]`) ||
-                 document.querySelector(`[data-comment-target="${cleanRaw}"]`) ||
-                 document.querySelector(`[data-comment-target="${targetId}"]`);
+        document.getElementById(`building-row-${cleanRaw}`) ||
+        document.getElementById(`building-row-${targetId}`) ||
+        document.getElementById(`row-${cleanRaw}`) ||
+        document.getElementById(`row-${targetId}`) ||
+        document.querySelector(`[data-row-id="${cleanRaw}"]`) ||
+        document.querySelector(`[data-row-id="${targetId}"]`) ||
+        document.querySelector(`[data-comment-target="${cleanRaw}"]`) ||
+        document.querySelector(`[data-comment-target="${targetId}"]`);
 
       setHighlightedTargetId(cleanRaw || cleanId || targetId || null);
 
@@ -439,14 +374,14 @@ export function FireWaterDemandPage() {
           const bc = new BroadcastChannel("mep_notifications_channel");
           bc.postMessage({ type: "COMMENTS_UPDATED", calcPath: "/plumbing-fire-water-demand", count: newList.length });
           bc.close();
-        } catch (e) {}
+        } catch (e) { }
       }
     }
     try {
       if (typeof forceSaveToCloud === "function") {
         setTimeout(() => forceSaveToCloud(false), 50);
       }
-    } catch (e) {}
+    } catch (e) { }
   };
 
   const handleOpenComment = (id: string, name: string) => {
@@ -662,14 +597,14 @@ export function FireWaterDemandPage() {
       if (lsCache && lsCache[pKey]) {
         try {
           restoredData = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
-        } catch (err) {}
+        } catch (err) { }
       }
       if (!restoredData) {
         const stored = localStorage.getItem(pKey);
         if (stored) {
           try {
             restoredData = JSON.parse(stored);
-          } catch (err) {}
+          } catch (err) { }
         }
       }
       if (Array.isArray(restoredData) && restoredData.length > 0) {
@@ -714,75 +649,12 @@ export function FireWaterDemandPage() {
 
   // Project KPI Rollups
   const projectSummary = useMemo(() => {
-    let maxPumpFlowGpm = 0;
-    let maxPumpPressureBar = 0;
-    let totalNetStorageM3 = 0;
-    let totalGrossStorageM3 = 0;
-    let superHighriseCount = 0;
-    let yardHydrantRequiredCount = 0;
-
-    for (const item of evaluatedBuildings) {
-      const ev = item.evaluation;
-      if (ev.lowestFirePumpFlowGpm > maxPumpFlowGpm) {
-        maxPumpFlowGpm = ev.lowestFirePumpFlowGpm;
-        maxPumpPressureBar = ev.lowestFirePumpPressureBar;
-      } else if (ev.lowestFirePumpFlowGpm === maxPumpFlowGpm) {
-        if (ev.lowestFirePumpPressureBar > maxPumpPressureBar) {
-          maxPumpPressureBar = ev.lowestFirePumpPressureBar;
-        }
-      }
-      totalNetStorageM3 += ev.totalNetWaterStorageM3;
-      totalGrossStorageM3 += ev.totalGrossWaterStorageM3;
-      if (ev.requiresStagingPumps) superHighriseCount++;
-      if (ev.isYardHydrantRequired) yardHydrantRequiredCount++;
-    }
-
-    const header = getRecommendedHeaderSize(maxPumpFlowGpm);
-
-    return {
-      buildingCount: evaluatedBuildings.length,
-      maxPumpFlowGpm,
-      maxPumpFlowLpm: Math.round(maxPumpFlowGpm * 3.78541),
-      maxPumpPressureBar,
-      maxPumpPressurePsi: Math.round(maxPumpPressureBar * 14.5038),
-      totalNetStorageM3: parseFloat(totalNetStorageM3.toFixed(1)),
-      totalNetStorageGal: Math.round(totalNetStorageM3 / 0.00378541),
-      totalGrossStorageM3: parseFloat(totalGrossStorageM3.toFixed(1)),
-      totalGrossStorageGal: Math.round(totalGrossStorageM3 / 0.00378541),
-      superHighriseCount,
-      yardHydrantRequiredCount,
-      governingHeaderNps: header.nps,
-      governingHeaderDn: header.dn,
-      governingHeaderVelocity: header.velocityFps,
-    };
+    return computeFireWaterProjectSummary(evaluatedBuildings);
   }, [evaluatedBuildings]);
 
   // Physical Water Tank Calculation for Active Building
   const activeTankSizing = useMemo(() => {
-    if (!activeItem) return null;
-    const netM3 = activeItem.evaluation.mainTankNetVolumeM3;
-    const l = Math.max(1.0, tankLength);
-    const w = Math.max(1.0, tankWidth);
-    const floorArea = l * w;
-
-    const effectiveDepth = floorArea > 0 ? netM3 / floorArea : 0;
-    const totalHeight = effectiveDepth + tankFreeboard + tankDeadVolumeDepth;
-    const grossVolumeM3 = floorArea * totalHeight;
-    const grossVolumeGal = Math.round(grossVolumeM3 / 0.00378541);
-
-    const refillLpm = cityMainRefillFlowGpm * 3.78541;
-    const refillM3h = (refillLpm * 60) / 1000;
-    const fillTimeHours = refillM3h > 0 ? netM3 / refillM3h : 0;
-
-    return {
-      floorArea: parseFloat(floorArea.toFixed(2)),
-      effectiveDepth: parseFloat(effectiveDepth.toFixed(2)),
-      totalHeight: parseFloat(totalHeight.toFixed(2)),
-      grossVolumeM3: parseFloat(grossVolumeM3.toFixed(1)),
-      grossVolumeGal,
-      fillTimeHours: parseFloat(fillTimeHours.toFixed(1)),
-      waterWavePercent: totalHeight > 0 ? Math.min(85, Math.max(15, (effectiveDepth / totalHeight) * 100)) : 50,
-    };
+    return computeActiveTankSizing(activeItem, tankLength, tankWidth, tankFreeboard, tankDeadVolumeDepth, cityMainRefillFlowGpm);
   }, [activeItem, tankLength, tankWidth, tankFreeboard, tankDeadVolumeDepth, cityMainRefillFlowGpm]);
 
   // Double-Click Handler: Opens EditBuildingModal
@@ -852,8 +724,8 @@ export function FireWaterDemandPage() {
 
   const handleApplyBulkEdit = () => {
     if (isEffectiveReadOnly) return;
-    const targetIds = selectedRowIds.size > 0 
-      ? selectedRowIds 
+    const targetIds = selectedRowIds.size > 0
+      ? selectedRowIds
       : (selectedBuildingId ? new Set([selectedBuildingId]) : new Set<string>());
 
     if (targetIds.size === 0) {
@@ -1035,10 +907,10 @@ export function FireWaterDemandPage() {
       toast.error("At least one building is required in the schedule");
       return;
     }
-    const targetIds = selectedRowIds.size > 0 
-      ? selectedRowIds 
+    const targetIds = selectedRowIds.size > 0
+      ? selectedRowIds
       : activeItem ? new Set([activeItem.building.id]) : new Set<string>();
-    
+
     if (targetIds.size === 0) return;
 
     if (buildings.length <= targetIds.size) {
@@ -1464,7 +1336,7 @@ export function FireWaterDemandPage() {
     >
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          
+
           {/* ============================================================== */}
           {/* PAGE HEADER: EXACT SEWAGE PUMP SIZING FORMAT                   */}
           {/* ============================================================== */}
@@ -1472,15 +1344,14 @@ export function FireWaterDemandPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Fire Water Demand</h1>
-                
+
               </div>
-              <button 
+              <button
                 onClick={() => setIntelOpen((v) => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                  intelOpen
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                }`}
+                  }`}
               >
                 <Sparkles className="size-3.5" />
                 Intelligence
@@ -1491,19 +1362,19 @@ export function FireWaterDemandPage() {
                 calculatorTitle="Fire Water Demand"
               />
             </div>
-          
+
             <div className="flex items-center gap-2 shrink-0">
               <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  disabled={isEffectiveReadOnly}
-                  inputDescriptions="Fire Water Demand (GPM / LPM), Residual Pressure (psi / bar), Water Tank Capacity (gal / mÂ³)"
-                  conversionExample={
-                    unitSystem === "ip"
-                      ? "Convert 1000 GPM â†’ 3785 LPM, 100 psi â†’ 6.9 bar, 60,000 Gal â†’ 227.1 mÂ³"
-                      : "Convert 3785 LPM â†’ 1000 GPM, 6.9 bar â†’ 100 psi, 227.1 mÂ³ â†’ 60,000 Gal"
-                  }
-                />
+                unitSystem={unitSystem}
+                onChange={handleUnitSystemChange}
+                disabled={isEffectiveReadOnly}
+                inputDescriptions="Fire Water Demand (GPM / LPM), Residual Pressure (psi / bar), Water Tank Capacity (gal / mÂ³)"
+                conversionExample={
+                  unitSystem === "ip"
+                    ? "Convert 1000 GPM â†’ 3785 LPM, 100 psi â†’ 6.9 bar, 60,000 Gal â†’ 227.1 mÂ³"
+                    : "Convert 3785 LPM â†’ 1000 GPM, 6.9 bar â†’ 100 psi, 227.1 mÂ³ â†’ 60,000 Gal"
+                }
+              />
             </div>
           </div>
 
@@ -1511,23 +1382,21 @@ export function FireWaterDemandPage() {
           {/* ============================================================== */}
           {/* MAIN CARD CONTAINER & TABS SELECTOR (MATCHING VENTILATION)      */}
           {/* ============================================================== */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            isApprovedLocked || calcReviewState?.status === "APPROVED"
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${isApprovedLocked || calcReviewState?.status === "APPROVED"
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-          }`}>
-            
+            }`}>
+
             {/* Unified Toolbar (Tabs, Search, Filter, Actions) */}
             <div className="relative flex items-center justify-between px-4 py-2.5 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
-              
+
               {/* Left Side: Tabs + Formula + Presets */}
               <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80 shrink-0">
                   <button
                     onClick={() => setTab("schedule")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "schedule" ? "bg-background text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${tab === "schedule" ? "bg-background text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
                     Building Schedule
                   </button>
@@ -1538,9 +1407,8 @@ export function FireWaterDemandPage() {
                       }
                       setTab("report");
                     }}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "report" ? "bg-background text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${tab === "report" ? "bg-background text-foreground shadow-sm font-bold" : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
                     Report
                   </button>
@@ -1561,11 +1429,10 @@ export function FireWaterDemandPage() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
-                          className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                            filterOccupancy !== "all"
+                          className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${filterOccupancy !== "all"
                               ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
                               : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                          }`}
+                            }`}
                         >
                           <Filter className="size-3.5 shrink-0" />
                           <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
@@ -1595,9 +1462,8 @@ export function FireWaterDemandPage() {
                         </div>
                         <DropdownMenuItem
                           onClick={() => setFilterOccupancy("all")}
-                          className={`flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg cursor-pointer ${
-                            filterOccupancy === "all" ? "bg-primary/10 text-primary font-bold" : "text-foreground hover:bg-surface-2"
-                          }`}
+                          className={`flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg cursor-pointer ${filterOccupancy === "all" ? "bg-primary/10 text-primary font-bold" : "text-foreground hover:bg-surface-2"
+                            }`}
                         >
                           <span>All Occupancies ({buildings.length})</span>
                           {filterOccupancy === "all" && <Check className="size-3.5 text-primary shrink-0" />}
@@ -1609,9 +1475,8 @@ export function FireWaterDemandPage() {
                             <DropdownMenuItem
                               key={o.value}
                               onClick={() => setFilterOccupancy(o.value)}
-                              className={`flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg cursor-pointer ${
-                                isSelected ? "bg-primary/10 text-primary font-bold" : "text-foreground hover:bg-surface-2"
-                              }`}
+                              className={`flex items-center justify-between px-2.5 py-1.5 text-xs rounded-lg cursor-pointer ${isSelected ? "bg-primary/10 text-primary font-bold" : "text-foreground hover:bg-surface-2"
+                                }`}
                             >
                               <span>{o.label.split(" (")[0]} ({count})</span>
                               {isSelected && <Check className="size-3.5 text-primary shrink-0" />}
@@ -1629,7 +1494,7 @@ export function FireWaterDemandPage() {
                 <TBtn onClick={handleExportPDF}>
                   <FileText className="size-3.5" /> Export
                 </TBtn>
-                
+
                 {tab === "schedule" && (
                   <button
                     disabled={isEffectiveReadOnly}
@@ -1664,80 +1529,80 @@ export function FireWaterDemandPage() {
             {/* TAB 1: SCHEDULE (FULL-HEIGHT SPACIOUS DATAGRID WITH DOUBLE-CLICK EDITING) */}
             {tab === "schedule" && (
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                
-{/* Building Schedule DataGrid Table - Takes Full Container Height */}
+
+                {/* Building Schedule DataGrid Table - Takes Full Container Height */}
                 <div className="flex-1 overflow-x-auto overflow-y-auto">
                   <table className="w-full text-xs border-collapse">
-                      <thead className="bg-surface-2 text-muted-foreground font-semibold uppercase text-[10.5px] sticky top-0 z-10 border-b border-border shadow-xs">
-                        <tr>
-                          <th className="py-2 px-2 w-8 text-center">
-                            <input
-                              type="checkbox"
-                              checked={selectedRowIds.size === buildings.length && buildings.length > 0}
-                              onChange={toggleSelectAll}
-                              className="rounded border-border cursor-pointer"
-                            />
-                          </th>
-                          <th className="py-2 px-2 text-left">
-                            <div>BUILDING / BLOCK</div>
-                          </th>
-                          <th className="py-2 px-1.5 text-center">
-                            <div>OCCUPANCY</div>
-                          </th>
-                          <th className="py-2 px-1 text-center w-14">
-                            <div>HEIGHT</div>
-                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">(M)</div>
-                          </th>
-                          <th className="py-2 px-1 text-center w-16">
-                            <div>FLOORS</div>
-                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">(G+)</div>
-                          </th>
-                          <th className="py-2 px-1 text-center">
-                            <div>GFA</div>
-                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">(MÂ²)</div>
-                          </th>
-                          <th className="py-2 px-1 text-center">
-                            <div>PLOT AREA</div>
-                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">(MÂ²)</div>
-                          </th>
-                          <th className="py-2 px-1 text-center">
-                            <div>STANDPIPES</div>
-                          </th>
-                          <th className="py-2 px-1.5 text-center">
-                            <div>FIRE PUMP DUTY</div>
-                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">
-                              {unitSystem === "si" ? "(LPM @ BAR)" : "(GPM @ PSI)"}
-                            </div>
-                          </th>
-                          <th className="py-2 px-1.5 text-center">
-                            <div>TANK DURATION</div>
-                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">(MIN)</div>
-                          </th>
-                          <th className="py-2 px-1.5 text-center">
-                            <div>NET STORAGE</div>
-                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">
-                              {unitSystem === "si" ? "(MÂ³)" : "(GAL)"}
-                            </div>
-                          </th>
-                          <th className="py-2 px-2 text-center pr-3">
-                            <div>STAGING PUMPS</div>
-                            <div className="text-[9.5px] text-muted-foreground/75 font-normal">(&gt;90M)</div>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/60">
-                        {filteredBuildings.map((item) => {
-                          const b = item.building;
-                          const ev = item.evaluation;
-                          const isSelected = b.id === selectedBuildingId;
-                          const isChecked = selectedRowIds.has(b.id);
-                          const hasOverrides = b.overridePumpFlowGpm !== undefined ||
-                            b.overridePumpPressureBar !== undefined ||
-                            b.overrideTankDurationMin !== undefined ||
-                            b.overrideNetStorageM3 !== undefined;
+                    <thead className="bg-surface-2 text-muted-foreground font-semibold uppercase text-[10.5px] sticky top-0 z-10 border-b border-border shadow-xs">
+                      <tr>
+                        <th className="py-2 px-2 w-8 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedRowIds.size === buildings.length && buildings.length > 0}
+                            onChange={toggleSelectAll}
+                            className="rounded border-border cursor-pointer"
+                          />
+                        </th>
+                        <th className="py-2 px-2 text-left">
+                          <div>BUILDING / BLOCK</div>
+                        </th>
+                        <th className="py-2 px-1.5 text-center">
+                          <div>OCCUPANCY</div>
+                        </th>
+                        <th className="py-2 px-1 text-center w-14">
+                          <div>HEIGHT</div>
+                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">(M)</div>
+                        </th>
+                        <th className="py-2 px-1 text-center w-16">
+                          <div>FLOORS</div>
+                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">(G+)</div>
+                        </th>
+                        <th className="py-2 px-1 text-center">
+                          <div>GFA</div>
+                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">(MÂ²)</div>
+                        </th>
+                        <th className="py-2 px-1 text-center">
+                          <div>PLOT AREA</div>
+                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">(MÂ²)</div>
+                        </th>
+                        <th className="py-2 px-1 text-center">
+                          <div>STANDPIPES</div>
+                        </th>
+                        <th className="py-2 px-1.5 text-center">
+                          <div>FIRE PUMP DUTY</div>
+                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">
+                            {unitSystem === "si" ? "(LPM @ BAR)" : "(GPM @ PSI)"}
+                          </div>
+                        </th>
+                        <th className="py-2 px-1.5 text-center">
+                          <div>TANK DURATION</div>
+                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">(MIN)</div>
+                        </th>
+                        <th className="py-2 px-1.5 text-center">
+                          <div>NET STORAGE</div>
+                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">
+                            {unitSystem === "si" ? "(MÂ³)" : "(GAL)"}
+                          </div>
+                        </th>
+                        <th className="py-2 px-2 text-center pr-3">
+                          <div>STAGING PUMPS</div>
+                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">(&gt;90M)</div>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {filteredBuildings.map((item) => {
+                        const b = item.building;
+                        const ev = item.evaluation;
+                        const isSelected = b.id === selectedBuildingId;
+                        const isChecked = selectedRowIds.has(b.id);
+                        const hasOverrides = b.overridePumpFlowGpm !== undefined ||
+                          b.overridePumpPressureBar !== undefined ||
+                          b.overrideTankDurationMin !== undefined ||
+                          b.overrideNetStorageM3 !== undefined;
 
-                          return (
-                            <React.Fragment key={b.id}>
+                        return (
+                          <React.Fragment key={b.id}>
                             <ContextMenu>
                               <ContextMenuTrigger asChild>
                                 <tr
@@ -1776,362 +1641,361 @@ export function FireWaterDemandPage() {
                                   onDoubleClick={() => {
                                     handleOpenEditModal(b.id);
                                   }}
-                                  className={`transition-colors group cursor-pointer ${
-                                    isItemHighlighted(b.id, b.name)
+                                  className={`transition-colors group cursor-pointer ${isItemHighlighted(b.id, b.name)
                                       ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                                       : isSelected
-                                      ? "bg-primary/10 hover:bg-primary/15 font-medium"
-                                      : "hover:bg-surface-2"
-                                  }`}
+                                        ? "bg-primary/10 hover:bg-primary/15 font-medium"
+                                        : "hover:bg-surface-2"
+                                    }`}
                                   title="Right-click for options â€¢ Double-click to view calculations & rules â€¢ Ctrl+Click to select"
                                 >
-                              {/* 1. Selection Checkbox */}
-                              <td className="py-1.5 px-2 text-center" onClick={(e) => toggleSelectRow(b.id, e)}>
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={() => {}}
-                                  className="rounded border-border cursor-pointer"
-                                />
-                              </td>
-
-                              {/* 2. Building / Block Name (Editable Input) */}
-                              <td className="py-1 px-2 font-semibold text-foreground" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center gap-1 min-w-[150px] max-w-[220px]">
-                                  <button
-                                    onClick={() => setExpandedRowId(expandedRowId === b.id ? null : b.id)}
-                                    className="p-0.5 rounded hover:bg-surface-3 text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                                    title={expandedRowId === b.id ? "Collapse Details" : "Expand Statutory Details"}
-                                  >
-                                    <ChevronDown className={`size-3.5 transition-transform ${expandedRowId === b.id ? "rotate-180" : ""}`} />
-                                  </button>
-                                  {renderCommentBadge(b.id, b.name)}
-                                  <input
-                                    type="text"
-                                    value={b.name}
-                                    disabled={isEffectiveReadOnly}
-                                    onChange={(e) => handleUpdateBuilding(b.id, { name: e.target.value })}
-                                    className="w-full min-w-0 px-1.5 py-0.5 text-xs font-semibold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded transition-all truncate"
-                                    placeholder="Building Name"
-                                  />
-                                  {ev.requiresStagingPumps && (
-                                    <span className="text-[9.5px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 font-mono font-semibold shrink-0" title="Super Highrise (>90m): Mandates intermediate multi-level staging pumps and transfer tanks">
-                                      &gt;90m
-                                    </span>
-                                  )}
-                                  {ev.isYardHydrantRequired && (
-                                    <span className="text-[9.5px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono font-semibold shrink-0" title="Plot Area > 20,000 mÂ²: Mandates site yard hydrants spaced at 60m (UAE Code Section 3.11)">
-                                      Yard
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-
-                              {/* 3. Occupancy Dropdown (Editable Select) */}
-                              <td className="py-1 px-1 text-muted-foreground text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="min-w-[110px] max-w-[140px] mx-auto">
-                                  <select
-                                    value={b.occupancy}
-                                    disabled={isEffectiveReadOnly}
-                                    onChange={(e) => handleUpdateBuilding(b.id, { occupancy: e.target.value as CivilDefenseOccupancy }, true)}
-                                    className="w-full px-1.5 py-0.5 text-xs text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-border/40 hover:border-border/80 focus:border-primary focus:ring-1 focus:ring-primary rounded cursor-pointer transition-all truncate"
-                                    title={`Occupancy category: ${OCCUPANCY_OPTIONS.find((o) => o.value === b.occupancy)?.desc || b.occupancy}`}
-                                  >
-                                    {OCCUPANCY_OPTIONS.map((o) => (
-                                      <option key={o.value} value={o.value}>
-                                        {o.label.split(" (")[0]}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                              </td>
-
-                              {/* 4. Height (Editable Input) */}
-                              <td className="py-1 px-1 text-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-center min-w-[50px] mx-auto" title="Height (meters). Governs Super Highrise (>90m), Highrise (23-90m), Midrise (15-23m), Lowrise (â‰¤15m)">
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    step="0.5"
-                                    value={b.height || ""}
-                                    disabled={isEffectiveReadOnly}
-                                    onChange={(e) => {
-                                      const v = e.target.value === "" ? 0 : parseFloat(e.target.value);
-                                      if (!isNaN(v)) handleUpdateBuilding(b.id, { height: v }, true);
-                                    }}
-                                    className="w-12 px-1 py-0.5 text-xs font-semibold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
-                                  />
-                                </div>
-                              </td>
-
-                              {/* 5. Floors (Editable Input) */}
-                              <td className="py-1 px-1 text-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-center min-w-[55px] mx-auto" title="Above-ground stories">
-                                  <div className="flex items-center gap-0.5">
-                                    <span className="text-muted-foreground text-[11px]">(G+</span>
+                                  {/* 1. Selection Checkbox */}
+                                  <td className="py-1.5 px-2 text-center" onClick={(e) => toggleSelectRow(b.id, e)}>
                                     <input
-                                      type="number"
-                                      min="0"
-                                      step="1"
-                                      value={b.floors ?? ""}
-                                      disabled={isEffectiveReadOnly}
-                                      onChange={(e) => {
-                                        const v = e.target.value === "" ? 0 : parseInt(e.target.value);
-                                        if (!isNaN(v)) handleUpdateBuilding(b.id, { floors: v }, true);
-                                      }}
-                                      className="w-10 px-1 py-0.5 text-xs font-semibold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => { }}
+                                      className="rounded border-border cursor-pointer"
                                     />
-                                    <span className="text-muted-foreground text-[11px]">)</span>
-                                  </div>
-                                </div>
-                              </td>
+                                  </td>
 
-                              {/* 6. GFA (mÂ²) (Editable Input) */}
-                              <td className="py-1 px-1 text-muted-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="min-w-[60px] max-w-[80px] mx-auto" title="Ground Floor Area (mÂ²). Governs code system thresholds (â‰¤500mÂ², 501-3600mÂ², >3600mÂ²)">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="10"
-                                    value={b.groundFloorArea || ""}
-                                    disabled={isEffectiveReadOnly}
-                                    onChange={(e) => {
-                                      const v = e.target.value === "" ? 0 : parseFloat(e.target.value);
-                                      if (!isNaN(v)) handleUpdateBuilding(b.id, { groundFloorArea: v }, true);
-                                    }}
-                                    className="w-full px-1 py-0.5 text-xs text-foreground font-mono bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
-                                  />
-                                </div>
-                              </td>
-
-                              {/* 7. Plot Area (mÂ²) (Editable Input) */}
-                              <td className="py-1 px-1 text-muted-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
-                                <div className="min-w-[60px] max-w-[80px] mx-auto" title="Plot Area (mÂ²). If >20,000 mÂ², triggers Section 3.11 mandatory Yard Hydrants">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="50"
-                                    value={b.plotArea || ""}
-                                    disabled={isEffectiveReadOnly}
-                                    onChange={(e) => {
-                                      const v = e.target.value === "" ? 0 : parseFloat(e.target.value);
-                                      if (!isNaN(v)) handleUpdateBuilding(b.id, { plotArea: v }, true);
-                                    }}
-                                    className="w-full px-1 py-0.5 text-xs text-foreground font-mono bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
-                                  />
-                                </div>
-                              </td>
-
-                              {/* 8. Standpipes (Editable Input) */}
-                              <td className="py-1 px-1 text-center text-foreground font-mono" onClick={(e) => e.stopPropagation()}>
-                                <div className="w-10 mx-auto" title="Number of Standpipes/Stairs. In Highrise, â‰¤2 standpipes = 750 GPM (2839 LPM); >2 standpipes = 1000 GPM (3785 LPM)">
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    max="30"
-                                    step="1"
-                                    value={b.standpipeCount || ""}
-                                    disabled={isEffectiveReadOnly}
-                                    onChange={(e) => {
-                                      const v = e.target.value === "" ? 1 : parseInt(e.target.value);
-                                      if (!isNaN(v)) handleUpdateBuilding(b.id, { standpipeCount: v }, true);
-                                    }}
-                                    className="w-full px-1 py-0.5 text-xs font-semibold text-center text-foreground font-mono bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded"
-                                  />
-                                </div>
-                              </td>
-
-                              {/* 9. Fire Pump Duty (OUTPUT) */}
-                              <td className="py-1 px-1.5 font-semibold text-foreground font-mono text-center">
-                                <div className="flex items-center justify-center gap-1 mx-auto text-xs whitespace-nowrap" title={`Governing Rule: ${ev.lowestPumpRemarks}`}>
-                                  {unitSystem === "si" ? (
-                                    <>
-                                      <span>{ev.lowestFirePumpFlowLpm}</span>
-                                      <span className="text-muted-foreground/70 text-[11px]">@</span>
-                                      <span>{ev.lowestFirePumpPressureBar}</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <span>{ev.lowestFirePumpFlowGpm}</span>
-                                      <span className="text-muted-foreground/70 text-[11px]">@</span>
-                                      <span>{ev.lowestFirePumpPressurePsi}</span>
-                                    </>
-                                  )}
-                                </div>
-                              </td>
-
-                              {/* 10. Tank Duration (OUTPUT) */}
-                              <td className="py-1 px-1.5 text-foreground font-mono text-center font-semibold text-xs whitespace-nowrap" title={`Statutory duration: ${ev.mainTankDurationMin} min per UAE Code`}>
-                                {ev.mainTankDurationMin}
-                              </td>
-
-                              {/* 11. Net Water Volume (OUTPUT) */}
-                              <td className="py-1 px-1.5 font-semibold text-foreground font-mono text-center text-xs whitespace-nowrap">
-                                {unitSystem === "si" ? (
-                                  <span title={`Calculated Net Volume: ${ev.lowestFirePumpFlowGpm} GPM Ã— ${ev.mainTankDurationMin} min = ${ev.mainTankNetVolumeM3} mÂ³`}>
-                                    {ev.mainTankNetVolumeM3}
-                                  </span>
-                                ) : (
-                                  <span title={`Calculated Net Volume: ${ev.lowestFirePumpFlowGpm} GPM Ã— ${ev.mainTankDurationMin} min = ${ev.mainTankNetVolumeGal.toLocaleString()} US gal`}>
-                                    {ev.mainTankNetVolumeGal.toLocaleString()}
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* 12. Staging Pumps (Auto-derived from >90m) */}
-                              <td className="py-1 px-2 pr-3 text-muted-foreground text-center">
-                                {ev.requiresStagingPumps ? (
-                                  <span className="text-purple-600 dark:text-purple-400 font-semibold font-mono text-[10.5px] whitespace-nowrap">
-                                    {ev.stagingPumpFlowGpm} GPM @ 6.9 bar (+90m)
-                                  </span>
-                                ) : (
-                                  <span className="text-muted-foreground text-[10.5px] whitespace-nowrap">N/A (Single Set)</span>
-                                )}
-                              </td>
-                            </tr>
-                          </ContextMenuTrigger>
-                          {renderBuildingContextMenu(b)}
-                        </ContextMenu>
-                        {expandedRowId === b.id && (
-                          <tr className="bg-surface-2/10 border-b border-border/60">
-                            <td colSpan={12} className="p-0">
-                              <div className="p-4 pl-12 border-l-4 border-primary">
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                  {/* Statutory System Requirements */}
-                                  <div className="bg-surface-1 p-3 rounded-lg border border-border/60">
-                                    <h4 className="text-[11px] font-bold text-foreground mb-2 flex items-center gap-1.5 uppercase">
-                                      <ShieldCheck className="size-3.5 text-green-500" />
-                                      Statutory Systems (Code)
-                                    </h4>
-                                    <ul className="space-y-1.5 text-[11px] text-muted-foreground font-medium">
-                                      <li className="flex items-center justify-between">
-                                        <span>Sprinklers Required:</span>
-                                        <span className={ev.isSprinklerRequired ? "text-green-600 dark:text-green-400 font-bold" : ""}>
-                                          {ev.isSprinklerRequired ? "YES" : "NO"}
+                                  {/* 2. Building / Block Name (Editable Input) */}
+                                  <td className="py-1 px-2 font-semibold text-foreground" onClick={(e) => e.stopPropagation()}>
+                                    <div className="flex items-center gap-1 min-w-[150px] max-w-[220px]">
+                                      <button
+                                        onClick={() => setExpandedRowId(expandedRowId === b.id ? null : b.id)}
+                                        className="p-0.5 rounded hover:bg-surface-3 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                                        title={expandedRowId === b.id ? "Collapse Details" : "Expand Statutory Details"}
+                                      >
+                                        <ChevronDown className={`size-3.5 transition-transform ${expandedRowId === b.id ? "rotate-180" : ""}`} />
+                                      </button>
+                                      {renderCommentBadge(b.id, b.name)}
+                                      <input
+                                        type="text"
+                                        value={b.name}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => handleUpdateBuilding(b.id, { name: e.target.value })}
+                                        className="w-full min-w-0 px-1.5 py-0.5 text-xs font-semibold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded transition-all truncate"
+                                        placeholder="Building Name"
+                                      />
+                                      {ev.requiresStagingPumps && (
+                                        <span className="text-[9.5px] px-1 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 font-mono font-semibold shrink-0" title="Super Highrise (>90m): Mandates intermediate multi-level staging pumps and transfer tanks">
+                                          &gt;90m
                                         </span>
-                                      </li>
-                                      <li className="flex items-center justify-between">
-                                        <span>Wet Risers Required:</span>
-                                        <span className={ev.isRiserRequired ? "text-green-600 dark:text-green-400 font-bold" : ""}>
-                                          {ev.isRiserRequired ? "YES" : "NO"}
+                                      )}
+                                      {ev.isYardHydrantRequired && (
+                                        <span className="text-[9.5px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono font-semibold shrink-0" title="Plot Area > 20,000 mÂ²: Mandates site yard hydrants spaced at 60m (UAE Code Section 3.11)">
+                                          Yard
                                         </span>
-                                      </li>
-                                      <li className="flex items-center justify-between">
-                                        <span>Hose Reels Required:</span>
-                                        <span className={ev.isHoseReelRequired ? "text-green-600 dark:text-green-400 font-bold" : ""}>
-                                          {ev.isHoseReelRequired ? "YES" : "NO"}
-                                        </span>
-                                      </li>
-                                      <li className="flex items-center justify-between">
-                                        <span>Yard Hydrants:</span>
-                                        <span className={ev.isYardHydrantRequired ? "text-amber-600 dark:text-amber-400 font-bold" : ""}>
-                                          {ev.isYardHydrantRequired ? "MANDATORY" : "N/A"}
-                                        </span>
-                                      </li>
-                                    </ul>
-                                  </div>
-
-                                  {/* Pump Header & Discharge */}
-                                  <div className="bg-surface-1 p-3 rounded-lg border border-border/60">
-                                    <h4 className="text-[11px] font-bold text-foreground mb-2 flex items-center gap-1.5 uppercase">
-                                      <Droplets className="size-3.5 text-blue-500" />
-                                      NFPA 20 Discharge Header
-                                    </h4>
-                                    <div className="space-y-2">
-                                      <div className="flex items-center justify-between">
-                                        <span className="text-[11px] text-muted-foreground">Header Size (DN):</span>
-                                        <span className="text-[12px] font-bold font-mono text-foreground">DN {ev.recommendedHeaderDn}</span>
-                                      </div>
-                                      <div className="flex items-center justify-between">
-                                        <span className="text-[11px] text-muted-foreground">Header Size (NPS):</span>
-                                        <span className="text-[12px] font-bold font-mono text-foreground">{ev.recommendedHeaderNps}"</span>
-                                      </div>
-                                      <div className="flex items-center justify-between">
-                                        <span className="text-[11px] text-muted-foreground">Flow Velocity:</span>
-                                        <span className={`text-[12px] font-bold font-mono ${ev.flowVelocityFps > 15 ? 'text-red-500' : 'text-foreground'}`}>
-                                          {ev.flowVelocityFps} ft/s
-                                        </span>
-                                      </div>
-                                      <p className="text-[10px] text-muted-foreground leading-tight pt-1 border-t border-border/60 mt-2">
-                                        Discharge header dimensioned for max 15 ft/s velocity at 100% rated flow.
-                                      </p>
+                                      )}
                                     </div>
-                                  </div>
+                                  </td>
 
-                                  {/* Auxiliary / Other Risks */}
-                                  <div className="bg-surface-1 p-3 rounded-lg border border-border/60">
-                                    <h4 className="text-[11px] font-bold text-foreground mb-2 flex items-center gap-1.5 uppercase">
-                                      <AlertTriangle className="size-3.5 text-amber-500" />
-                                      Auxiliary & Extinguishers
-                                    </h4>
-                                    <ul className="space-y-1.5 text-[11px] text-muted-foreground">
-                                      <li className="flex items-center gap-1.5">
-                                        <Check className="size-3 text-green-500 shrink-0" />
-                                        <span>Manual Extinguishers (Code Tab 9.17)</span>
-                                      </li>
-                                      <li className="flex items-center gap-1.5">
-                                        <Check className="size-3 text-green-500 shrink-0" />
-                                        <span>Breaching Inlet / FDC connection</span>
-                                      </li>
-                                      <li className="flex items-center gap-1.5">
-                                        <Check className="size-3 text-green-500 shrink-0" />
-                                        <span>Dry/Clean Agent for Electrical/IT rooms</span>
-                                      </li>
-                                      <li className="flex items-center gap-1.5">
-                                        <Check className="size-3 text-green-500 shrink-0" />
-                                        <span>Wet Chemical for Commercial Kitchens</span>
-                                      </li>
-                                    </ul>
-                                  </div>
+                                  {/* 3. Occupancy Dropdown (Editable Select) */}
+                                  <td className="py-1 px-1 text-muted-foreground text-center" onClick={(e) => e.stopPropagation()}>
+                                    <div className="min-w-[110px] max-w-[140px] mx-auto">
+                                      <select
+                                        value={b.occupancy}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => handleUpdateBuilding(b.id, { occupancy: e.target.value as CivilDefenseOccupancy }, true)}
+                                        className="w-full px-1.5 py-0.5 text-xs text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-border/40 hover:border-border/80 focus:border-primary focus:ring-1 focus:ring-primary rounded cursor-pointer transition-all truncate"
+                                        title={`Occupancy category: ${OCCUPANCY_OPTIONS.find((o) => o.value === b.occupancy)?.desc || b.occupancy}`}
+                                      >
+                                        {OCCUPANCY_OPTIONS.map((o) => (
+                                          <option key={o.value} value={o.value}>
+                                            {o.label.split(" (")[0]}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </td>
 
-                                  {/* Code Clauses */}
-                                  <div className="bg-surface-1 p-3 rounded-lg border border-border/60">
-                                    <h4 className="text-[11px] font-bold text-foreground mb-2 flex items-center gap-1.5 uppercase">
-                                      <FileText className="size-3.5 text-purple-500" />
-                                      Applied Clauses
-                                    </h4>
-                                    <div className="flex flex-col gap-1.5 h-[80px] overflow-y-auto pr-2 custom-scrollbar">
-                                      {ev.clauses.map((clause, idx) => (
-                                        <div key={idx} className="flex gap-1.5 text-[10px] text-muted-foreground leading-tight">
-                                          <span className="text-primary font-bold shrink-0">â€¢</span>
-                                          <span>{clause}</span>
+                                  {/* 4. Height (Editable Input) */}
+                                  <td className="py-1 px-1 text-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
+                                    <div className="flex items-center justify-center min-w-[50px] mx-auto" title="Height (meters). Governs Super Highrise (>90m), Highrise (23-90m), Midrise (15-23m), Lowrise (â‰¤15m)">
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        step="0.5"
+                                        value={b.height || ""}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => {
+                                          const v = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                                          if (!isNaN(v)) handleUpdateBuilding(b.id, { height: v }, true);
+                                        }}
+                                        className="w-12 px-1 py-0.5 text-xs font-semibold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
+                                      />
+                                    </div>
+                                  </td>
+
+                                  {/* 5. Floors (Editable Input) */}
+                                  <td className="py-1 px-1 text-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
+                                    <div className="flex items-center justify-center min-w-[55px] mx-auto" title="Above-ground stories">
+                                      <div className="flex items-center gap-0.5">
+                                        <span className="text-muted-foreground text-[11px]">(G+</span>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="1"
+                                          value={b.floors ?? ""}
+                                          disabled={isEffectiveReadOnly}
+                                          onChange={(e) => {
+                                            const v = e.target.value === "" ? 0 : parseInt(e.target.value);
+                                            if (!isNaN(v)) handleUpdateBuilding(b.id, { floors: v }, true);
+                                          }}
+                                          className="w-10 px-1 py-0.5 text-xs font-semibold text-foreground bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
+                                        />
+                                        <span className="text-muted-foreground text-[11px]">)</span>
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  {/* 6. GFA (mÂ²) (Editable Input) */}
+                                  <td className="py-1 px-1 text-muted-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
+                                    <div className="min-w-[60px] max-w-[80px] mx-auto" title="Ground Floor Area (mÂ²). Governs code system thresholds (â‰¤500mÂ², 501-3600mÂ², >3600mÂ²)">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="10"
+                                        value={b.groundFloorArea || ""}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => {
+                                          const v = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                                          if (!isNaN(v)) handleUpdateBuilding(b.id, { groundFloorArea: v }, true);
+                                        }}
+                                        className="w-full px-1 py-0.5 text-xs text-foreground font-mono bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
+                                      />
+                                    </div>
+                                  </td>
+
+                                  {/* 7. Plot Area (mÂ²) (Editable Input) */}
+                                  <td className="py-1 px-1 text-muted-foreground font-mono text-center" onClick={(e) => e.stopPropagation()}>
+                                    <div className="min-w-[60px] max-w-[80px] mx-auto" title="Plot Area (mÂ²). If >20,000 mÂ², triggers Section 3.11 mandatory Yard Hydrants">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="50"
+                                        value={b.plotArea || ""}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => {
+                                          const v = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                                          if (!isNaN(v)) handleUpdateBuilding(b.id, { plotArea: v }, true);
+                                        }}
+                                        className="w-full px-1 py-0.5 text-xs text-foreground font-mono bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded text-center"
+                                      />
+                                    </div>
+                                  </td>
+
+                                  {/* 8. Standpipes (Editable Input) */}
+                                  <td className="py-1 px-1 text-center text-foreground font-mono" onClick={(e) => e.stopPropagation()}>
+                                    <div className="w-10 mx-auto" title="Number of Standpipes/Stairs. In Highrise, â‰¤2 standpipes = 750 GPM (2839 LPM); >2 standpipes = 1000 GPM (3785 LPM)">
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        max="30"
+                                        step="1"
+                                        value={b.standpipeCount || ""}
+                                        disabled={isEffectiveReadOnly}
+                                        onChange={(e) => {
+                                          const v = e.target.value === "" ? 1 : parseInt(e.target.value);
+                                          if (!isNaN(v)) handleUpdateBuilding(b.id, { standpipeCount: v }, true);
+                                        }}
+                                        className="w-full px-1 py-0.5 text-xs font-semibold text-center text-foreground font-mono bg-surface-2/40 hover:bg-surface-2 focus:bg-background border border-transparent hover:border-border/60 focus:border-primary focus:ring-1 focus:ring-primary rounded"
+                                      />
+                                    </div>
+                                  </td>
+
+                                  {/* 9. Fire Pump Duty (OUTPUT) */}
+                                  <td className="py-1 px-1.5 font-semibold text-foreground font-mono text-center">
+                                    <div className="flex items-center justify-center gap-1 mx-auto text-xs whitespace-nowrap" title={`Governing Rule: ${ev.lowestPumpRemarks}`}>
+                                      {unitSystem === "si" ? (
+                                        <>
+                                          <span>{ev.lowestFirePumpFlowLpm}</span>
+                                          <span className="text-muted-foreground/70 text-[11px]">@</span>
+                                          <span>{ev.lowestFirePumpPressureBar}</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span>{ev.lowestFirePumpFlowGpm}</span>
+                                          <span className="text-muted-foreground/70 text-[11px]">@</span>
+                                          <span>{ev.lowestFirePumpPressurePsi}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </td>
+
+                                  {/* 10. Tank Duration (OUTPUT) */}
+                                  <td className="py-1 px-1.5 text-foreground font-mono text-center font-semibold text-xs whitespace-nowrap" title={`Statutory duration: ${ev.mainTankDurationMin} min per UAE Code`}>
+                                    {ev.mainTankDurationMin}
+                                  </td>
+
+                                  {/* 11. Net Water Volume (OUTPUT) */}
+                                  <td className="py-1 px-1.5 font-semibold text-foreground font-mono text-center text-xs whitespace-nowrap">
+                                    {unitSystem === "si" ? (
+                                      <span title={`Calculated Net Volume: ${ev.lowestFirePumpFlowGpm} GPM Ã— ${ev.mainTankDurationMin} min = ${ev.mainTankNetVolumeM3} mÂ³`}>
+                                        {ev.mainTankNetVolumeM3}
+                                      </span>
+                                    ) : (
+                                      <span title={`Calculated Net Volume: ${ev.lowestFirePumpFlowGpm} GPM Ã— ${ev.mainTankDurationMin} min = ${ev.mainTankNetVolumeGal.toLocaleString()} US gal`}>
+                                        {ev.mainTankNetVolumeGal.toLocaleString()}
+                                      </span>
+                                    )}
+                                  </td>
+
+                                  {/* 12. Staging Pumps (Auto-derived from >90m) */}
+                                  <td className="py-1 px-2 pr-3 text-muted-foreground text-center">
+                                    {ev.requiresStagingPumps ? (
+                                      <span className="text-purple-600 dark:text-purple-400 font-semibold font-mono text-[10.5px] whitespace-nowrap">
+                                        {ev.stagingPumpFlowGpm} GPM @ 6.9 bar (+90m)
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground text-[10.5px] whitespace-nowrap">N/A (Single Set)</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              </ContextMenuTrigger>
+                              {renderBuildingContextMenu(b)}
+                            </ContextMenu>
+                            {expandedRowId === b.id && (
+                              <tr className="bg-surface-2/10 border-b border-border/60">
+                                <td colSpan={12} className="p-0">
+                                  <div className="p-4 pl-12 border-l-4 border-primary">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                      {/* Statutory System Requirements */}
+                                      <div className="bg-surface-1 p-3 rounded-lg border border-border/60">
+                                        <h4 className="text-[11px] font-bold text-foreground mb-2 flex items-center gap-1.5 uppercase">
+                                          <ShieldCheck className="size-3.5 text-green-500" />
+                                          Statutory Systems (Code)
+                                        </h4>
+                                        <ul className="space-y-1.5 text-[11px] text-muted-foreground font-medium">
+                                          <li className="flex items-center justify-between">
+                                            <span>Sprinklers Required:</span>
+                                            <span className={ev.isSprinklerRequired ? "text-green-600 dark:text-green-400 font-bold" : ""}>
+                                              {ev.isSprinklerRequired ? "YES" : "NO"}
+                                            </span>
+                                          </li>
+                                          <li className="flex items-center justify-between">
+                                            <span>Wet Risers Required:</span>
+                                            <span className={ev.isRiserRequired ? "text-green-600 dark:text-green-400 font-bold" : ""}>
+                                              {ev.isRiserRequired ? "YES" : "NO"}
+                                            </span>
+                                          </li>
+                                          <li className="flex items-center justify-between">
+                                            <span>Hose Reels Required:</span>
+                                            <span className={ev.isHoseReelRequired ? "text-green-600 dark:text-green-400 font-bold" : ""}>
+                                              {ev.isHoseReelRequired ? "YES" : "NO"}
+                                            </span>
+                                          </li>
+                                          <li className="flex items-center justify-between">
+                                            <span>Yard Hydrants:</span>
+                                            <span className={ev.isYardHydrantRequired ? "text-amber-600 dark:text-amber-400 font-bold" : ""}>
+                                              {ev.isYardHydrantRequired ? "MANDATORY" : "N/A"}
+                                            </span>
+                                          </li>
+                                        </ul>
+                                      </div>
+
+                                      {/* Pump Header & Discharge */}
+                                      <div className="bg-surface-1 p-3 rounded-lg border border-border/60">
+                                        <h4 className="text-[11px] font-bold text-foreground mb-2 flex items-center gap-1.5 uppercase">
+                                          <Droplets className="size-3.5 text-blue-500" />
+                                          NFPA 20 Discharge Header
+                                        </h4>
+                                        <div className="space-y-2">
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-[11px] text-muted-foreground">Header Size (DN):</span>
+                                            <span className="text-[12px] font-bold font-mono text-foreground">DN {ev.recommendedHeaderDn}</span>
+                                          </div>
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-[11px] text-muted-foreground">Header Size (NPS):</span>
+                                            <span className="text-[12px] font-bold font-mono text-foreground">{ev.recommendedHeaderNps}"</span>
+                                          </div>
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-[11px] text-muted-foreground">Flow Velocity:</span>
+                                            <span className={`text-[12px] font-bold font-mono ${ev.flowVelocityFps > 15 ? 'text-red-500' : 'text-foreground'}`}>
+                                              {ev.flowVelocityFps} ft/s
+                                            </span>
+                                          </div>
+                                          <p className="text-[10px] text-muted-foreground leading-tight pt-1 border-t border-border/60 mt-2">
+                                            Discharge header dimensioned for max 15 ft/s velocity at 100% rated flow.
+                                          </p>
                                         </div>
-                                      ))}
+                                      </div>
+
+                                      {/* Auxiliary / Other Risks */}
+                                      <div className="bg-surface-1 p-3 rounded-lg border border-border/60">
+                                        <h4 className="text-[11px] font-bold text-foreground mb-2 flex items-center gap-1.5 uppercase">
+                                          <AlertTriangle className="size-3.5 text-amber-500" />
+                                          Auxiliary & Extinguishers
+                                        </h4>
+                                        <ul className="space-y-1.5 text-[11px] text-muted-foreground">
+                                          <li className="flex items-center gap-1.5">
+                                            <Check className="size-3 text-green-500 shrink-0" />
+                                            <span>Manual Extinguishers (Code Tab 9.17)</span>
+                                          </li>
+                                          <li className="flex items-center gap-1.5">
+                                            <Check className="size-3 text-green-500 shrink-0" />
+                                            <span>Breaching Inlet / FDC connection</span>
+                                          </li>
+                                          <li className="flex items-center gap-1.5">
+                                            <Check className="size-3 text-green-500 shrink-0" />
+                                            <span>Dry/Clean Agent for Electrical/IT rooms</span>
+                                          </li>
+                                          <li className="flex items-center gap-1.5">
+                                            <Check className="size-3 text-green-500 shrink-0" />
+                                            <span>Wet Chemical for Commercial Kitchens</span>
+                                          </li>
+                                        </ul>
+                                      </div>
+
+                                      {/* Code Clauses */}
+                                      <div className="bg-surface-1 p-3 rounded-lg border border-border/60">
+                                        <h4 className="text-[11px] font-bold text-foreground mb-2 flex items-center gap-1.5 uppercase">
+                                          <FileText className="size-3.5 text-purple-500" />
+                                          Applied Clauses
+                                        </h4>
+                                        <div className="flex flex-col gap-1.5 h-[80px] overflow-y-auto pr-2 custom-scrollbar">
+                                          {ev.clauses.map((clause, idx) => (
+                                            <div key={idx} className="flex gap-1.5 text-[10px] text-muted-foreground leading-tight">
+                                              <span className="text-primary font-bold shrink-0">â€¢</span>
+                                              <span>{clause}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
 
-              {/* Footer (Matching Ventilation) */}
-              <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 no-print modal-blur-bg select-none">
-                <div>
-                  Showing <span className="text-foreground font-medium tabular">{filteredBuildings.length.toLocaleString()}</span> of {buildings.length.toLocaleString()} building block{buildings.length !== 1 ? "s" : ""}
-                </div>
-                <div className="flex items-center gap-3 tabular">
-                  <span>
-                    Î£ Demand: <span className="font-mono text-foreground">{unitSystem === "si" ? `${(projectSummary.maxPumpFlowLpm ?? 0).toLocaleString()} LPM` : `${(projectSummary.maxPumpFlowGpm ?? 0).toLocaleString()} GPM`}</span>
-                  </span>
-                  <span>
-                    Î£ Net Storage: <span className="font-mono text-foreground">{unitSystem === "si" ? `${(projectSummary.totalNetStorageM3 ?? 0).toLocaleString()} mÂ³` : `${(projectSummary.totalNetStorageGal ?? 0).toLocaleString()} Gal`}</span>
-                  </span>
-                  {activeItem && (
+                {/* Footer (Matching Ventilation) */}
+                <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 no-print modal-blur-bg select-none">
+                  <div>
+                    Showing <span className="text-foreground font-medium tabular">{filteredBuildings.length.toLocaleString()}</span> of {buildings.length.toLocaleString()} building block{buildings.length !== 1 ? "s" : ""}
+                  </div>
+                  <div className="flex items-center gap-3 tabular">
                     <span>
-                      Selected: <span className="font-semibold text-foreground">{activeItem.building.name}</span> <span className="text-muted-foreground/70">({OCCUPANCY_OPTIONS.find((o) => o.value === activeItem.building.occupancy)?.label.split(" (")[0] || activeItem.building.occupancy} â€¢ {activeItem.building.height}m)</span>
+                      Î£ Demand: <span className="font-mono text-foreground">{unitSystem === "si" ? `${(projectSummary.maxPumpFlowLpm ?? 0).toLocaleString()} LPM` : `${(projectSummary.maxPumpFlowGpm ?? 0).toLocaleString()} GPM`}</span>
                     </span>
-                  )}
+                    <span>
+                      Î£ Net Storage: <span className="font-mono text-foreground">{unitSystem === "si" ? `${(projectSummary.totalNetStorageM3 ?? 0).toLocaleString()} mÂ³` : `${(projectSummary.totalNetStorageGal ?? 0).toLocaleString()} Gal`}</span>
+                    </span>
+                    {activeItem && (
+                      <span>
+                        Selected: <span className="font-semibold text-foreground">{activeItem.building.name}</span> <span className="text-muted-foreground/70">({OCCUPANCY_OPTIONS.find((o) => o.value === activeItem.building.occupancy)?.label.split(" (")[0] || activeItem.building.occupancy} â€¢ {activeItem.building.height}m)</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
 
 
@@ -2145,11 +2009,10 @@ export function FireWaterDemandPage() {
                     <button
                       key={b.id}
                       onClick={() => setReportBuildingId(b.id)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                        reportBuildingId === b.id
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${reportBuildingId === b.id
                           ? "bg-primary text-primary-foreground border-primary shadow-md"
                           : "bg-surface-2 border-border text-muted-foreground hover:text-foreground hover:bg-surface-3"
-                      }`}
+                        }`}
                     >
                       {b.name}
                     </button>
@@ -2159,7 +2022,7 @@ export function FireWaterDemandPage() {
                 {(() => {
                   const activeTower = buildings.find(b => b.id === reportBuildingId) || buildings[0];
                   if (!activeTower) return null;
-                  
+
                   const { evaluation: ev } = evaluateCivilDefenseFireDemand(
                     activeTower,
                     buildings.filter(x => x.id !== activeTower.id),
@@ -2174,7 +2037,7 @@ export function FireWaterDemandPage() {
                         </div>
                         <h2 className="text-xl font-bold text-foreground mb-2">Single Stage Network (â‰¤90m)</h2>
                         <p className="text-sm text-muted-foreground max-w-md mb-6">
-                          Tower <strong>{activeTower.name}</strong> has an elevation of {activeTower.height}m. 
+                          Tower <strong>{activeTower.name}</strong> has an elevation of {activeTower.height}m.
                           UAE Civil Defense mandates vertical staging pumps and transfer tanks only for Super Highrise buildings exceeding 90 meters in height.
                         </p>
                         <div className="p-4 bg-surface-2 rounded-lg border border-border w-full text-left flex items-start gap-4">
@@ -2360,7 +2223,7 @@ export function FireWaterDemandPage() {
               <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 gap-4">
                 {activeTankSizing && activeItem && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                    
+
                     {/* Left: Interactive Dimensions Input */}
                     <div className="lg:col-span-5 p-4 rounded-xl bg-card border border-border shadow-xs flex flex-col gap-3">
                       <div className="flex items-center justify-between border-b border-border/60 pb-2">
@@ -2503,7 +2366,7 @@ export function FireWaterDemandPage() {
 
                     {/* Right: SVG Graphic Cross-Section & Appurtenances */}
                     <div className="lg:col-span-7 flex flex-col gap-3">
-                      
+
                       {/* Interactive Visual Tank Elevation */}
                       <div className="p-4 rounded-xl bg-card border border-border shadow-xs flex flex-col items-center">
                         <div className="w-full flex items-center justify-between text-xs font-bold text-foreground mb-3">
@@ -2578,7 +2441,7 @@ export function FireWaterDemandPage() {
             {tab === "report" && (
               <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
                 <div className="max-w-5xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
-                  
+
                   {/* Action Bar / Title Header */}
                   <div className="flex justify-between items-start pb-4 border-b border-border flex-wrap gap-4">
                     <div>
@@ -2594,11 +2457,10 @@ export function FireWaterDemandPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                        calcReviewState?.status === "APPROVED"
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${calcReviewState?.status === "APPROVED"
                           ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/30"
                           : "bg-amber-500/10 text-amber-600 border border-amber-500/30"
-                      }`}>
+                        }`}>
                         {calcReviewState?.status || "DRAFT DESIGN"}
                       </span>
                       <TBtn onClick={handleExportPDF}>
@@ -2932,9 +2794,8 @@ export function FireWaterDemandPage() {
 
         {/* Intelligence drawer */}
         <div
-          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
-          }`}
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+            }`}
         >
           {intelOpen && (
             <FireWaterDemandIntelligenceDrawer
@@ -3513,8 +3374,8 @@ function FireWaterDemandIntelligenceDrawer({
 function IntelSection({ icon: Icon, title, tone, children }: { icon: any; title: string; tone: "success" | "warning" | "primary" | "muted"; children: React.ReactNode }) {
   const color =
     tone === "success" ? "text-success" :
-    tone === "warning" ? "text-warning" :
-    tone === "primary" ? "text-primary" : "text-muted-foreground";
+      tone === "warning" ? "text-warning" :
+        tone === "primary" ? "text-primary" : "text-muted-foreground";
   return (
     <section className="px-3 py-3 border-b border-border">
       <div className="flex items-center gap-2 mb-2">

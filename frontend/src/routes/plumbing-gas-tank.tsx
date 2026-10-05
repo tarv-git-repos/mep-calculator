@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
@@ -25,6 +25,12 @@ import {
 import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
+import {
+  type GasTankInputs,
+  DEFAULT_INPUTS,
+  computeGasTankCalculations
+} from "@/lib/calc-plumbing-gas-tank";
+
 
 export const Route = createFileRoute("/plumbing-gas-tank")({
   head: () => ({
@@ -35,26 +41,6 @@ export const Route = createFileRoute("/plumbing-gas-tank")({
   }),
   component: GasTankPage,
 });
-
-export interface GasTankInputs {
-  gasType: "ng" | "lpg";
-  unitSystem: "SI" | "IP";
-  resKitchens: number;
-  resDemandConst: number; // m3/day (SI) or ft3/day (IP)
-  retKitchens: number;
-  retDemandConst: number; // m3/day (SI) or ft3/day (IP)
-  storageCapacity: number; // Litres (SI) or US Gallons (IP)
-}
-
-const DEFAULT_INPUTS: GasTankInputs = {
-  gasType: "ng",
-  unitSystem: "SI",
-  resKitchens: 0,
-  resDemandConst: 0.19,
-  retKitchens: 0,
-  retDemandConst: 52,
-  storageCapacity: 30000,
-};
 
 function GasTankPage() {
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
@@ -183,44 +169,37 @@ function GasTankPage() {
 
   const totalCommentsCount = Object.values(commentsMap).reduce((acc, curr) => acc + (curr?.length || 0), 0);
 
-  // Unit system derived labels & conversion factors
-  const isIP = inputs.unitSystem === "IP";
-  const M3_TO_FT3 = 35.3147;
-  const L_TO_GAL = 0.264172;
-  const demandUnit = isIP ? "ft³/day" : "m³/day";
-  const volUnit = isIP ? "US Gal" : "Litres";
-
-  const resConsumption = inputs.resKitchens * inputs.resDemandConst; // m³/day
-  const retConsumption = inputs.retKitchens * inputs.retDemandConst; // m³/day
-
-  const totalDemandNg = (resConsumption + retConsumption) * 1000; // L/day
-  const totalDemandLpg = totalDemandNg / 2.67; // L/day (LPG energy ratio ~2.67x)
-
-  const activeDemand = inputs.gasType === "ng" ? totalDemandNg : totalDemandLpg; // L/day
-  const activeDemandM3 = activeDemand / 1000; // m³/day
-
-  const resConsumptionDisp = isIP ? resConsumption * M3_TO_FT3 : resConsumption;
-  const retConsumptionDisp = isIP ? retConsumption * M3_TO_FT3 : retConsumption;
-  const activeDemandDisp = isIP ? activeDemandM3 * M3_TO_FT3 : activeDemandM3;
-  const activeDemandVolDisp = isIP ? activeDemand * L_TO_GAL : activeDemand;
-  const volUnitDay = isIP ? "gal/day" : "L/day";
-
-  const tankCapacity = activeDemand > 0 ? (activeDemand * 7) / 0.7 : 0; // Litres recommended for 7 days
-  const tankCapacityDisp = isIP ? tankCapacity * L_TO_GAL : tankCapacity;
-
-  const storageCapacityL = isIP ? inputs.storageCapacity / L_TO_GAL : inputs.storageCapacity;
-  const usableGas = storageCapacityL * 0.7 * 0.8;
-  const reserveGas = storageCapacityL * 0.7 * 0.2;
-  const vaporHeadspace = storageCapacityL * 0.3;
-
-  const usableGasDisp = isIP ? usableGas * L_TO_GAL : usableGas;
-  const reserveGasDisp = isIP ? reserveGas * L_TO_GAL : reserveGas;
-  const vaporHeadspaceDisp = isIP ? vaporHeadspace * L_TO_GAL : vaporHeadspace;
-
-  const autonomyDays = activeDemand > 0 ? (usableGas / activeDemand) : 0;
-  const isAdequate = storageCapacityL >= tankCapacity;
-  const volumeSurplusDeficit = storageCapacityL - tankCapacity;
-  const volumeSurplusDeficitDisp = isIP ? volumeSurplusDeficit * L_TO_GAL : volumeSurplusDeficit;
+  const {
+    isIP,
+    M3_TO_FT3,
+    L_TO_GAL,
+    demandUnit,
+    volUnit,
+    resConsumption,
+    retConsumption,
+    totalDemandNg,
+    totalDemandLpg,
+    activeDemand,
+    activeDemandM3,
+    resConsumptionDisp,
+    retConsumptionDisp,
+    activeDemandDisp,
+    activeDemandVolDisp,
+    volUnitDay,
+    tankCapacity,
+    tankCapacityDisp,
+    storageCapacityL,
+    usableGas,
+    reserveGas,
+    vaporHeadspace,
+    usableGasDisp,
+    reserveGasDisp,
+    vaporHeadspaceDisp,
+    autonomyDays,
+    isAdequate,
+    volumeSurplusDeficit,
+    volumeSurplusDeficitDisp
+  } = useMemo(() => computeGasTankCalculations(inputs), [inputs]);
 
   // PDF Export Function
   const handleExportPdf = async () => {
@@ -627,7 +606,7 @@ function GasTankPage() {
   return (
     <AppShell title="Gas Storage Capacity" hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-hidden h-full">
           
           {/* Page Header & Actions */}
           <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
@@ -659,7 +638,7 @@ function GasTankPage() {
           </div>
 
           {/* Main Content Card Container */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
+          <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
             ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
             : calcReviewState?.status === "REJECTED"
@@ -715,12 +694,12 @@ function GasTankPage() {
             {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               {tab === "calculator" ? (
-                <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-8">
+                <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-y-hidden p-4 md:p-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
                     
                     {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
-                    <div className="lg:col-span-5 space-y-5">
-                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
+                    <div className="lg:col-span-5 space-y-4">
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4.5 space-y-4">
                         
                         {/* Header */}
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
@@ -1019,12 +998,12 @@ function GasTankPage() {
                     </div>
 
                     {/* RIGHT COLUMN: CALCULATION RESULTS SUMMARY (lg:col-span-7) */}
-                    <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
+                    <div className="lg:col-span-7 space-y-4 lg:sticky lg:top-0 self-start">
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
                           <div
                             id="card-calculation-results"
-                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 transition-all hover:border-slate-300 dark:hover:border-zinc-700"
+                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4.5 space-y-4 transition-all hover:border-slate-300 dark:hover:border-zinc-700"
                           >
                             
                             {/* Header */}

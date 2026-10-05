@@ -3,7 +3,7 @@ import {
   X, Check, SlidersHorizontal, Building2, Flame, Thermometer,
   Layers, RotateCcw, Sparkles, ShieldAlert, ArrowRight, Info
 } from "lucide-react";
-import { HEATING_PRESETS, type HeatingPresetKey } from "@/routes/heating-load";
+import { HEATING_PRESETS, type HeatingPresetKey } from "@/lib/calc-heating-load";
 import { toast } from "sonner";
 
 interface CustomHeatingConfigModalProps {

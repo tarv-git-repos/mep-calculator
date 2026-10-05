@@ -1,22 +1,22 @@
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
-import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown, ChevronUp, FileText, Calculator, CheckCircle2, AlertTriangle, FileSpreadsheet, Layers, Globe } from "lucide-react";
+import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown, ChevronUp, FileText, Calculator, CheckCircle2, AlertTriangle, Printer, Layers, Globe } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, ContextMenuShortcut } from "@/components/ui/context-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import * as XLSX from "xlsx";
-import ExcelJS from "exceljs";
 import { addPdfHeader, addPdfSignatureBlock, getSignatureBlockDetails, formatDateStr, resolveLatestReviewState } from "@/lib/pdfHelpers";
 import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import { exportLoadingUnitPDF } from "@/lib/exportLoadingUnitPDF";
 
 export const Route = createFileRoute("/plumbing-loading-unit")({
   head: () => ({
@@ -870,7 +870,7 @@ function LoadingUnitPage() {
     const targetIds = selectedIds.includes(targetId) && selectedIds.length > 1
       ? selectedIds
       : [targetId];
-    
+
     const nextState = !currentFlagged;
     setIopSpaces(prev => prev.map(s => targetIds.includes(s.id) ? { ...s, flagged: nextState } : s));
     toast.info(nextState ? `Flagged ${targetIds.length} space(s)` : `Unflagged ${targetIds.length} space(s)`);
@@ -998,14 +998,14 @@ function LoadingUnitPage() {
       if (lsCache && lsCache[pKey]) {
         try {
           restoredData = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
-        } catch (err) {}
+        } catch (err) { }
       }
       if (!restoredData) {
         const stored = localStorage.getItem(pKey);
         if (stored) {
           try {
             restoredData = JSON.parse(stored);
-          } catch (err) {}
+          } catch (err) { }
         }
       }
       if (restoredData) {
@@ -1288,7 +1288,7 @@ function LoadingUnitPage() {
           data.weightOverrides = {};
           localStorage.setItem(key, JSON.stringify(data));
         }
-      } catch (e) {}
+      } catch (e) { }
     }
     toast.info("Reset fixture weights to standard defaults.");
   };
@@ -1596,830 +1596,31 @@ function LoadingUnitPage() {
     setContextMenu({ x: e.clientX, y: e.clientY, spaceId });
   };
 
-  // Helper to convert 1-based col number to Excel column letter (e.g. 1 -> A, 14 -> N)
-  const getColLetter = (colIdx: number): string => {
-    let temp = "";
-    let letter = "";
-    while (colIdx > 0) {
-      temp = (colIdx - 1) % 26;
-      letter = String.fromCharCode(65 + temp) + letter;
-      colIdx = Math.floor((colIdx - temp - 1) / 26);
-    }
-    return letter;
-  };
 
-  // Excel Export matching P539B Excel Sheet Format
-  const handleExportExcel = async () => {
-    try {
-      const workbook = new ExcelJS.Workbook();
-      const sheetName = standardPreset === "abudhabi" 
-        ? "COLD WATER LOADING UNIT B" 
-        : standardPreset === "dubai" 
-        ? "COLD WATER LOADING UNIT D" 
-        : standardPreset === "iop_bs"
-        ? "COLD WATER LOADING UNIT IoP"
-        : "COLD WATER LOADING UNIT I";
-      
-      const sheet = workbook.addWorksheet(sheetName);
-
-      const activeFixtures = LU_FIXTURES_META;
-      const numFixtures = activeFixtures.length; // 10
-      const extraCols = (showSpaceQty ? 1 : 0) + (showFloorsCol ? 1 : 0);
-      const totalCols = 1 + numFixtures + 1 + extraCols + 1; // 1 (Desc) + numFixtures + 1 (Unit LU) + extraCols + 1 (TOTAL LU)
-      const lastColLetter = getColLetter(totalCols);
-
-      const currentWeights = STANDARD_FIXTURE_WEIGHTS[standardPreset];
-      const isWsfu = standardPreset === "abudhabi" || standardPreset === "ipc_upc";
-      const unitLabel = isWsfu ? "WSFU" : "LU";
-
-      // 1. Column Widths matching P539B
-      sheet.getColumn(1).width = 25; // Description
-      for (let c = 2; c <= 1 + numFixtures; c++) {
-        sheet.getColumn(c).width = 13; // Fixtures
-      }
-      let currCol = 1 + numFixtures + 1; // Col for LU per Space
-      sheet.getColumn(currCol).width = 13;
-      const luColLet = getColLetter(currCol);
-
-      let qtyColLet = "";
-      if (showSpaceQty) {
-        currCol++;
-        sheet.getColumn(currCol).width = 11;
-        qtyColLet = getColLetter(currCol);
-      }
-
-      let floorQtyColLet = "";
-      if (showFloorsCol) {
-        currCol++;
-        sheet.getColumn(currCol).width = 13;
-        floorQtyColLet = getColLetter(currCol);
-      }
-
-      currCol++;
-      sheet.getColumn(currCol).width = 14;
-      const totalLUColLet = getColLetter(currCol);
-
-      // Helper styles
-      const fontCambria11Bold = { name: "Cambria", size: 11, bold: true };
-      const fontCambria11 = { name: "Cambria", size: 11, bold: false };
-      const fontCambria10Bold = { name: "Cambria", size: 10, bold: true };
-      const fillHeader = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFEFECE1" } };
-      const fillBanner = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFF2DCDB" } };
-      const fillPeach = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFDEBDA" } };
-
-      const borderThinAll: Partial<ExcelJS.Borders> = {
-        top: { style: "thin" },
-        bottom: { style: "thin" },
-        left: { style: "thin" },
-        right: { style: "thin" }
-      };
-
-      // 2. Fetch Project Metadata (matching Ventilation Calculation)
-      const activeProj: any = workspaceStore.getState()?.project || project || {};
-      const projectNo = activeProj.code || activeProj.project_number || activeProj.projectNumber || 'P539';
-      const calcNo = activeProj.calcNo || activeProj.calc_number || `CEC-MED-${projectNo}-202   Rev. No:1`;
-      const today = new Date().toLocaleDateString('en-GB');
-      const projectName = activeProj.name || activeProj.project_name || activeProj.projectName || '';
-      const clientName = activeProj.client || activeProj.client_name || activeProj.clientName || '';
-      const endUser = activeProj.endUser || activeProj.end_user || activeProj.location || '';
-
-      // Title Row (Row 2)
-      sheet.getRow(2).height = 26;
-      sheet.getCell("A2").value = "Loading Unit & Pipe Sizing Calculation";
-      sheet.getCell("A2").font = { name: "Cambria", size: 16, bold: true };
-
-      // Metadata Header Box (Rows 4-6)
-      const splitColIndex = Math.max(6, Math.floor(totalCols / 2));
-      const splitColLetter = getColLetter(splitColIndex);
-      const splitColPlusLetter = getColLetter(splitColIndex + 1);
-
-      // Row 4
-      sheet.mergeCells(`A4:${splitColLetter}4`);
-      sheet.mergeCells(`${splitColPlusLetter}4:${lastColLetter}4`);
-      sheet.getCell("A4").value = `Calculation No.:   ${calcNo}`;
-      sheet.getCell(`${splitColPlusLetter}4`).value = `Date:   ${today}`;
-
-      // Row 5
-      sheet.mergeCells(`A5:${splitColLetter}5`);
-      sheet.mergeCells(`${splitColPlusLetter}5:${lastColLetter}5`);
-      sheet.getCell("A5").value = `Project No.:   ${projectNo}`;
-      sheet.getCell(`${splitColPlusLetter}5`).value = `Client:   ${clientName}`;
-
-      // Row 6
-      sheet.mergeCells(`A6:${splitColLetter}6`);
-      sheet.mergeCells(`${splitColPlusLetter}6:${lastColLetter}6`);
-      sheet.getCell("A6").value = `Project Name:   ${projectName}`;
-      sheet.getCell(`${splitColPlusLetter}6`).value = `End User:   ${endUser}`;
-
-      // Style Rows 4-6
-      for (let r = 4; r <= 6; r++) {
-        sheet.getRow(r).height = 22;
-        for (let c = 1; c <= totalCols; c++) {
-          const cell = sheet.getCell(r, c);
-          cell.font = fontCambria11Bold;
-          const topStyle = r === 4 ? "medium" : "thin";
-          const bottomStyle = r === 6 ? "medium" : "thin";
-          const leftStyle = (c === 1 || c === splitColIndex + 1) ? "medium" : "thin";
-          const rightStyle = (c === totalCols || c === splitColIndex) ? "medium" : "thin";
-
-          cell.border = {
-            top: { style: topStyle },
-            bottom: { style: bottomStyle },
-            left: { style: leftStyle },
-            right: { style: rightStyle }
-          };
-          cell.alignment = { vertical: "middle", horizontal: "left" };
-        }
-      }
-
-      // 3. Table Header Rows (Rows 8 & 9)
-      sheet.getRow(8).height = 43;
-      sheet.getRow(9).height = 30;
-
-      // Col A: Description (A8:A9)
-      sheet.mergeCells("A8:A9");
-      sheet.getCell("A8").value = "Description";
-
-      // Fixtures: Row 8 (Name), Row 9 (Weight)
-      activeFixtures.forEach((f, idx) => {
-        const colIdx = 2 + idx;
-        const colLet = getColLetter(colIdx);
-        sheet.getCell(`${colLet}8`).value = f.short;
-        sheet.getCell(`${colLet}9`).value = currentWeights[f.id] || 0;
-      });
-
-      // LU / WSFU per Space
-      sheet.mergeCells(`${luColLet}8:${luColLet}9`);
-      sheet.getCell(`${luColLet}8`).value = isWsfu ? "WSFU" : "LU per Space";
-
-      if (showSpaceQty && qtyColLet) {
-        sheet.mergeCells(`${qtyColLet}8:${qtyColLet}9`);
-        sheet.getCell(`${qtyColLet}8`).value = "Space Qty";
-      }
-
-      if (showFloorsCol && floorQtyColLet) {
-        sheet.mergeCells(`${floorQtyColLet}8:${floorQtyColLet}9`);
-        sheet.getCell(`${floorQtyColLet}8`).value = "No. of Floors";
-      }
-
-      sheet.mergeCells(`${totalLUColLet}8:${totalLUColLet}9`);
-      sheet.getCell(`${totalLUColLet}8`).value = isWsfu ? "TOTAL WSFU" : "TOTAL LU";
-
-      // Style Header Rows 8 & 9
-      [8, 9].forEach(r => {
-        for (let c = 1; c <= totalCols; c++) {
-          const cell = sheet.getCell(r, c);
-          cell.font = fontCambria11Bold;
-          cell.fill = fillHeader;
-          cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-          cell.border = {
-            top: r === 8 ? { style: "medium" } : { style: "thin" },
-            bottom: r === 9 ? { style: "medium" } : { style: "thin" },
-            left: c === 1 ? { style: "medium" } : { style: "thin" },
-            right: c === totalCols ? { style: "medium" } : { style: "thin" },
-          };
-        }
-      });
-
-      // 4. Data Rows (Grouped by Floor Section)
-      let r = 10;
-      const firstFixColLet = "B";
-      const lastFixColLet = getColLetter(1 + numFixtures);
-
-      const spaceTotalCellRefs: string[] = [];
-
-      // Determine unique floors from iopSpaces or floorSections
-      const activeFloors = floorSections.length > 0 ? floorSections : Array.from(new Set(iopSpaces.map(s => s.floor || "6th FLOOR")));
-
-      activeFloors.forEach(flName => {
-        const floorSpaces = iopSpaces.filter(s => (s.floor || activeFloors[0]) === flName);
-        if (floorSpaces.length === 0) return;
-
-        // Floor Section Header Banner Row
-        sheet.getRow(r).height = 25;
-        sheet.mergeCells(`A${r}:${lastColLetter}${r}`);
-        const bannerCell = sheet.getCell(`A${r}`);
-        bannerCell.value = flName.toUpperCase();
-        bannerCell.font = fontCambria11Bold;
-        bannerCell.fill = fillBanner;
-        bannerCell.alignment = { vertical: "middle", horizontal: "center" };
-
-        for (let c = 1; c <= totalCols; c++) {
-          sheet.getCell(r, c).border = {
-            top: { style: "medium" },
-            bottom: { style: "medium" },
-            left: c === 1 ? { style: "medium" } : { style: "thin" },
-            right: c === totalCols ? { style: "medium" } : { style: "thin" },
-          };
-        }
-        r++;
-
-        // Space Data Rows
-        floorSpaces.forEach(s => {
-          sheet.getRow(r).height = 25;
-
-          // Col A: Description
-          const cellA = sheet.getCell(`A${r}`);
-          cellA.value = s.desc;
-          cellA.font = fontCambria11;
-          cellA.alignment = { vertical: "middle", horizontal: "left" };
-          cellA.border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-
-          // Fixture Counts
-          activeFixtures.forEach((f, idx) => {
-            const colIdx = 2 + idx;
-            const cell = sheet.getCell(r, colIdx);
-            const count = s.fixtures[f.id] || 0;
-            if (count > 0) cell.value = count;
-            cell.font = fontCambria11Bold;
-            cell.alignment = { vertical: "middle", horizontal: "center" };
-            cell.numFmt = "0";
-            cell.border = borderThinAll;
-          });
-
-          // Unit LU Formula: =SUMPRODUCT(B10:L10, $B$9:$L$9)
-          const luCell = sheet.getCell(`${luColLet}${r}`);
-          luCell.value = { formula: `SUMPRODUCT(${firstFixColLet}${r}:${lastFixColLet}${r},$${firstFixColLet}$9:$${lastFixColLet}$9)` };
-          luCell.font = fontCambria11Bold;
-          luCell.alignment = { vertical: "middle", horizontal: "center" };
-          luCell.numFmt = "0.0";
-          luCell.border = borderThinAll;
-
-          let formulaParts = [`${luColLet}${r}`];
-
-          if (showSpaceQty && qtyColLet) {
-            const qtyCell = sheet.getCell(`${qtyColLet}${r}`);
-            qtyCell.value = s.qty || 1;
-            qtyCell.font = fontCambria11Bold;
-            qtyCell.alignment = { vertical: "middle", horizontal: "center" };
-            qtyCell.numFmt = "0";
-            qtyCell.border = borderThinAll;
-            formulaParts.push(`${qtyColLet}${r}`);
-          }
-
-          if (showFloorsCol && floorQtyColLet) {
-            const floorQtyCell = sheet.getCell(`${floorQtyColLet}${r}`);
-            floorQtyCell.value = s.floorQty || 1;
-            floorQtyCell.font = fontCambria11Bold;
-            floorQtyCell.alignment = { vertical: "middle", horizontal: "center" };
-            floorQtyCell.numFmt = "0";
-            floorQtyCell.border = borderThinAll;
-            formulaParts.push(`${floorQtyColLet}${r}`);
-          }
-
-          const totalLUCell = sheet.getCell(`${totalLUColLet}${r}`);
-          totalLUCell.value = { formula: formulaParts.join("*") };
-          totalLUCell.font = fontCambria11Bold;
-          totalLUCell.alignment = { vertical: "middle", horizontal: "center" };
-          totalLUCell.numFmt = "0.0";
-          totalLUCell.border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "medium" } };
-
-          spaceTotalCellRefs.push(`${totalLUColLet}${r}`);
-          r++;
-        });
-      });
-
-      // 5. Grand Total Row
-      const grandTotalRow = r;
-      sheet.getRow(grandTotalRow).height = 25;
-
-      for (let c = 1; c <= totalCols; c++) {
-        const cell = sheet.getCell(grandTotalRow, c);
-        cell.border = {
-          top: { style: "medium" },
-          bottom: { style: "medium" },
-          left: c === 1 ? { style: "medium" } : { style: "thin" },
-          right: c === totalCols ? { style: "medium" } : { style: "thin" },
-        };
-      }
-
-      const grandTotalCell = sheet.getCell(`${totalLUColLet}${grandTotalRow}`);
-      grandTotalCell.value = spaceTotalCellRefs.length > 0 ? { formula: `SUM(${spaceTotalCellRefs.join(",")})` } : 0;
-      grandTotalCell.font = { name: "Cambria", size: 11, bold: true, color: { argb: "FFFF0000" } }; // Red font in template
-      grandTotalCell.fill = fillHeader;
-      grandTotalCell.alignment = { vertical: "middle", horizontal: "center" };
-      grandTotalCell.numFmt = "0.0";
-      r++;
-
-      // Spacer
-      r++;
-
-      // 6. Sizing & Booster Pump Summary Block
-      sheet.getRow(r).height = 25;
-      sheet.mergeCells(`A${r}:B${r}`);
-      const appCell = sheet.getCell(`A${r}`);
-      appCell.value = getStandardDemandHeaderTitle(standardPreset);
-      appCell.font = fontCambria11Bold;
-      appCell.alignment = { vertical: "middle", horizontal: "center" };
-      appCell.border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-      r++;
-
-      sheet.getRow(r).height = 25;
-      sheet.getCell(`A${r}`).value = "No of Booster Pump    ";
-      sheet.getCell(`A${r}`).font = fontCambria11;
-      sheet.getCell(`A${r}`).alignment = { vertical: "middle", horizontal: "left" };
-      sheet.getCell(`A${r}`).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-      
-      sheet.getCell(`B${r}`).value = "1W+1A+\n1S";
-      sheet.getCell(`B${r}`).font = fontCambria11;
-      sheet.getCell(`B${r}`).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-      sheet.getCell(`B${r}`).border = borderThinAll;
-      r++;
-
-      sheet.getRow(r).height = 25;
-      sheet.getCell(`A${r}`).value = `Total Water Supply Fixture Units (${unitLabel})`;
-      sheet.getCell(`A${r}`).font = fontCambria11;
-      sheet.getCell(`A${r}`).alignment = { vertical: "middle", horizontal: "left" };
-      sheet.getCell(`A${r}`).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-
-      sheet.getCell(`B${r}`).value = { formula: `${totalLUColLet}${grandTotalRow}` };
-      sheet.getCell(`B${r}`).font = fontCambria11;
-      sheet.getCell(`B${r}`).alignment = { vertical: "middle", horizontal: "center" };
-      sheet.getCell(`B${r}`).numFmt = "0.0";
-      sheet.getCell(`B${r}`).border = borderThinAll;
-      r++;
-
-      sheet.getRow(r).height = 24;
-      const flowRow = r;
-      sheet.getCell(`A${r}`).value = "Flow due to loading unit (l/s)";
-      sheet.getCell(`A${r}`).font = fontCambria11;
-      sheet.getCell(`A${r}`).alignment = { vertical: "middle", horizontal: "left" };
-      sheet.getCell(`A${r}`).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-
-      sheet.getCell(`B${r}`).value = Number(calculations.flowLPS.toFixed(3));
-      sheet.getCell(`B${r}`).font = fontCambria11;
-      sheet.getCell(`B${r}`).alignment = { vertical: "middle", horizontal: "center" };
-      sheet.getCell(`B${r}`).numFmt = "0.000";
-      sheet.getCell(`B${r}`).border = borderThinAll;
-      r++;
-
-      sheet.getRow(r).height = 25;
-      sheet.getCell(`A${r}`).value = "Total Water demand considered (l/s)";
-      sheet.getCell(`A${r}`).font = fontCambria11;
-      sheet.getCell(`A${r}`).alignment = { vertical: "middle", horizontal: "left" };
-      sheet.getCell(`A${r}`).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-
-      sheet.getCell(`B${r}`).value = { formula: `CEILING(B${flowRow},0.5)` };
-      sheet.getCell(`B${r}`).font = fontCambria11;
-      sheet.getCell(`B${r}`).alignment = { vertical: "middle", horizontal: "center" };
-      sheet.getCell(`B${r}`).numFmt = "0.0";
-      sheet.getCell(`B${r}`).border = borderThinAll;
-      r++;
-
-      sheet.getRow(r).height = 23;
-      sheet.getCell(`A${r}`).value = "Diversity (if any)";
-      sheet.getCell(`A${r}`).font = fontCambria11;
-      sheet.getCell(`A${r}`).alignment = { vertical: "middle", horizontal: "left" };
-      sheet.getCell(`A${r}`).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-
-      sheet.getCell(`B${r}`).value = "";
-      sheet.getCell(`B${r}`).font = fontCambria11;
-      sheet.getCell(`B${r}`).alignment = { vertical: "middle", horizontal: "center" };
-      sheet.getCell(`B${r}`).border = borderThinAll;
-      r++;
-
-      sheet.getRow(r).height = 25;
-      sheet.getCell(`A${r}`).value = "Selected Water Flow Rate (Q) L/s";
-      sheet.getCell(`A${r}`).font = fontCambria10Bold;
-      sheet.getCell(`A${r}`).fill = fillHeader;
-      sheet.getCell(`A${r}`).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
-      sheet.getCell(`A${r}`).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-
-      sheet.getCell(`B${r}`).value = { formula: `CEILING(B${flowRow},0.5)` };
-      sheet.getCell(`B${r}`).font = fontCambria10Bold;
-      sheet.getCell(`B${r}`).fill = fillHeader;
-      sheet.getCell(`B${r}`).alignment = { vertical: "middle", horizontal: "center" };
-      sheet.getCell(`B${r}`).numFmt = "0.0";
-      sheet.getCell(`B${r}`).border = borderThinAll;
-      r++;
-
-      // Spacer
-      r++;
-
-      // 7. Signature Block
-      let currentUserName = "";
-      if (typeof window !== "undefined") {
-        try {
-          const user = JSON.parse(localStorage.getItem('mep_user') || '{}');
-          const profile = JSON.parse(localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile') || '{}');
-          currentUserName = user.name || user.user?.name || profile.name || profile.user?.name || (window as any).currentMepUserName || "";
-        } catch (e) {}
-      }
-
-      const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails((project as any)?.id || "default", "/plumbing-loading-unit", currentUserName);
-
-      // Header row
-      sheet.getRow(r).height = 22;
-      sheet.getCell(`A${r}`).value = "";
-      sheet.getCell(`A${r}`).border = { top: { style: "medium" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-
-      sheet.mergeCells(`B${r}:E${r}`);
-      sheet.getCell(`B${r}`).value = "Originator";
-
-      sheet.mergeCells(`F${r}:G${r}`);
-      sheet.getCell(`F${r}`).value = "Reviewer";
-
-      sheet.mergeCells(`H${r}:${lastColLetter}${r}`);
-      sheet.getCell(`H${r}`).value = "Approver";
-
-      [ `B${r}`, `F${r}`, `H${r}` ].forEach(cellRef => {
-        const c = sheet.getCell(cellRef);
-        c.font = fontCambria11Bold;
-        c.fill = fillPeach;
-        c.alignment = { vertical: "middle", horizontal: "center" };
-      });
-      for (let c = 2; c <= totalCols; c++) {
-        sheet.getCell(r, c).border = { top: { style: "medium" }, bottom: { style: "thin" }, left: { style: "thin" }, right: c === totalCols ? { style: "medium" } : { style: "thin" } };
-      }
-      r++;
-
-      // Name row
-      sheet.getRow(r).height = 20;
-      sheet.getCell(`A${r}`).value = "Name:";
-      sheet.getCell(`A${r}`).font = fontCambria11;
-      sheet.getCell(`A${r}`).alignment = { vertical: "middle", horizontal: "left" };
-      sheet.getCell(`A${r}`).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-
-      sheet.mergeCells(`B${r}:E${r}`);
-      sheet.getCell(`B${r}`).value = originatedName;
-
-      sheet.mergeCells(`F${r}:G${r}`);
-      sheet.getCell(`F${r}`).value = reviewerName;
-
-      sheet.mergeCells(`H${r}:${lastColLetter}${r}`);
-      sheet.getCell(`H${r}`).value = approverName;
-
-      [ `B${r}`, `F${r}`, `H${r}` ].forEach(cellRef => {
-        const c = sheet.getCell(cellRef);
-        c.font = fontCambria11Bold;
-        c.alignment = { vertical: "middle", horizontal: "center" };
-      });
-      for (let c = 2; c <= totalCols; c++) {
-        sheet.getCell(r, c).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: c === totalCols ? { style: "medium" } : { style: "thin" } };
-      }
-      r++;
-
-      // Signature row
-      sheet.getRow(r).height = 22;
-      sheet.getCell(`A${r}`).value = "Signature:";
-      sheet.getCell(`A${r}`).font = fontCambria11;
-      sheet.getCell(`A${r}`).alignment = { vertical: "middle", horizontal: "left" };
-      sheet.getCell(`A${r}`).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "medium" }, right: { style: "thin" } };
-
-      sheet.mergeCells(`B${r}:E${r}`);
-      sheet.mergeCells(`F${r}:G${r}`);
-      sheet.mergeCells(`H${r}:${lastColLetter}${r}`);
-
-      for (let c = 2; c <= totalCols; c++) {
-        sheet.getCell(r, c).border = { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: c === totalCols ? { style: "medium" } : { style: "thin" } };
-      }
-      r++;
-
-      // Date row
-      sheet.getRow(r).height = 24;
-      sheet.getCell(`A${r}`).value = "Date:";
-      sheet.getCell(`A${r}`).font = fontCambria11;
-      sheet.getCell(`A${r}`).alignment = { vertical: "middle", horizontal: "left" };
-      sheet.getCell(`A${r}`).border = { top: { style: "thin" }, bottom: { style: "medium" }, left: { style: "medium" }, right: { style: "thin" } };
-
-      sheet.mergeCells(`B${r}:E${r}`);
-      sheet.getCell(`B${r}`).value = originatedDate;
-
-      sheet.mergeCells(`F${r}:G${r}`);
-      sheet.getCell(`F${r}`).value = reviewerDate;
-
-      sheet.mergeCells(`H${r}:${lastColLetter}${r}`);
-      sheet.getCell(`H${r}`).value = approverDate;
-
-      [ `B${r}`, `F${r}`, `H${r}` ].forEach(cellRef => {
-        const c = sheet.getCell(cellRef);
-        c.font = fontCambria11;
-        c.alignment = { vertical: "middle", horizontal: "center" };
-      });
-      for (let c = 2; c <= totalCols; c++) {
-        sheet.getCell(r, c).border = { top: { style: "thin" }, bottom: { style: "medium" }, left: { style: "thin" }, right: c === totalCols ? { style: "medium" } : { style: "thin" } };
-      }
-
-      // Buffer & Download
-      const xlsxBuffer = await workbook.xlsx.writeBuffer();
-      downloadFile(new Uint8Array(xlsxBuffer), `Loading_Unit_Calculation_${standardPreset.toUpperCase()}.xlsx`, "Excel Document", ["xlsx"]);
-      toast.success("Excel exported successfully!");
-    } catch (err) {
-      console.error("Excel export error:", err);
-      toast.error("Failed to generate Excel export.");
-    }
-  };
 
   // PDF Export Function (Matching Ventilation PDF Format & Corporate Standards)
   const handleExportPDF = async () => {
-    try {
-      const jsPDFModule = await import('jspdf');
-      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
-      const autoTableModule = await import('jspdf-autotable');
-      const autoTable = autoTableModule.default || autoTableModule;
-
-      // A4 Landscape Mode (Width: 297mm, Content Width: 269mm)
-      const doc = new jsPDF("l", "mm", "a4");
-
-      const activeProj: any = workspaceStore.getState()?.project || project || {};
-      const projectNo = activeProj.code || activeProj.project_number || activeProj.projectNumber || calcMeta.projectNo || 'P539';
-      const calcNo = activeProj.calcNo || activeProj.calc_number || calcMeta.calcNo || `CEC-MED-${projectNo}-202 Rev. No:1`;
-
-      // 1. Add Title & Metadata Header Box (Matching Ventilation PDF Header exactly)
-      let startY = addPdfHeader(doc, "Loading Unit & Pipe Sizing Calculation Report", {
-        calcNo,
-        projectNo,
-        projectName: activeProj.name || activeProj.project_name || calcMeta.projectName || '',
-        client: activeProj.client || activeProj.client_name || calcMeta.client || '',
-        endUser: activeProj.endUser || activeProj.location || calcMeta.endUser || '',
-        date: calcMeta.date || undefined,
-      });
-
-      const activeFixtures = LU_FIXTURES_META;
-      const isWsfu = standardPreset === "abudhabi" || standardPreset === "ipc_upc";
-      const unitLabel = isWsfu ? "WSFU" : "LU";
-
-      const FIXTURE_LABELS: Record<string, string> = {
-        wc: "W/C",
-        handspray: "Hand Spray",
-        basin: "Wash Basin",
-        sink: "Sink Kitchen",
-        shower: "Shower",
-        washer: "Washing M/c",
-        servicesink: "Service Sink",
-        hose_bibb: "Hose Bibb",
-        dishwasher: "Dishwasher",
-        hose_bibb_1: "Bib Tap"
-      };
-
-      // 2. Main Fixture Schedule Headers (3-Tier Multi-Level Headers with separate Weight Value Row)
-      const primaryFill: [number, number, number] = [217, 217, 217];
-      const summaryColSpan = 1 + (showSpaceQty ? 1 : 0) + (showFloorsCol ? 1 : 0) + 1;
-      const totalHeaderCols = 1 + activeFixtures.length + summaryColSpan;
-
-      const multiLevelHeaders = [
-        [
-          { content: "Description", rowSpan: 3, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", valign: "middle", halign: "center" } },
-          { content: "Sanitary Fixture Quantities", colSpan: activeFixtures.length, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } },
-          { content: "Loading Unit Summary", colSpan: summaryColSpan, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } }
-        ],
-        [
-          ...activeFixtures.map(f => {
-            const label = FIXTURE_LABELS[f.id] || f.short || f.id.toUpperCase();
-            return { content: label, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } };
-          }),
-          { content: `${unitLabel} /\nSpace`, rowSpan: 2, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } },
-          ...(showSpaceQty ? [{ content: "Space\nQty", rowSpan: 2, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } }] : []),
-          ...(showFloorsCol ? [{ content: "No. of\nFloors", rowSpan: 2, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } }] : []),
-          { content: `TOTAL\n${unitLabel}`, rowSpan: 2, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } }
-        ],
-        [
-          ...activeFixtures.map(f => {
-            const weight = activeWeights[f.id] ?? 0;
-            return { content: `${weight}`, styles: { fillColor: primaryFill, textColor: [0, 0, 0], fontStyle: "bold", halign: "center", valign: "middle" } };
-          })
-        ]
-      ];
-
-      // 3. Main Fixture Schedule Rows (Grouped by Floor)
-      const tableRows: any[] = [];
-
-      floorSections.forEach(fl => {
-        const floorItems = iopSpaces.filter(s => (s.floor || "6th FLOOR") === fl);
-        if (floorItems.length === 0) return;
-
-        // Floor Section Header Row
-        tableRows.push([
-          { content: `${fl.toUpperCase()}`, colSpan: totalHeaderCols, styles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: "bold", halign: "center" } }
-        ]);
-
-        let floorTotalLU = 0;
-
-        floorItems.forEach((item: LUSpace) => {
-          const unitLU = calculations.spaceUnitLU[item.id] || 0;
-          const totalLu = calculations.spaceTotalsLU[item.id] || 0;
-          floorTotalLU += totalLu;
-
-          const rowData = [
-            item.desc || "Space",
-            ...activeFixtures.map(f => item.fixtures[f.id] || ""),
-            Number(unitLU.toFixed(1)),
-            ...(showSpaceQty ? [item.qty || 1] : []),
-            ...(showFloorsCol ? [item.floors || 1] : []),
-            Number(totalLu.toFixed(1))
-          ];
-          tableRows.push(rowData);
-        });
-
-        // Floor Subtotal Row
-        const floorSubtotalRow = [
-          { content: `TOTAL (${fl.toUpperCase()})`, colSpan: totalHeaderCols - 1, styles: { fontStyle: "bold", halign: "right", fillColor: [245, 245, 245], textColor: [0, 0, 0] } },
-          { content: `${floorTotalLU.toFixed(1)} ${unitLabel}`, styles: { fontStyle: "bold", halign: "center", fillColor: [245, 245, 245], textColor: [0, 0, 0] } }
-        ];
-        tableRows.push(floorSubtotalRow);
-      });
-
-      // Total Building LU Summary Row
-      tableRows.push([
-        { content: "TOTAL BUILDING LOADING UNITS", colSpan: totalHeaderCols - 1, styles: { fontStyle: "bold", halign: "right", fillColor: [235, 235, 235], textColor: [0, 0, 0] } },
-        { content: `${calculations.totalLU.toFixed(1)} ${unitLabel}`, styles: { fontStyle: "bold", textColor: [180, 0, 0], halign: "center", fillColor: [235, 235, 235] } }
-      ]);
-
-      const runAutoTable = (options: any) => {
-        if (typeof autoTable === 'function') {
-          autoTable(doc, options);
-        } else if ((doc as any).autoTable) {
-          (doc as any).autoTable(options);
-        }
-      };
-
-      // Dynamic Uniform Column Width Calculation for A4 Landscape (Printable width: 269mm)
-      const descWidth = 38;
-      const numDataCols = activeFixtures.length + summaryColSpan;
-      const dataColWidth = Number(((269 - descWidth) / numDataCols).toFixed(2));
-
-      const tableColumnStyles: Record<number, any> = {
-        0: { halign: "left", fontStyle: "bold", cellWidth: descWidth, cellPadding: { left: 3.5, right: 1.5, top: 3.0, bottom: 3.0 } }
-      };
-
-      for (let i = 1; i <= numDataCols; i++) {
-        tableColumnStyles[i] = { cellWidth: dataColWidth, halign: "center" };
+    await exportLoadingUnitPDF({
+      iopSpaces,
+      floorSections,
+      activeWeights: currentWeights,
+      standardPreset,
+      selectedCategory,
+      unitLabel,
+      calculations,
+      showSpaceQty,
+      showFloorsCol,
+      meta: {
+        projectName: (project as any)?.name || calcMeta.projectName,
+        client: (project as any)?.client || calcMeta.client,
+        projectNo: (project as any)?.code || calcMeta.projectNo,
+        calcNo: (project as any)?.calcNo || calcMeta.calcNo,
+        date: calcMeta.date,
+        endUser: (project as any)?.endUser || calcMeta.endUser,
+        userName: currentUserName,
+        reviewState: calcReviewState
       }
-
-      runAutoTable({
-        startY: startY + 2,
-        head: multiLevelHeaders,
-        body: tableRows,
-        theme: "grid",
-        styles: {
-          font: "helvetica",
-          fontSize: 7.0,
-          textColor: [0, 0, 0],
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
-          minCellHeight: 8.5
-        },
-        headStyles: {
-          fillColor: primaryFill,
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          fontSize: 7.0,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.0, bottom: 3.0, left: 1.0, right: 1.0 },
-          minCellHeight: 8.5
-        },
-        bodyStyles: {
-          fontSize: 7.0,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
-          minCellHeight: 8.5
-        },
-        columnStyles: tableColumnStyles,
-        margin: { left: 14, right: 14 }
-      });
-
-      let finalY = (doc as any).lastAutoTable?.finalY || startY + 50;
-
-      const appTitle = getStandardDemandHeaderTitle(standardPreset);
-
-      const summaryTableRows = [
-        [{ content: appTitle, colSpan: 2, styles: { fontStyle: "bold", halign: "center", fillColor: [217, 217, 217], textColor: [0, 0, 0] } }],
-        ["No of Booster Pump", "1W+1A+1S"],
-        [`Total Water Supply Fixture (${unitLabel})`, `${calculations.totalLU.toFixed(1)}`],
-        ["Flow due to loading unit (l/s)", `${calculations.flowLPS.toFixed(3)}`],
-        ["Total Water demand considered (l/s)", `${calculations.selectedFlowLPS.toFixed(1)}`],
-        ["Diversity (if any)", "-"],
-        [
-          { content: "Selected Water Flow Rate (Q) L/s", styles: { fontStyle: "bold", fillColor: [253, 235, 218], textColor: [0, 0, 0], halign: "center" } },
-          { content: `${calculations.selectedFlowLPS.toFixed(1)}`, styles: { fontStyle: "bold", fillColor: [253, 235, 218], textColor: [0, 0, 0], halign: "center" } }
-        ]
-      ];
-
-      runAutoTable({
-        startY: finalY + 6,
-        body: summaryTableRows,
-        theme: "grid",
-        styles: {
-          font: "helvetica",
-          fontSize: 8.5,
-          textColor: [0, 0, 0],
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 3.5, right: 3.5 },
-          minCellHeight: 9.0
-        },
-        bodyStyles: {
-          fontSize: 8.5,
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 3.5, right: 3.5 },
-          minCellHeight: 9.0
-        },
-        columnStyles: {
-          0: { fontStyle: "normal", cellWidth: 169, halign: "left", cellPadding: { left: 4.0, top: 3.5, bottom: 3.5, right: 2.0 } },
-          1: { fontStyle: "normal", cellWidth: 100, halign: "center" }
-        },
-        margin: { left: 14, right: 14 }
-      });
-
-      finalY = (doc as any).lastAutoTable?.finalY || finalY + 40;
-
-      // 5. Signature Block Table (Matching Ventilation PDF Format & Full Page Width)
-      let currentUserName = "";
-      if (typeof window !== "undefined") {
-        try {
-          const user = JSON.parse(localStorage.getItem('mep_user') || '{}');
-          const profile = JSON.parse(localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile') || '{}');
-          currentUserName = user.name || user.user?.name || profile.name || profile.user?.name || (window as any).currentMepUserName || "";
-        } catch (e) {}
-      }
-
-      const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails((project as any)?.id || "default", "/plumbing-loading-unit", currentUserName);
-
-      runAutoTable({
-        startY: finalY + 6,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          font: "helvetica",
-          fontSize: 8.5,
-          textColor: [0, 0, 0],
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
-          minCellHeight: 9.0
-        },
-        headStyles: {
-          fillColor: [255, 230, 204],
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
-          minCellHeight: 9.0
-        },
-        bodyStyles: {
-          fontSize: 8.5,
-          textColor: [0, 0, 0],
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
-          minCellHeight: 9.0
-        },
-        head: [
-          [
-            { content: "" },
-            { content: "Originator" },
-            { content: "Reviewer" },
-            { content: "Approver" }
-          ]
-        ],
-        body: [
-          [
-            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedName, styles: { halign: "center" } },
-            { content: reviewerName, styles: { halign: "center" } },
-            { content: approverName, styles: { halign: "center" } }
-          ],
-          [
-            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedDate, styles: { halign: "center" } },
-            { content: reviewerDate, styles: { halign: "center" } },
-            { content: approverDate, styles: { halign: "center" } }
-          ]
-        ],
-        columnStyles: {
-          0: { cellWidth: 38, fontStyle: "bold", halign: "right" },
-          1: { cellWidth: 77, halign: "center" },
-          2: { cellWidth: 77, halign: "center" },
-          3: { cellWidth: 77, halign: "center" }
-        }
-      });
-
-      doc.save(`Loading_Unit_Calculation_${projectNo}.pdf`);
-      toast.success("PDF report exported successfully!");
-
-    } catch (err: any) {
-      console.error("PDF export error:", err);
-      toast.error(err?.message || "Failed to generate PDF export.");
-    }
+    });
   };
 
   const currentWeights = activeWeights;
@@ -2469,21 +1670,20 @@ function LoadingUnitPage() {
     <AppShell title="Loading Unit Calculator" onIntelClick={() => setIntelOpen((v) => !v)} intelOpen={intelOpen} hideSubHeader={true}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
-          
+
           {/* Header Bar */}
           <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-[28px] font-bold tracking-tight text-foreground">
                 Loading Unit Calculator
               </h1>
-              <button 
+              <button
                 type="button"
                 onClick={() => setIntelOpen((v) => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                  intelOpen
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                }`}
+                  }`}
                 title="Toggle Loading Unit Intelligence"
               >
                 <Sparkles className="size-3.5" />
@@ -2494,27 +1694,25 @@ function LoadingUnitPage() {
           </div>
 
           {/* Unified White Card Container (Matching Ventilation Layout Structure) */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            calcReviewState?.status === "APPROVED" 
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED"
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
               : calcReviewState?.status === "REJECTED"
-              ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-              : calcReviewState?.status === "REVIEWED"
-              ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-              : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-          }`}>
-            
+                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+                : calcReviewState?.status === "REVIEWED"
+                  ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                  : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            }`}>
+
             {/* Row 1: Header / Main Tabs on Left + Standard & Category Dropdowns on Right */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/50 gap-4 flex-wrap">
               <div className="flex bg-slate-100 dark:bg-slate-900/70 p-1 rounded-full gap-1 border border-border/80">
                 <button
                   type="button"
                   onClick={() => setActiveTab("spaces")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeTab === "spaces"
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${activeTab === "spaces"
                       ? "bg-background text-foreground shadow-xs font-bold"
                       : "text-muted-foreground hover:text-foreground"
-                  }`}
+                    }`}
                 >
                   Spaces
                 </button>
@@ -2522,11 +1720,10 @@ function LoadingUnitPage() {
                 <button
                   type="button"
                   onClick={() => setActiveTab("report")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    activeTab === "report"
+                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${activeTab === "report"
                       ? "bg-background text-foreground shadow-xs font-bold"
                       : "text-muted-foreground hover:text-foreground"
-                  }`}
+                    }`}
                 >
                   Report
                 </button>
@@ -2616,11 +1813,10 @@ function LoadingUnitPage() {
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
-                        className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${
-                          activeFiltersCount > 0
+                        className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${activeFiltersCount > 0
                             ? "bg-primary/10 border-primary/45 text-primary font-medium"
                             : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
-                        }`}
+                          }`}
                         title="Filter spaces"
                       >
                         <Filter className="size-3.5 shrink-0" />
@@ -2660,11 +1856,10 @@ function LoadingUnitPage() {
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
-                        className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${
-                          sortBy !== "none" || rowDensity === "compact"
+                        className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${sortBy !== "none" || rowDensity === "compact"
                             ? "bg-primary/10 border-primary/45 text-primary font-medium"
                             : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
-                        }`}
+                          }`}
                         title="Sort & View Options"
                       >
                         <SlidersHorizontal className="size-3.5 shrink-0" />
@@ -2685,17 +1880,15 @@ function LoadingUnitPage() {
                         <div className="flex rounded-full border border-border p-0.5 bg-slate-100 dark:bg-slate-900">
                           <button
                             onClick={() => setRowDensity("default")}
-                            className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
-                              rowDensity === "default" ? "bg-background shadow-xs text-foreground" : "text-muted-foreground"
-                            }`}
+                            className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${rowDensity === "default" ? "bg-background shadow-xs text-foreground" : "text-muted-foreground"
+                              }`}
                           >
                             Default
                           </button>
                           <button
                             onClick={() => setRowDensity("compact")}
-                            className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
-                              rowDensity === "compact" ? "bg-background shadow-xs text-foreground" : "text-muted-foreground"
-                            }`}
+                            className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${rowDensity === "compact" ? "bg-background shadow-xs text-foreground" : "text-muted-foreground"
+                              }`}
                           >
                             Compact
                           </button>
@@ -2849,22 +2042,77 @@ function LoadingUnitPage() {
                             const isOverridden = weightOverrides[f.key] !== undefined;
                             return (
                               <td key={f.key} className="p-0.5 text-center font-mono">
-                                <span className={`inline-block px-1 py-0.2 rounded text-[9px] font-bold border ${
-                                  isOverridden 
-                                    ? "bg-amber-500/10 border-amber-500/40 text-amber-600 dark:text-amber-400" 
-                                    : "bg-primary/5 border-primary/20 text-primary"
-                                }`}>
-                                  {val}
-                                </span>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  disabled={isApprovedLocked}
+                                  value={val}
+                                  onChange={(e) => {
+                                    if (isApprovedLocked) return;
+                                    const raw = e.target.value;
+                                    if (raw === "") {
+                                      const next = { ...weightOverrides };
+                                      delete next[f.key];
+                                      setWeightOverrides(next);
+                                    } else {
+                                      const num = parseFloat(raw);
+                                      if (!isNaN(num) && num >= 0) {
+                                        setWeightOverrides(prev => ({ ...prev, [f.key]: num }));
+                                      }
+                                    }
+                                  }}
+                                  className={`w-11 h-5 text-center text-[10px] font-bold font-mono rounded border outline-none transition-all ${isOverridden
+                                      ? "bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400 font-extrabold focus:ring-1 focus:ring-amber-500"
+                                      : "bg-blue-500/5 dark:bg-blue-950/40 border-blue-500/30 text-[#0A7BC7] dark:text-blue-400 focus:ring-1 focus:ring-[#0A7BC7]"
+                                    } ${isApprovedLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                                  title={
+                                    isOverridden
+                                      ? `Custom weight override (${val} LU/WSFU). Clear input to restore standard rate default.`
+                                      : `Standard rate (${val} LU/WSFU). Type a new number to override weight.`
+                                  }
+                                />
                               </td>
                             );
                           })}
                           <td className="p-0.5 text-center font-mono font-bold text-primary text-[10.5px]">Σ</td>
                           <td className="p-0.5 text-center">
-                            <span className="inline-block px-1 py-0.2 rounded text-[8.5px] font-bold bg-primary text-primary-foreground font-mono">ON</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isApprovedLocked) return;
+                                const nextState = !showSpaceQty;
+                                setShowSpaceQty(nextState);
+                                toast.info(`Space Quantity multiplier ${nextState ? 'enabled (ON)' : 'disabled (OFF)'}`);
+                              }}
+                              disabled={isApprovedLocked}
+                              className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[8.5px] font-bold font-mono transition-all cursor-pointer ${showSpaceQty
+                                  ? "bg-[#0A7BC7] text-white shadow-2xs hover:bg-[#0865A3]"
+                                  : "bg-slate-200 dark:bg-slate-800 text-muted-foreground hover:bg-slate-300 dark:hover:bg-slate-700"
+                                } ${isApprovedLocked ? "opacity-50 cursor-not-allowed" : ""}`}
+                              title={showSpaceQty ? "Space Quantity enabled in calculation. Click to toggle OFF." : "Space Quantity disabled in calculation. Click to toggle ON."}
+                            >
+                              {showSpaceQty ? "ON" : "OFF"}
+                            </button>
                           </td>
                           <td className="p-0.5 text-center">
-                            <span className="inline-block px-1 py-0.2 rounded text-[8.5px] font-bold bg-primary text-primary-foreground font-mono">ON</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isApprovedLocked) return;
+                                const nextState = !showFloorsCol;
+                                setShowFloorsCol(nextState);
+                                toast.info(`No. of Floors multiplier ${nextState ? 'enabled (ON)' : 'disabled (OFF)'}`);
+                              }}
+                              disabled={isApprovedLocked}
+                              className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[8.5px] font-bold font-mono transition-all cursor-pointer ${showFloorsCol
+                                  ? "bg-[#0A7BC7] text-white shadow-2xs hover:bg-[#0865A3]"
+                                  : "bg-slate-200 dark:bg-slate-800 text-muted-foreground hover:bg-slate-300 dark:hover:bg-slate-700"
+                                } ${isApprovedLocked ? "opacity-50 cursor-not-allowed" : ""}`}
+                              title={showFloorsCol ? "No. of Floors multiplier enabled in calculation. Click to toggle OFF." : "No. of Floors multiplier disabled in calculation. Click to toggle ON."}
+                            >
+                              {showFloorsCol ? "ON" : "OFF"}
+                            </button>
                           </td>
                           <td className="p-0.5 px-1 text-right font-mono font-bold text-primary text-[10px]">Total</td>
                           <td className="p-0.5 text-center"></td>
@@ -2893,7 +2141,36 @@ function LoadingUnitPage() {
                                     <div className="flex items-center gap-2">
                                       <button
                                         type="button"
-                                        onClick={() => handleDeleteFloorGroup(floor)}
+                                        disabled={isApprovedLocked}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (isApprovedLocked) return;
+                                          setActiveFloor(floor);
+                                          const nextId = Date.now() + Math.random();
+                                          const newSpace: LUSpace = {
+                                            id: nextId,
+                                            desc: "New Space",
+                                            floor: floor,
+                                            qty: 1,
+                                            floorQty: 1,
+                                            std: selectedCategory || "med",
+                                            fixtures: {}
+                                          };
+                                          setIopSpaces(prev => [...prev, newSpace]);
+                                          toast.success(`Added new space to ${floor}`);
+                                        }}
+                                        className="flex items-center gap-1 text-[#0A7BC7] hover:bg-blue-50 dark:hover:bg-blue-950/40 text-[10.5px] font-bold px-2.5 py-0.5 rounded-full border border-blue-300 dark:border-blue-700 transition-colors cursor-pointer bg-white dark:bg-slate-900 shadow-2xs"
+                                        title={`Add a new space row to ${floor}`}
+                                      >
+                                        <Plus className="size-3" />
+                                        <span>+ Add Space to {floor}</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteFloorGroup(floor);
+                                        }}
                                         className="text-destructive hover:underline text-[10.5px] font-semibold px-2 py-0.5 rounded cursor-pointer border-0 bg-transparent transition-colors"
                                       >
                                         Delete Section
@@ -2904,6 +2181,29 @@ function LoadingUnitPage() {
                               </tr>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50 font-sans">
+                              <ContextMenuItem
+                                disabled={isApprovedLocked}
+                                onClick={() => {
+                                  if (isApprovedLocked) return;
+                                  setActiveFloor(floor);
+                                  const nextId = Date.now() + Math.random();
+                                  const newSpace: LUSpace = {
+                                    id: nextId,
+                                    desc: "New Space",
+                                    floor: floor,
+                                    qty: 1,
+                                    floorQty: 1,
+                                    std: selectedCategory || "med",
+                                    fixtures: {}
+                                  };
+                                  setIopSpaces(prev => [...prev, newSpace]);
+                                  toast.success(`Added new space to ${floor}`);
+                                }}
+                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+                              >
+                                <Plus className="size-3.5 text-blue-500" />
+                                <span>Add Space to {floor}</span>
+                              </ContextMenuItem>
                               <ContextMenuItem
                                 onClick={() => {
                                   const newName = window.prompt("Enter new floor section name:", floor);
@@ -2918,7 +2218,10 @@ function LoadingUnitPage() {
                               </ContextMenuItem>
                               <ContextMenuSeparator className="h-px bg-border my-1" />
                               <ContextMenuItem
-                                onClick={() => handleDeleteFloorGroup(floor)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteFloorGroup(floor);
+                                }}
                                 className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer text-[13px]"
                               >
                                 <Trash2 className="size-3.5" />
@@ -2944,15 +2247,14 @@ function LoadingUnitPage() {
                                       setSelectedIds([s.id]);
                                       setEditingSpace({ space: s, floor });
                                     }}
-                                    className={`group transition-all duration-150 cursor-pointer ${rowDensity === "compact" ? "h-7 text-[11px]" : "h-9 text-xs"} ${
-                                      isEditing
+                                    className={`group transition-all duration-150 cursor-pointer ${rowDensity === "compact" ? "h-7 text-[11px]" : "h-9 text-xs"} ${isEditing
                                         ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-sm z-10 relative"
                                         : isSelected
-                                        ? "bg-primary/15 dark:bg-primary/25 border-l-2 border-l-primary font-semibold"
-                                        : spaceIdx % 2 === 0
-                                        ? "bg-background hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
-                                        : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
-                                    }`}
+                                          ? "bg-primary/15 dark:bg-primary/25 border-l-2 border-l-primary font-semibold"
+                                          : spaceIdx % 2 === 0
+                                            ? "bg-background hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                                            : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                                      }`}
                                   >
                                     <td className="p-1 text-center" onDoubleClick={(e) => e.stopPropagation()}>
                                       <div className="flex items-center justify-center gap-1">
@@ -2962,11 +2264,11 @@ function LoadingUnitPage() {
                                           onChange={(e) => handleToggleSelect(s.id, e.target.checked)}
                                           className="size-3.5 accent-primary cursor-pointer rounded shrink-0"
                                         />
-                                        <span className="text-[11px] font-mono text-muted-foreground min-w-[12px] text-left font-bold shrink-0">{spaceIdx + 1}</span>
+
                                         {Array.isArray(s.comments) && s.comments.length > 0 && (
-                                          <button 
+                                          <button
                                             type="button"
-                                            title={`${s.comments.length} comment(s)/task(s) assigned`} 
+                                            title={`${s.comments.length} comment(s)/task(s) assigned`}
                                             className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[9px] hover:bg-blue-500/20 transition cursor-pointer shrink-0"
                                             onClick={(e) => {
                                               e.stopPropagation();
@@ -2981,30 +2283,97 @@ function LoadingUnitPage() {
                                       </div>
                                     </td>
 
-                                    <td className="p-1 px-2 truncate" onDoubleClick={() => { setSelectedIds([s.id]); setEditingSpace({ space: s, floor }); }}>
-                                      <span className="font-bold text-foreground truncate block text-xs" title={s.desc || "Untitled Space"}>{s.desc || "Untitled Space"}</span>
+                                    <td className="p-0.5 px-1 truncate" onDoubleClick={(e) => e.stopPropagation()}>
+                                      <input
+                                        type="text"
+                                        disabled={isApprovedLocked}
+                                        value={s.desc || ""}
+                                        placeholder="Space Description"
+                                        onChange={(e) => {
+                                          if (isApprovedLocked) return;
+                                          const val = e.target.value;
+                                          setIopSpaces(prev => prev.map(item => item.id === s.id ? { ...item, desc: val } : item));
+                                        }}
+                                        className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1.5 py-0.5 text-xs font-bold text-foreground outline-none transition-all truncate cursor-text"
+                                        title={s.desc || "Untitled Space"}
+                                      />
                                     </td>
 
-                                    {LU_FIXTURES_META.map(f => (
-                                      <td key={f.key} className="p-0.5 text-center font-mono text-[11px]">
-                                        {Number(s.fixtures?.[f.key] || 0) > 0 ? (
-                                          <span className="font-bold text-foreground">{s.fixtures[f.key]}</span>
-                                        ) : (
-                                          <span className="text-muted-foreground/30">—</span>
-                                        )}
-                                      </td>
-                                    ))}
+                                    {LU_FIXTURES_META.map(f => {
+                                      const count = Number(s.fixtures?.[f.key] || 0);
+                                      return (
+                                        <td key={f.key} className="p-0.5 text-center font-mono text-[11px]" onDoubleClick={(e) => e.stopPropagation()}>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            disabled={isApprovedLocked}
+                                            value={count > 0 ? count : ""}
+                                            placeholder="—"
+                                            onChange={(e) => {
+                                              if (isApprovedLocked) return;
+                                              const raw = e.target.value;
+                                              const val = raw === "" ? 0 : parseInt(raw, 10);
+                                              setIopSpaces(prev => prev.map(item => {
+                                                if (item.id === s.id) {
+                                                  const updatedFixtures = { ...(item.fixtures || {}) };
+                                                  if (!isNaN(val) && val > 0) {
+                                                    updatedFixtures[f.key] = val;
+                                                  } else {
+                                                    delete updatedFixtures[f.key];
+                                                  }
+                                                  return { ...item, fixtures: updatedFixtures };
+                                                }
+                                                return item;
+                                              }));
+                                            }}
+                                            className={`w-7 h-5.5 text-center text-[11px] font-mono font-bold rounded border outline-none transition-all ${count > 0
+                                                ? "bg-primary/10 border-primary/40 text-foreground font-extrabold focus:bg-background focus:ring-1 focus:ring-primary"
+                                                : "bg-transparent border-transparent hover:border-border/40 text-muted-foreground/30 placeholder:text-muted-foreground/25 focus:bg-background focus:border-primary focus:text-foreground"
+                                              } ${isApprovedLocked ? "opacity-50 cursor-not-allowed" : "cursor-text"}`}
+                                          />
+                                        </td>
+                                      );
+                                    })}
 
                                     <td className="p-1 text-center font-mono font-bold text-primary text-[11.5px]">
                                       {spaceLU.toFixed(1)}
                                     </td>
 
-                                    <td className="p-1 text-center font-mono text-[11px]">
-                                      {s.qty || 1}
+                                    <td className="p-0.5 text-center font-mono text-[11px]" onDoubleClick={(e) => e.stopPropagation()}>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        disabled={isApprovedLocked}
+                                        value={s.qty ?? 1}
+                                        onChange={(e) => {
+                                          if (isApprovedLocked) return;
+                                          const raw = e.target.value;
+                                          const val = raw === "" ? 1 : parseInt(raw, 10);
+                                          const qtyVal = isNaN(val) || val < 1 ? 1 : val;
+                                          setIopSpaces(prev => prev.map(item => item.id === s.id ? { ...item, qty: qtyVal } : item));
+                                        }}
+                                        className="w-10 h-5.5 text-center text-[11px] font-bold font-mono rounded border border-transparent hover:border-border/60 focus:border-primary bg-transparent focus:bg-background outline-none transition-all cursor-text"
+                                      />
                                     </td>
 
-                                    <td className="p-1 text-center font-mono text-[11px]">
-                                      {s.floorQty || 1}
+                                    <td className="p-0.5 text-center font-mono text-[11px]" onDoubleClick={(e) => e.stopPropagation()}>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        disabled={isApprovedLocked}
+                                        value={s.floorQty ?? 1}
+                                        onChange={(e) => {
+                                          if (isApprovedLocked) return;
+                                          const raw = e.target.value;
+                                          const val = raw === "" ? 1 : parseInt(raw, 10);
+                                          const floorQtyVal = isNaN(val) || val < 1 ? 1 : val;
+                                          setIopSpaces(prev => prev.map(item => item.id === s.id ? { ...item, floorQty: floorQtyVal } : item));
+                                        }}
+                                        className="w-10 h-5.5 text-center text-[11px] font-bold font-mono rounded border border-transparent hover:border-border/60 focus:border-primary bg-transparent focus:bg-background outline-none transition-all cursor-text"
+                                      />
                                     </td>
 
                                     <td className="p-1 px-1.5 text-right font-mono font-extrabold text-primary text-[11.5px]">
@@ -3024,22 +2393,6 @@ function LoadingUnitPage() {
                                           title={s.flagged ? "Unflag space" : "Flag space for review"}
                                         >
                                           <Flag className={`size-3.5 ${s.flagged ? "fill-amber-500 text-amber-500" : ""}`} />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          disabled={isEffectiveReadOnly}
-                                          onClick={() => {
-                                            if (isEffectiveReadOnly) {
-                                              toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-                                              return;
-                                            }
-                                            setIopSpaces(prev => prev.filter(item => item.id !== s.id));
-                                            toast.success(`Deleted "${s.desc || 'Space'}"`);
-                                          }}
-                                          className="p-0.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                                          title="Delete space"
-                                        >
-                                          <Trash2 className="size-3.5" />
                                         </button>
                                       </div>
                                     </td>
@@ -3127,15 +2480,16 @@ function LoadingUnitPage() {
                 <LoadingUnitReportView
                   calculations={calculations}
                   iopSpaces={iopSpaces}
+                  floorSections={floorSections}
                   currentWeights={currentWeights}
                   unitLabel={unitLabel}
                   standardPreset={standardPreset}
                   selectedCategory={selectedCategory}
                   project={project}
+                  calcMeta={calcMeta}
                   calcReviewState={calcReviewState}
                   currentUserName={currentUserName}
                   onExportPdf={handleExportPDF}
-                  onExportExcel={handleExportExcel}
                 />
               )}
             </div>
@@ -3144,9 +2498,8 @@ function LoadingUnitPage() {
 
         {/* Intelligence Drawer (Collapsible Right Side Panel) */}
         <div
-          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
-          }`}
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+            }`}
         >
           {intelOpen && (
             <LoadingUnitIntelligenceDrawer
@@ -3210,312 +2563,351 @@ function LoadingUnitPage() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// In-Browser Preliminary Engineering Report Component
+// In-Browser Preliminary Engineering Report Component (Matching Ventilation Format)
 // ─────────────────────────────────────────────────────────────────────────────
 function LoadingUnitReportView({
   calculations,
   iopSpaces,
+  floorSections,
   currentWeights,
   unitLabel,
   standardPreset,
   selectedCategory,
   project,
+  calcMeta,
   calcReviewState,
   currentUserName,
   onExportPdf,
-  onExportExcel,
 }: {
   calculations: any;
   iopSpaces: LUSpace[];
+  floorSections: string[];
   currentWeights: Record<string, number>;
   unitLabel: string;
   standardPreset: StandardPreset;
   selectedCategory: string;
   project: any;
+  calcMeta: any;
   calcReviewState: CalculationReviewState | null;
   currentUserName: string;
   onExportPdf: () => void;
-  onExportExcel: () => void;
 }) {
+  const calcNo = calcMeta.calcNo || project?.calcNo || "TRV-LU-CALC-R01";
+  const projectNo = calcMeta.projectNo || project?.code || project?.projectNo || "P000";
+  const projectName = calcMeta.projectName || project?.name || project?.projectName || "Plumbing Fixture Unit Sizing";
+  const clientName = calcMeta.client || project?.client || "Design Client";
+  const endUser = calcMeta.endUser || project?.endUser || project?.location || "Site Development";
+  const today = calcMeta.date || formatDateStr(new Date().toISOString());
+
   const sigDetails = getSignatureBlockDetails(project?.id || "default", "/plumbing-loading-unit", currentUserName, calcReviewState);
 
-  return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar">
-      {/* Action Header Banner */}
-      <div className="bg-card border border-border rounded-2xl p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 no-print">
-        <div>
-          <div className="flex items-center gap-2">
-            <FileText className="size-5 text-primary" />
-            <h2 className="text-base font-extrabold text-foreground tracking-tight">
-              Preliminary Engineering Sizing &amp; Compliance Report
-            </h2>
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Plumbing loading unit fixture analysis, peak demand flow rates, hydraulic pipe sizing, and booster pump requirements.
-          </p>
-        </div>
+  const activeFixtures = LU_FIXTURES_META;
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            type="button"
-            onClick={onExportPdf}
-            className="h-9 px-4 bg-primary hover:bg-primary/90 text-primary-foreground font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-xs"
-          >
-            <FileText className="size-3.5" /> Export PDF
-          </button>
-          <button
-            type="button"
-            onClick={onExportExcel}
-            className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-all cursor-pointer shadow-xs"
-          >
-            <FileSpreadsheet className="size-3.5" /> Export Excel
-          </button>
+  return (
+    <div className="flex flex-col h-full">
+      {/* Top Action Bar matching Ventilation */}
+      <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50 no-print">
+        <span className="text-[12px] text-muted-foreground font-semibold">
+          Generated: <span className="text-foreground font-mono">{today}</span>
+        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print</TBtn>
+          <TBtn primary onClick={onExportPdf}><FileText className="size-3.5" /> Export PDF</TBtn>
         </div>
       </div>
 
-      {/* Report Document Sheet */}
-      <div className="bg-card border border-border rounded-2xl p-6 md:p-8 space-y-6 shadow-sm">
-        
-        {/* Document Header with Verification Badge */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-2">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-foreground uppercase">
-              Plumbing Loading Unit &amp; Pipe Sizing Report
-            </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Hydraulic Demand Sizing, Water Supply Pipework &amp; Booster Pump Capacity
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold font-mono ${
-                calcReviewState?.status === "APPROVED"
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                  : "bg-primary/10 text-primary border border-primary/20"
-              }`}
-            >
-              {calcReviewState?.status === "APPROVED" ? (
-                <>
-                  <CheckCircle2 className="size-3.5" /> CALCULATION VERIFIED &amp; APPROVED
-                </>
-              ) : (
-                <>
-                  <Sparkles className="size-3.5" /> PRELIMINARY CALCULATION DRAFT
-                </>
-              )}
-            </span>
-          </div>
-        </div>
+      {/* Document Paper Container */}
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+        <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
 
-        {/* Engineering Document Metadata Table */}
-        <div className="overflow-x-auto border border-border rounded-xl">
-          <table className="w-full text-xs font-sans">
-            <tbody>
-              <tr className="border-b border-border/60 bg-muted/20">
-                <td className="py-2 px-3 font-bold text-muted-foreground w-1/4">Project Name:</td>
-                <td className="py-2 px-3 font-semibold text-foreground w-1/4">{project?.name || "MEP Calculator Project"}</td>
-                <td className="py-2 px-3 font-bold text-muted-foreground w-1/4">Document Ref:</td>
-                <td className="py-2 px-3 font-mono text-foreground w-1/4">{project?.calcNo || "TRV-LU-CALC-R01"}</td>
-              </tr>
-              <tr className="border-b border-border/60">
-                <td className="py-2 px-3 font-bold text-muted-foreground">Project Code:</td>
-                <td className="py-2 px-3 font-mono text-foreground">{project?.code || project?.projectNo || "P000"}</td>
-                <td className="py-2 px-3 font-bold text-muted-foreground">Calculation Date:</td>
-                <td className="py-2 px-3 text-foreground">{formatDateStr(new Date().toISOString())}</td>
-              </tr>
-              <tr className="border-b border-border/60 bg-muted/20">
-                <td className="py-2 px-3 font-bold text-muted-foreground">Governing Standard:</td>
-                <td className="py-2 px-3 font-semibold text-primary">{standardPreset.toUpperCase()} ({selectedCategory})</td>
-                <td className="py-2 px-3 font-bold text-muted-foreground">Revision Status:</td>
-                <td className="py-2 px-3 font-mono text-foreground">Rev 0 (Preliminary)</td>
-              </tr>
-              <tr>
-                <td className="py-2 px-3 font-bold text-muted-foreground">Calculation Engine:</td>
-                <td className="py-2 px-3 text-foreground">MEP Suite v2.4 (Hydraulic Loading Engine)</td>
-                <td className="py-2 px-3 font-bold text-muted-foreground">Unit Unit:</td>
-                <td className="py-2 px-3 font-bold text-primary">{unitLabel}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* Section 1: Executive Sizing & Peak Demand Summary */}
-        <div className="space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
-            1. Executive Sizing &amp; Peak Demand Summary
-          </h3>
-          <div className="overflow-x-auto border border-border rounded-xl">
-            <table className="w-full border-collapse text-xs font-sans">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                  <th className="py-2 px-3 text-left">Calculated Parameter</th>
-                  <th className="py-2 px-3 text-right">Calculated Value</th>
-                  <th className="py-2 px-3 text-center">Unit</th>
-                  <th className="py-2 px-3 text-left">Engineering Design Basis</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                <tr>
-                  <td className="py-2 px-3 font-semibold">Total Water Supply Loading Units</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.totalLU.toFixed(1)}</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">{unitLabel}</td>
-                  <td className="py-2 px-3 text-muted-foreground">{iopSpaces.length} Space Definition(s)</td>
-                </tr>
-                <tr>
-                  <td className="py-2 px-3 font-semibold">Simultaneous Peak Demand Flow Rate</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.displayFlow}</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">L/s</td>
-                  <td className="py-2 px-3 text-muted-foreground">Interpolated standard diversity curve</td>
-                </tr>
-                <tr>
-                  <td className="py-2 px-3 font-semibold">Recommended Pipe Header Size</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-foreground">DN{calculations.pipeSizing.sizeMM} mm</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">mm</td>
-                  <td className="py-2 px-3 text-muted-foreground">Velocity limit V ≤ 1.5 - 2.0 m/s (Cap: {calculations.pipeSizing.maxFlowLPS} L/s)</td>
-                </tr>
-                <tr>
-                  <td className="py-2 px-3 font-semibold">Booster Pump Duty Flow Rate (Q)</td>
-                  <td className="py-2 px-3 text-right font-mono font-bold text-primary">{calculations.displaySelectedFlow}</td>
-                  <td className="py-2 px-3 text-center font-mono text-muted-foreground">L/s</td>
-                  <td className="py-2 px-3 text-muted-foreground">Standard 1W + 1A + 1S triplex configuration</td>
-                </tr>
-              </tbody>
-            </table>
+          {/* Document Header */}
+          <div className="flex justify-between items-start pb-4 border-b border-border">
+            <div>
+              <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                Loading Unit &amp; Pipe Sizing Calculation Report
+              </h2>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Plumbing Loading Units (WSFU / LU), Hunter's Curve Demand &amp; Hydraulic Pipework Sizing
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="text-[11px] text-muted-foreground block mt-0.5">Date: {today}</span>
+            </div>
           </div>
-        </div>
 
-        {/* Section 2: Loading Unit Fixture Schedule by Floor / Space */}
-        <div className="space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
-            2. Loading Unit Detailed Fixture Schedule
-          </h3>
-          <div className="overflow-x-auto border border-border rounded-xl">
-            <table className="w-full border-collapse text-xs font-sans">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                  <th className="py-2 px-2 text-center w-10">S.No</th>
-                  <th className="py-2 px-3 text-left">Description</th>
-                  <th className="py-2 px-3 text-left w-24">Floor</th>
-                  <th className="py-2 px-2 text-center w-14">Qty</th>
-                  <th className="py-2 px-2 text-center w-14">Fl. Qty</th>
-                  <th className="py-2 px-3 text-center">Unit LU</th>
-                  <th className="py-2 px-3 text-right w-28">Total LU</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {iopSpaces.map((s, idx) => {
-                  const spaceLU = calculateSpaceLU(s, currentWeights);
-                  const totalSpaceLU = spaceLU * (s.qty || 1) * (s.floorQty || 1);
-                  return (
-                    <tr key={s.id} className={idx % 2 === 0 ? "bg-white dark:bg-slate-950" : "bg-slate-50/40 dark:bg-slate-900/20"}>
-                      <td className="py-1.5 px-2 text-center font-mono text-muted-foreground">{idx + 1}</td>
-                      <td className="py-1.5 px-3 font-semibold">{s.desc}</td>
-                      <td className="py-1.5 px-3 font-medium text-muted-foreground">{s.floor || "L01"}</td>
-                      <td className="py-1.5 px-2 text-center font-mono">{s.qty || 1}</td>
-                      <td className="py-1.5 px-2 text-center font-mono">{s.floorQty || 1}</td>
-                      <td className="py-1.5 px-3 text-center font-mono text-muted-foreground">{spaceLU.toFixed(1)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono font-bold text-primary">{totalSpaceLU.toFixed(1)}</td>
-                    </tr>
-                  );
-                })}
-                <tr className="bg-slate-100/70 dark:bg-slate-900/50 font-bold">
-                  <td colSpan={3} className="py-2 px-3">TOTAL WATER SUPPLY LOADING UNITS</td>
-                  <td colSpan={3}></td>
-                  <td className="py-2 px-3 text-right font-mono text-primary">{calculations.totalLU.toFixed(1)} {unitLabel}</td>
-                </tr>
-              </tbody>
-            </table>
+          {/* Enclosed 3x2 Metadata Box */}
+          <div className="border border-border rounded-xl overflow-hidden text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 bg-muted/40 font-bold border-b border-border divide-x divide-border">
+              <div className="p-2.5">Calculation No.:</div>
+              <div className="p-2.5 font-mono text-primary font-normal">{calcNo}</div>
+              <div className="p-2.5">Date:</div>
+              <div className="p-2.5 font-normal">{today}</div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-border divide-x divide-border">
+              <div className="p-2.5 font-bold bg-muted/20">Project No.:</div>
+              <div className="p-2.5 font-mono">{projectNo}</div>
+              <div className="p-2.5 font-bold bg-muted/20">Client:</div>
+              <div className="p-2.5">{clientName}</div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border">
+              <div className="p-2.5 font-bold bg-muted/20">Project Name:</div>
+              <div className="p-2.5">{projectName}</div>
+              <div className="p-2.5 font-bold bg-muted/20">End User:</div>
+              <div className="p-2.5">{endUser}</div>
+            </div>
           </div>
-        </div>
 
-        {/* Section 3: Hydraulic Pipe Sizing & Capacity Schedule */}
-        <div className="space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
-            3. Hydraulic Pipe Sizing &amp; Velocity Limits (DBC 2021 / BS EN 806 / IPC)
-          </h3>
-          <div className="overflow-x-auto border border-border rounded-xl">
-            <table className="w-full border-collapse font-mono text-xs">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none font-sans">
-                  <th className="py-2 px-3 text-center">Nominal Pipe Size</th>
-                  <th className="py-2 px-3 text-center">Design Flow Range ({unitLabel})</th>
-                  <th className="py-2 px-3 text-center">Max Flow Capacity (L/s)</th>
-                  <th className="py-2 px-3 text-center">Flow @ 1.2 m/s</th>
-                  <th className="py-2 px-3 text-center">Flow @ 1.5 m/s</th>
-                  <th className="py-2 px-3 text-center">Flow @ 1.8 m/s</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {PIPE_SIZING_TABLE.map((row) => {
-                  const isSelected = calculations.pipeSizing.sizeMM === row.sizeMM;
-                  return (
-                    <tr key={row.sizeMM} className={isSelected ? "bg-primary/10 font-bold text-primary" : ""}>
-                      <td className="py-1.5 px-3 text-center font-bold">DN{row.sizeMM} mm</td>
-                      <td className="py-1.5 px-3 text-center">{row.wsfuRange}</td>
-                      <td className="py-1.5 px-3 text-center">{row.flowMax} L/s</td>
-                      <td className="py-1.5 px-3 text-center">{row.q4fps.toFixed(2)} L/s</td>
-                      <td className="py-1.5 px-3 text-center">{row.q5fps.toFixed(2)} L/s</td>
-                      <td className="py-1.5 px-3 text-center">{row.q6fps.toFixed(2)} L/s</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          {/* Table 1: Project Summary & Parameters */}
+          <div className="space-y-2">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              1. Project Summary &amp; Design Parameters
+            </h3>
+            <div className="border border-border rounded-xl overflow-hidden text-xs">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2.5 w-12 text-center">No.</th>
+                    <th className="p-2.5">Parameter Description</th>
+                    <th className="p-2.5 text-center w-36">Calculated Value</th>
+                    <th className="p-2.5 text-center w-20">Unit</th>
+                    <th className="p-2.5">Engineering Design Basis / Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
+                    <td className="p-2.5 font-bold">Total Connected Spaces</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{iopSpaces.length}</td>
+                    <td className="p-2.5 text-center">spaces</td>
+                    <td className="p-2.5 text-muted-foreground">Architectural Space Schedule</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
+                    <td className="p-2.5 font-bold">Total Water Supply Loading Units</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-primary">{calculations.totalLU.toFixed(1)}</td>
+                    <td className="p-2.5 text-center font-mono font-bold">{unitLabel}</td>
+                    <td className="p-2.5 text-muted-foreground">Sum of connected fixture loading units</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
+                    <td className="p-2.5 font-bold">Simultaneous Peak Demand Flow Rate</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-primary">{calculations.displayFlow}</td>
+                    <td className="p-2.5 text-center font-mono font-bold">L/s</td>
+                    <td className="p-2.5 text-muted-foreground">Interpolated standard diversity curve / Hunter's Curve</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
+                    <td className="p-2.5 font-bold">Recommended Pipe Header Size</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">DN{calculations.pipeSizing.sizeMM} mm</td>
+                    <td className="p-2.5 text-center">mm</td>
+                    <td className="p-2.5 text-muted-foreground">Velocity limit V ≤ 1.5 - 2.0 m/s (Max capacity: {calculations.pipeSizing.maxFlowLPS} L/s)</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">5</td>
+                    <td className="p-2.5 font-bold">Booster Pump Duty Flow Rate (Q)</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-primary">{calculations.displaySelectedFlow}</td>
+                    <td className="p-2.5 text-center font-mono font-bold">L/s</td>
+                    <td className="p-2.5 text-muted-foreground">Standard 1W + 1A + 1S triplex booster pump station arrangement</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">6</td>
+                    <td className="p-2.5 font-bold">Governing Sizing Standard</td>
+                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{standardPreset.toUpperCase()}</td>
+                    <td className="p-2.5 text-center">{selectedCategory}</td>
+                    <td className="p-2.5 text-muted-foreground">Standard Fixture Loading Unit weights &amp; diversity curve</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
 
-        {/* Status Verification Banner */}
-        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
-          <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-          <div className="text-xs space-y-1">
-            <span className="font-bold text-emerald-800 dark:text-emerald-300">
-              Hydraulic Loading &amp; Pipework Compliance Verification
-            </span>
-            <p className="text-muted-foreground leading-relaxed">
-              This calculation conforms to {standardPreset.toUpperCase()} standards for simultaneous fixture loading units ({calculations.totalLU.toFixed(1)} {unitLabel}) and peak design flow ({calculations.displayFlow}). Hydraulic pipe sizing velocity limits are satisfied within allowable code constraints.
-            </p>
+          {/* Table 2: Detailed Fixture Schedule by Floor */}
+          <div className="space-y-2 mt-6">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              2. Floor-by-Floor Fixture Units Schedule &amp; Distribution
+            </h3>
+            <div className="border border-border rounded-xl overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2 text-center w-10">Sr.</th>
+                    <th className="p-2">Space Description</th>
+                    <th className="p-2 text-center w-24">Floor</th>
+                    <th className="p-2 text-center w-14">Qty</th>
+                    <th className="p-2 text-center w-14">Fl. Qty</th>
+                    {activeFixtures.map(f => (
+                      <th key={f.key} className="p-1.5 text-center font-mono text-[10.5px]" title={f.label}>
+                        {f.short}
+                      </th>
+                    ))}
+                    <th className="p-2 text-center w-16">Unit {unitLabel}</th>
+                    <th className="p-2 text-right w-20">Total {unitLabel}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {floorSections.map(fl => {
+                    const floorItems = iopSpaces.filter(s => (s.floor || "6th FLOOR") === fl);
+                    if (floorItems.length === 0) return null;
+
+                    let floorTotalLU = 0;
+
+                    return (
+                      <React.Fragment key={fl}>
+                        <tr className="bg-slate-100 dark:bg-zinc-800/60 font-bold border-y border-border">
+                          <td colSpan={5 + activeFixtures.length + 2} className="p-2 px-3 uppercase text-foreground">
+                            {fl}
+                          </td>
+                        </tr>
+                        {floorItems.map((s, sIdx) => {
+                          const unitLU = calculateSpaceLU(s, currentWeights);
+                          const totalSpaceLU = unitLU * (s.qty || 1) * (s.floorQty || 1);
+                          floorTotalLU += totalSpaceLU;
+
+                          return (
+                            <tr key={s.id} className={sIdx % 2 === 0 ? "bg-card" : "bg-slate-50/40 dark:bg-zinc-900/30"}>
+                              <td className="p-2 text-center font-mono text-muted-foreground">{sIdx + 1}</td>
+                              <td className="p-2 font-bold text-foreground">{s.desc}</td>
+                              <td className="p-2 text-center text-muted-foreground">{fl}</td>
+                              <td className="p-2 text-center font-mono">{s.qty || 1}</td>
+                              <td className="p-2 text-center font-mono">{s.floorQty || 1}</td>
+                              {activeFixtures.map(f => (
+                                <td key={f.key} className="p-1.5 text-center font-mono text-[11px]">
+                                  {Number(s.fixtures?.[f.key] || 0) > 0 ? (
+                                    <span className="font-bold text-foreground">{s.fixtures[f.key]}</span>
+                                  ) : (
+                                    <span className="text-muted-foreground/30">—</span>
+                                  )}
+                                </td>
+                              ))}
+                              <td className="p-2 text-center font-mono font-bold text-foreground">{unitLU.toFixed(1)}</td>
+                              <td className="p-2 text-right font-mono font-bold text-primary">{totalSpaceLU.toFixed(1)}</td>
+                            </tr>
+                          );
+                        })}
+                        {/* Floor Subtotal Row with Soft Blue Highlighting */}
+                        <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
+                          <td colSpan={5 + activeFixtures.length + 1} className="p-2 px-3 text-right">
+                            TOTAL ({fl.toUpperCase()})
+                          </td>
+                          <td className="p-2 text-right font-mono font-bold text-primary">
+                            {floorTotalLU.toFixed(1)} {unitLabel}
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    );
+                  })}
+                  {/* Grand Total Row with Soft Blue Highlighting */}
+                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-extrabold border-y-2 border-border">
+                    <td colSpan={5 + activeFixtures.length + 1} className="p-2.5 px-3 text-right text-xs uppercase tracking-wider">
+                      TOTAL BUILDING WATER SUPPLY LOADING UNITS
+                    </td>
+                    <td className="p-2.5 text-right font-mono text-sm font-extrabold text-primary">
+                      {calculations.totalLU.toFixed(1)} {unitLabel}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
 
-        {/* Section 4: 3-Tier Professional Signature & Sign-Off Block */}
-        <div className="space-y-3 pt-2">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-1 border-b border-border/60">
-            4. Professional Engineering Review &amp; Sign-Off Block
-          </h3>
-          <div className="overflow-x-auto border border-border rounded-xl">
-            <table className="w-full border-collapse text-xs font-sans">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                  <th className="py-2.5 px-3 text-left w-1/4">Approval Role</th>
-                  <th className="py-2.5 px-3 text-center w-1/4">Engineer Name</th>
-                  <th className="py-2.5 px-3 text-center w-1/4">Status / Role Title</th>
-                  <th className="py-2.5 px-3 text-center w-1/4">Signature / Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50 font-sans">
-                <tr>
-                  <td className="py-2.5 px-3 font-bold text-foreground">Originator / Prepared By</td>
-                  <td className="py-2.5 px-3 text-center font-semibold text-foreground">{sigDetails.originatedName}</td>
-                  <td className="py-2.5 px-3 text-center text-muted-foreground">MEP Design Engineer</td>
-                  <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">{sigDetails.originatedDate}</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 font-bold text-foreground">Reviewer / Checked By</td>
-                  <td className="py-2.5 px-3 text-center font-semibold text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
-                  <td className="py-2.5 px-3 text-center text-muted-foreground">Senior Plumbing Lead</td>
-                  <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 font-bold text-foreground">Approver / Verified By</td>
-                  <td className="py-2.5 px-3 text-center font-semibold text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
-                  <td className="py-2.5 px-3 text-center text-muted-foreground">Principal / MEP Director</td>
-                  <td className="py-2.5 px-3 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
-                </tr>
-              </tbody>
-            </table>
+          {/* Table 3: Hydraulic Pipe Sizing & Velocity Limits Schedule */}
+          <div className="space-y-2 mt-6">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              3. Hydraulic Pipe Sizing &amp; Velocity Capacity Schedule
+            </h3>
+            <div className="border border-border rounded-xl overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2.5 text-center">Nominal Pipe Size</th>
+                    <th className="p-2.5 text-center">Design Flow Range ({unitLabel})</th>
+                    <th className="p-2.5 text-center">Max Flow Capacity (L/s)</th>
+                    <th className="p-2.5 text-center">Flow @ 1.2 m/s</th>
+                    <th className="p-2.5 text-center">Flow @ 1.5 m/s</th>
+                    <th className="p-2.5 text-center">Flow @ 1.8 m/s</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {PIPE_SIZING_TABLE.map((row) => {
+                    const isSelected = calculations.pipeSizing.sizeMM === row.sizeMM;
+                    return (
+                      <tr
+                        key={row.sizeMM}
+                        className={
+                          isSelected
+                            ? "bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold"
+                            : "hover:bg-slate-50/50 dark:hover:bg-zinc-900/50"
+                        }
+                      >
+                        <td className="p-2 text-center font-bold font-mono">
+                          DN{row.sizeMM} mm {isSelected ? "★ (Recommended)" : ""}
+                        </td>
+                        <td className="p-2 text-center font-mono">{row.wsfuRange}</td>
+                        <td className="p-2 text-center font-mono font-bold">{row.flowMax} L/s</td>
+                        <td className="p-2 text-center font-mono">{row.q4fps.toFixed(2)} L/s</td>
+                        <td className="p-2 text-center font-mono">{row.q5fps.toFixed(2)} L/s</td>
+                        <td className="p-2 text-center font-mono">{row.q6fps.toFixed(2)} L/s</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
 
+          {/* Compliance Verification Banner */}
+          <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
+            <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1">
+              <span className="font-bold text-emerald-800 dark:text-emerald-300">
+                Hydraulic Loading &amp; Pipework Compliance Verification
+              </span>
+              <p className="text-muted-foreground leading-relaxed">
+                This calculation conforms to {standardPreset.toUpperCase()} standards for simultaneous fixture loading units ({calculations.totalLU.toFixed(1)} {unitLabel}) and peak design flow ({calculations.displayFlow}). Hydraulic pipe sizing velocity limits are satisfied within allowable code constraints (Max v ≤ 1.5 - 2.0 m/s).
+              </p>
+            </div>
+          </div>
+
+          {/* Table 4: 4-Column Professional Review & Sign-Off Block */}
+          <div className="space-y-2 mt-6">
+            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+              4. Professional Review &amp; Sign-Off Block
+            </h3>
+            <div className="border border-border rounded-xl overflow-hidden text-xs">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2.5 text-left w-1/4">Approval Role</th>
+                    <th className="p-2.5 text-center w-1/4">Originated By</th>
+                    <th className="p-2.5 text-center w-1/4">Reviewed By</th>
+                    <th className="p-2.5 text-center w-1/4">Approved By</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr>
+                    <td className="p-2.5 font-bold text-muted-foreground">Name:</td>
+                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.originatedName}</td>
+                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
+                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
+                  </tr>
+                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
+                    <td className="p-2.5 font-bold text-muted-foreground">Role / Status:</td>
+                    <td className="p-2.5 text-center text-muted-foreground">MEP Design Engineer</td>
+                    <td className="p-2.5 text-center text-muted-foreground">Discipline Quality Review</td>
+                    <td className="p-2.5 text-center text-muted-foreground">Head of Engineering / MEP QA</td>
+                  </tr>
+                  <tr>
+                    <td className="p-2.5 font-bold text-muted-foreground">Date:</td>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.originatedDate || today}</td>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
+                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   );

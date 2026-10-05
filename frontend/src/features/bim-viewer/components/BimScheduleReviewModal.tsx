@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { X, Sparkles, Table } from "lucide-react";
+import { X, Sparkles, Table, Sun } from "lucide-react";
 import { toast } from "sonner";
 import { workspaceStore } from "@/lib/workspace-store";
 import { predictSpacePressure } from "@/lib/ai-occupancy";
 import { Extracted3DSpace, sortSpacesByFloorAndName, isMepValidSpaceName } from "@/lib/bimViewerSpaceExtractor";
+import { convertBimSpaceToLuxRow } from "@/lib/calc-lighting-lux";
 
 interface BimScheduleReviewModalProps {
   isOpen: boolean;
@@ -130,6 +131,33 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
     workspaceStore.addSpacesBulk(formattedSpaces as any);
     toast.success(`Successfully saved ${formattedSpaces.length} spaces into Project Schedule! All calculations synced to Ventilation calculator.`);
     onClose();
+  };
+
+  const handleSyncToLightingLux = () => {
+    const spacesToCommit = records.filter((r) => selectedIds.has(r.id));
+    if (spacesToCommit.length === 0) {
+      toast.error("No spaces selected to sync to Lighting LUX.");
+      return;
+    }
+
+    const luxRows = spacesToCommit.map((s, idx) => convertBimSpaceToLuxRow(s, idx));
+    const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "") || "default";
+
+    try {
+      localStorage.setItem(`mep_lux_calc_${activeProjId}`, JSON.stringify(luxRows));
+      toast.success(`✨ Synced ${luxRows.length} spaces to Lighting LUX Calculation with 3-Source automation!`, {
+        action: {
+          label: "Open Lighting LUX",
+          onClick: () => {
+            window.location.href = "/lighting-lux-calculation";
+          }
+        }
+      });
+      onClose();
+    } catch (err) {
+      console.error("Failed to sync to Lighting LUX:", err);
+      toast.error("Failed to save Lighting LUX rows.");
+    }
   };
 
   return (
@@ -334,6 +362,15 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
               className="px-4 py-1.5 border border-[#3f3f46] text-xs font-semibold rounded-md hover:bg-[#202023] transition-colors"
             >
               Cancel
+            </button>
+            <button
+              onClick={handleSyncToLightingLux}
+              disabled={selectedIds.size === 0}
+              className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-md shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Generate 13-column CIBSE Lighting calculation from 3D IFC spaces"
+            >
+              <Sun className="size-3.5" />
+              Sync to Lighting LUX ({selectedIds.size})
             </button>
             <button
               onClick={handleSaveToProject}

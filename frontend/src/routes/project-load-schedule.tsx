@@ -14,6 +14,12 @@ import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  performCalculateCircuitLoad,
+  performAutoSizeAndGroup,
+  performBalanceBoardPhases,
+  performGlobalNetworkBalance
+} from "@/lib/calc-project-load-schedule";
 import { useConfirm } from "@/hooks/use-confirm";
 
 export const Route = createFileRoute("/project-load-schedule")({
@@ -253,290 +259,29 @@ function ProjectLoadSchedulePage() {
 
   // Calculations
   const calculateCircuitLoad = (c: any) => {
-    if (activeBoard?.type === "DB" || activeBoard?.type === "EDB") {
-      let totalW = 0;
-      Object.keys(c.points || {}).forEach(pid => {
-        const pType = POINT_TYPES.find(p => p.id === pid);
-        if (pType) totalW += (c.points[pid] || 0) * pType.defaultW;
-      });
-      return totalW + (Number(c.customW) || 0);
-    } else {
-      return (Number(c.qty) || 1) * (Number(c.loadW) || 0);
-    }
+    return performCalculateCircuitLoad(c, activeBoard?.type);
   };
 
   const autoSizeAndGroup = () => {
-    if (!isDB) return alert("Auto-Size & Group is only available for DB/EDB boards.");
-    
-    // 1. Auto-size existing circuits and classify
-    let totalBoardLoad = 0;
-    
-    // Define point categories for sensitivities
-    const lightingTypes = ['ltg', 'ch', 'callbell'];
-    const mechTypes = ['exhood', 'fcu', 'hd', 'isol', 'wh', 'other'];
-    
-    const sizedCircuits = activeBoard.circuits.map((c: any) => {
-      const load = calculateCircuitLoad(c);
-      totalBoardLoad += load;
-      
-      const current = load / 230; // 230V single phase
-      
-      let mcb = "10";
-      let wire = "2.5";
-      
-      if (load > 0) {
-        if (current <= 10) { mcb = "10"; wire = "2.5"; }
-        else if (current <= 16) { mcb = "16"; wire = "2.5"; }
-        else if (current <= 20) { mcb = "20"; wire = "4.0"; }
-        else if (current <= 32) { mcb = "32"; wire = "6.0"; }
-        else { mcb = "40"; wire = "10.0"; }
-      } else if (c.mcb) {
-        mcb = c.mcb;
-        wire = c.wireEcc || "2.5";
-      }
-      
-      return { ...c, mcb, wireEcc: wire };
-    });
-    
-    // 2. Classify circuits
-    let lightingCircuits: any[] = []; // 100mA
-    let powerCircuits: any[] = []; // 30mA
-    let mechCircuits: any[] = []; // 100mA
-    let spareCircuits: any[] = []; // Remaining Spares
-    
-    for (const c of sizedCircuits) {
-      if (c.isSpare || calculateCircuitLoad(c) === 0) {
-        spareCircuits.push(c);
-        continue;
-      }
-      
-      let hasLighting = false;
-      let hasMech = false;
-      let hasPower = false;
-      
-      if (c.points) {
-        for (const pid of Object.keys(c.points)) {
-          if ((c.points[pid] || 0) > 0) {
-            if (lightingTypes.includes(pid)) {
-              hasLighting = true;
-            } else if (mechTypes.includes(pid)) {
-              hasMech = true;
-            } else {
-              hasPower = true;
-            }
-          }
-        }
-      }
-      
-      if (c.customW && c.customW > 0) hasPower = true;
-      
-      if (hasPower) {
-        powerCircuits.push(c);
-      } else if (hasLighting) {
-        lightingCircuits.push(c);
-      } else if (hasMech) {
-        mechCircuits.push(c);
-      } else {
-        powerCircuits.push(c); // fallback
-      }
+    try {
+      const newBoard = performAutoSizeAndGroup(activeBoard);
+      updateBoard({ circuits: newBoard.circuits, incomer: newBoard.incomer });
+    } catch (e: any) {
+      alert(e.message);
     }
-    
-    let newCircuits: any[] = [];
-    let groupIndex = 1;
-    
-    // Calculate Incomer Base Rating string for ELCB Prefix
-    const totalKW = totalBoardLoad / 1000;
-    let iRatingStr = "40A";
-    if (totalKW > 50) iRatingStr = "125A";
-    else if (totalKW > 30) iRatingStr = "100A";
-    else if (totalKW > 15) iRatingStr = "63A";
-    
-    const baseAmps = parseInt(iRatingStr.match(/\d+/)?.[0] || "40", 10);
-    
-    // 3. Process clusters
-    const processCluster = (circuits: any[], sensitivity: number, isSparePass = false) => {
-      let index = 0;
-      while (index < circuits.length) {
-        const remaining = circuits.length - index;
-        let take = 0;
-        let pad = 0;
-        
-        // Exact grouping rule to match 3-phase busbar (multiples of 3)
-        if (remaining >= 6) { take = 6; pad = 0; }
-        else if (remaining === 5) { take = 5; pad = 1; }
-        else if (remaining === 4) { take = 4; pad = 2; }
-        else if (remaining === 3) { take = 3; pad = 0; }
-        else if (remaining === 2) { take = 2; pad = 1; }
-        else if (remaining === 1) { take = 1; pad = 2; }
-        
-        const elcbGroup = `${baseAmps}A\n${sensitivity}mA 4P\nELCB - ${groupIndex}`;
-        
-        for (let i = 0; i < take; i++) {
-          newCircuits.push({ ...circuits[index + i], elcbGroup });
-        }
-        
-        for (let i = 0; i < pad; i++) {
-          // If we are already processing the spares themselves, any padding must be a BRAND NEW spare,
-          // otherwise we would steal from the unprocessed spares ahead of us!
-          let spare = (!isSparePass && spareCircuits.length > 0) ? spareCircuits.shift() : {
-            id: `spare-${Date.now()}-${groupIndex}-${i}`,
-            mcb: "10",
-            wireEcc: "2.5",
-            roomArea: "Spare",
-            points: {},
-            customW: 0,
-            isSpare: true
-          };
-          newCircuits.push({ ...spare, elcbGroup });
-        }
-        
-        index += take;
-        groupIndex++;
-      }
-    };
-    
-    // 1st: All Lighting ELCB's (100mA)
-    processCluster(lightingCircuits, 100, false);
-    
-    // 2nd: Power ELCB's (30mA)
-    processCluster(powerCircuits, 30, false);
-    
-    // Any remaining spares get padded into 30mA chunks (Power ELCBs) BEFORE mechanical
-    if (spareCircuits.length > 0) {
-      processCluster([...spareCircuits], 30, true);
-      spareCircuits.length = 0; // Clear them so they aren't reused!
-    }
-
-    // 3rd: Mechanical / Others (100mA) AT THE VERY END
-    processCluster(mechCircuits, 100, false);
-    
-    // 4. Sequence slNo, cirNo, phase correctly
-    const phases = ["R", "Y", "B"];
-    newCircuits = newCircuits.map((c, idx) => {
-      const slNo = idx + 1;
-      const phaseStr = phases[idx % 3];
-      const seq = Math.floor(idx / 3) + 1;
-      const cirNo = activeBoard.phaseType === "3-Phase" ? `${phaseStr}${seq}` : `L${idx + 1}`;
-      const fullPhase = activeBoard.phaseType === "3-Phase" ? `${phaseStr} Phase` : "1-Phase";
-      return { ...c, slNo, cirNo, phase: fullPhase };
-    });
-    
-    updateBoard({ 
-      circuits: newCircuits,
-      incomer: { ...activeBoard.incomer, rating: iRatingStr }
-    });
   };
 
   const balanceBoardPhases = (board: any) => {
-    if (board.phaseType !== "3-Phase") return board;
-    const circuits = [...board.circuits];
-    
-    const calcLoad = (c: any) => {
-      if (board.type === "DB" || board.type === "EDB") {
-        let totalW = 0;
-        Object.keys(c.points || {}).forEach(pid => {
-          const pType = POINT_TYPES.find(p => p.id === pid);
-          if (pType) totalW += (c.points[pid] || 0) * pType.defaultW;
-        });
-        return totalW + (Number(c.customW) || 0);
-      } else {
-        return (Number(c.qty) || 1) * (Number(c.loadW) || 0);
-      }
-    };
-    
-    circuits.sort((a, b) => calcLoad(b) - calcLoad(a));
-    const phaseLoads = { "R Phase": 0, "Y Phase": 0, "B Phase": 0 };
-    
-    const newCircuits = circuits.map(c => {
-      let minPhase = "R Phase";
-      if (phaseLoads["Y Phase"] < phaseLoads[minPhase]) minPhase = "Y Phase";
-      if (phaseLoads["B Phase"] < phaseLoads[minPhase]) minPhase = "B Phase";
-      c.phase = minPhase;
-      phaseLoads[minPhase] += calcLoad(c);
-      return c;
-    });
-    
-    const finalCircuits = board.circuits.map((original: any) => 
-      newCircuits.find(c => c.id === original.id)
-    );
-    
-    return { ...board, circuits: finalCircuits };
+    return performBalanceBoardPhases(board);
   };
 
   const autoBalancePhases = () => {
     if (activeBoard.phaseType !== "3-Phase") return alert("Board must be 3-Phase to balance.");
-    updateBoard(balanceBoardPhases(activeBoard));
+    updateBoard(performBalanceBoardPhases(activeBoard));
   };
 
   const globalNetworkBalance = () => {
-    let updatedBoards = [...boards];
-    
-    // 1. Determine level of each board to process bottom-up
-    const levels: Record<string, number> = {};
-    const getLevel = (id: string): number => {
-      if (id === 'DEWA/GRID' || !id) return 0;
-      if (levels[id] !== undefined) return levels[id];
-      const board = updatedBoards.find(b => b.id === id);
-      if (!board) return 1;
-      const level = getLevel(board.fedFrom) + 1;
-      levels[id] = level;
-      return level;
-    };
-    
-    updatedBoards.forEach(b => getLevel(b.id));
-    
-    // Sort boards by level descending (deepest first)
-    const sortedBoards = [...updatedBoards].sort((a, b) => (levels[b.id] || 0) - (levels[a.id] || 0));
-    
-    // 2. Bubble up loads from children to parents
-    sortedBoards.forEach(parent => {
-      if (parent.type === "DB" || parent.type === "EDB") return;
-      
-      // For MDB/SMDB, find all children fed directly from this parent
-      const children = updatedBoards.filter(b => b.fedFrom === parent.id);
-      if (children.length === 0) return;
-      
-      let newCircuits = [...parent.circuits];
-      children.forEach(child => {
-        // Calculate child's total connected load
-        let childLoad = 0;
-        child.circuits.forEach((c: any) => {
-          const load = (child.type === "DB" || child.type === "EDB") 
-            ? (() => {
-                let totalW = 0;
-                Object.keys(c.points || {}).forEach(pid => {
-                  const pType = POINT_TYPES.find(p => p.id === pid);
-                  if (pType) totalW += (c.points[pid] || 0) * pType.defaultW;
-                });
-                return totalW + (Number(c.customW) || 0);
-              })()
-            : (Number(c.qty) || 1) * (Number(c.loadW) || 0);
-          childLoad += load * (c.df !== undefined ? Number(c.df) : 1);
-        });
-        
-        // Find existing circuit for this child or create one
-        const existingIdx = newCircuits.findIndex((c: any) => c.desc === child.name);
-        if (existingIdx >= 0) {
-          newCircuits[existingIdx].loadW = childLoad;
-          newCircuits[existingIdx].qty = 1; // It's one panel
-        } else {
-          const newCirc = generateDefaultMDBCircuit(`c-${Date.now()}-${Math.random()}`, newCircuits.length);
-          newCirc.desc = child.name;
-          newCirc.loadW = childLoad;
-          newCirc.qty = 1;
-          newCircuits.push(newCirc);
-        }
-      });
-      
-      // Update parent in the updatedBoards array so its parent can read the updated load
-      const parentIdx = updatedBoards.findIndex(b => b.id === parent.id);
-      if (parentIdx >= 0) {
-        updatedBoards[parentIdx] = { ...updatedBoards[parentIdx], circuits: newCircuits };
-      }
-    });
-    
-    // Balance all boards
-    updatedBoards = updatedBoards.map(b => balanceBoardPhases(b));
+    const updatedBoards = performGlobalNetworkBalance(boards);
     setBoards(updatedBoards);
     alert("Global Network Balance Complete! Child loads bubbled up to parent boards, and all 3-Phase boards balanced.");
   };
@@ -1087,7 +832,7 @@ function ProjectLoadSchedulePage() {
   });
 
   return (
-    <AppShell>
+    <AppShell title="Project Load Schedule (DB Builder)" hideSubHeader={true}>
       <div className="flex flex-col h-full bg-slate-50 text-slate-800 font-sans">
         
         {/* Top Header */}
