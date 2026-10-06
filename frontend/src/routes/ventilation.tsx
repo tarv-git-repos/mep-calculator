@@ -21,7 +21,7 @@ import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile } from "@/lib/bimViewerSpaceExtractor";
 import { getProjectIfcFile } from "@/lib/projectIfcStorage";
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EquipmentPlacementModal } from "@/components/workspace/EquipmentPlacementModal";
@@ -286,9 +286,6 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
-      if (!isEffectiveDisabled && localVal !== getCleanVal(value)) {
-        onCommit(localVal);
-      }
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
       setLocalVal(getCleanVal(value));
@@ -3044,6 +3041,13 @@ function SpacesView() {
           </div>
         )}
       </div>
+
+      {/* Notification Banner across ventilation workspace */}
+      <CalculationStatusBanner
+        projectId={activeProjectId || project?.id}
+        calculatorPath="/ventilation"
+        calculatorTitle="Ventilation & Air Balance"
+      />
 
       {/* Grid */}
       <div className="flex-1 min-h-0 flex flex-col">
@@ -6295,16 +6299,11 @@ function EquipmentView() {
       render: (r) => (
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleOpenPlacement(r);
-          }}
+          onClick={(e) => { e.stopPropagation(); /* handleOpenPlacement(r); disabled per user request to force placement in 3D viewer */ }}
           className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold transition-all cursor-pointer border max-w-full truncate ${
-            r.locationSpaceName
-              ? "bg-primary/10 border-primary/25 text-primary hover:bg-primary/20"
-              : "bg-surface-2 border-border/80 text-muted-foreground hover:bg-surface-3 hover:text-foreground border-dashed"
+            r.locationSpaceName ? "bg-primary/10 border-primary/25 text-primary" : "bg-surface-2 border-border/80 text-muted-foreground border-dashed opacity-75 cursor-default"
           }`}
-          title={r.locationSpaceName ? `Placed in ${r.locationSpaceName} (${r.locationFloor || 'Unspecified Floor'})` : "Click to select 3D placement space"}
+          title={r.locationSpaceName ? `Placed in ${r.locationSpaceName} (${r.locationFloor || 'Unspecified Floor'})` : "Equipment Unplaced (Place via 3D Viewer)"}
         >
           <MapPin className="size-3.5 shrink-0 text-primary" />
           <span className="truncate">
@@ -6314,7 +6313,7 @@ function EquipmentView() {
                 {r.locationFloor && <span className="text-[10px] opacity-75 ml-1">({r.locationFloor})</span>}
               </>
             ) : (
-              <span className="italic font-normal">+ Select Placement Space</span>
+              <span className="italic font-normal">Unplaced</span>
             )}
           </span>
         </button>
@@ -6473,13 +6472,7 @@ function EquipmentView() {
         <Wrench className="size-3.5" />
         <span>Manage Assignments</span>
       </ContextMenuItem>
-      <ContextMenuItem
-        onClick={() => handleOpenPlacement(e)}
-        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-      >
-        <MapPin className="size-3.5 text-primary" />
-        <span>Set 3D Placement Space</span>
-      </ContextMenuItem>
+
       <ContextMenuItem
         onClick={() => {
           if (isReadOnly) {
@@ -6615,17 +6608,26 @@ function EquipmentView() {
         onSave={(equipId, locationFloor, locationSpaceId, locationSpaceName) => {
           const updated = equipment.map((eq) => {
             if (eq.id === equipId) {
+              const sizing = getEquipmentTierAndDimensions(eq.totalFA || 0, eq.totalEA || 0);
               return {
                 ...eq,
                 locationFloor,
                 locationSpaceId,
                 locationSpaceName,
+                dimensions: sizing?.dimensions || eq.dimensions,
               };
             }
             return eq;
           });
           updateEquipment(updated);
-          toast.success(`3D placement set to ${locationSpaceName}${locationFloor ? ` (${locationFloor})` : ''}`);
+          toast.success(`3D placement set to ${locationSpaceName}${locationFloor ? ` (${locationFloor})` : ''}`, {
+            action: {
+              label: "Open 3D Studio",
+              onClick: () => {
+                window.location.href = "/3d-view";
+              },
+            },
+          });
         }}
       />
       {/* Assign Comment Modal overlay */}

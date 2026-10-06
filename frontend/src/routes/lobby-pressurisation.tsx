@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -1537,6 +1537,13 @@ function LobbyPressurisationPage() {
               />
             </div>
           </div>
+
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={project?.id || activeProjectId || "default"}
+            calculatorPath="/lobby-pressurisation"
+            calculatorTitle="Lobby Pressurisation"
+          />
 
           {/* Ventilation-style Outer Card Container */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${

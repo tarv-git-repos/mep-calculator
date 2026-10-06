@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useConfirm } from "@/hooks/use-confirm";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
@@ -9,7 +9,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
-  Info, CheckCircle2, FileText, X, HelpCircle,
+  Info, CheckCircle2, Flag, FileText, X, HelpCircle,
   MessageSquare, Check, Activity, Copy, RotateCcw,
   Trash2, Edit3, Droplets, Waves, Gauge, ShieldCheck, ShieldAlert, Layers,
   Download, Cylinder, ChevronDown, ChevronUp, ChevronRight, Search,
@@ -47,7 +47,8 @@ import {
   BUILDING_DRAIN_CAPACITY,
   computeVentSize,
   computeDrainageCalculations,
-  computeDrainageFloorSizing
+  computeDrainageFloorSizing,
+  getDrainageSpaceValidation
 } from "@/lib/calc-plumbing-drainage";
 
 
@@ -231,7 +232,12 @@ function DrainagePage() {
   const [selectedSpaceIds, setSelectedSpaceIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterFloor, setFilterFloor] = useState("all");
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  const flaggedCount = useMemo(() => {
+    return drainageSpaces.filter(s => getDrainageSpaceValidation(s).isFlagged).length;
+  }, [drainageSpaces]);
 
   // Interactive Modals & Comments
   const [editingSpace, setEditingSpace] = useState<{ space: DrainageSpaceItem; floor: string } | null>(null);
@@ -242,6 +248,13 @@ function DrainagePage() {
   const [commentsList, setCommentsList] = useState<any[]>([]);
   const [highlightedSpaceId, setHighlightedSpaceId] = useState<string | null>(null);
   const highlightTimerRef = useRef<any>(null);
+
+  // Auto-clear selection when calculation is locked/approved
+  useEffect(() => {
+    if (isLocked) {
+      setSelectedSpaceIds([]);
+    }
+  }, [isLocked]);
 
   // Load calculation state & spaces from localStorage and (project as any)?.workspace_data on project mount/change
   useEffect(() => {
@@ -762,13 +775,14 @@ function DrainagePage() {
     if (isLocked) return;
     const defaultFloor = targetFloor || (filterFloor !== "all" ? filterFloor : (floorSections[floorSections.length - 1] || floorSections[0] || "TYPICAL FLOOR"));
     const newId = `space-${Date.now()}`;
-    const newSpace: DrainageSpaceItem = {
+        const newSpace: DrainageSpaceItem = {
       id: newId,
       floor: defaultFloor,
-      desc: `New Restroom / Space (${drainageSpaces.length + 1})`,
-      fixtures: { wc_flush_valve: 2, lavatory: 2, floor_drain_2: 1 },
+      desc: `New Space (${drainageSpaces.length + 1})`,
+      fixtures: {},
       spaceQty: 1,
       floorsQty: 1,
+      flagged: true,
     };
     setDrainageSpaces(prev => [...prev, newSpace]);
     dirtyStore.set(true);
@@ -970,6 +984,10 @@ function DrainagePage() {
 
   // Selection handlers
   const handleToggleSelectAll = (checked: boolean) => {
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     if (checked) {
       setSelectedSpaceIds(drainageSpaces.map(s => s.id));
       toast.info(`Selected all ${drainageSpaces.length} space(s)`);
@@ -979,6 +997,7 @@ function DrainagePage() {
   };
 
   const handleToggleSelectSpace = (id: string, explicitChecked?: boolean) => {
+    if (isLocked) return;
     setSelectedSpaceIds(prev => {
       const isCurrentlySelected = prev.includes(id);
       const shouldSelect = explicitChecked !== undefined ? explicitChecked : !isCurrentlySelected;
@@ -1102,7 +1121,7 @@ function DrainagePage() {
 
   const handleCutSpaces = (ids: string[]) => {
     if (isLocked) {
-      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
+      toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
       return;
     }
     const targets = drainageSpaces.filter(s => ids.includes(s.id));
@@ -1121,7 +1140,7 @@ function DrainagePage() {
 
   const handlePasteSpaces = () => {
     if (isLocked) {
-      toast.info("Calculation is APPROVED and locked. Discipline Coordinator must Unlock to edit.", { id: "readonly-notice" });
+      toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
       return;
     }
     let sourceSpaces = copiedDrainageSpaces;
@@ -1168,6 +1187,20 @@ function DrainagePage() {
       const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
       const activeEl = document.activeElement;
       const isModalActive = Boolean(customModalOpen || showFormulaModal || showInspectorModal || isCommentModalOpen || editingSpace);
+
+      // Lock Protection: Block select-all and modification shortcuts when calculation is locked/approved
+      if (isLocked) {
+        if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (["Delete", "Backspace"].includes(e.key) || (isCmdOrCtrl && ["x", "v", "d", "z", "y"].includes(e.key.toLowerCase()))) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+      }
 
       // 1. Ctrl+A / Cmd+A (Select All Spaces) - should ALWAYS select all spaces in schedule when no modal is open
       if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
@@ -1294,6 +1327,10 @@ function DrainagePage() {
       filtered = filtered.filter(s => s.floor === filterFloor);
     }
 
+    if (showFlaggedOnly) {
+      filtered = filtered.filter(s => getDrainageSpaceValidation(s).isFlagged);
+    }
+
     const grouped: Record<string, DrainageSpaceItem[]> = {};
     const validFloors = floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null");
     validFloors.forEach(fl => {
@@ -1305,7 +1342,7 @@ function DrainagePage() {
       grouped[fl].push(s);
     });
     return grouped;
-  }, [drainageSpaces, floorSections, searchQuery, filterFloor]);
+  }, [drainageSpaces, floorSections, searchQuery, filterFloor, showFlaggedOnly]);
 
   // PDF Export
   const handleExportPdf = () => {
@@ -1550,6 +1587,13 @@ function DrainagePage() {
                 />
               </div>
             </div>
+
+            {/* Notification Banner across all tabs */}
+            <CalculationStatusBanner
+              projectId={project?.id || "default"}
+              calculatorPath="/plumbing-drainage"
+              calculatorTitle="Drainage Pipe Sizing"
+            />
 
             {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
@@ -1840,29 +1884,49 @@ function DrainagePage() {
 
                     {/* Search & Floor Filter */}
                     <div className="flex items-center gap-2 flex-1 w-full sm:w-auto">
-                      <div className="relative flex-1 max-w-xs">
+                      <div className="relative flex items-center">
+                        <Search className="size-3.5 absolute left-3 text-muted-foreground pointer-events-none" />
                         <input
                           type="text"
                           value={searchQuery}
                           onChange={e => setSearchQuery(e.target.value)}
                           placeholder="Filter spaces..."
-                          className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-surface-2 border border-border text-xs outline-none focus:ring-1 focus:ring-primary text-foreground placeholder:text-muted-foreground"
+                          className="h-8 w-56 pl-8 pr-3 bg-surface-2 border border-border rounded-full text-xs outline-none focus:border-primary focus:bg-background transition-all text-foreground placeholder:text-muted-foreground"
                         />
-                        <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                       </div>
 
                       {floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").length > 1 && (
-                        <select
-                          value={filterFloor}
-                          onChange={e => setFilterFloor(e.target.value)}
-                          className="px-2.5 py-1.5 rounded-lg bg-surface-2 border border-border text-xs font-semibold outline-none cursor-pointer text-foreground"
-                        >
-                          <option value="all">All Floors ({floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").length})</option>
-                          {floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").map(fl => (
-                            <option key={fl} value={fl}>{fl}</option>
-                          ))}
-                        </select>
+                        <div className="relative inline-flex items-center">
+                          <select
+                            value={filterFloor}
+                            onChange={e => setFilterFloor(e.target.value)}
+                            className="h-8 pl-3.5 pr-8 bg-surface-2 border border-border rounded-full text-xs font-semibold outline-none focus:border-primary focus:bg-background transition-all text-foreground cursor-pointer hover:bg-surface-3 appearance-none shadow-2xs"
+                          >
+                            <option value="all">All Floors ({floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").length})</option>
+                            {floorSections.filter(fl => fl && fl !== "undefined" && fl !== "null").map(fl => (
+                              <option key={fl} value={fl}>{fl}</option>
+                            ))}
+                          </select>
+                          <ChevronDown className="size-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        </div>
                       )}
+
+                      {/* Flagged Only Filter Button matching Ventilation & Discharge Unit */}
+                      <button
+                        type="button"
+                        onClick={() => setShowFlaggedOnly(prev => !prev)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full border transition cursor-pointer shadow-2xs ${
+                          showFlaggedOnly
+                            ? "bg-red-500/15 border-red-500 text-red-600 dark:text-red-400 font-bold shadow-2xs"
+                            : flaggedCount > 0
+                              ? "bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-100"
+                              : "bg-surface-2 border-border text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+                        }`}
+                        title={showFlaggedOnly ? "Showing flagged spaces only. Click to show all." : `${flaggedCount} flagged space(s)`}
+                      >
+                        <Flag className={`size-3.5 ${flaggedCount > 0 || showFlaggedOnly ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+                        <span>{showFlaggedOnly ? "Flagged Only" : `Flagged (${flaggedCount})`}</span>
+                      </button>
                     </div>
 
                     {/* Action Buttons */}
@@ -1963,28 +2027,32 @@ function DrainagePage() {
                   {/* Schedule Matrix Table Container - Fits screen perfectly without horizontal scrollbar */}
                   <div className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto w-full custom-scrollbar select-none">
                     <table className="w-full border-collapse text-[11px] font-sans">
-                      <thead className="bg-slate-50 dark:bg-slate-900/80 sticky top-0 z-20 border-b border-border text-muted-foreground uppercase text-[10.5px] tracking-wider font-bold">
+                      <thead className="bg-slate-50 dark:bg-slate-900/90 sticky top-0 z-20 border-b border-border text-muted-foreground uppercase text-[10.5px] tracking-wider font-bold">
                         <tr>
                           <th className="p-1 text-center w-8 min-w-[32px] max-w-[34px] border-r border-border/60">
                             <input
                               type="checkbox"
-                              checked={allSpacesSelected}
+                              disabled={isLocked}
+                              checked={allSpacesSelected && !isLocked}
                               onChange={e => handleToggleSelectAll(e.target.checked)}
-                              title="Select all spaces (Ctrl+A)"
-                              className="size-3.5 accent-primary cursor-pointer rounded"
+                              title={isLocked ? "Calculation is locked" : "Select all spaces (Ctrl+A)"}
+                              className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed"
                             />
                           </th>
-                          <th className="p-1.5 px-2 text-left min-w-[130px] border-r border-border/60 whitespace-nowrap">
+                          <th className="p-1.5 px-2.5 text-left min-w-[150px] border-r border-border/60 whitespace-nowrap">
                             Space / Area Name
                           </th>
                           {DRAINAGE_FIXTURES_META.map(f => (
-                            <th key={f.id} className="p-1 px-0.5 text-center border-r border-border/40 min-w-[36px]">
-                              <div className="truncate text-[10px] leading-tight font-semibold" title={f.name}>{f.short}</div>
-                              <div className="text-[9px] font-mono text-primary/80 lowercase leading-tight">{f.dfu} dfu</div>
+                            <th key={f.id} className="p-1.5 px-1 text-center border-r border-border/60 min-w-[48px]">
+                              <div className="truncate text-[10.5px] leading-tight font-bold text-foreground" title={f.name}>{f.short}</div>
+                              <div className="text-[10.5px] font-mono font-bold text-[#0A7BC7] dark:text-[#38bdf8] lowercase leading-tight mt-0.5">{f.dfu} dfu</div>
                             </th>
                           ))}
-                          <th className="p-1.5 px-1.5 text-center text-primary font-bold min-w-[56px] whitespace-nowrap">
+                          <th className="p-1.5 px-2 text-center text-[#0A7BC7] dark:text-[#38bdf8] font-extrabold min-w-[70px] whitespace-nowrap border-r border-border/60">
                             Total DFU
+                          </th>
+                          <th className="p-1 text-center w-10 min-w-[44px]">
+                            {/* Action / Flag */}
                           </th>
                         </tr>
                       </thead>
@@ -1997,7 +2065,7 @@ function DrainagePage() {
                           <tbody key={`floor-tbody-${floorIndex}`} className="divide-y divide-border/60 border-b border-border">
                             {/* Floor Section Header */}
                             <tr id={`floor-section-${floor}`} className="bg-muted/40 font-bold text-[11px] text-foreground">
-                              <td colSpan={DRAINAGE_FIXTURES_META.length + 3} className="py-1.5 px-3">
+                              <td colSpan={DRAINAGE_FIXTURES_META.length + 4} className="py-1.5 px-3">
                                 <div className="flex items-center justify-between gap-2 flex-wrap">
                                   <div className="flex items-center gap-1.5 shrink-0">
                                     <ChevronDown className="size-3.5 text-primary shrink-0" />
@@ -2014,17 +2082,20 @@ function DrainagePage() {
                                   {/* Individual Floor Drainage Segment / System Type Dropdown & Sizing Pill */}
                                   <div className="flex items-center gap-1.5 flex-wrap shrink-0">
                                     <span className="text-[10.5px] font-semibold text-muted-foreground hidden sm:inline">Segment Type:</span>
-                                    <select
-                                      value={floorSystemTypes[floor] || systemType || "branch"}
-                                      disabled={isLocked}
-                                      onChange={e => handleFloorSystemTypeChange(floor, e.target.value as any)}
-                                      className="text-[11px] font-semibold bg-background border border-input rounded-lg px-2 py-0.5 outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer disabled:opacity-60 shadow-2xs text-foreground max-w-[240px] sm:max-w-none truncate"
-                                    >
-                                      <option value="branch">Horizontal Fixture Branch (IPC Table 710.1(2))</option>
-                                      <option value="stack_short">Vertical Stack ≤ 3 Stories (IPC Table 710.1(1))</option>
-                                      <option value="stack_tall">Multi-Story Stack &gt; 3 Stories (IPC Table 710.1(1))</option>
-                                      <option value="building_drain">Building Drain / Main Sewer Collector</option>
-                                    </select>
+                                    <div className="relative inline-flex items-center">
+                                       <select
+                                         value={floorSystemTypes[floor] || systemType || "branch"}
+                                         disabled={isLocked}
+                                         onChange={e => handleFloorSystemTypeChange(floor, e.target.value as any)}
+                                         className="h-7 appearance-none pl-2.5 pr-7 text-[11px] font-semibold bg-background border border-input rounded-lg outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary cursor-pointer disabled:opacity-60 shadow-2xs text-foreground max-w-[240px] sm:max-w-none truncate"
+                                       >
+                                         <option value="branch">Horizontal Fixture Branch (IPC Table 710.1(2))</option>
+                                         <option value="stack_short">Vertical Stack ≤ 3 Stories (IPC Table 710.1(1))</option>
+                                         <option value="stack_tall">Multi-Story Stack &gt; 3 Stories (IPC Table 710.1(1))</option>
+                                         <option value="building_drain">Building Drain / Main Sewer Collector</option>
+                                       </select>
+                                       <ChevronDown className="size-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                                     </div>
 
                                     {floorSizing[floor] && (
                                       <div
@@ -2042,10 +2113,11 @@ function DrainagePage() {
                                       type="button"
                                       disabled={isLocked}
                                       onClick={() => handleAddSpace(floor)}
-                                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary hover:bg-primary/10 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                                      className="flex items-center gap-1 text-[#0A7BC7] dark:text-[#38bdf8] hover:bg-blue-500/10 text-[10.5px] font-bold px-3 py-0.5 rounded-full border border-[#0A7BC7]/40 transition-colors cursor-pointer bg-transparent shadow-2xs"
                                       title={`Add space to ${floor}`}
                                     >
-                                      <Plus className="size-3" /> Space
+                                      <Plus className="size-3" />
+                                      <span>Add Space to {floor}</span>
                                     </button>
                                     <button
                                       type="button"
@@ -2069,6 +2141,8 @@ function DrainagePage() {
                               });
                               const mult = (space.spaceQty || 1) * (space.floorsQty || 1);
                               const spaceTotalDfu = spaceUnitDfu * mult;
+                              const validation = getDrainageSpaceValidation(space);
+                              const isEffectivelyFlagged = validation.isFlagged;
 
                               return (
                                 <ContextMenu key={space.id}>
@@ -2081,6 +2155,7 @@ function DrainagePage() {
                                       data-comment-target={space.id}
                                       title="Click to select, Ctrl+Click to multi-select, Double-click to edit, Ctrl+A to select all"
                                       onClick={(e) => {
+                                        if (isLocked) return;
                                         const target = e.target as HTMLElement;
                                         if (target.tagName === "INPUT" || target.tagName === "BUTTON" || target.closest("button") || target.closest("input")) {
                                           return;
@@ -2094,32 +2169,55 @@ function DrainagePage() {
                                         }
                                         setEditingSpace({ space, floor });
                                       }}
-                                      className={`border-b border-border/60 hover:bg-primary/5 transition-all duration-200 cursor-pointer ${highlightedSpaceId === space.id
-                                        ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
+                                      className={`group transition-colors duration-150 cursor-pointer h-8.5 text-xs ${highlightedSpaceId === space.id
+                                        ? "ring-2 ring-primary bg-primary/25 font-bold z-10 relative"
                                         : isSelected
-                                          ? "bg-primary/10"
-                                          : idx % 2 === 1
-                                            ? "bg-muted/15"
-                                            : "bg-card"
+                                          ? "bg-row-selected font-medium"
+                                          : idx % 2 === 0
+                                            ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80"
+                                            : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"
                                         }`}
                                     >
-                                      <td className="p-1 text-center w-8 min-w-[32px] max-w-[34px]" onDoubleClick={e => e.stopPropagation()}>
+                                      <td className="p-1 text-center w-[36px] min-w-[36px] border-r border-border/40" onDoubleClick={e => e.stopPropagation()}>
                                         <input
                                           type="checkbox"
-                                          checked={isSelected}
+                                          disabled={isLocked}
+                                          checked={isSelected && !isLocked}
                                           onChange={e => handleToggleSelectSpace(space.id, e.target.checked)}
-                                          className="size-3.5 accent-primary cursor-pointer rounded"
+                                          className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                         />
                                       </td>
 
-                                      <td className="p-1 px-2 font-medium text-foreground min-w-[130px]">
+                                      <td className="p-0.5 px-2 text-foreground min-w-[180px] border-r border-border/40" onDoubleClick={e => e.stopPropagation()}>
                                         <div className="flex items-center justify-between gap-1 w-full">
-                                          <InlineInput
+                                          <input
+                                            type="text"
                                             disabled={isLocked}
-                                            value={space.desc}
-                                            onCommit={val => handleUpdateSpaceDesc(space.id, val)}
-                                            className="font-medium text-xs text-foreground px-1 py-0.5 w-full min-w-0"
+                                            value={space.desc || ""}
                                             placeholder="Space / Area Description"
+                                            onChange={(e) => {
+                                              if (isLocked) return;
+                                              const val = e.target.value;
+                                              const targets = selectedSpaceIds.includes(space.id) && selectedSpaceIds.length > 1 ? selectedSpaceIds : [space.id];
+                                              setDrainageSpaces(prev => prev.map(item => {
+                                                if (targets.includes(item.id)) {
+                                                  const updated = { ...item, desc: val };
+                                                  const wasMissing = getDrainageSpaceValidation(item).isMissing;
+                                                  const isMissing = getDrainageSpaceValidation(updated).isMissing;
+                                                  let flagged = updated.flagged;
+                                                  if (isMissing) {
+                                                    flagged = true;
+                                                  } else if (wasMissing && !isMissing) {
+                                                    flagged = false;
+                                                  }
+                                                  return { ...updated, flagged };
+                                                }
+                                                return item;
+                                              }));
+                                              dirtyStore.set(true);
+                                            }}
+                                            className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1.5 py-0.5 text-xs font-medium text-foreground outline-none transition-all truncate cursor-text"
+                                            title={space.desc || "Untitled Space"}
                                           />
                                           {(() => {
                                             const spaceComments = getSpaceComments(space);
@@ -2142,28 +2240,79 @@ function DrainagePage() {
                                         </div>
                                       </td>
 
-                                      {/* Fixture Quantities */}
+                                      {/* Fixture Quantities with Ventilation clean inline style */}
                                       {DRAINAGE_FIXTURES_META.map(f => {
-                                        const count = space.fixtures[f.id] || 0;
+                                        const count = Number(space.fixtures?.[f.id] || 0);
                                         return (
-                                          <td key={f.id} className="p-0.5 text-center border-r border-border/30 min-w-[36px]">
-                                            <InlineInput
+                                          <td key={f.id} className="p-0.5 text-center font-mono text-[11px] min-w-[48px] border-r border-border/40" onDoubleClick={e => e.stopPropagation()}>
+                                            <input
                                               type="number"
-                                              min={0}
+                                              min="0"
+                                              step="1"
                                               disabled={isLocked}
-                                              value={count === 0 ? "" : count}
-                                              placeholder="0"
-                                              onCommit={val => handleUpdateSpaceFixture(space.id, f.id, parseInt(val) || 0)}
-                                              className={`w-7 sm:w-8 h-6 text-center rounded py-0 text-xs font-mono font-semibold transition-colors mx-auto ${count > 0 ? "bg-primary/10 text-primary font-bold border border-primary/30" : "bg-transparent text-muted-foreground/50 border border-transparent hover:border-border/60"
-                                                }`}
+                                              value={count > 0 ? count : ""}
+                                              placeholder="—"
+                                              onChange={(e) => {
+                                                if (isLocked) return;
+                                                const raw = e.target.value;
+                                                const val = raw === "" ? 0 : parseInt(raw, 10);
+                                                const targets = selectedSpaceIds.includes(space.id) && selectedSpaceIds.length > 1 ? selectedSpaceIds : [space.id];
+                                                setDrainageSpaces(prev => prev.map(item => {
+                                                    if (targets.includes(item.id)) {
+                                                      const updatedFixtures = { ...(item.fixtures || {}) };
+                                                      if (!isNaN(val) && val > 0) {
+                                                        updatedFixtures[f.id] = val;
+                                                      } else {
+                                                        delete updatedFixtures[f.id];
+                                                      }
+                                                      const updated = { ...item, fixtures: updatedFixtures };
+                                                      const wasMissing = getDrainageSpaceValidation(item).isMissing;
+                                                      const isMissing = getDrainageSpaceValidation(updated).isMissing;
+                                                      let flagged = updated.flagged;
+                                                      if (isMissing) {
+                                                        flagged = true;
+                                                      } else if (wasMissing && !isMissing) {
+                                                        flagged = false;
+                                                      }
+                                                      return { ...updated, flagged };
+                                                    }
+                                                    return item;
+                                                  }));
+                                                dirtyStore.set(true);
+                                              }}
+                                              className="w-full h-7 bg-transparent border border-transparent hover:border-border/60 focus:border-primary focus:bg-background rounded px-1 text-center font-mono tabular text-[13px] font-medium text-foreground placeholder:text-muted-foreground/30 outline-none transition-colors cursor-text disabled:cursor-not-allowed disabled:opacity-50"
                                             />
                                           </td>
                                         );
                                       })}
 
                                       {/* Total DFU */}
-                                      <td className="p-1 px-1.5 text-center font-mono font-bold text-primary whitespace-nowrap text-xs min-w-[56px]">
+                                      <td className="p-1 px-1.5 text-center font-mono font-extrabold text-[#0A7BC7] dark:text-[#38bdf8] whitespace-nowrap text-[11.5px] min-w-[70px] border-r border-border/40">
                                         {spaceTotalDfu.toFixed(1)}
+                                      </td>
+
+                                      {/* Actions / Flag */}
+                                      <td className="p-0.5 text-center min-w-[48px]" onDoubleClick={e => e.stopPropagation()}>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const targets = selectedSpaceIds.includes(space.id) && selectedSpaceIds.length > 1 ? selectedSpaceIds : [space.id];
+                                            const newFlagged = !isEffectivelyFlagged;
+                                            setDrainageSpaces(prev => prev.map(item => targets.includes(item.id) ? { ...item, flagged: newFlagged } : item));
+                                            dirtyStore.set(true);
+                                            toast.info(newFlagged ? `Flagged ${targets.length > 1 ? `${targets.length} spaces` : `"${space.desc}"`} for review` : `Unflagged ${targets.length > 1 ? `${targets.length} spaces` : `"${space.desc}"`}`);
+                                          }}
+                                          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+                                          title={(() => {
+                                            if (validation.isMissing) {
+                                              return validation.reason || "Missing space data";
+                                            }
+                                            return isEffectivelyFlagged ? "Unflag space" : "Flag space for review";
+                                          })()}
+                                        >
+                                          <Flag className={`size-3.5 transition-all duration-200 ${isEffectivelyFlagged ? "fill-red-500 text-red-500 scale-110" : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"}`} />
+                                        </button>
                                       </td>
                                     </tr>
                                   </ContextMenuTrigger>
@@ -2372,19 +2521,22 @@ function DrainagePage() {
               </div>
               <div className="space-y-1">
                 <label className="font-semibold text-muted-foreground">Floor Section</label>
-                <select
-                  disabled={isLocked}
-                  value={editingSpace.space.floor}
-                  onChange={e => {
-                    const val = e.target.value;
-                    setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, floor: val } } : null);
-                  }}
-                  className="w-full bg-background border border-input rounded-xl p-2 font-semibold text-foreground text-xs cursor-pointer disabled:opacity-60"
-                >
-                  {floorSections.map(fl => (
-                    <option key={fl} value={fl}>{fl}</option>
-                  ))}
-                </select>
+                <div className="relative flex items-center">
+                  <select
+                    disabled={isLocked}
+                    value={editingSpace.space.floor}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setEditingSpace(prev => prev ? { ...prev, space: { ...prev.space, floor: val } } : null);
+                    }}
+                    className="w-full appearance-none bg-background border border-input rounded-xl p-2 pr-8 font-semibold text-foreground text-xs cursor-pointer disabled:opacity-60 outline-none focus:border-primary"
+                  >
+                    {floorSections.map(fl => (
+                      <option key={fl} value={fl}>{fl}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="size-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                </div>
               </div>
             </div>
 

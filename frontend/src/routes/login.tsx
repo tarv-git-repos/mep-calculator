@@ -271,42 +271,18 @@ function Login() {
     setLoading(true);
 
     try {
-      if (resetStep === 1) {
-        if (!email) {
-          toast.error('Please enter your email address.');
-          setLoading(false);
-          return;
-        }
-        const res = await authService.sendResetOtp(email);
-        if (res.success) {
-          toast.success(res.message || 'Reset OTP sent to your email.');
-          setResetStep(2);
-        } else {
-          toast.error(res.message || 'Error sending reset code');
-        }
+      if (!email) {
+        toast.error('Please enter your email address.');
+        setLoading(false);
+        return;
+      }
+      const res = await authService.sendResetOtp(email);
+      if (res.success) {
+        toast.success(res.message || 'Password reset link sent to your email.');
+        setMode('Login');
+        setResetStep(1);
       } else {
-        const otpCode = otpArray.join('');
-        if (otpCode.length < 6 || !newPassword) {
-          toast.error('Please enter the 6-digit OTP and your new password.');
-          setLoading(false);
-          return;
-        }
-
-        const pwdErrors = getPasswordErrors(newPassword);
-        if (pwdErrors.length > 0) {
-          toast.error('Please ensure your new password meets all requirements.');
-          setLoading(false);
-          return;
-        }
-        const res = await authService.resetPassword(email, otpCode, newPassword);
-        if (res.success) {
-          toast.success(res.message || 'Password reset successfully! Please login.');
-          setMode('Login');
-          setResetStep(1);
-          setPassword('');
-        } else {
-          toast.error(res.message || 'Password reset failed');
-        }
+        toast.error(res.message || 'Error sending reset link');
       }
     } catch (err: any) {
       toast.error(err.message || 'Error processing request');
@@ -622,10 +598,10 @@ function Login() {
 
                 <div className="text-center">
                   <h4 className="text-xl font-bold text-slate-900 dark:text-white mb-1">
-                    {resetStep === 1 ? 'Reset Your Password' : 'Enter OTP & New Password'}
+                    Reset Your Password
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 font-medium max-w-xs mx-auto">
-                    {resetStep === 1 ? 'Enter your registered email to receive a password reset OTP code' : 'Check your email for the OTP and set your new password'}
+                    Enter your registered email to receive a password reset link
                   </p>
                 </div>
 
@@ -641,86 +617,19 @@ function Login() {
                       type="email"
                       required
                       value={email}
-                      disabled={resetStep === 2}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="block w-full pl-10 pr-4 py-3 bg-slate-50/70 dark:bg-slate-950/90 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-sky-500/40 focus:border-blue-600 dark:focus:border-sky-500 focus:bg-white dark:focus:bg-slate-950 text-sm placeholder-slate-400 dark:placeholder-slate-500 disabled:opacity-60 transition-all font-medium"
+                      className="block w-full pl-10 pr-4 py-3 bg-slate-50/70 dark:bg-slate-950/90 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-sky-500/40 focus:border-blue-600 dark:focus:border-sky-500 focus:bg-white dark:focus:bg-slate-950 text-sm placeholder-slate-400 dark:placeholder-slate-500 transition-all font-medium"
                       placeholder="user@example.com"
                     />
                   </div>
                 </div>
-
-                {resetStep === 2 && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2 text-center">
-                        6-Digit Reset OTP Code
-                      </label>
-                      <div className="flex justify-between gap-2 max-w-xs mx-auto mb-4">
-                        {Array(6).fill(0).map((_, index) => (
-                          <input
-                            key={index}
-                            type="text"
-                            inputMode="numeric"
-                            maxLength={1}
-                            ref={(el) => { otpInputRefs.current[index] = el; }}
-                            value={otpArray[index] || ''}
-                            onChange={(e) => handleOtpInput(e.target.value, index)}
-                            onKeyDown={(e) => handleOtpKeyDown(e, index)}
-                            onPaste={index === 0 ? handleOtpPaste : undefined}
-                            className="w-11 h-13 text-center text-xl font-black bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl focus:ring-2 focus:ring-blue-500 dark:focus:ring-sky-500 focus:border-blue-600 dark:focus:border-sky-500 focus:bg-white dark:focus:bg-slate-950 text-sm shadow-xs"
-                            required
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1.5">
-                        New Password
-                      </label>
-                      <div className="relative rounded-xl shadow-xs">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                          <Lock className="h-4 w-4" />
-                        </div>
-                        <input
-                          type={showNewPassword ? "text" : "password"}
-                          required
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          className="block w-full pl-10 pr-10 py-3 bg-slate-50/70 dark:bg-slate-950/90 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:focus:ring-sky-500/40 focus:border-blue-600 dark:focus:border-sky-500 focus:bg-white dark:focus:bg-slate-950 text-sm placeholder-slate-400 dark:placeholder-slate-500 font-medium"
-                          placeholder="New password"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowNewPassword(!showNewPassword)}
-                          className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
-                        >
-                          {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                      
-                      {newPassword.length > 0 && getPasswordErrors(newPassword).length > 0 && (
-                        <div className="mt-2 space-y-1">
-                          <p className="text-[11px] text-amber-600 dark:text-amber-500 font-semibold flex items-center gap-1">
-                            <ShieldAlert className="w-3 h-3" /> Missing requirements:
-                          </p>
-                          <ul className="text-[11px] text-amber-600/90 dark:text-amber-400/80 list-disc pl-4 space-y-0.5 font-medium">
-                            {getPasswordErrors(newPassword).map((err, i) => (
-                              <li key={i}>{err}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
 
                 <button
                   type="submit"
                   disabled={loading}
                   className="w-full py-3.5 px-4 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 dark:bg-gradient-to-r dark:from-sky-500 dark:to-blue-600 dark:hover:from-sky-400 dark:hover:to-blue-500 shadow-md shadow-blue-600/20 dark:shadow-sky-500/25 transition-all text-sm flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  {loading ? 'Processing...' : (resetStep === 1 ? 'Send Reset OTP Code' : 'Save New Password & Login')}
+                  {loading ? 'Processing...' : 'Send Password Reset Link'}
                 </button>
 
                 <div className="text-center pt-2">

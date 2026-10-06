@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { TBtn } from "@/components/workspace/Button";
@@ -636,6 +636,13 @@ function GasTankPage() {
               <UnitToggle unitSystem={inputs.unitSystem.toLowerCase() as any} onChange={(u) => handleUnitSystem(u.toUpperCase() as any)} disabled={isEffectiveReadOnly} />
             </div>
           </div>
+
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={project?.id || "default"}
+            calculatorPath="/plumbing-gas-tank"
+            calculatorTitle="Gas Storage Capacity"
+          />
 
           {/* Main Content Card Container */}
           <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${

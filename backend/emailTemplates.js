@@ -272,7 +272,7 @@ export const PASSWORD_RESET_TEMPLATE = `
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Password Reset OTP</title>
+    <title>Password Reset Link</title>
   <style type="text/css">
     body {
       margin: 0;
@@ -361,20 +361,15 @@ export const PASSWORD_RESET_TEMPLATE = `
           </h2>
           <p style="font-size: 15px; line-height: 1.6; color: #475569; margin: 0;">
             We received a password reset request for your account: <strong style="color: #dc2626;">{{email}}</strong>.
-            Use the OTP below to reset your password:
+            Click the button below to reset your password:
           </p>
 
-          <div class="otp-card">
-            <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; opacity: 0.9;">
-              Password Reset Code
-            </div>
-            <div class="otp-code">
-              {{otp}}
-            </div>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="{{link}}" style="background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); color: #ffffff !important; text-decoration: none; padding: 14px 32px; border-radius: 30px; font-weight: bold; display: inline-block; font-size: 15px; box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);">Reset Password &rarr;</a>
           </div>
 
           <p style="font-size: 13px; color: #64748b; margin: 0 0 20px;">
-            ⏳ This code is valid for <strong>15 minutes</strong>. If you did not request a password reset, please secure your account immediately.
+            ⏳ This link is valid for <strong>15 minutes</strong>. If you did not request a password reset, please secure your account immediately.
           </p>
         </td>
       </tr>

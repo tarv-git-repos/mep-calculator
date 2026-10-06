@@ -5,6 +5,8 @@ export interface CatchmentRow {
   surface: string;
   coef: number;
   intensity: number;
+  flagged?: boolean;
+  comments?: any[];
 }
 
 export const SURFACE_COEFS: Record<string, number> = {
@@ -25,6 +27,49 @@ export const SURFACE_LABELS: Record<string, string> = {
   "agricultural": "Agricultural (0.30)"
 };
 
+export function isStormPlaceholderName(name?: string): boolean {
+  if (!name) return true;
+  const n = name.trim().toLowerCase();
+  if (n === "" || n === "untitled catchment" || n === "untitled" || n === "new catchment" || n === "new space" || n === "catchment") return true;
+  if (n.startsWith("catchment ") || n.startsWith("area ")) return true;
+  return false;
+}
+
+export function getCatchmentValidation(r?: Partial<CatchmentRow>) {
+  const warnings: string[] = [];
+  if (!r) return { isFlagged: false, isMissing: false, warnings: [], isAutoFlagged: false, isManualFlagged: false, reason: "" };
+
+  const nameTrimmed = (r.name || "").trim();
+  const isPlaceholder = isStormPlaceholderName(nameTrimmed);
+  const hasArea = (Number(r.area) || 0) > 0;
+  const hasSurface = Boolean(r.surface && r.surface.trim() !== "");
+  const hasIntensity = (Number(r.intensity) || 0) > 0;
+
+  if (nameTrimmed === "") {
+    warnings.push("Catchment name is missing");
+  } else if (isPlaceholder) {
+    warnings.push("Default placeholder catchment name (rename for clarity)");
+  }
+
+  if (!hasArea) {
+    warnings.push("Area must be greater than 0");
+  }
+  if (!hasSurface) {
+    warnings.push("Surface type is not selected");
+  }
+  if (!hasIntensity) {
+    warnings.push("Rainfall intensity must be greater than 0");
+  }
+
+  const isMissing = warnings.length > 0;
+  const isAutoFlagged = isMissing;
+  const isManualFlagged = r.flagged !== undefined;
+  const isFlagged = r.flagged !== undefined ? Boolean(r.flagged) : isAutoFlagged;
+  const reason = warnings.join(" • ");
+
+  return { isFlagged, isMissing, warnings, isAutoFlagged, isManualFlagged, reason };
+}
+
 // Modal for editing individual catchment properties on double click or right click Edit
 
 export function computeStormWaterCalculations(
@@ -42,7 +87,7 @@ export function computeStormWaterCalculations(
     const areaSI = r.area / (isIp ? 10.7639 : 1);
     const intensitySI = r.intensity * (isIp ? 25.4 : 1);
     const flowSI = (r.coef * intensitySI * areaSI) / 3600;
-    
+
     totalArea += r.area;
     weightedSumC += (r.coef * r.area);
     totalFlow += flowSI;

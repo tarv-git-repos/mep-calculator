@@ -23,7 +23,7 @@ txt = txt.replace(/<label className="text-\[11px\] text-slate-500">\{showAdvance
 
 // Fix the onChange handler inside uWall input
 const uWallChangeTarget = `onChange={(e) => {
-                                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                     const val = e.target.value === "" ? "" : parseFloat(e.target.value);
                                       if (val === "") {
                                         setUWall("");
                                         if (!showAdvanced) setURoof("");

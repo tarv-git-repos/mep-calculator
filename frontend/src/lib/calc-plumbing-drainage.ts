@@ -52,6 +52,7 @@ export interface DrainageSpaceItem {
   spaceQty: number;
   floorsQty: number;
   comments?: any[];
+  flagged?: boolean;
 }
 
 export interface DrainagePresetConfig {
@@ -624,3 +625,39 @@ export function computeDrainageFloorSizing(
 
   return res;
 }
+
+export function isDrainagePlaceholderName(name?: string): boolean {
+  if (!name) return true;
+  const n = name.trim().toLowerCase();
+  if (n === "" || n === "untitled space" || n === "untitled" || n === "new space") return true;
+  if (n.startsWith("new restroom") || n.startsWith("new space") || n.startsWith("space ")) return true;
+  return false;
+}
+
+export function getDrainageSpaceValidation(s?: Partial<DrainageSpaceItem>) {
+  const warnings: string[] = [];
+  if (!s) return { isFlagged: false, isMissing: false, warnings: [], reason: "" };
+
+  const descTrimmed = (s.desc || "").trim();
+  const isPlaceholder = isDrainagePlaceholderName(descTrimmed);
+  const totalFixtures = Object.values(s.fixtures || {}).reduce((sum, v) => sum + (Number(v) || 0), 0);
+  const hasFixtures = totalFixtures > 0;
+  const validQty = (s.spaceQty ?? 1) > 0 && (s.floorsQty ?? 1) > 0;
+
+  if (isPlaceholder && !hasFixtures) {
+    warnings.push("Please enter space name and fixture counts (0 DFU)");
+  } else {
+    if (isPlaceholder) warnings.push("Default placeholder space name (rename for clarity)");
+    if (!hasFixtures) warnings.push("No fixtures specified for this space (0 DFU)");
+    if (!validQty) warnings.push("Space quantity and number of floors must be at least 1");
+  }
+
+  const isMissing = warnings.length > 0;
+  const isAutoFlagged = isMissing;
+  const isManualFlagged = s.flagged !== undefined;
+  const isFlagged = s.flagged !== undefined ? Boolean(s.flagged) : isAutoFlagged;
+  const reason = warnings.join(" • ");
+
+  return { isFlagged, isMissing, warnings, isAutoFlagged, isManualFlagged, reason };
+}
+

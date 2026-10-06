@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -976,6 +976,13 @@ function CapacitorBankSizingPage() {
             />
           </div>
         </div>
+
+        {/* Review / Approval Status Banner */}
+        <CalculationStatusBanner
+          projectId={projectObj?.id || "default"}
+          calculatorPath="/capacitor-bank-sizing"
+          calculatorTitle="Capacitor Bank Sizing"
+        />
 
         <div className="flex-1 flex overflow-hidden z-10 min-h-0 gap-4">
           <div className={`flex-1 overflow-y-auto rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 

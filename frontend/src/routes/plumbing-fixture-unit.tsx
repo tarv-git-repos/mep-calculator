@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -646,11 +646,12 @@ function FloorNameInput({
 function FixtureUnitPage() {
   const { project, activeProjectId, forceSaveToCloud, isReadOnly } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/plumbing-fixture-unit", activeProjectId || project?.id);
-  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-fixture-unit", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = profile?.full_name || (userData as any)?.name || (userData as any)?.email || "Lead Engineer";
 
   const isApprovedLocked = useCalculationLock("/plumbing-fixture-unit", project?.id || activeProjectId);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-fixture-unit", activeProjectId || project?.id);
+  const isLocked = isEffectiveReadOnly || isApprovedLocked;
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const [activeTab, setActiveTab] = useState<"spaces" | "report">("spaces");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
@@ -725,10 +726,10 @@ function FixtureUnitPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   useEffect(() => {
-    if (isApprovedLocked) {
+    if (isLocked) {
       setSelectedIds([]);
     }
-  }, [isApprovedLocked]);
+  }, [isLocked]);
   const [editingSpace, setEditingSpace] = useState<{ space: LUSpace; floor: string } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; spaceId: number } | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
@@ -1064,6 +1065,20 @@ function FixtureUnitPage() {
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
+      // Lock Protection: Block select-all and modification shortcuts when calculation is locked/approved
+      if (isLocked) {
+        if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (["Delete", "Backspace"].includes(e.key) || (isCmdOrCtrl && ["x", "v", "d", "z", "y"].includes(e.key.toLowerCase()))) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+      }
+
       // 1. Esc key: Close modals or deselect rows
       if (e.key === "Escape") {
         if (editingSpace || assignCommentOpen || contextMenu) {
@@ -1163,10 +1178,6 @@ function FixtureUnitPage() {
       if (!isInput && (e.key === "Delete" || e.key === "Backspace")) {
         if (selectedIds.length > 0) {
           e.preventDefault();
-          if (isApprovedLocked || (typeof window !== "undefined" && Boolean((window as any).__mep_approved_readonly))) {
-            toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
-            return;
-          }
           pushToUndo(iopSpaces);
           handleBulkDelete();
         }
@@ -1176,7 +1187,7 @@ function FixtureUnitPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, iopSpaces, editingSpace, assignCommentOpen, contextMenu, clipboard, undoStack, redoStack]);
+  }, [selectedIds, iopSpaces, editingSpace, assignCommentOpen, contextMenu, clipboard, undoStack, redoStack, isLocked]);
 
   // Click Outside to Close Context Menu
   useEffect(() => {
@@ -1352,8 +1363,8 @@ function FixtureUnitPage() {
 
   // Selection Handlers
   const handleToggleSelectAll = (checked: boolean) => {
-    if (isApprovedLocked) {
-      toast.info("Calculation is Approved and locked in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
       return;
     }
     if (checked) {
@@ -1364,10 +1375,7 @@ function FixtureUnitPage() {
   };
 
   const handleToggleSelect = (id: number, checked: boolean) => {
-    if (isApprovedLocked) {
-      toast.info("Calculation is Approved and locked in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
-      return;
-    }
+    if (isLocked) return;
     if (checked) {
       setSelectedIds([...selectedIds, id]);
     } else {
@@ -1798,6 +1806,13 @@ function FixtureUnitPage() {
               </div>
             </div>
 
+            {/* Notification Banner across all tabs */}
+            <CalculationStatusBanner
+              projectId={project?.id || "default"}
+              calculatorPath="/plumbing-fixture-unit"
+              calculatorTitle="Fixture Unit Calculator"
+            />
+
             {/* Row 2: Action Toolbar (Search, Filter, Sort, Import, Export, + Add Floor Section, + Add Space) */}
             {activeTab === "spaces" && (
               <div className="relative flex items-center justify-between px-4 py-2 bg-slate-50/50 dark:bg-slate-900/30 shrink-0 select-none no-print border-b border-border/50 gap-3 flex-wrap">
@@ -2022,9 +2037,10 @@ function FixtureUnitPage() {
                           <th className="py-2 px-1 text-center">
                             <input
                               type="checkbox"
-                              checked={allSelected}
+                              disabled={isLocked}
+                              checked={allSelected && !isLocked}
                               onChange={(e) => handleToggleSelectAll(e.target.checked)}
-                              className="size-3.5 accent-primary cursor-pointer rounded"
+                              className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed"
                               title="Select All Spaces"
                             />
                           </th>
@@ -2174,7 +2190,7 @@ function FixtureUnitPage() {
                                          title={`Add a new space row to ${floor}`}
                                        >
                                          <Plus className="size-3" />
-                                         <span>+ Add Space to {floor}</span>
+                                         <span>Add Space to {floor}</span>
                                        </button>
                                       <button
                                         type="button"
@@ -2255,10 +2271,11 @@ function FixtureUnitPage() {
                                   <tr
                                     id={`lu-space-${s.id}`}
                                     onDoubleClick={() => {
+                                      if (isLocked) return;
                                       setSelectedIds([s.id]);
                                       setEditingSpace({ space: s, floor });
                                     }}
-                                    className={`group transition-all duration-150 cursor-pointer ${rowDensity === "compact" ? "h-7 text-[11px]" : "h-9 text-xs"} ${
+                                    className={`group transition-all duration-150 ${isLocked ? "cursor-default" : "cursor-pointer"} ${rowDensity === "compact" ? "h-7 text-[11px]" : "h-9 text-xs"} ${
                                       isEditing
                                         ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-sm z-10 relative"
                                         : isSelected
@@ -2272,9 +2289,10 @@ function FixtureUnitPage() {
                                       <div className="flex items-center justify-center gap-1">
                                         <input
                                           type="checkbox"
-                                          checked={isSelected}
+                                          disabled={isLocked}
+                                          checked={isSelected && !isLocked}
                                           onChange={(e) => handleToggleSelect(s.id, e.target.checked)}
-                                          className="size-3.5 accent-primary cursor-pointer rounded shrink-0"
+                                          className="size-3.5 accent-primary cursor-pointer rounded shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                                         />
                                         
                                         {Array.isArray(s.comments) && s.comments.length > 0 && (

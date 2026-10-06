@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -81,6 +81,8 @@ function CableTraySizingPage() {
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/cable-tray-sizing", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/cable-tray-sizing", activeProjectId || project?.id);
+  const isApprovedLocked = useCalculationLock("/cable-tray-sizing", project?.id);
+  const isLocked = isEffectiveReadOnly || isApprovedLocked;
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
@@ -234,6 +236,13 @@ function CableTraySizingPage() {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [editingCable, setEditingCable] = useState<{ cable: Cable; trayId: string; index: number } | null>(null);
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isLocked) {
+      setSelectedRows(new Set());
+      setLastSelectedRowId(null);
+    }
+  }, [isLocked]);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkTargetIds, setBulkTargetIds] = useState<string[]>([]);
   const [bulkForm, setBulkForm] = useState({ type: "", cores: "", size: "", qty: "", spacingFactor: "" });
@@ -263,6 +272,7 @@ function CableTraySizingPage() {
   };
 
   const toggleRowSelect = (rowId: string, isShift: boolean, isCtrl: boolean) => {
+    if (isLocked) return;
     setSelectedRows(prev => {
       const next = new Set(prev);
       const allRows: any[] = [];
@@ -612,6 +622,22 @@ function CableTraySizingPage() {
 
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (isLocked) {
+        if (isCmdOrCtrl && (e.key.toLowerCase() === 'a' || e.code === 'KeyA')) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (
+          ['Delete', 'Backspace'].includes(e.key) ||
+          (isCmdOrCtrl && ['x', 'v', 'd', 'z', 'y'].includes(e.key.toLowerCase()))
+        ) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+      }
 
       if (isCmdOrCtrl && e.key.toLowerCase() === 'a') {
         e.preventDefault();
@@ -1381,6 +1407,13 @@ function CableTraySizingPage() {
           </div>
         </div>
 
+        {/* Notification Banner across workspace */}
+        <CalculationStatusBanner
+          projectId={project?.id || "default"}
+          calculatorPath="/cable-tray-sizing"
+          calculatorTitle="Cable Tray Sizing"
+        />
+
         <div className="flex-1 overflow-y-auto flex flex-col p-4 md:p-6 gap-4 bg-background">
         
         {(() => {
@@ -1619,11 +1652,13 @@ function CableTraySizingPage() {
                                 data-cable-id={c.id}
                                 data-row-id={c.id}
                                 onDoubleClick={() => {
+                                  if (isLocked) return;
                                   toggleRowSelect(c.id, false, false);
                                   setEditingCable({ cable: c, trayId: tray.id, index: idx });
                                 }}
                                 className={cn(
-                                  "transition-all duration-200 cursor-pointer",
+                                  "transition-all duration-200",
+                                  isLocked ? "cursor-default" : "cursor-pointer",
                                   isEditing
                                     ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                                     : isModalOpen
@@ -1635,12 +1670,14 @@ function CableTraySizingPage() {
                                     : "hover:bg-slate-100/50 dark:hover:bg-slate-800/30"
                                 )}
                                 onClick={(e) => {
+                                  if (isLocked) return;
                                   const tagName = (e.target as HTMLElement).tagName;
                                   if (tagName === 'TD') {
                                     toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
                                   }
                                 }}
                                 onContextMenu={() => {
+                                  if (isLocked) return;
                                   if (!selectedRows.has(c.id)) {
                                     toggleRowSelect(c.id, false, false);
                                   }
@@ -1650,11 +1687,13 @@ function CableTraySizingPage() {
                                   <div className="flex justify-center items-center h-full w-full">
                                     <input
                                       type="checkbox"
-                                      className="cursor-pointer"
-                                      checked={selectedRows.has(c.id)}
+                                      disabled={isLocked}
+                                      className="cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                      checked={selectedRows.has(c.id) && !isLocked}
                                       onChange={() => {}}
                                       onClick={(e) => {
                                         e.stopPropagation();
+                                        if (isLocked) return;
                                         toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
                                       }}
                                     />

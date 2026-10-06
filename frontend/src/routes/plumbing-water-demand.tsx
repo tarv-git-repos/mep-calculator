@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfHeader, addPdfSignatureBlock, formatDateStr, resolveLatestReviewState, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -53,6 +53,7 @@ function WaterDemandPage() {
   const currentUserName = userData?.name || profile?.name || "System Admin";
   const currentUserId = userData?.id || profile?.id || "user_id";
   const isApprovedLocked = useCalculationLock("/plumbing-water-demand", project?.id);
+  const isLocked = isEffectiveReadOnly || isApprovedLocked;
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
   type DemandSection = "domestic" | "irrigation" | "pool" | "fire";
@@ -205,6 +206,15 @@ function WaterDemandPage() {
 
   const [selectedIrrRows, setSelectedIrrRows] = useState<Set<number>>(new Set());
   const [lastClickedIrrIndex, setLastClickedIrrIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (isLocked) {
+      setSelectedWdRows(new Set());
+      setSelectedIrrRows(new Set());
+      setLastClickedWdIndex(null);
+      setLastClickedIrrIndex(null);
+    }
+  }, [isLocked]);
 
   // Dynamic Column Width Adjusting State
   const [colWidths, setColWidths] = useState<Record<string, number>>({
@@ -396,6 +406,7 @@ function WaterDemandPage() {
 
   // Domestic selection handlers
   const toggleWdRowSelection = (id: number, isShift?: boolean, isCtrl?: boolean) => {
+    if (isLocked) return;
     setSelectedWdRows((prev) => {
       const list = filteredAndSortedWdRows;
       const clickedIndex = list.findIndex((r) => r.id === id);
@@ -437,6 +448,10 @@ function WaterDemandPage() {
   };
 
   const toggleSelectAllWd = () => {
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     if (selectedWdRows.size === filteredAndSortedWdRows.length && filteredAndSortedWdRows.length > 0) {
       setSelectedWdRows(new Set());
     } else {
@@ -446,6 +461,7 @@ function WaterDemandPage() {
 
   // Irrigation selection handlers
   const toggleIrrRowSelection = (id: number, isShift?: boolean, isCtrl?: boolean) => {
+    if (isLocked) return;
     setSelectedIrrRows((prev) => {
       const list = irrRows;
       const clickedIndex = list.findIndex((r) => r.id === id);
@@ -487,6 +503,10 @@ function WaterDemandPage() {
   };
 
   const toggleSelectAllIrr = () => {
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     if (selectedIrrRows.size === irrRows.length && irrRows.length > 0) {
       setSelectedIrrRows(new Set());
     } else {
@@ -522,6 +542,22 @@ function WaterDemandPage() {
 
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (isLocked) {
+        if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (
+          ["Delete", "Backspace"].includes(e.key) ||
+          (isCmdOrCtrl && ["x", "v", "d", "z", "y"].includes(e.key.toLowerCase()))
+        ) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+      }
 
       // 2. Ctrl+A / Cmd+A: Select All rows
       if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
@@ -563,7 +599,7 @@ function WaterDemandPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedWdRows, selectedIrrRows, filteredAndSortedWdRows, irrRows, tab, demandSection]);
+  }, [selectedWdRows, selectedIrrRows, filteredAndSortedWdRows, irrRows, tab, demandSection, isLocked]);
 
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
@@ -1060,6 +1096,13 @@ function WaterDemandPage() {
               </div>
             </div>
 
+            {/* Notification Banner across all tabs */}
+            <CalculationStatusBanner
+              projectId={project?.id || "default"}
+              calculatorPath="/plumbing-water-demand"
+              calculatorTitle="Water Demand & Tank Sizer"
+            />
+
             {/* Row 2: Action Toolbar (Search, Filter, Sort, Auto-Calculate, Import, Export, + New Entry) */}
             {tab !== "report" && (
               <div className="flex items-center justify-between px-4 py-2 bg-slate-50/50 dark:bg-slate-900/30 shrink-0 select-none no-print border-b border-border/50 gap-3 flex-wrap">
@@ -1387,9 +1430,10 @@ function WaterDemandPage() {
                             <th style={{ width: colWidths.select, minWidth: colWidths.select }} className="py-2 px-2 text-center relative group">
                               <input
                                 type="checkbox"
-                                checked={filteredAndSortedWdRows.length > 0 && selectedWdRows.size === filteredAndSortedWdRows.length}
+                                disabled={isLocked}
+                                checked={filteredAndSortedWdRows.length > 0 && selectedWdRows.size === filteredAndSortedWdRows.length && !isLocked}
                                 onChange={toggleSelectAllWd}
-                                className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded"
+                                className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                 title="Select All / Deselect All (Ctrl+A)"
                               />
                               <div onMouseDown={(e) => startResizing("select", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
@@ -1440,13 +1484,17 @@ function WaterDemandPage() {
                                   <tr
                                     id={`row-${r.id}`}
                                     data-row-id={r.id}
-                                    onClick={(e) => toggleWdRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey)}
+                                    onClick={(e) => {
+                                      if (isLocked) return;
+                                      toggleWdRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                    }}
                                     onDoubleClick={() => {
+                                      if (isLocked) return;
                                       setPreviewTarget({ type: "domestic", rowId: r.id });
                                       setPreviewModalOpen(true);
                                     }}
-                                    title="Click to select, Shift+Click for range, Ctrl+Click for multi-select. Double-click for breakdown."
-                                    className={`border-b border-border/40 transition-colors cursor-pointer select-none ${
+                                    title={isLocked ? undefined : "Click to select, Shift+Click for range, Ctrl+Click for multi-select. Double-click for breakdown."}
+                                    className={`border-b border-border/40 transition-colors ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${
                                       selectedWdRows.has(r.id)
                                         ? "bg-[#0A7BC7]/15 dark:bg-[#0A7BC7]/25 border-l-2 border-l-[#0A7BC7]"
                                         : r.flagged
@@ -1460,9 +1508,13 @@ function WaterDemandPage() {
                                       <div className="flex items-center justify-center gap-1.5">
                                         <input
                                           type="checkbox"
-                                          checked={selectedWdRows.has(r.id)}
-                                          onChange={() => toggleWdRowSelection(r.id, false, true)}
-                                          className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded"
+                                          disabled={isLocked}
+                                          checked={selectedWdRows.has(r.id) && !isLocked}
+                                          onChange={() => {
+                                            if (isLocked) return;
+                                            toggleWdRowSelection(r.id, false, true);
+                                          }}
+                                          className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                         />
                                         <span className="text-muted-foreground font-mono text-xs">{idx + 1}</span>
                                         {r.flagged && (
@@ -1738,9 +1790,10 @@ function WaterDemandPage() {
                               <th style={{ width: colWidths.irr_select, minWidth: colWidths.irr_select }} className="py-2 px-2 text-center relative group">
                                 <input
                                   type="checkbox"
-                                  checked={irrRows.length > 0 && selectedIrrRows.size === irrRows.length}
+                                  disabled={isLocked}
+                                  checked={irrRows.length > 0 && selectedIrrRows.size === irrRows.length && !isLocked}
                                   onChange={toggleSelectAllIrr}
-                                  className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded"
+                                  className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                   title="Select All / Deselect All (Ctrl+A)"
                                 />
                                 <div
@@ -1799,13 +1852,17 @@ function WaterDemandPage() {
                                     <tr
                                       id={`row-${r.id}`}
                                       data-row-id={r.id}
-                                      onClick={(e) => toggleIrrRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey)}
+                                      onClick={(e) => {
+                                        if (isLocked) return;
+                                        toggleIrrRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                      }}
                                       onDoubleClick={() => {
+                                        if (isLocked) return;
                                         setPreviewTarget({ type: "irrigation", rowId: r.id });
                                         setPreviewModalOpen(true);
                                       }}
-                                      title="Click to select, Shift+Click for range, Ctrl+Click for multi-select. Double-click for breakdown."
-                                      className={`group border-b border-border/40 transition-colors cursor-pointer select-none ${
+                                      title={isLocked ? undefined : "Click to select, Shift+Click for range, Ctrl+Click for multi-select. Double-click for breakdown."}
+                                      className={`group border-b border-border/40 transition-colors ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${
                                         selectedIrrRows.has(r.id)
                                           ? "bg-emerald-500/15 dark:bg-emerald-500/25 border-l-2 border-l-emerald-600"
                                           : r.flagged
@@ -1819,9 +1876,13 @@ function WaterDemandPage() {
                                         <div className="flex items-center justify-center gap-1.5">
                                           <input
                                             type="checkbox"
-                                            checked={selectedIrrRows.has(r.id)}
-                                            onChange={() => toggleIrrRowSelection(r.id, false, true)}
-                                            className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded"
+                                            disabled={isLocked}
+                                            checked={selectedIrrRows.has(r.id) && !isLocked}
+                                            onChange={() => {
+                                              if (isLocked) return;
+                                              toggleIrrRowSelection(r.id, false, true);
+                                            }}
+                                            className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
                                           />
                                           <span className="text-muted-foreground font-mono text-xs">{idx + 1}</span>
                                           {r.flagged && (

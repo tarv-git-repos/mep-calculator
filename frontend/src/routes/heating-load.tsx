@@ -15,8 +15,7 @@ import {
   type HeatingPresetConfig,
 } from "@/lib/calc-heating-load";
 
-export { HEATING_PRESETS, type HeatingPresetKey, type HeatingPresetConfig };
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -797,6 +796,13 @@ function HeatingLoadPage() {
               <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
             </div>
           </div>
+
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={activeProjectId || project?.id || "default"}
+            calculatorPath="/heating-load"
+            calculatorTitle="Winter Heating Load"
+          />
 
           {/* White / Dark Card container for Parameters & Results Grid */}
           <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${

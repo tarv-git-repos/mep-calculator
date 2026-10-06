@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -27,6 +27,8 @@ import {
   computeRowOutputs, getCalculationPreview, convertBimSpaceToLuxRow 
 } from "@/lib/calc-lighting-lux";
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile, type Extracted3DSpace } from "@/lib/bimViewerSpaceExtractor";
+import { getProjectIfcFile } from "@/lib/projectIfcStorage";
+import { DialuxSimulationModal, type ProjectSpaceItem } from "@/components/workspace/DialuxSimulationModal";
 import { CalculationPreviewModal, type CalculationPreviewData, type CalculationStep } from "@/components/calculator-framework/CalculationPreviewModal";
 import { toast } from "sonner";
 import ExcelJS from "exceljs";
@@ -119,17 +121,62 @@ function LightingLuxCalculationPage() {
   const [autoLuxModalOpen, setAutoLuxModalOpen] = useState(false);
   const [presetSearch, setPresetSearch] = useState("");
 
+  // DIALux evo 3D Simulation Modal State
+  const [dialuxModalRow, setDialuxModalRow] = useState<LuxRow | null>(null);
+
+  // Active IFC Model File Name (from BIM Viewer session, local storage, or project metadata)
+  const activeIfcFileName = useMemo(() => {
+    if (typeof localStorage !== "undefined") {
+      const stored = localStorage.getItem("mep_active_bim_filename");
+      if (stored && stored.trim()) return stored;
+    }
+    const win = typeof window !== "undefined" ? (window as any) : {};
+    const winFile = win.__ACTIVE_IFC_FILE__ || win._currentLoadedFile;
+    if (winFile?.name) return winFile.name;
+    if (project?.name || project?.code) return `${project.name || project.code}.ifc`;
+    return "Project_Building_Structure.ifc";
+  }, [project]);
+
+  // Convert current table rows to ProjectSpaceItem[] for DIALux evo multi-space navigation & full structure calculations
+  const dialuxSpaces = useMemo<ProjectSpaceItem[]>(() => {
+    return rows.map((r, idx) => ({
+      id: r.id,
+      name: r.location || `Space ${idx + 1}`,
+      level: r.level || "Ground Floor",
+      length: Number(r.length) || 5,
+      width: Number(r.width) || 4,
+      height: Number(r.height) || 2.8,
+      targetLux: Number(r.reqLux) || 500,
+      area: Number(r.area) || ((Number(r.length) || 5) * (Number(r.width) || 4)),
+      initialQuantity: Number(r.reqQty) || 4,
+      lightType: r.lightType || "LED Panel 600x600",
+      mf: Number(r.mf) || 0.8,
+      uf: Number(r.uf) || 0.6,
+    }));
+  }, [rows]);
+
   // 3-Source Automation & BIM IFC Integration States
   const ifcFileInputRef = useRef<HTMLInputElement>(null);
   const [showImportSourceModal, setShowImportSourceModal] = useState<boolean>(false);
   const [showSourcesInfoModal, setShowSourcesInfoModal] = useState<boolean>(false);
 
-  const handleSyncFrom3DStudio = async () => {
+  const handleSyncFrom3DStudio = async (): Promise<boolean> => {
     try {
       toast.loading("Scanning 3D Studio for spaces & luminaires...", { id: "lux-3d-sync" });
       let extracted: Extracted3DSpace[] = extractSpacesFromActiveViewer();
       toast.dismiss("lux-3d-sync");
 
+      // Fallback 1: Check project IFC file in IndexedDB storage
+      if (extracted.length === 0) {
+        const savedProjectFile = await getProjectIfcFile(activeProjectId || project?.id);
+        if (savedProjectFile instanceof File) {
+          toast.loading("Extracting 3D geometry & luminaires from project IFC model...", { id: "lux-ifc-parse" });
+          extracted = await extractSpacesFromIFCFile(savedProjectFile);
+          toast.dismiss("lux-ifc-parse");
+        }
+      }
+
+      // Fallback 2: Check active memory window session file
       if (extracted.length === 0) {
         const win = typeof window !== "undefined" ? (window as any) : {};
         const savedFile = win.__ACTIVE_IFC_FILE__ || win._currentLoadedFile;
@@ -142,7 +189,7 @@ function LightingLuxCalculationPage() {
 
       if (extracted.length === 0) {
         setShowImportSourceModal(true);
-        return;
+        return false;
       }
 
       const newRows: LuxRow[] = extracted.map((sp, idx) => convertBimSpaceToLuxRow(sp, idx));
@@ -156,9 +203,11 @@ function LightingLuxCalculationPage() {
         `✨ Synced ${newRows.length} spaces from 3D Studio! 13 columns generated from 3D Geometry + CIBSE Standards + Real-Time Engine.`,
         { duration: 5000 }
       );
+      return true;
     } catch (err) {
       console.error(err);
       toast.error("Failed to sync spaces from 3D Studio.");
+      return false;
     }
   };
 
@@ -198,7 +247,36 @@ function LightingLuxCalculationPage() {
     try {
       const saved = localStorage.getItem(`mep_lux_calc_${project.id}`);
       if (saved) {
-        setRows(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          // Auto-heal shifted columns or literal "undefined" remarks
+          const sanitized = parsed.map((r, idx) => {
+            let row = { ...r };
+            if (row.remarks === "undefined" || !row.remarks) {
+              row.remarks = "";
+            }
+            // Detect shifted columns (e.g. location empty and width is 2.8 and height is 500)
+            if ((!row.location || row.location.trim() === "") && (row.width === 2.8 || row.height === 500)) {
+              row.location = `Space ${idx + 1}`;
+              row.lightType = row.lightType || "LED Panel 600x600";
+              row.length = Number(row.length) > 0 ? Number(row.length) : 5;
+              row.width = Number(row.width) > 0 && row.width !== 2.8 ? Number(row.width) : 4;
+              row.height = 2.8;
+              row.reqLux = 500;
+              row.lumen = 3200;
+              row.mf = 0.8;
+              row.uf = 0.6;
+            }
+            if (!row.location || row.location.trim() === "") {
+              row.location = `Space ${idx + 1}`;
+            }
+            if (!row.lightType || row.lightType.trim() === "") {
+              row.lightType = "LED Panel 600x600";
+            }
+            return computeRowOutputs(row);
+          });
+          setRows(sanitized);
+        }
       }
       setTimeout(() => dirtyStore.set(false), 50);
     } catch (e) {
@@ -511,26 +589,31 @@ function LightingLuxCalculationPage() {
   }, [rows, selected, history]);
 
   const handleImportExcelRows = (mappedRows: any[]) => {
-    const newRows: LuxRow[] = mappedRows.map((mr, idx) => ({
-      id: `lux_import_${Date.now()}_${idx}`,
-      location: mr.location || "",
-      lightType: mr.lightType || "",
-      ipRating: mr.ipRating || "IP20",
-      length: Number(mr.length) || 0,
-      width: Number(mr.width) || 0,
-      height: Number(mr.height) || 2.8,
-      roomIndex: 0,
-      area: 0,
-      reqLux: Number(mr.reqLux) || 500,
-      lumen: Number(mr.lumen) || 3200,
-      mf: Number(mr.mf) || 0.8,
-      uf: Number(mr.uf) || 0.6,
-      reqQty: 0,
-      remarks: mr.remarks || ""
-    }));
+    const newRows: LuxRow[] = mappedRows.map((mr, idx) => {
+      const cleanRemarks = String(mr.remarks || "").replace(/^undefined$/i, "").trim();
+      const loc = String(mr.location || "").trim() || `Space ${rows.length + idx + 1}`;
+      const light = String(mr.lightType || "").trim() || "LED Panel 600x600";
+      return computeRowOutputs({
+        id: `lux_import_${Date.now()}_${idx}`,
+        location: loc,
+        lightType: light,
+        ipRating: mr.ipRating || "IP20",
+        length: Number(mr.length) || 0,
+        width: Number(mr.width) || 0,
+        height: Number(mr.height) || 2.8,
+        roomIndex: 0,
+        area: 0,
+        reqLux: Number(mr.reqLux) || 500,
+        lumen: Number(mr.lumen) || 3200,
+        mf: Number(mr.mf) || 0.8,
+        uf: Number(mr.uf) || 0.6,
+        reqQty: 0,
+        remarks: cleanRemarks
+      });
+    });
     
     pushToHistory(rows, history, setHistory, setRedoStack);
-    setRows(prev => [...prev, ...newRows.map(computeRowOutputs)]);
+    setRows(prev => [...prev, ...newRows]);
     toast.success(`Successfully imported ${newRows.length} rows from Excel.`);
   };
 
@@ -930,12 +1013,23 @@ function LightingLuxCalculationPage() {
     {
       key: "location",
       header: "Location",
-      width: 140,
+      width: 155,
       render: (row) => {
         const rowIdx = rows.findIndex(r => r.id === row.id);
         const itemComments = getMergedItemComments(row.id, row.location, (row as any).comments, "/lighting-lux-calculation", project?.id);
         return (
           <div className="flex items-center gap-1.5 w-full min-w-0 h-full px-1">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDialuxModalRow(row);
+              }}
+              title="Launch DIALux evo 3D Photometric Simulation (False-Color Heatmap & Uniformity)"
+              className="p-1 rounded hover:bg-indigo-500/10 text-indigo-400 hover:text-indigo-300 transition shrink-0 cursor-pointer"
+            >
+              <Sun className="size-3.5" />
+            </button>
             {itemComments.length > 0 && (
               <button
                 type="button"
@@ -1238,6 +1332,13 @@ function LightingLuxCalculationPage() {
           <Sparkles className="size-3.5 text-primary" />
           <span>Calculation Preview</span>
         </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => setDialuxModalRow(row)}
+          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-semibold text-indigo-400"
+        >
+          <Sun className="size-3.5 text-indigo-400" />
+          <span>DIALux 3D Simulation</span>
+        </ContextMenuItem>
         <ContextMenuSeparator className="my-1 border-t border-border" />
         <ContextMenuItem onClick={addRow}>
           <Plus className="size-4 mr-2" /> Add Space Row
@@ -1337,6 +1438,13 @@ function LightingLuxCalculationPage() {
               />
             </div>
           </div>
+
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={project?.id || "default"}
+            calculatorPath="/lighting-lux-calculation"
+            calculatorTitle="Lighting LUX Calculation"
+          />
 
           <div className={`flex-1 flex flex-col min-h-[450px] mb-6 overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
                 ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
@@ -1540,18 +1648,80 @@ function LightingLuxCalculationPage() {
                 <span>Sync 3D Studio</span>
               </button>
 
+              <button
+                onClick={async () => {
+                  const targetRow = rows.find(r => selected.has(r.id)) || rows[0];
+                  if (targetRow) {
+                    setDialuxModalRow(targetRow);
+                  } else {
+                    const synced = await handleSyncFrom3DStudio();
+                    if (!synced) {
+                      const defaultRow: LuxRow = {
+                        id: "lux_default",
+                        location: "General Office",
+                        lightType: "LED Panel 600x600",
+                        ipRating: "IP20",
+                        length: 6,
+                        width: 4.5,
+                        height: 2.8,
+                        roomIndex: 1.5,
+                        area: 27,
+                        reqLux: 500,
+                        lumen: 3200,
+                        mf: 0.8,
+                        uf: 0.6,
+                        reqQty: 6,
+                        remarks: "CIBSE LG7 / EN 12464-1 Standard",
+                      };
+                      setDialuxModalRow(defaultRow);
+                    }
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 transition-all cursor-pointer shadow-2xs"
+                title="Open DIALux evo 3D Photometric Simulation (False-Color Heatmap, Isolux, U0 Uniformity)"
+              >
+                <Sun className="size-3.5 text-indigo-400" />
+                <span>DIALux 3D Sim</span>
+              </button>
+
               <ImportExcelBtn
                 columnMapping={{
-                  "Location": "location",
-                  "Type of Light Fitting": "lightType",
-                  "IP Rating": "ipRating",
-                  "Length (L)": "length",
-                  "Width (W)": "width",
-                  "Height (H)": "height",
-                  "Required Lux Level": "reqLux",
-                  "Light Lumen": "lumen",
-                  "MF": "mf",
-                  "UF": "uf"
+                  location: [
+                    "Location", "Location Name", "Space", "Space Name", "Room", "Room Name",
+                    "Description", "Area Name", "Name", "Zone", "Level / Space"
+                  ],
+                  lightType: [
+                    "Type of Light", "Type of Light Fitting", "Light Type", "Luminaire",
+                    "Fitting Type", "Fixture Type", "Lamp Type"
+                  ],
+                  ipRating: [
+                    "IP Rating", "IP", "Ingress Protection", "Rating"
+                  ],
+                  length: [
+                    "Length (L) mtr.", "Length (L) m", "Length (L)", "Length", "L (m)", "L(m)", "L"
+                  ],
+                  width: [
+                    "Width (W) mtr.", "Width (W) m", "Width (W)", "Width", "W (m)", "W(m)", "W"
+                  ],
+                  height: [
+                    "Height (H) mtr.", "Height (H) m", "Height (H)", "Height", "H (m)", "H(m)", "H", "Ceiling Height"
+                  ],
+                  reqLux: [
+                    "Req.Lux Level (LL)", "Req. Lux Level", "Required Lux Level", "Req Lux", "Req. Lux",
+                    "Required Lux", "Target Lux", "Lux Level", "Illuminance", "LL"
+                  ],
+                  lumen: [
+                    "Lumen", "Light Lumen", "Lamp Lumen", "Lumens", "Output Lumen", "lm"
+                  ],
+                  mf: [
+                    "Maintenance Factor (M.F)", "Maintenance Factor", "M.F", "MF", "Maintenance Factor (MF)"
+                  ],
+                  uf: [
+                    "Utility Factor (U.F)", "Utility Factor", "Utilization Factor", "U.F", "UF"
+                  ],
+                  remarks: [
+                    "Remarks", "Remark", "Notes", "Note", "Comments", "Comment"
+                  ]
                 }}
                 onImport={handleImportExcelRows}
                 className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-border bg-background hover:bg-surface-2 text-foreground transition-all cursor-pointer shadow-2xs"
@@ -1828,6 +1998,62 @@ function LightingLuxCalculationPage() {
         isOpen={Boolean(previewRow)}
         onClose={() => setPreviewRow(null)}
         data={activePreviewRow ? getCalculationPreview(activePreviewRow, unitSystem) : null}
+      />
+
+      {/* DIALux evo 3D Photometric Simulation Modal */}
+      <DialuxSimulationModal
+        isOpen={Boolean(dialuxModalRow)}
+        onClose={() => setDialuxModalRow(null)}
+        initialSpaceId={dialuxModalRow?.id}
+        roomName={dialuxModalRow?.location || "Room"}
+        length={dialuxModalRow?.length || 5}
+        width={dialuxModalRow?.width || 4}
+        height={dialuxModalRow?.height || 2.8}
+        targetLux={dialuxModalRow?.reqLux || 500}
+        initialQuantity={dialuxModalRow?.reqQty}
+        mf={dialuxModalRow?.mf || 0.8}
+        spaces={dialuxSpaces}
+        ifcFileName={activeIfcFileName}
+        projectName={project?.name || "MEP Project"}
+        projectCode={project?.code || "PRJ-001"}
+        userName={currentUserName}
+        onApplyResults={(res) => {
+          const targetId = res.spaceId || dialuxModalRow?.id;
+          if (targetId) {
+            updateRow(targetId, {
+              reqQty: res.quantity,
+              lightType: res.lightType,
+              remarks: `DIALux 3D Sim: ${res.quantity} fixtures (${res.rows}x${res.cols}) - Achieved: ${res.achievedLux} lx, U0: ${res.uniformityU0}`,
+            });
+            if (dialuxModalRow && dialuxModalRow.id === targetId) {
+              setDialuxModalRow((prev) => prev ? {
+                ...prev,
+                reqQty: res.quantity,
+                lightType: res.lightType,
+                remarks: `DIALux 3D Sim: ${res.quantity} fixtures (${res.rows}x${res.cols}) - Achieved: ${res.achievedLux} lx, U0: ${res.uniformityU0}`,
+              } : null);
+            }
+          }
+        }}
+        onApplyAllProjectResults={(allResults) => {
+          pushToHistory(rows, history, setHistory, setRedoStack);
+          setRows((prev) => {
+            const lookup = new Map(allResults.map((item) => [item.spaceId, item]));
+            return prev.map((row) => {
+              const match = lookup.get(row.id);
+              if (match) {
+                return {
+                  ...row,
+                  reqQty: match.quantity,
+                  lightType: match.lightType,
+                  remarks: `DIALux evo 3D Sim: ${match.quantity} fixtures (${match.rows}x${match.cols}) - ${match.achievedLux} lx, U0: ${match.uniformityU0}`,
+                };
+              }
+              return row;
+            });
+          });
+          toast.success(`✨ Successfully applied DIALux evo 3D results to all ${allResults.length} spaces!`);
+        }}
       />
 
       {/* Import Source Modal (Excel / 3D Studio) */}

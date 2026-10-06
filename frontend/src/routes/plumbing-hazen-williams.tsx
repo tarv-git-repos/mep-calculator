@@ -26,7 +26,7 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import {
@@ -756,6 +756,13 @@ function HazenWilliamsPage() {
                 />
             </div>
           </div>
+
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={project?.id || "default"}
+            calculatorPath="/plumbing-hazen-williams"
+            calculatorTitle="Hazen-Williams Pressure Loss Calculator"
+          />
 
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[420px] overflow-hidden rounded-2xl transition-all duration-300 ${

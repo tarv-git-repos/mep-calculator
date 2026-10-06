@@ -1,5 +1,5 @@
 import { calculateLiftwell, DOOR_TYPES_CONFIG, CALCULATION_CONSTANTS, type LiftwellItem, type DoorTypeKey, type DoorTypeDefinition } from "@/lib/calc-liftwell";
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadFile } from "@/lib/download";
@@ -581,6 +581,13 @@ function LiftwellPressurizationPage() {
               <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
             </div>
           </div>
+
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={project?.id || activeProjectId || "default"}
+            calculatorPath="/liftwell-pressurization"
+            calculatorTitle="Liftwell Pressurization"
+          />
 
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${

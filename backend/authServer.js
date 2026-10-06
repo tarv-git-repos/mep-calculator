@@ -1368,17 +1368,20 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'User not found with this email' });
     }
 
-    const otp = String(Math.floor(100000 + Math.random() * 900000));
-    user.resetOtp = otp;
+    const token = crypto.randomBytes(32).toString('hex');
+    user.resetOtp = token;
     user.resetOtpExpireAt = Date.now() + 15 * 60 * 1000;
 
     await writeUsers(users.map((u) => (u.id === user.id ? user : u)));
 
+    const origin = req.headers.origin || 'http://localhost:5173';
+    const resetLink = `${origin}/reset-password?token=${token}&email=${encodeURIComponent(cleanEmail)}`;
+
     const mailOption = {
       from: SENDER_EMAIL,
       to: cleanEmail,
-      subject: 'Password Reset OTP',
-      html: PASSWORD_RESET_TEMPLATE.replace(/\{\{otp\}\}/g, otp)
+      subject: 'Password Reset Link',
+      html: PASSWORD_RESET_TEMPLATE.replace(/\{\{link\}\}/g, resetLink)
         .replace(/\{\{email\}\}/g, cleanEmail)
         .replace(/\{\{name\}\}/g, user.name),
     };
@@ -1387,18 +1390,18 @@ const server = http.createServer(async (req, res) => {
       await transporter.sendMail(mailOption);
     } catch (err) {
       console.error('Reset mail error:', err);
-      return sendJSON(res, 200, { success: false, message: `Failed to send OTP email: ${err.message || 'Email delivery failed'}` });
+      return sendJSON(res, 200, { success: false, message: `Failed to send reset email: ${err.message || 'Email delivery failed'}` });
     }
 
-    return sendJSON(res, 200, { success: true, message: 'Password reset OTP sent to your email' });
+    return sendJSON(res, 200, { success: true, message: 'Password reset link sent to your email' });
   }
 
   // 9. RESET PASSWORD
   if (req.method === 'POST' && url === '/api/auth/reset-password') {
-    const { email, otp, newPassword } = await getRequestBody(req);
+    const { email, token, newPassword } = await getRequestBody(req);
 
-    if (!email || !otp || !newPassword) {
-      return sendJSON(res, 200, { success: false, message: 'Email, OTP, and new password are required' });
+    if (!email || !token || !newPassword) {
+      return sendJSON(res, 200, { success: false, message: 'Email, token, and new password are required' });
     }
 
     const users = await readUsers();
@@ -1409,12 +1412,12 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'User not found' });
     }
 
-    if (!user.resetOtp || String(user.resetOtp).trim() !== String(otp).trim()) {
-      return sendJSON(res, 200, { success: false, message: 'Invalid OTP' });
+    if (!user.resetOtp || String(user.resetOtp).trim() !== String(token).trim()) {
+      return sendJSON(res, 200, { success: false, message: 'Invalid or incorrect token' });
     }
 
     if (user.resetOtpExpireAt < Date.now()) {
-      return sendJSON(res, 200, { success: false, message: 'OTP Expired' });
+      return sendJSON(res, 200, { success: false, message: 'Reset link has expired' });
     }
 
     if (user.password) {

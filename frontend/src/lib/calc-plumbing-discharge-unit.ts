@@ -4,23 +4,75 @@ export interface FUSpace {
   floor: string;
   std: string;
   fixtures: Record<string, number>;
+  flagged?: boolean;
   isFlagged?: boolean;
   isManualFloor?: boolean;
 }
 
+export function isDUPlaceholderName(name?: string): boolean {
+  if (!name) return true;
+  const trimmed = name.trim().toLowerCase();
+  if (
+    trimmed === "" ||
+    trimmed === "new space" ||
+    /^new\s+space(\s+\d+)?$/i.test(trimmed) ||
+    /^space(\s+\d+)?$/i.test(trimmed) ||
+    /^space\s*#?\d*$/i.test(trimmed)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function checkIfDUSpaceMissingData(s?: Partial<FUSpace>): boolean {
+  if (!s) return true;
+  const descTrimmed = (s.desc || "").trim();
+  const isPlaceholder = isDUPlaceholderName(descTrimmed);
+  const totalFixtures = Object.values(s.fixtures || {}).reduce((sum, v) => sum + (Number(v) || 0), 0);
+  const hasFixtures = totalFixtures > 0;
+  const hasFloor = Boolean(s.floor && s.floor.trim() !== "" && s.floor !== "undefined" && s.floor !== "null");
+
+  if (!hasFloor || descTrimmed === "" || isPlaceholder || !hasFixtures) {
+    return true;
+  }
+  return false;
+}
+
 export function getFUSpaceValidation(s?: Partial<FUSpace>) {
   const warnings: string[] = [];
-  if (!s) return { isFlagged: false, warnings: [], isAutoFlagged: false, isManualFlagged: false };
+  if (!s) return { isFlagged: false, warnings: [], isMissing: false, isAutoFlagged: false, isManualFlagged: false, reason: "" };
 
-  const descEmpty = !s.desc || s.desc.trim() === "";
-  
-  if (descEmpty) warnings.push("Description is missing");
+  const descTrimmed = (s.desc || "").trim();
+  const isPlaceholder = isDUPlaceholderName(descTrimmed);
+  const totalFixtures = Object.values(s.fixtures || {}).reduce((sum, v) => sum + (Number(v) || 0), 0);
+  const hasFixtures = totalFixtures > 0;
+  const hasFloor = Boolean(s.floor && s.floor.trim() !== "" && s.floor !== "undefined" && s.floor !== "null");
 
-  const isAutoFlagged = warnings.length > 0;
-  const isManualFlagged = s.isFlagged === true;
-  const isFlagged = isManualFlagged || isAutoFlagged;
+  if (!hasFloor) {
+    warnings.push("Floor section is not assigned");
+  }
 
-  return { isFlagged, warnings, isAutoFlagged, isManualFlagged };
+  if (isPlaceholder && !hasFixtures) {
+    warnings.push("Please enter space description and fixture counts (0 D.U.)");
+  } else {
+    if (descTrimmed === "") {
+      warnings.push("Space description is missing");
+    } else if (isPlaceholder) {
+      warnings.push("Default placeholder space name (rename for clarity)");
+    }
+    if (!hasFixtures) {
+      warnings.push("No fixtures specified for this space (0 D.U.)");
+    }
+  }
+
+  const isMissing = warnings.length > 0;
+  const isAutoFlagged = isMissing;
+  const explicitFlag = s.flagged !== undefined ? s.flagged : s.isFlagged;
+  const isManualFlagged = explicitFlag !== undefined;
+  const isFlagged = explicitFlag !== undefined ? Boolean(explicitFlag) : isAutoFlagged;
+  const reason = warnings.join(" • ");
+
+  return { isFlagged, isMissing, warnings, isAutoFlagged, isManualFlagged, reason };
 }
 
 export const IP_DISCHARGE_UNITS: Record<string, Record<string, number>> = {
@@ -114,7 +166,6 @@ export function extractFloorFU(name: string) {
   const match = name.match(/^([0-9]|B|G|LG|UG|SF|RF|M|P)[FLfli]?/i);
   return match ? match[0].toUpperCase().replace(/L$/i, 'F') : 'G';
 }
-
 
 export function getEffectiveUnitFU(fixtureId: string, spaceStd: string, headerStd: string, weightOverrides: Record<string, number>) {
   if (spaceStd === headerStd && weightOverrides[fixtureId] !== undefined) {

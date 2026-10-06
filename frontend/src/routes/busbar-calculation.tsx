@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
@@ -1792,6 +1792,13 @@ function BusbarCalculationPage() {
             </button>
           </div>
         </div>
+
+        {/* Review / Approval Status Banner */}
+        <CalculationStatusBanner
+          projectId={activeProjectId || project?.id || "default"}
+          calculatorPath="/busbar-calculation"
+          calculatorTitle="Busbar Calculation"
+        />
 
         <div className="flex-1 overflow-auto bg-background p-4 md:p-6 gap-4 flex flex-col min-h-0">
           {calculatedPanels.map((panel, pIdx) => {

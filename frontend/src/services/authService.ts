@@ -273,11 +273,11 @@ export const authService = {
     }
   },
 
-  async resetPassword(email: string, otp: string, newPassword: string): Promise<AuthResponse> {
+  async resetPassword(email: string, token: string, newPassword: string): Promise<AuthResponse> {
     try {
       const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/reset-password`, {
         email,
-        otp,
+        token,
         newPassword,
       });
       return data;

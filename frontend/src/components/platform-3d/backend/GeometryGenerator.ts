@@ -24,6 +24,8 @@ export class GeometryGenerator {
             forceTransparentSpaces: true
         };
 
+
+        
         const importerBytes = new Uint8Array(fileBuffer.buffer.slice(fileBuffer.byteOffset, fileBuffer.byteOffset + fileBuffer.byteLength));
         const fragResult = await this.importer.process({ bytes: importerBytes });
         

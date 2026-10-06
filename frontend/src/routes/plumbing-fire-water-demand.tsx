@@ -1,4 +1,4 @@
-﻿import { CalculationReviewBar, useCalculationLock, type CalculationReviewState, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, type CalculationReviewState, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditBuildingModal } from "@/components/workspace/EditBuildingModal";
@@ -86,6 +86,7 @@ export function FireWaterDemandPage() {
   const currentUserName = userData?.name || profile?.name || "Senior MEP Fire Engineer";
 
   const isApprovedLocked = useCalculationLock("/plumbing-fire-water-demand", project?.id);
+  const isLocked = isEffectiveReadOnly || isApprovedLocked;
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
   const { getLockOwner, mySessionId, setActiveModule } = useCollaboration();
@@ -108,7 +109,7 @@ export function FireWaterDemandPage() {
   const [intelOpen, setIntelOpen] = useState(false);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
 
-  // Unit System: SI (LPM, bar, mÂ³, m) vs IP (GPM, psi, gal, ft)
+  // Unit System: SI (LPM, bar, m³, m) vs IP (GPM, psi, gal, ft)
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
   // Multi-Building Schedule State
@@ -117,6 +118,12 @@ export function FireWaterDemandPage() {
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [filterOccupancy, setFilterOccupancy] = useState<string>("all");
+
+  useEffect(() => {
+    if (isLocked) {
+      setSelectedRowIds(new Set());
+    }
+  }, [isLocked]);
 
   // Bulk Edit Modal State (Ventilation Parity)
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -677,6 +684,10 @@ export function FireWaterDemandPage() {
 
   // Multi-Selection Handlers (Ventilation-Style)
   const toggleSelectAll = () => {
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     if (selectedRowIds.size === buildings.length) {
       setSelectedRowIds(new Set());
     } else {
@@ -686,6 +697,10 @@ export function FireWaterDemandPage() {
 
   const toggleSelectRow = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     const next = new Set(selectedRowIds);
     if (next.has(id)) {
       next.delete(id);
@@ -1010,6 +1025,22 @@ export function FireWaterDemandPage() {
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
 
+      if (isLocked) {
+        if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (
+          ["Delete", "Backspace"].includes(e.key) ||
+          (isCmdOrCtrl && ["x", "v", "d", "z", "y"].includes(e.key.toLowerCase()))
+        ) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+      }
+
       // 1. Ctrl+A (Select All)
       if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
         if (tab === "schedule" && buildings.length > 0) {
@@ -1102,6 +1133,7 @@ export function FireWaterDemandPage() {
     selectedRowIds,
     activeItem,
     isEffectiveReadOnly,
+    isLocked,
     copiedBuildings,
     undoStack,
     redoStack,
@@ -1526,6 +1558,13 @@ export function FireWaterDemandPage() {
               )}
             </div>
 
+            {/* Notification Banner across all tabs */}
+            <CalculationStatusBanner
+              projectId={project?.id || "default"}
+              calculatorPath="/plumbing-fire-water-demand"
+              calculatorTitle="Fire Water Demand"
+            />
+
             {/* TAB 1: SCHEDULE (FULL-HEIGHT SPACIOUS DATAGRID WITH DOUBLE-CLICK EDITING) */}
             {tab === "schedule" && (
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
@@ -1538,9 +1577,10 @@ export function FireWaterDemandPage() {
                         <th className="py-2 px-2 w-8 text-center">
                           <input
                             type="checkbox"
-                            checked={selectedRowIds.size === buildings.length && buildings.length > 0}
+                            disabled={isLocked}
+                            checked={selectedRowIds.size === buildings.length && buildings.length > 0 && !isLocked}
                             onChange={toggleSelectAll}
-                            className="rounded border-border cursor-pointer"
+                            className="rounded border-border cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                           />
                         </th>
                         <th className="py-2 px-2 text-left">
@@ -1559,11 +1599,11 @@ export function FireWaterDemandPage() {
                         </th>
                         <th className="py-2 px-1 text-center">
                           <div>GFA</div>
-                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">(MÂ²)</div>
+                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">(M²)</div>
                         </th>
                         <th className="py-2 px-1 text-center">
                           <div>PLOT AREA</div>
-                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">(MÂ²)</div>
+                          <div className="text-[9.5px] text-muted-foreground/75 font-normal">(M²)</div>
                         </th>
                         <th className="py-2 px-1 text-center">
                           <div>STANDPIPES</div>
@@ -1581,7 +1621,7 @@ export function FireWaterDemandPage() {
                         <th className="py-2 px-1.5 text-center">
                           <div>NET STORAGE</div>
                           <div className="text-[9.5px] text-muted-foreground/75 font-normal">
-                            {unitSystem === "si" ? "(MÂ³)" : "(GAL)"}
+                            {unitSystem === "si" ? "(M³)" : "(GAL)"}
                           </div>
                         </th>
                         <th className="py-2 px-2 text-center pr-3">
@@ -1611,6 +1651,7 @@ export function FireWaterDemandPage() {
                                   data-row-id={b.id}
                                   data-comment-target={b.id}
                                   onContextMenu={() => {
+                                    if (isLocked) return;
                                     if (!selectedRowIds.has(b.id)) {
                                       setSelectedBuildingId(b.id);
                                       setSelectedRowIds(new Set([b.id]));
@@ -1618,6 +1659,7 @@ export function FireWaterDemandPage() {
                                     }
                                   }}
                                   onClick={(e) => {
+                                    if (isLocked) return;
                                     setSelectedBuildingId(b.id);
                                     setReportBuildingId(b.id);
                                     if (e.ctrlKey || e.metaKey) {
@@ -1639,23 +1681,25 @@ export function FireWaterDemandPage() {
                                     }
                                   }}
                                   onDoubleClick={() => {
+                                    if (isLocked) return;
                                     handleOpenEditModal(b.id);
                                   }}
-                                  className={`transition-colors group cursor-pointer ${isItemHighlighted(b.id, b.name)
+                                  className={`transition-colors group ${isLocked ? "cursor-default" : "cursor-pointer"} ${isItemHighlighted(b.id, b.name)
                                       ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                                       : isSelected
                                         ? "bg-primary/10 hover:bg-primary/15 font-medium"
                                         : "hover:bg-surface-2"
                                     }`}
-                                  title="Right-click for options â€¢ Double-click to view calculations & rules â€¢ Ctrl+Click to select"
+                                  title={isLocked ? undefined : "Right-click for options • Double-click to view calculations & rules • Ctrl+Click to select"}
                                 >
                                   {/* 1. Selection Checkbox */}
                                   <td className="py-1.5 px-2 text-center" onClick={(e) => toggleSelectRow(b.id, e)}>
                                     <input
                                       type="checkbox"
-                                      checked={isChecked}
+                                      disabled={isLocked}
+                                      checked={isChecked && !isLocked}
                                       onChange={() => { }}
-                                      className="rounded border-border cursor-pointer"
+                                      className="rounded border-border cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                                     />
                                   </td>
 

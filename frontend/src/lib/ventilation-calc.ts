@@ -179,6 +179,14 @@ export interface Equipment {
   zoneIds?: string[];
   totalFA?: number;
   totalEA?: number;
+  locationFloor?: string;
+  locationSpaceId?: string;
+  locationSpaceName?: string;
+  positionX?: number;
+  positionY?: number;
+  positionZ?: number;
+  rotationY?: number;
+  dimensions?: any;
   flagged?: boolean;
 }
 
@@ -265,8 +273,45 @@ export function calculateVentilation(
 ): { spaces: Space[]; zones: Zone[]; equipment: Equipment[] } {
   // Deep clone inputs to keep function pure
   const spaces: Space[] = JSON.parse(JSON.stringify(currentSpaces));
-  const zones: Zone[] = JSON.parse(JSON.stringify(currentZones));
+  const rawZones: Zone[] = JSON.parse(JSON.stringify(currentZones));
   const equipment: Equipment[] = JSON.parse(JSON.stringify(currentEquipment));
+
+  // Deduplicate zones by case-insensitive name and ID
+  const seenZoneIds = new Set<string>();
+  const seenZoneNames = new Set<string>();
+  const zones: Zone[] = [];
+
+  rawZones.forEach((z) => {
+    const idKey = z.id ? z.id.toLowerCase() : "";
+    const nameKey = z.name ? z.name.trim().toLowerCase() : "";
+    const isDefault = nameKey === "default" || nameKey === "unzoned" || nameKey === "";
+
+    if (idKey && seenZoneIds.has(idKey)) return;
+    if (nameKey && !isDefault && seenZoneNames.has(nameKey)) {
+      // Merge equipment list into existing zone if present
+      const existing = zones.find((ex) => ex.name.trim().toLowerCase() === nameKey);
+      if (existing && Array.isArray(z.equipment)) {
+        existing.equipment = Array.from(new Set([...(existing.equipment || []), ...z.equipment]));
+      }
+      return;
+    }
+
+    if (idKey) seenZoneIds.add(idKey);
+    if (nameKey && !isDefault) seenZoneNames.add(nameKey);
+    zones.push(z);
+  });
+
+  // Remap space zone references if pointing to duplicate zone ID to use canonical zone name
+  spaces.forEach((s) => {
+    if (s.zone) {
+      const matchingZone = zones.find(
+        (z) => z.id.toLowerCase() === s.zone.toLowerCase() || z.name.trim().toLowerCase() === s.zone.trim().toLowerCase()
+      );
+      if (matchingZone) {
+        s.zone = matchingZone.name;
+      }
+    }
+  });
 
   // 1) First calculate minOA and minExt for all spaces, scaled by multiplier
   spaces.forEach((z) => {

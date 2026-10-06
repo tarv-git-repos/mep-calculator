@@ -1,7 +1,7 @@
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { api } from "@/services/api";
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { EditSprinklerCustomModal } from "@/components/workspace/EditSprinklerCustomModal";
 import { SprinklerKFactorSelect } from "@/components/workspace/SprinklerKFactorSelect";
 import { SprinklerHazardSelect } from "@/components/workspace/SprinklerHazardSelect";
@@ -74,6 +74,14 @@ function SprinklerKFactorPage() {
   // Review & Approval State
   const isCalcLock = useCalculationLock("/plumbing-sprinkler-kfactor");
   const isApprovedLocked = isCalcLock || calcReviewState?.status === "APPROVED";
+  const isLocked = isEffectiveReadOnly || isApprovedLocked;
+
+  useEffect(() => {
+    if (isLocked) {
+      setSelected(new Set());
+      setLastSelectedId(null);
+    }
+  }, [isLocked]);
 
   
 
@@ -432,6 +440,22 @@ function SprinklerKFactorPage() {
 
       const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (isLocked) {
+        if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (
+          ["Delete", "Backspace", "Insert"].includes(e.key) ||
+          (isCmdOrCtrl && ["x", "v", "d", "z", "y", "n"].includes(e.key.toLowerCase()))
+        ) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+      }
 
       // Selection: Ctrl + A
       if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
@@ -1505,8 +1529,8 @@ function SprinklerKFactorPage() {
   ], [rows, unitSystem, selected, toggleFlag, updateRow]);
 
   const toggleSelect = (id: string, isShift?: boolean, isCtrl?: boolean) => {
-    if (isApprovedLocked) {
-      toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
       return;
     }
     setSelected(prev => {
@@ -1538,8 +1562,8 @@ function SprinklerKFactorPage() {
   };
 
   const toggleSelectAll = () => {
-    if (isApprovedLocked) {
-      toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
       return;
     }
     setSelected(prev => {
@@ -1627,7 +1651,12 @@ function SprinklerKFactorPage() {
             </div>
           </div>
 
-          
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={activeProjectId || project?.id || "default"}
+            calculatorPath="/plumbing-sprinkler-kfactor"
+            calculatorTitle="Sprinkler K-Factor & Hydraulic Calculation"
+          />
 
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
@@ -1971,9 +2000,12 @@ function SprinklerKFactorPage() {
                       selected={selected}
                       onToggle={toggleSelect}
                       onToggleAll={toggleSelectAll}
-                      isReadOnly={isApprovedLocked}
+                      isReadOnly={isLocked}
                       renderContextMenu={renderSprinklerContextMenu}
-                      onRowDoubleClick={(row) => setEditingSprinkler(row)}
+                      onRowDoubleClick={(row) => {
+                        if (isLocked) return;
+                        setEditingSprinkler(row);
+                      }}
                       groupBy={(r) => r.floor || "Ground Floor"}
                       groupOrder={allUniqueFloors}
                       renderGroupHeader={renderFloorGroupHeader}

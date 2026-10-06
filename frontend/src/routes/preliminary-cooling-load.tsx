@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useWorkspace } from "@/lib/workspace-store";
-import { CalculationReviewBar, useCalculationLock, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditPclSpaceModal } from "@/components/workspace/EditPclSpaceModal";
@@ -2225,6 +2225,13 @@ function PreliminaryCoolingLoadPage() {
               </div>
             </div>
           </div>
+
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={activeProjectId || project?.id || "default"}
+            calculatorPath="/preliminary-cooling-load"
+            calculatorTitle="Preliminary Cooling Load"
+          />
 
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${

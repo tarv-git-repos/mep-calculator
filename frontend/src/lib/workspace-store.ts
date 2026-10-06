@@ -1229,8 +1229,28 @@ export const workspaceStore = {
   },
 
   addZone(newZone: Zone) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     pushHistory();
-    const nextZones = [...currentWorkspaceState.zones, newZone];
+    const trimmedName = (newZone.name || "").trim();
+    const existingIndex = currentWorkspaceState.zones.findIndex(
+      (z) => z.id === newZone.id || (trimmedName && z.name.trim().toLowerCase() === trimmedName.toLowerCase())
+    );
+
+    let nextZones: Zone[];
+    if (existingIndex !== -1) {
+      nextZones = [...currentWorkspaceState.zones];
+      nextZones[existingIndex] = {
+        ...nextZones[existingIndex],
+        ...newZone,
+        name: trimmedName || nextZones[existingIndex].name,
+      };
+    } else {
+      nextZones = [...currentWorkspaceState.zones, { ...newZone, name: trimmedName || newZone.name }];
+    }
+
     const balanced = calculateVentilation(
       currentWorkspaceState.spaces,
       nextZones,
@@ -1242,11 +1262,18 @@ export const workspaceStore = {
   },
 
   deleteZone(zoneId: string) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
     pushHistory();
-    const nextZones = currentWorkspaceState.zones.filter((z) => z.id !== zoneId);
+    const targetZone = currentWorkspaceState.zones.find((z) => z.id === zoneId);
+    const targetName = targetZone?.name?.trim()?.toLowerCase();
+
+    const nextZones = currentWorkspaceState.zones.filter((z) => z.id !== zoneId && (!targetName || z.name.trim().toLowerCase() !== targetName));
     // Dissolve zone: set all spaces in this zone to have zone = ""
     const nextSpaces = currentWorkspaceState.spaces.map((s) =>
-      s.zone === zoneId || s.zone === nextZones.find((z) => z.id === zoneId)?.name
+      s.zone === zoneId || (targetName && s.zone.trim().toLowerCase() === targetName)
         ? { ...s, zone: "" }
         : s
     );

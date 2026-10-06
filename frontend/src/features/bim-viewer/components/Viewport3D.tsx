@@ -1,4 +1,5 @@
 import * as OBC from '@thatopen/components';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer';
 import { RendererManager } from '../frontend/RendererManager';
@@ -627,14 +628,14 @@ export function Viewport3D() {
                 const signal = viewportAbortController.signal;
 
                 let isDragging = false, startX = 0, startY = 0;
-                ui.viewport.addEventListener('mousedown', (e: MouseEvent) => {
+                ui.viewport.addEventListener('pointerdown', (e: PointerEvent) => {
                     isDragging = false;
                     startX = e.clientX;
                     startY = e.clientY;
                 }, { signal });
 
                 let lastHoveredId: number | null = null;
-                ui.viewport.addEventListener('mousemove', (e: MouseEvent) => {
+                ui.viewport.addEventListener('pointermove', (e: PointerEvent) => {
                     if (e.buttons !== 0) { isDragging = true; return; }
                     if (Math.abs(e.clientX - startX) > 3 || Math.abs(e.clientY - startY) > 3) isDragging = true;
 
@@ -656,9 +657,22 @@ export function Viewport3D() {
                     }
                 }, { signal });
 
+                let clickStartX = 0;
+                let clickStartY = 0;
+                ui.viewport.addEventListener('pointerdown', (e: PointerEvent) => {
+                    clickStartX = e.clientX;
+                    clickStartY = e.clientY;
+                }, { signal, capture: true });
+
                 ui.viewport.addEventListener('click', (e: MouseEvent) => {
-                    if (isDragging) return;
+                    if (Math.abs(e.clientX - clickStartX) > 5 || Math.abs(e.clientY - clickStartY) > 5) return;
                     if (!ui.btn2d.classList.contains('active')) return;
+
+                    const rect = ui.viewport.getBoundingClientRect();
+                    const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                    const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                    const eqHitGroup = checkEquipmentHit(ndcX, ndcY);
+                    if (eqHitGroup) return;
 
                     const hit = raycastSpaceUnderCursor(e);
                     if (hit) {
@@ -666,9 +680,9 @@ export function Viewport3D() {
                         displaySelectedSpaceInfo(hit.space);
                     } else {
                         setSelectedSpaceHighlight(null, false);
-                        ui.selectedSpaceInfo.innerHTML = `Click on a space in 3D view to select it.`;
+                        ui.selectedSpaceInfo.innerHTML = "Click on a space in 3D view to select it.";
                     }
-                }, { signal });
+                }, { signal, capture: true });
 
                 activeSelectHighlightHandler = (m: any) => {
                     const ids = m[model.modelId];
@@ -1612,14 +1626,201 @@ export function Viewport3D() {
         const handleDragOver = (e: DragEvent) => e.preventDefault();
         const handleDrop = (e: DragEvent) => {
             e.preventDefault();
+            
+            try {
+                if (e.dataTransfer?.getData('text/plain')) {
+                    const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                    if (data.type === 'equipment' && ui.btn2d.classList.contains('active')) {
+                        const rect = ui.viewport.getBoundingClientRect();
+                        const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                        const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                        
+                        const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
+                        const clickX = worldPos.x;
+                        const clickZ = worldPos.z;
+
+                        const activeLevelId = ui.selectLevel.value;
+                        
+                        const pointInPoly = (px: number, pz: number, poly: { x: number, z: number }[]): boolean => {
+                            let inside = false;
+                            for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                                const xi = poly[i].x, zi = poly[i].z;
+                                const xj = poly[j].x, zj = poly[j].z;
+                                if (((zi > pz) !== (zj > pz)) && (px < (xj - xi) * (pz - zi) / (zj - zi) + xi)) {
+                                    inside = !inside;
+                                }
+                            }
+                            return inside;
+                        };
+
+                        let hitSpace = null;
+                        for (const [expressId, spData] of spaceWorldPolygons) {
+                            if (activeLevelId && String(spData.storeyExpressId) !== String(activeLevelId)) continue;
+                            if (pointInPoly(clickX, clickZ, spData.worldXZ)) {
+                                hitSpace = { space: spData.space, expressId: Number(expressId) };
+                                break;
+                            }
+                        }
+
+                        if (hitSpace) {
+                            const state = workspaceStore.getState();
+                            const equipIdx = state.equipment.findIndex(eq => eq.id === data.id);
+                            if (equipIdx !== -1) {
+                                const newEquipment = [...state.equipment];
+                                newEquipment[equipIdx] = {
+                                    ...newEquipment[equipIdx],
+                                    locationSpaceId: String(hitSpace.expressId),
+                                    locationSpaceName: hitSpace.space.longName || hitSpace.space.name || `Space ${hitSpace.expressId}`,
+                                    positionX: clickX,
+                                    positionY: 0,
+                                    positionZ: clickZ
+                                };
+                                workspaceStore.setState({ equipment: newEquipment });
+                            }
+                        }
+                        return;
+                    }
+                }
+            } catch(err) {}
+
             const file = e.dataTransfer?.files[0];
             if (file && (window as any).loadIfcFile) {
                 (window as any).loadIfcFile(file);
             }
         };
 
+        const handleFocusEquipment = async (e: Event) => {
+            const customEvent = e as CustomEvent;
+            const equip = customEvent.detail;
+            if (!equip) return;
+            
+            if (!ui.btn2d.classList.contains('active')) {
+                if (ui.btn2d.onclick) {
+                    const p = ui.btn2d.onclick(new MouseEvent('click') as any);
+                    if (p && (p as any).then) await p;
+                }
+            }
+            
+            if (equip.locationSpaceId) {
+                let targetStoreyId = null;
+                for (const [expressId, spData] of spaceWorldPolygons) {
+                    if (String(expressId) === equip.locationSpaceId || String(spData.space?.expressId) === equip.locationSpaceId) {
+                        targetStoreyId = spData.storeyExpressId;
+                        break;
+                    }
+                }
+                
+                if (targetStoreyId && String(ui.selectLevel.value) !== String(targetStoreyId)) {
+                    ui.selectLevel.value = String(targetStoreyId);
+                    if (ui.selectLevel.onchange) {
+                        const p2 = ui.selectLevel.onchange(new Event('change') as any);
+                        if (p2 && (p2 as any).then) await p2;
+                    }
+                }
+            }
+
+            await new Promise(r => setTimeout(r, 100));
+
+            if (!world?.camera?.controls) return;
+            const eqMesh = placedEquipment3DMeshes.find(m => m.userData?.equipmentId === equip.id);
+            if (eqMesh) {
+                const pos = eqMesh.position;
+                world.camera.controls.moveTo(pos.x, pos.y, pos.z, true);
+                if (world.camera.three.isOrthographicCamera || (world.camera.projection as any).current === 'Orthographic') {
+                    world.camera.controls.zoomTo(10, true);
+                } else {
+                    world.camera.controls.dollyTo(15, true);
+                }
+                
+                if (transformControl) {
+                    transformControl.camera = world.camera.three;
+                    transformControl.setMode('translate');
+                    transformControl.showX = true;
+                    transformControl.showY = false;
+                    transformControl.showZ = true;
+                    transformControl.attach(eqMesh);
+                }
+            }
+        };
+
+        let transformControl: any = null;
+
         document.addEventListener('dragover', handleDragOver);
         document.addEventListener('drop', handleDrop);
+        window.addEventListener('mep-focus-equipment', handleFocusEquipment);
+        
+        transformControl = new TransformControls(world.camera.three, ui.viewport);
+        transformControl.addEventListener('dragging-changed', (event: any) => {
+            world.camera.controls.enabled = !event.value;
+            if (!event.value && transformControl.object) {
+                const eqId = transformControl.object.userData.equipmentId;
+                const state = workspaceStore.getState();
+                const equipIdx = state.equipment.findIndex(eq => eq.id === eqId);
+                if (equipIdx !== -1) {
+                    const newEquipment = [...state.equipment];
+                    newEquipment[equipIdx] = {
+                        ...newEquipment[equipIdx],
+                        positionX: transformControl.object.position.x,
+                        positionY: transformControl.object.position.y,
+                        positionZ: transformControl.object.position.z,
+                        rotationY: transformControl.object.rotation.y
+                    };
+                    workspaceStore.setState({ equipment: newEquipment });
+                }
+            }
+        });
+        world.scene.three.add(transformControl);
+
+        ui.viewport.addEventListener('pointerup', (e: PointerEvent) => {
+            
+            const rect = ui.viewport.getBoundingClientRect();
+            const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
+            const clickX = worldPos.x;
+            const clickZ = worldPos.z;
+
+            let eqHitGroup = null;
+            for (const group of placedEquipment3DMeshes) {
+                if (!group.userData?.isEquipmentGroup) continue;
+                const localClick = new THREE.Vector3(clickX, group.position.y, clickZ);
+                group.worldToLocal(localClick);
+                let hit = false;
+                group.traverse((c: any) => {
+                    if (c.geometry && c.geometry.type === 'BoxGeometry') {
+                        if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+                        const bbox = c.geometry.boundingBox;
+                        if (bbox && localClick.x >= bbox.min.x && localClick.x <= bbox.max.x &&
+                            localClick.z >= bbox.min.z && localClick.z <= bbox.max.z) {
+                            hit = true;
+                        }
+                    }
+                });
+                if (hit) { eqHitGroup = group; break; }
+            }
+
+            if (eqHitGroup) {
+                if (transformControl) {
+                    transformControl.camera = world.camera.three;
+                    if (transformControl.object === eqHitGroup) {
+                        transformControl.setMode(transformControl.getMode() === 'translate' ? 'rotate' : 'translate');
+                        transformControl.showX = transformControl.getMode() === 'translate';
+                        transformControl.showY = transformControl.getMode() === 'rotate';
+                        transformControl.showZ = transformControl.getMode() === 'translate';
+                    } else {
+                        transformControl.setMode('translate');
+                        transformControl.showX = true;
+                        transformControl.showY = false;
+                        transformControl.showZ = true;
+                        transformControl.attach(eqHitGroup);
+                    }
+                }
+            } else {
+                if (transformControl) transformControl.detach();
+            }
+        });
+
 
         const keys = { w: 0, a: 0, s: 0, d: 0, q: 0, e: 0 };
         const handleWalkKeyDown = (e: KeyboardEvent) => e?.key && e.key.toLowerCase() in keys && ((keys as any)[e.key.toLowerCase()] = 1);
@@ -1636,7 +1837,7 @@ export function Viewport3D() {
         });
 
         ui.viewport.addEventListener('click', () => ui.btnWalk.classList.contains('active') && ui.viewport.requestPointerLock());
-        ui.viewport.addEventListener('mousemove', (e: MouseEvent) => document.pointerLockElement === ui.viewport && (world.camera.controls.azimuthAngle -= e.movementX * 0.002, world.camera.controls.polarAngle -= e.movementY * 0.002));
+        ui.viewport.addEventListener('pointermove', (e: PointerEvent) => document.pointerLockElement === ui.viewport && (world.camera.controls.azimuthAngle -= e.movementX * 0.002, world.camera.controls.polarAngle -= e.movementY * 0.002));
 
         ui.btnOrbit.onclick = () => { document.exitPointerLock(); ui.btnOrbit.classList.add('active'); ui.btnWalk.classList.remove('active'); };
         ui.btnWalk.onclick = () => { ui.btnWalk.classList.add('active'); ui.btnOrbit.classList.remove('active'); };
@@ -1721,6 +1922,8 @@ export function Viewport3D() {
             document.getElementById = getElementByIdBackup;
             document.removeEventListener('dragover', handleDragOver);
             document.removeEventListener('drop', handleDrop);
+            window.removeEventListener('mep-focus-equipment', handleFocusEquipment);
+            if (transformControl) { transformControl.detach(); transformControl.dispose(); }
             window.removeEventListener('keydown', handleShiftDown);
             window.removeEventListener('keyup', handleShiftUp);
             window.removeEventListener('keydown', handleWalkKeyDown);

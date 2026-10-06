@@ -1,5 +1,5 @@
 import { calculateGeneratorSizing, getGenRowValidation, STANDARD_SIZES, STARTER_MULTIPLIERS, type GenRow, type StarterType } from "@/lib/calc-generator";
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -1477,6 +1477,13 @@ function GeneratorSizingPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Review / Approval Status Banner */}
+              <CalculationStatusBanner
+                projectId={activeProjectId || project?.id || "default"}
+                calculatorPath="/generator-sizing"
+                calculatorTitle="Generator Sizing"
+              />
 
               <div className="flex flex-col xl:flex-row flex-1 min-h-0 overflow-y-auto xl:overflow-hidden">
                 {/* Left Side: Table */}

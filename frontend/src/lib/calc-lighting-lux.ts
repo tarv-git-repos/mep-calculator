@@ -21,6 +21,7 @@ export interface LuxRow {
   installedQty?: number;
   achievedLux?: number;
   source?: "bim" | "manual" | "excel";
+  level?: string;
 }
 
 export interface LuxPreset {
@@ -362,7 +363,8 @@ export function convertBimSpaceToLuxRow(space: any, index?: number): LuxRow {
     remarks: remarks,
     flagged: flagged,
     installedQty: installedQty,
-    source: "bim"
+    source: "bim",
+    level: space.level || space.storey || "Ground Floor"
   };
 
   return computeRowOutputs(row);

@@ -427,12 +427,7 @@ export function SharedAssignmentModal({
       equipment: balanced.equipment,
     });
 
-    const modifiedCount = modifiedEquipIds.size;
-    if (modifiedCount > 0) {
-      toast.success(`Applied equipment assignments for ${modifiedCount} unit(s)!`);
-    } else {
-      toast.success("Equipment assignments applied successfully.");
-    }
+
 
     if (closeModal) {
       onClose();

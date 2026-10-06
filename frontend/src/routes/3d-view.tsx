@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useEffect, useRef } from "react";
 import { attachPersistentBimViewer, detachAndParkPersistentBimViewer } from "@/features/bim-viewer/bimViewerPersistentHost";
-import { workspaceStore } from "@/lib/workspace-store";
+import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 
 export const Route = createFileRoute("/3d-view")({
   head: () => ({
@@ -16,7 +16,7 @@ export const Route = createFileRoute("/3d-view")({
 
 function Platform3DPage() {
   const mountRef = useRef<HTMLDivElement>(null);
-  const activeProjectId = workspaceStore((s) => s.activeProjectId);
+  const { activeProjectId } = useWorkspace();
 
   useEffect(() => {
     if (mountRef.current) {

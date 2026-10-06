@@ -23,52 +23,48 @@ export interface Extracted3DSpace {
 }
 
 /**
- * Filter out useless gross area calculation boundaries, duplicate area overlays, and unassigned polygons.
+ * Filter out useless gross area calculation boundaries and non-spatial overlays.
+ * Preserves all functional rooms, circulation areas, service zones, shafts, and spatial rooms.
  */
 export function isMepValidSpaceName(name: string): boolean {
   if (!name || name.trim() === "") return false;
   const n = name.trim().toUpperCase();
 
-  // 1. Filter out gross area boundary codes and parenthesized area markers like "(A) USABLE AREA", "(B) BALCONY AREA"
-  if (/^\([A-Z0-9]+\)/i.test(n)) {
+  // 1. Filter out parenthesized Revit gross area scheme codes like "(A) GROSS BUILDING AREA" or "(B) NET RENTABLE"
+  if (/^\([A-Z0-9]+\)\s*(GROSS|NET|EXTERIOR|OVERLAY|CALCULATION|RENTABLE)/i.test(n)) {
     return false;
   }
 
-  // 2. Filter out generic area calculations or non-room boundary spaces
-  const uselessTerms = [
-    "USABLE AREA",
-    "CIRCULATION AREA",
-    "GROSS AREA",
-    "NET AREA",
-    "RENTABLE AREA",
-    "TOTAL AREA",
-    "SERVICE AREA",
-    "BUILDING AREA",
-    "EXTERIOR AREA",
-    "SURFACE AREA",
-    "OPEN TO BELOW",
-    "UNASSIGNED",
-    "NOT ASSIGNED",
-    "NO NAME",
-    "DUMMY",
-    "VOID",
-    "SHAFT",
-    "IFCSPACE",
+  // 2. Filter out pure non-spatial calculation overlays
+  const nonSpatialOverlays = [
+    "GROSS BUILDING AREA",
     "AREA CALCULATION",
-    "GROSS BUILDING",
     "OVERLAY",
+    "DUMMY BOUNDARY",
+    "DUMMY",
+    "NO NAME",
   ];
 
-  for (const term of uselessTerms) {
-    if (n === term || n.includes(term)) {
+  for (const term of nonSpatialOverlays) {
+    if (n === term) {
       return false;
     }
   }
 
-  // Filter out single letter codes or pure boundary markers
-  if (/^[A-Z]$/.test(n)) return false;
-
   return true;
+}
+
+/**
+ * Normalizes raw IFC space names into clean, readable room names.
+ */
+export function cleanSpaceName(rawName: string, fallbackId?: string | number): string {
+  if (!rawName) return fallbackId ? `Space ${fallbackId}` : "Space";
+  let s = rawName.trim();
+  if (/^ifcspace$/i.test(s)) {
+    return fallbackId ? `Space ${fallbackId}` : "Space";
+  }
+  s = s.replace(/^ifcspace[\s.:_-]*/i, "Room ");
+  return s.trim() || (fallbackId ? `Space ${fallbackId}` : "Space");
 }
 
 /**
@@ -362,12 +358,13 @@ export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
 
   if (Array.isArray(activeBimData) && activeBimData.length > 0) {
     activeBimData.forEach((sp: any, idx: number) => {
-      const rawName = String(sp.longName || sp.name || sp.number || `Space ${idx + 1}`).trim();
-      if (!isMepValidSpaceName(rawName)) return;
+      const rawExtractedName = String(sp.longName || sp.name || sp.number || "").trim();
+      const rawName = cleanSpaceName(rawExtractedName, idx + 1);
+      const area = parseFloat(String(sp.area || sp.netArea || 0)) || 0;
+      if (!isMepValidSpaceName(rawName) && area <= 0) return;
 
       const levelName = String(sp.level || sp.storeyName || sp.levelName || "Ground Floor").trim();
       const zoneName = String(sp.zone || sp.zoneName || "Default").trim();
-      const area = parseFloat(String(sp.area || sp.netArea || 0)) || 0;
       let height = parseFloat(String(sp.height || sp.unboundedHeight || 3.0)) || 3.0;
       if (height > 100) height = height / 1000;
 
@@ -486,11 +483,10 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
       const nameStr = String(line.Name?.value || "").trim();
       const objectTypeStr = String(line.ObjectType?.value || "").trim();
       
-      const rawName = longNameStr || nameStr || objectTypeStr || `Space ${idx + 1}`;
-      if (!isMepValidSpaceName(rawName)) return;
-
+      const rawName = cleanSpaceName(longNameStr || nameStr || objectTypeStr, idx + 1);
       const quantities = propMgr.getQuantities(id, relMgr.relDefines);
       const area = parseFloat(String(quantities.Area || quantities.NetArea || quantities.GrossArea || 0)) || 0;
+      if (!isMepValidSpaceName(rawName) && area <= 0) return;
       let height = parseFloat(String(quantities.Height || quantities.UnboundedHeight || 3.0)) || 3.0;
       if (height > 100) height = height / 1000;
 

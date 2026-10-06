@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,8 +13,10 @@ import { AppShell } from "@/components/workspace/AppShell";
 import {
   Download, Save, Trash2, Plus, Info, Calculator, Sparkles, Activity, FileText,
   CheckCircle2, AlertTriangle, ShieldCheck, TrendingDown, Sliders, MessageSquare,
-  RotateCcw, Eye, Layers, CloudRain, X, ChevronRight, Edit3, Copy, Lock
+  RotateCcw, Eye, Layers, CloudRain, X, ChevronRight, ChevronDown, Edit3, Copy, Lock,
+  Scissors, ClipboardPaste, Check, Flag, Search
 } from "lucide-react";
+import { useConfirm } from "@/hooks/use-confirm";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -35,7 +37,8 @@ import {
   type CatchmentRow,
   SURFACE_COEFS,
   SURFACE_LABELS,
-  computeStormWaterCalculations
+  computeStormWaterCalculations,
+  getCatchmentValidation
 } from "@/lib/calc-plumbing-storm-water";
 
 import { TBtn } from "@/components/workspace/Button";
@@ -177,17 +180,20 @@ function EditCatchmentModal({ catchment, isSI, onClose, onSave }: EditCatchmentM
               <label className="block font-semibold text-foreground mb-1">
                 Surface Category
               </label>
-              <select
-                value={surface}
-                onChange={(e) => handleSurfaceChange(e.target.value)}
-                className="w-full h-9 px-2 border border-border rounded-lg bg-background text-foreground text-xs focus:ring-2 focus:ring-primary/30 outline-none"
-              >
-                {Object.keys(SURFACE_LABELS).map((k) => (
-                  <option key={k} value={k}>
-                    {SURFACE_LABELS[k]}
-                  </option>
-                ))}
-              </select>
+              <div className="relative flex items-center">
+                <select
+                  value={surface}
+                  onChange={(e) => handleSurfaceChange(e.target.value)}
+                  className="w-full appearance-none h-9 px-3 pr-8 border border-border rounded-lg bg-background text-foreground text-xs focus:ring-2 focus:ring-primary/30 outline-none cursor-pointer"
+                >
+                  {Object.keys(SURFACE_LABELS).map((k) => (
+                    <option key={k} value={k}>
+                      {SURFACE_LABELS[k]}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="size-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              </div>
             </div>
           </div>
 
@@ -262,6 +268,7 @@ function EditCatchmentModal({ catchment, isSI, onClose, onSave }: EditCatchmentM
   );
 }
 function StormWaterPage() {
+  const confirm = useConfirm();
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
@@ -282,8 +289,6 @@ function StormWaterPage() {
     (typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly))
   );
 
-
-
   const [tab, setTab] = useState<"solver" | "report">("solver");
   const [intelOpen, setIntelOpen] = useState<boolean>(false);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
@@ -296,11 +301,231 @@ function StormWaterPage() {
   ]);
   const [editingCatchment, setEditingCatchment] = useState<CatchmentRow | null>(null);
 
-  // Form inputs for new entry
-  const [newName, setNewName] = useState("New Catchment");
-  const [newArea, setNewArea] = useState("500");
-  const [newSurface, setNewSurface] = useState("concrete");
-  const [newIntensity, setNewIntensity] = useState("50");
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+
+  // Undo / Redo Stacks
+  const [undoStack, setUndoStack] = useState<CatchmentRow[][]>([]);
+  const [redoStack, setRedoStack] = useState<CatchmentRow[][]>([]);
+
+  const pushToUndo = (currentRows: CatchmentRow[]) => {
+    setUndoStack(prev => [...prev.slice(-30), JSON.parse(JSON.stringify(currentRows))]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (isEffectiveReadOnly || isApprovedLocked || undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setRedoStack(prev => [...prev.slice(-30), JSON.parse(JSON.stringify(rows))]);
+    setRows(previous);
+    saveState(previous);
+    setUndoStack(prev => prev.slice(0, -1));
+    dirtyStore.set(true);
+    toast.success("Undo successful");
+  };
+
+  const handleRedo = () => {
+    if (isEffectiveReadOnly || isApprovedLocked || redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack(prev => [...prev.slice(-30), JSON.parse(JSON.stringify(rows))]);
+    setRows(next);
+    saveState(next);
+    setRedoStack(prev => prev.slice(0, -1));
+    dirtyStore.set(true);
+    toast.success("Redo successful");
+  };
+
+  // Search & Filter state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
+
+  // Clipboard Storage & Actions (Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D)
+  const [copiedCatchments, setCopiedCatchments] = useState<CatchmentRow[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_clipboard_storm_water");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
+  const handleCopyCatchments = (ids: string[]) => {
+    const targets = rows.filter(r => ids.includes(r.id));
+    if (targets.length === 0) return;
+    const cloned: CatchmentRow[] = JSON.parse(JSON.stringify(targets));
+    setCopiedCatchments(cloned);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("mep_clipboard_storm_water", JSON.stringify(cloned));
+        const headers = ["Name", "Area", "Surface", "Runoff C", "Intensity", "Flow"];
+        const tsvRows = cloned.map(r => [
+          r.name,
+          r.area,
+          r.surface,
+          r.coef,
+          r.intensity,
+          ((r.coef * r.intensity * r.area) / 3600).toFixed(2)
+        ]);
+        const tsv = [headers.join("\t"), ...tsvRows.map(tr => tr.join("\t"))].join("\n");
+        navigator.clipboard?.writeText(tsv).catch(() => {});
+      } catch (e) {}
+    }
+    toast.info(`${targets.length} catchment(s) copied to clipboard (Ctrl+C)`);
+  };
+
+  const handleCutCatchments = (ids: string[]) => {
+    if (isEffectiveReadOnly || isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+      return;
+    }
+    const targets = rows.filter(r => ids.includes(r.id));
+    if (targets.length === 0) return;
+    pushToUndo(rows);
+    handleCopyCatchments(ids);
+    const updated = rows.filter(r => !ids.includes(r.id));
+    setRows(updated);
+    saveState(updated);
+    setSelectedIds([]);
+    dirtyStore.set(true);
+    toast.info(`${targets.length} catchment(s) cut to clipboard (Ctrl+X)`);
+  };
+
+  const handlePasteCatchments = () => {
+    if (isEffectiveReadOnly || isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+      return;
+    }
+    let source = copiedCatchments;
+    if (source.length === 0 && typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_clipboard_storm_water");
+        if (saved) source = JSON.parse(saved);
+      } catch (e) {}
+    }
+    if (source.length === 0) {
+      toast.info("Clipboard is empty. Copy or cut catchments first (Ctrl+C).");
+      return;
+    }
+
+    pushToUndo(rows);
+    const pasted: CatchmentRow[] = source.map((r) => ({
+      ...r,
+      id: Math.random().toString(36).substring(2, 9),
+      name: `${r.name.replace(/ \(Copy(-\d+)?\)$/, "")} (Copy)`,
+    }));
+
+    const updated = [...rows, ...pasted];
+    setRows(updated);
+    saveState(updated);
+    setSelectedIds(pasted.map(p => p.id));
+    dirtyStore.set(true);
+    toast.success(`${pasted.length} catchment(s) pasted from clipboard (Ctrl+V)`);
+  };
+
+  const handleToggleFlag = (target: string | string[]) => {
+    if (isEffectiveReadOnly || isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+      return;
+    }
+    const targetIds = Array.isArray(target)
+      ? target
+      : (selectedIds.includes(target) && selectedIds.length > 1 ? selectedIds : [target]);
+    if (targetIds.length === 0) return;
+
+    pushToUndo(rows);
+    const anyUnflagged = targetIds.some(targetId => {
+      const r = rows.find(item => item.id === targetId);
+      return !getCatchmentValidation(r).isFlagged;
+    });
+    const nextState = anyUnflagged;
+    const updated = rows.map(r => targetIds.includes(r.id) ? { ...r, flagged: nextState } : r);
+    setRows(updated);
+    saveState(updated);
+    dirtyStore.set(true);
+    toast.info(nextState ? `Flagged ${targetIds.length} catchment(s)` : `Unflagged ${targetIds.length} catchment(s)`);
+  };
+
+  const handleBulkDuplicate = (ids: string[]) => {
+    if (isEffectiveReadOnly || isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+      return;
+    }
+    const targets = rows.filter(r => ids.includes(r.id));
+    if (targets.length === 0) return;
+
+    pushToUndo(rows);
+    const duplicates: CatchmentRow[] = targets.map((r) => ({
+      ...r,
+      id: Math.random().toString(36).substring(2, 9),
+      name: `${r.name} (Copy)`,
+    }));
+
+    const updated = [...rows, ...duplicates];
+    setRows(updated);
+    saveState(updated);
+    setSelectedIds(duplicates.map(d => d.id));
+    dirtyStore.set(true);
+    toast.success(`Duplicated ${duplicates.length} catchment(s) (Ctrl+D)`);
+  };
+
+  const handleBulkDelete = async (ids: string[]) => {
+    if (isEffectiveReadOnly || isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+      return;
+    }
+    if (ids.length === 0) return;
+    const msg = ids.length === 1
+      ? `Are you sure you want to delete catchment "${rows.find(r => r.id === ids[0])?.name || "selected catchment"}"?`
+      : `Are you sure you want to delete the ${ids.length} selected catchment(s)?`;
+
+    const ok = await confirm(msg, {
+      title: "Delete Catchment",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive"
+    });
+    if (!ok) return;
+
+    pushToUndo(rows);
+    const updated = rows.filter(r => !ids.includes(r.id));
+    setRows(updated);
+    saveState(updated);
+    setSelectedIds([]);
+    dirtyStore.set(true);
+    toast.info(`Deleted ${ids.length} catchment(s)`);
+  };
+
+  // Auto-clear selection when locked
+  useEffect(() => {
+    if (isApprovedLocked || isEffectiveReadOnly) {
+      setSelectedIds([]);
+    }
+  }, [isApprovedLocked, isEffectiveReadOnly]);
+
+  const handleToggleSelect = (id: string, isShift = false, isCtrl = false) => {
+    if (isApprovedLocked || isEffectiveReadOnly) return;
+    if (isShift && lastSelectedId) {
+      const idx1 = rows.findIndex(r => r.id === lastSelectedId);
+      const idx2 = rows.findIndex(r => r.id === id);
+      if (idx1 !== -1 && idx2 !== -1) {
+        const start = Math.min(idx1, idx2);
+        const end = Math.max(idx1, idx2);
+        const rangeIds = rows.slice(start, end + 1).map(r => r.id);
+        setSelectedIds(prev => Array.from(new Set([...prev, ...rangeIds])));
+        setLastSelectedId(id);
+        return;
+      }
+    }
+    if (isCtrl) {
+      setSelectedIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
+      setLastSelectedId(id);
+      return;
+    }
+    setSelectedIds(prev => (prev.length === 1 && prev[0] === id ? [] : [id]));
+    setLastSelectedId(id);
+  };
 
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
 
@@ -359,11 +584,131 @@ function StormWaterPage() {
 
   useEffect(() => {
     if (project?.id && loadedProjectId === project.id) {
-      const dataToSave = { unitSystem, rows, newName, newArea, newSurface, newIntensity };
+      const dataToSave = { unitSystem, rows };
       localStorage.setItem(`mep_storm_water_calc_${project.id}`, JSON.stringify(dataToSave));
       dirtyStore.set(true);
     }
-  }, [project?.id, loadedProjectId, unitSystem, rows, newName, newArea, newSurface, newIntensity]);
+  }, [project?.id, loadedProjectId, unitSystem, rows]);
+
+  // Keyboard Shortcuts Listener (Ctrl+A, Escape, Delete, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D, Ctrl+Z, Ctrl+Y)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: Deselect all selected rows
+      if (e.key === "Escape") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          setSelectedIds([]);
+        }
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+      const activeEl = document.activeElement;
+      const isModalActive = Boolean(formulaModalOpen || commentModalOpen || editingCatchment);
+
+      // Lock Protection: Block select-all and modification shortcuts when calculation is locked/approved
+      if (isApprovedLocked || isEffectiveReadOnly) {
+        if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (["Delete", "Backspace"].includes(e.key) || (isCmdOrCtrl && ["x", "v", "d", "z", "y"].includes(e.key.toLowerCase()))) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+      }
+
+      // 1. Ctrl+A / Cmd+A (Select All Catchments) when no modal is active
+      if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+        if (!isModalActive) {
+          const isTextInput = activeEl && (
+            (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type === "text") ||
+            activeEl.tagName === "TEXTAREA"
+          );
+          if (!isTextInput && rows.length > 0) {
+            e.preventDefault();
+            if (activeEl && "blur" in activeEl) {
+              (activeEl as HTMLElement).blur();
+            }
+            setSelectedIds(rows.map(r => r.id));
+            toast.info(`Selected all ${rows.length} catchment(s) (Ctrl+A)`);
+            return;
+          }
+        }
+      }
+
+      const isInput = activeEl && (
+        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox") ||
+        activeEl.tagName === "TEXTAREA" ||
+        (activeEl as HTMLElement).isContentEditable ||
+        activeEl.tagName === "SELECT"
+      );
+      if (isInput) return;
+
+      // 2. Undo / Redo: Ctrl+Z / Ctrl+Y
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // 3. Delete / Backspace
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          handleBulkDelete(selectedIds);
+        }
+        return;
+      }
+
+      // 4. Ctrl+C (Copy)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          handleCopyCatchments(selectedIds);
+        }
+        return;
+      }
+
+      // 5. Ctrl+X (Cut)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          handleCutCatchments(selectedIds);
+        }
+        return;
+      }
+
+      // 6. Ctrl+V (Paste)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        handlePasteCatchments();
+        return;
+      }
+
+      // 7. Ctrl+D (Duplicate)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          handleBulkDuplicate(selectedIds);
+        }
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [rows, selectedIds, undoStack, redoStack, copiedCatchments, formulaModalOpen, commentModalOpen, editingCatchment, isEffectiveReadOnly, isApprovedLocked]);
 
   const saveComments = (newList: any[]) => {
     setCommentsList(newList);
@@ -431,26 +776,14 @@ function StormWaterPage() {
       toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
       return;
     }
-    const areaVal = parseFloat(newArea) || 0;
-    const intensityVal = parseFloat(newIntensity) || 0;
-    const coef = SURFACE_COEFS[newSurface] || 0.9;
-    
-    if (areaVal <= 0) {
-      toast.error("Please enter a valid area.");
-      return;
-    }
-    if (intensityVal <= 0) {
-      toast.error("Please enter a valid rainfall intensity.");
-      return;
-    }
-
+    pushToUndo(rows);
     const newRow: CatchmentRow = {
       id: Math.random().toString(36).substring(2, 9),
-      name: newName,
-      area: areaVal,
-      surface: newSurface,
-      coef: coef,
-      intensity: intensityVal
+      name: "",
+      area: 0,
+      surface: "",
+      coef: 0,
+      intensity: 0
     };
 
     const updated = [...rows, newRow];
@@ -460,16 +793,38 @@ function StormWaterPage() {
     toast.success("Catchment area added.");
   };
 
-  const handleDeleteRow = (id: string) => {
+  const handleUpdateRow = (id: string, partial: Partial<CatchmentRow>) => {
     if (isEffectiveReadOnly || isApprovedLocked) {
       toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
       return;
     }
+    const nextRows = rows.map((r) => (r.id === id ? { ...r, ...partial } : r));
+    setRows(nextRows);
+    saveState(nextRows);
+    dirtyStore.set(true);
+  };
+
+  const handleDeleteRow = async (id: string) => {
+    if (isEffectiveReadOnly || isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+      return;
+    }
+    const target = rows.find(r => r.id === id);
+    const ok = await confirm(`Are you sure you want to delete catchment "${target?.name || "selected catchment"}"?`, {
+      title: "Delete Catchment",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive"
+    });
+    if (!ok) return;
+
+    pushToUndo(rows);
     const updated = rows.filter(r => r.id !== id);
     setRows(updated);
     saveState(updated);
+    setSelectedIds(prev => prev.filter(sId => sId !== id));
     dirtyStore.set(true);
-    toast.success("Catchment removed.");
+    toast.info("Catchment removed.");
   };
 
   const handleUpdateCatchment = (updatedCatchment: CatchmentRow) => {
@@ -477,6 +832,7 @@ function StormWaterPage() {
       toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
       return;
     }
+    pushToUndo(rows);
     const nextRows = rows.map(r => r.id === updatedCatchment.id ? updatedCatchment : r);
     setRows(nextRows);
     saveState(nextRows);
@@ -485,13 +841,23 @@ function StormWaterPage() {
     toast.success(`Catchment "${updatedCatchment.name}" updated successfully.`);
   };
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
     if (isEffectiveReadOnly || isApprovedLocked) {
       toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
       return;
     }
+    const ok = await confirm("Are you sure you want to clear all catchment areas?", {
+      title: "Clear All Catchments",
+      confirmText: "Clear All",
+      cancelText: "Cancel",
+      variant: "destructive"
+    });
+    if (!ok) return;
+
+    pushToUndo(rows);
     setRows([]);
     saveState([]);
+    setSelectedIds([]);
     dirtyStore.set(true);
     toast.success("Cleared all catchment entries.");
   };
@@ -500,6 +866,22 @@ function StormWaterPage() {
   const calculatedResults = useMemo(() => {
     return computeStormWaterCalculations(rows, unitSystem);
   }, [rows, unitSystem]);
+
+  const flaggedCount = useMemo(() => {
+    return rows.filter(r => getCatchmentValidation(r).isFlagged).length;
+  }, [rows]);
+
+  const displayedItems = useMemo(() => {
+    let list = calculatedResults.items;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(r => (r.name || "").toLowerCase().includes(q) || (r.surface || "").toLowerCase().includes(q));
+    }
+    if (showFlaggedOnly) {
+      list = list.filter(r => getCatchmentValidation(r).isFlagged);
+    }
+    return list;
+  }, [calculatedResults.items, searchQuery, showFlaggedOnly]);
 
   const handleUnitSystemChange = (next: "ip" | "si") => {
     if (isEffectiveReadOnly) return;
@@ -628,6 +1010,13 @@ function StormWaterPage() {
               </div>
             </div>
 
+            {/* Notification Banner across all tabs */}
+            <CalculationStatusBanner
+              projectId={effectiveProjectId}
+              calculatorPath="/plumbing-storm-water"
+              calculatorTitle="Storm Water Runoff Calculation"
+            />
+
             {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               {tab === "solver" ? (
@@ -640,244 +1029,518 @@ function StormWaterPage() {
                         <ContextMenuTrigger asChild>
                           <div
                             id="card-schedule"
-                            className={`bg-card border border-border rounded-2xl p-5 shadow-xs transition-colors flex flex-col gap-4 ${
+                            className={`bg-card border border-border rounded-2xl shadow-xs transition-colors flex flex-col overflow-hidden ${
                               isFieldHighlighted("card-schedule")
                                 ? "field-highlight-pulse row-highlight-flash item-highlight-pulse border-2 border-sky-400 bg-sky-50 dark:bg-sky-950/40 ring-4 ring-sky-400/25"
                                 : ""
                             }`}
                           >
-                            <div className="flex items-center justify-between pb-3 border-b border-border/70">
-                              <div className="flex items-center gap-2">
+                            {/* Card Header Toolbar matching Ventilation */}
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
+                              <div className="flex items-center gap-2.5 flex-wrap">
                                 <div className="w-1.5 h-4 bg-primary rounded-full" />
-                                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center">
+                                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                                   Runoff Schedule
                                   {renderCommentBadge("card-schedule", "Runoff Schedule")}
                                 </h3>
+
+                                {/* Search Filter */}
+                                <div className="relative flex items-center">
+                                  <Search className="size-3.5 absolute left-2.5 text-muted-foreground pointer-events-none" />
+                                  <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    placeholder="Filter catchments..."
+                                    className="h-7 w-44 pl-7 pr-2.5 bg-surface-2 border border-border rounded-full text-[11.5px] outline-none focus:border-primary focus:bg-background transition-all text-foreground placeholder:text-muted-foreground"
+                                  />
+                                </div>
+
+                                {/* Flagged Filter Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setShowFlaggedOnly(prev => !prev)}
+                                  className={`inline-flex items-center gap-1.5 px-3 py-1 text-[11.5px] font-semibold rounded-full border transition cursor-pointer shadow-2xs ${
+                                    showFlaggedOnly
+                                      ? "bg-red-500/15 border-red-500 text-red-600 dark:text-red-400 font-bold shadow-2xs"
+                                      : flaggedCount > 0
+                                        ? "bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-100"
+                                        : "bg-surface-2 border-border text-muted-foreground hover:bg-surface-3 hover:text-foreground"
+                                  }`}
+                                  title={showFlaggedOnly ? "Showing flagged catchments only. Click to show all." : `${flaggedCount} flagged catchment(s)`}
+                                >
+                                  <Flag className={`size-3 ${flaggedCount > 0 || showFlaggedOnly ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+                                  <span>{showFlaggedOnly ? "Flagged Only" : `Flagged (${flaggedCount})`}</span>
+                                </button>
+
+                                <button
+                                  disabled={isEffectiveReadOnly || isApprovedLocked}
+                                  onClick={handleAddRow}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                                >
+                                  <Plus className="size-3.5" />
+                                  <span>Add Catchment</span>
+                                </button>
+                                {selectedIds.length > 0 && (
+                                  <div className="flex items-center gap-1.5 pl-2 border-l border-border/80 animate-fade-in">
+                                    <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10.5px] font-bold">
+                                      {selectedIds.length} selected
+                                    </span>
+                                    <button
+                                      disabled={isEffectiveReadOnly || isApprovedLocked}
+                                      onClick={() => handleToggleFlag(selectedIds)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-surface-2 hover:bg-muted text-foreground transition cursor-pointer"
+                                      title="Flag / Unflag Selected"
+                                    >
+                                      <Flag className="size-3 text-muted-foreground" />
+                                      <span>Flag</span>
+                                    </button>
+                                    <button
+                                      disabled={isEffectiveReadOnly || isApprovedLocked}
+                                      onClick={() => handleBulkDuplicate(selectedIds)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-surface-2 hover:bg-muted text-foreground transition cursor-pointer"
+                                      title="Duplicate Selected (Ctrl+D)"
+                                    >
+                                      <Copy className="size-3 text-muted-foreground" />
+                                      <span>Duplicate</span>
+                                    </button>
+                                    <button
+                                      disabled={isEffectiveReadOnly || isApprovedLocked}
+                                      onClick={() => handleBulkDelete(selectedIds)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 transition cursor-pointer"
+                                      title="Delete Selected (Del)"
+                                    >
+                                      <Trash2 className="size-3" />
+                                      <span>Delete</span>
+                                    </button>
+                                    <button
+                                      onClick={() => setSelectedIds([])}
+                                      className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 cursor-pointer"
+                                    >
+                                      Deselect
+                                    </button>
+                                  </div>
+                                )}
                               </div>
-                              <button
-                                disabled={isEffectiveReadOnly}
-                                onClick={handleClearAll}
-                                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 transition cursor-pointer disabled:opacity-50"
-                              >
-                                Clear All
-                              </button>
+                               <div className="flex items-center gap-2" />
                             </div>
 
+                            {/* Table Container */}
                             <div className="overflow-x-auto">
                               <table className="w-full text-left border-collapse text-xs">
                                 <thead>
-                                  <tr className="border-b border-border text-muted-foreground font-semibold">
-                                    <th className="py-2.5 px-2">Name</th>
-                                    <th className="py-2.5 px-2">Area ({isSI ? "m²" : "ft²"})</th>
-                                    <th className="py-2.5 px-2">Surface</th>
-                                    <th className="py-2.5 px-2 text-center">C</th>
-                                    <th className="py-2.5 px-2">Intensity ({isSI ? "mm/hr" : "in/hr"})</th>
-                                    <th className="py-2.5 px-2 text-right">Flow ({isSI ? "L/s" : "GPM"})</th>
-                                    <th className="py-2.5 px-2 text-center">Action</th>
+                                  <tr className="bg-muted/40 text-muted-foreground font-bold text-[11px] tracking-wider uppercase select-none">
+                                    <th className="py-2.5 px-2 text-center w-9 border-b border-border border-r border-border/60">
+                                      <input
+                                        type="checkbox"
+                                        disabled={isApprovedLocked || isEffectiveReadOnly}
+                                        checked={rows.length > 0 && selectedIds.length === rows.length && !isApprovedLocked && !isEffectiveReadOnly}
+                                        ref={(el) => {
+                                          if (el) el.indeterminate = selectedIds.length > 0 && selectedIds.length < rows.length && !isApprovedLocked && !isEffectiveReadOnly;
+                                        }}
+                                        onChange={(e) => {
+                                          if (isApprovedLocked || isEffectiveReadOnly) {
+                                            toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+                                            return;
+                                          }
+                                          if (e.target.checked) {
+                                            setSelectedIds(rows.map(r => r.id));
+                                            toast.info(`Selected all ${rows.length} catchment(s)`);
+                                          } else {
+                                            setSelectedIds([]);
+                                          }
+                                        }}
+                                        className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                                        title={isApprovedLocked || isEffectiveReadOnly ? "Calculation is locked" : "Select / Deselect All (Ctrl+A)"}
+                                      />
+                                    </th>
+                                    <th className="py-2.5 px-2 text-center w-10 border-b border-border border-r border-border/60">No.</th>
+                                    <th className="py-2.5 px-3 border-b border-border border-r border-border/60 min-w-[190px]">Catchment Name</th>
+                                    <th className="py-2.5 px-3 text-right w-28 border-b border-border border-r border-border/60">Area ({isSI ? "m²" : "ft²"})</th>
+                                    <th className="py-2.5 px-3 w-44 border-b border-border border-r border-border/60">Surface</th>
+                                    <th className="py-2.5 px-2 text-center w-20 border-b border-border border-r border-border/60">C</th>
+                                    <th className="py-2.5 px-3 text-right w-28 border-b border-border border-r border-border/60">Intensity ({isSI ? "mm/hr" : "in/hr"})</th>
+                                    <th className="py-2.5 px-3 text-right w-28 border-b border-border border-r border-border/60 font-mono font-bold text-primary">Flow ({isSI ? "L/s" : "GPM"})</th>
+                                    <th className="py-2.5 px-2 text-center w-20 border-b border-border">Action</th>
                                   </tr>
                                 </thead>
-                                <tbody className="divide-y divide-border/60">
-                                  {/* Entry Input Row */}
-                                  {!isApprovedLocked && !isEffectiveReadOnly ? (
-                                    <tr className="bg-slate-50/70 dark:bg-zinc-800/30">
-                                      <td className="py-2 px-1">
-                                        <input
-                                          type="text"
-                                          disabled={isEffectiveReadOnly || isApprovedLocked}
-                                          value={newName}
-                                          onChange={(e) => setNewName(e.target.value)}
-                                          className="w-full h-8 px-2 border border-border rounded bg-background text-foreground text-xs"
-                                          placeholder="Catchment name"
-                                        />
-                                      </td>
-                                      <td className="py-2 px-1">
-                                        <input
-                                          type="number"
-                                          disabled={isEffectiveReadOnly || isApprovedLocked}
-                                          value={newArea}
-                                          onChange={(e) => setNewArea(e.target.value)}
-                                          className="w-20 h-8 px-2 border border-border rounded bg-background text-foreground text-right text-xs"
-                                        />
-                                      </td>
-                                      <td className="py-2 px-1">
-                                        <select
-                                          disabled={isEffectiveReadOnly || isApprovedLocked}
-                                          value={newSurface}
-                                          onChange={(e) => setNewSurface(e.target.value)}
-                                          className="w-32 h-8 px-1 border border-border rounded bg-background text-foreground text-xs"
-                                        >
-                                          {Object.keys(SURFACE_LABELS).map(k => (
-                                            <option key={k} value={k}>{SURFACE_LABELS[k]}</option>
-                                          ))}
-                                        </select>
-                                      </td>
-                                      <td className="py-2 px-1 text-center font-bold text-foreground">
-                                        {SURFACE_COEFS[newSurface]}
-                                      </td>
-                                      <td className="py-2 px-1">
-                                        <input
-                                          type="number"
-                                          disabled={isEffectiveReadOnly || isApprovedLocked}
-                                          value={newIntensity}
-                                          onChange={(e) => setNewIntensity(e.target.value)}
-                                          className="w-16 h-8 px-2 border border-border rounded bg-background text-foreground text-right text-xs"
-                                        />
-                                      </td>
-                                      <td className="py-2 px-1 text-right font-bold text-muted-foreground">
-                                        -
-                                      </td>
-                                      <td className="py-2 px-1 text-center">
-                                        <button
-                                          disabled={isEffectiveReadOnly || isApprovedLocked}
-                                          onClick={handleAddRow}
-                                          className="px-3 py-1.5 bg-[#06456F] hover:bg-[#0A7BC7] text-white rounded text-xs font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                                        >
-                                          Add
-                                        </button>
-                                      </td>
-                                    </tr>
-                                  ) : (
-                                    <tr className="bg-amber-50/60 dark:bg-amber-950/20 border-b border-amber-200/60 dark:border-amber-800/30">
-                                      <td colSpan={7} className="py-3 px-3 text-center text-xs text-amber-700 dark:text-amber-400 font-medium">
-                                        <div className="flex items-center justify-center gap-2">
-                                          <Lock className="size-3.5" />
-                                          <span>Calculation is <strong>Approved &amp; Locked</strong>. Discipline Coordinator must unlock to add or edit catchment areas.</span>
+                                <tbody>
+                                  {displayedItems.map((row, index) => {
+                                    const isSelected = selectedIds.includes(row.id);
+                                    const validation = getCatchmentValidation(row);
+                                    const isEffectivelyFlagged = validation.isFlagged;
+
+                                    return (
+                                      <ContextMenu key={row.id}>
+                                        <ContextMenuTrigger asChild>
+                                          <tr
+                                            onClick={(e) => {
+                                              if (isApprovedLocked || isEffectiveReadOnly) return;
+                                              const target = e.target as HTMLElement;
+                                              if (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "BUTTON" || target.closest("button") || target.closest("select")) {
+                                                return;
+                                              }
+                                              const isShift = e.shiftKey;
+                                              const isCtrl = e.ctrlKey || e.metaKey;
+                                              handleToggleSelect(row.id, isShift, isCtrl);
+                                            }}
+                                            onDoubleClick={() => {
+                                              if (isEffectiveReadOnly || isApprovedLocked) {
+                                                toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+                                                return;
+                                              }
+                                              setEditingCatchment(row);
+                                            }}
+                                            className={`border-b border-border/50 transition-colors cursor-pointer select-none ${
+                                              isSelected
+                                                ? "bg-primary/15 font-medium dark:bg-primary/20"
+                                                : editingCatchment?.id === row.id
+                                                  ? "bg-accent/60"
+                                                  : index % 2 === 0
+                                                    ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80"
+                                                    : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"
+                                            }`}
+                                          >
+                                            {/* Checkbox */}
+                                            <td className="p-1 text-center w-9 border-r border-border/40" onClick={(e) => e.stopPropagation()}>
+                                              <input
+                                                type="checkbox"
+                                                disabled={isEffectiveReadOnly || isApprovedLocked}
+                                                checked={isSelected && !isEffectiveReadOnly && !isApprovedLocked}
+                                                onChange={(e) => {
+                                                  if (isEffectiveReadOnly || isApprovedLocked) return;
+                                                  if (e.target.checked) {
+                                                    setSelectedIds(prev => Array.from(new Set([...prev, row.id])));
+                                                  } else {
+                                                    setSelectedIds(prev => prev.filter(id => id !== row.id));
+                                                  }
+                                                  setLastSelectedId(row.id);
+                                                }}
+                                                className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                                              />
+                                            </td>
+
+                                            {/* No. */}
+                                            <td className="p-1 text-center font-mono text-[11px] text-muted-foreground border-r border-border/40 select-none">
+                                              {index + 1}
+                                            </td>
+
+                                            {/* Name */}
+                                            <td className="p-1 border-r border-border/40">
+                                              <div className="flex items-center gap-1.5 w-full">
+                                                <input
+                                                  type="text"
+                                                  disabled={isEffectiveReadOnly || isApprovedLocked}
+                                                  value={row.name}
+                                                  onChange={(e) => handleUpdateRow(row.id, { name: e.target.value })}
+                                                  placeholder="Catchment name"
+                                                  className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-2 py-1 text-[13.5px] font-medium text-foreground outline-none transition-all truncate cursor-text disabled:cursor-not-allowed"
+                                                />
+                                                {renderCommentBadge(`catchment-${row.id}`, row.name)}
+                                              </div>
+                                            </td>
+
+                                            {/* Area */}
+                                            <td className="p-1 border-r border-border/40">
+                                              <input
+                                                type="number"
+                                                step="any"
+                                                min="0"
+                                                disabled={isEffectiveReadOnly || isApprovedLocked}
+                                                value={row.area === 0 ? "" : row.area}
+                                                onChange={(e) => handleUpdateRow(row.id, { area: e.target.value === "" ? 0 : parseFloat(e.target.value) || 0 })}
+                                                placeholder="0.0"
+                                                className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-2 py-1 text-xs font-mono font-medium text-foreground outline-none transition-all text-right cursor-text disabled:cursor-not-allowed"
+                                              />
+                                            </td>
+
+                                            {/* Surface */}
+                                            <td className="p-1 border-r border-border/40">
+                                              <div className="relative w-full flex items-center">
+                                                <select
+                                                  disabled={isEffectiveReadOnly || isApprovedLocked}
+                                                  value={row.surface || ""}
+                                                  onChange={(e) => {
+                                                    const newSurface = e.target.value;
+                                                    const newCoef = SURFACE_COEFS[newSurface] ?? row.coef;
+                                                    handleUpdateRow(row.id, { surface: newSurface, coef: newCoef });
+                                                  }}
+                                                  className={`w-full appearance-none bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-2 py-1 pr-6 text-xs font-medium outline-none transition-all cursor-pointer disabled:cursor-not-allowed capitalize ${
+                                                    !row.surface ? "text-muted-foreground/60 italic" : "text-foreground"
+                                                  }`}
+                                                >
+                                                  <option value="" disabled>Select Surface...</option>
+                                                  {Object.keys(SURFACE_LABELS).map((k) => (
+                                                    <option key={k} value={k}>{SURFACE_LABELS[k]}</option>
+                                                  ))}
+                                                </select>
+                                                <ChevronDown className="size-3.5 absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                                              </div>
+                                            </td>
+
+                                            {/* Runoff Coef C */}
+                                            <td className="p-1 border-r border-border/40 text-center">
+                                              <input
+                                                type="number"
+                                                step="0.01"
+                                                min="0.05"
+                                                max="1.0"
+                                                disabled={isEffectiveReadOnly || isApprovedLocked}
+                                                value={row.coef === 0 ? "" : row.coef}
+                                                onChange={(e) => handleUpdateRow(row.id, { coef: e.target.value === "" ? 0 : parseFloat(e.target.value) || 0 })}
+                                                placeholder="0.00"
+                                                className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1 py-1 text-xs font-mono font-bold text-center text-foreground outline-none transition-all cursor-text disabled:cursor-not-allowed"
+                                              />
+                                            </td>
+
+                                            {/* Intensity */}
+                                            <td className="p-1 border-r border-border/40">
+                                              <input
+                                                type="number"
+                                                step="any"
+                                                min="0"
+                                                disabled={isEffectiveReadOnly || isApprovedLocked}
+                                                value={row.intensity === 0 ? "" : row.intensity}
+                                                onChange={(e) => handleUpdateRow(row.id, { intensity: e.target.value === "" ? 0 : parseFloat(e.target.value) || 0 })}
+                                                placeholder={isSI ? "50" : "2.0"}
+                                                className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-2 py-1 text-xs font-mono font-medium text-foreground outline-none transition-all text-right cursor-text disabled:cursor-not-allowed"
+                                              />
+                                            </td>
+
+                                            {/* Flow */}
+                                            <td className="p-1 border-r border-border/40 text-right px-3 font-mono font-bold text-xs text-[#0A7BC7] dark:text-[#38bdf8]">
+                                              {row.flow.toFixed(2)}
+                                            </td>
+
+                                            {/* Actions / Flag */}
+                                            <td className="p-1 text-center" onClick={(e) => e.stopPropagation()}>
+                                              <button
+                                                type="button"
+                                                disabled={isEffectiveReadOnly || isApprovedLocked}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleToggleFlag(row.id);
+                                                }}
+                                                className="p-1.5 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto disabled:opacity-40 disabled:cursor-not-allowed"
+                                                title={
+                                                  validation.isMissing
+                                                    ? (validation.reason || "Missing catchment data")
+                                                    : (isEffectivelyFlagged ? "Unflag Catchment" : "Flag Catchment for review")
+                                                }
+                                              >
+                                                <Flag
+                                                  className={`size-3.5 transition-all duration-200 ${
+                                                    isEffectivelyFlagged
+                                                      ? "fill-red-500 text-red-500 scale-110"
+                                                      : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+                                                  }`}
+                                                />
+                                              </button>
+                                            </td>
+                                          </tr>
+                                        </ContextMenuTrigger>
+                                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                          <ContextMenuItem
+                                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                                            onClick={() => {
+                                              const targetIds = selectedIds.includes(row.id) && selectedIds.length > 1 ? selectedIds : [row.id];
+                                              handleToggleFlag(targetIds);
+                                            }}
+                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium disabled:opacity-50"
+                                          >
+                                            <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+                                            <span>{row.flagged ? "Unflag Catchment" : "Flag Catchment"}</span>
+                                          </ContextMenuItem>
+
+                                          <ContextMenuItem
+                                            onClick={() => {
+                                              if (isEffectiveReadOnly || isApprovedLocked) {
+                                                toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+                                                return;
+                                              }
+                                              setEditingCatchment(row);
+                                            }}
+                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                                          >
+                                            <Edit3 className="size-3.5 text-muted-foreground" />
+                                            <span>Edit Catchment</span>
+                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+                                          </ContextMenuItem>
+
+                                          <ContextMenuItem
+                                            onClick={() => {
+                                              const targetIds = selectedIds.includes(row.id) && selectedIds.length > 1 ? selectedIds : [row.id];
+                                              handleCopyCatchments(targetIds);
+                                            }}
+                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                                          >
+                                            <Copy className="size-3.5 text-muted-foreground" />
+                                            <span>Copy Catchment</span>
+                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                                          </ContextMenuItem>
+
+                                          <ContextMenuItem
+                                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                                            onClick={() => {
+                                              const targetIds = selectedIds.includes(row.id) && selectedIds.length > 1 ? selectedIds : [row.id];
+                                              handleCutCatchments(targetIds);
+                                            }}
+                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium disabled:opacity-50"
+                                          >
+                                            <Scissors className="size-3.5 text-muted-foreground" />
+                                            <span>Cut Catchment</span>
+                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</ContextMenuShortcut>
+                                          </ContextMenuItem>
+
+                                          <ContextMenuItem
+                                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                                            onClick={handlePasteCatchments}
+                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium disabled:opacity-50"
+                                          >
+                                            <ClipboardPaste className="size-3.5 text-muted-foreground" />
+                                            <span>Paste Catchment</span>
+                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+                                          </ContextMenuItem>
+
+                                          <ContextMenuItem
+                                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                                            onClick={() => {
+                                              const targetIds = selectedIds.includes(row.id) && selectedIds.length > 1 ? selectedIds : [row.id];
+                                              handleBulkDuplicate(targetIds);
+                                            }}
+                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium disabled:opacity-50"
+                                          >
+                                            <Copy className="size-3.5 text-muted-foreground" />
+                                            <span>Duplicate Catchment</span>
+                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
+                                          </ContextMenuItem>
+
+                                          <ContextMenuItem
+                                            onClick={() => {
+                                              if (isEffectiveReadOnly || isApprovedLocked) {
+                                                toast.info("Workspace is in Read-Only mode. Adding comments is locked.", { id: "readonly-notice" });
+                                                return;
+                                              }
+                                              handleOpenComment(`catchment-${row.id}`, row.name);
+                                            }}
+                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-[#0A7BC7] dark:text-sky-400 font-medium"
+                                          >
+                                            <MessageSquare className="size-3.5" />
+                                            <span>Add Comment / Assign Task</span>
+                                          </ContextMenuItem>
+
+                                          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                                          <ContextMenuItem
+                                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                                            onClick={() => {
+                                              const targetIds = selectedIds.includes(row.id) && selectedIds.length > 1 ? selectedIds : [row.id];
+                                              handleBulkDelete(targetIds);
+                                            }}
+                                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 text-destructive rounded cursor-pointer font-medium disabled:opacity-50"
+                                          >
+                                            <Trash2 className="size-3.5" />
+                                            <span>Delete Catchment</span>
+                                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Del</ContextMenuShortcut>
+                                          </ContextMenuItem>
+                                        </ContextMenuContent>
+                                      </ContextMenu>
+                                    );
+                                  })}
+                                  {calculatedResults.items.length === 0 && (
+                                    <tr>
+                                      <td colSpan={9} className="py-12 text-center text-muted-foreground">
+                                        <div className="flex flex-col items-center justify-center gap-3">
+                                          <CloudRain className="size-8 text-muted-foreground/40" />
+                                          <div>
+                                            <p className="text-sm font-semibold text-foreground">No Catchment Areas Added</p>
+                                            <p className="text-xs text-muted-foreground">Click "Add Catchment" or press Ctrl+V to paste catchments.</p>
+                                          </div>
+                                          <button
+                                            onClick={handleAddRow}
+                                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                                            className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs cursor-pointer"
+                                          >
+                                            <Plus className="size-3.5" />
+                                            Add Catchment
+                                          </button>
                                         </div>
                                       </td>
                                     </tr>
                                   )}
-                                  {calculatedResults.items.map(row => (
-                                    <ContextMenu key={row.id}>
-                                      <ContextMenuTrigger asChild>
-                                        <tr
-                                          onDoubleClick={() => {
-                                            if (isEffectiveReadOnly || isApprovedLocked) {
-                                              toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
-                                              return;
-                                            }
-                                            setEditingCatchment(row);
-                                          }}
-                                          className={`hover:bg-accent/40 transition-colors cursor-pointer select-none ${
-                                            editingCatchment?.id === row.id ? "bg-accent/60" : ""
-                                          }`}
-                                        >
-                                          <td className="py-3 px-2 font-semibold text-foreground">
-                                            <div className="flex items-center gap-1.5">
-                                              <span>{row.name}</span>
-                                              {renderCommentBadge(`catchment-${row.id}`, row.name)}
-                                            </div>
-                                          </td>
-                                          <td className="py-3 px-2 font-mono">{row.area.toFixed(1)}</td>
-                                          <td className="py-3 px-2 text-muted-foreground capitalize">{row.surface.replace('_', ' ')}</td>
-                                          <td className="py-3 px-2 text-center font-bold text-foreground font-mono">{row.coef.toFixed(2)}</td>
-                                          <td className="py-3 px-2 font-mono">{row.intensity.toFixed(1)}</td>
-                                          <td className="py-3 px-2 text-right font-extrabold text-[#06456F] dark:text-sky-400 font-mono">
-                                            {row.flow.toFixed(2)}
-                                          </td>
-                                          <td className="py-3 px-2 text-center" onClick={(e) => e.stopPropagation()}>
-                                            <button
-                                              disabled={isEffectiveReadOnly || isApprovedLocked}
-                                              onClick={() => {
-                                                if (isEffectiveReadOnly || isApprovedLocked) {
-                                                  toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
-                                                  return;
-                                                }
-                                                handleDeleteRow(row.id);
-                                              }}
-                                              className="text-red-500 hover:text-red-700 bg-transparent border-0 cursor-pointer disabled:opacity-40 p-1"
-                                              title="Delete catchment"
-                                            >
-                                              <Trash2 className="w-4 h-4" />
-                                            </button>
-                                          </td>
-                                        </tr>
-                                      </ContextMenuTrigger>
-                                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                                        <ContextMenuItem
-                                          onClick={() => {
-                                            if (isEffectiveReadOnly || isApprovedLocked) {
-                                              toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
-                                              return;
-                                            }
-                                            setEditingCatchment(row);
-                                          }}
-                                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
-                                        >
-                                          <Edit3 className="size-3.5 text-muted-foreground" />
-                                          <span>Edit Catchment</span>
-                                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                                        </ContextMenuItem>
-
-                                        <ContextMenuItem
-                                          onClick={() => {
-                                            if (isEffectiveReadOnly || isApprovedLocked) {
-                                              toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
-                                              return;
-                                            }
-                                            const clone: CatchmentRow = {
-                                              ...row,
-                                              id: Math.random().toString(36).substring(2, 9),
-                                              name: `${row.name} (Copy)`
-                                            };
-                                            const updated = [...rows, clone];
-                                            setRows(updated);
-                                            saveState(updated);
-                                            dirtyStore.set(true);
-                                            toast.success(`Duplicated "${row.name}"`);
-                                          }}
-                                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                                        >
-                                          <Copy className="size-3.5 text-muted-foreground" />
-                                          <span>Duplicate Catchment</span>
-                                        </ContextMenuItem>
-
-                                        <ContextMenuItem
-                                          onClick={() => {
-                                            if (isEffectiveReadOnly || isApprovedLocked) {
-                                              toast.info("Workspace is in Read-Only mode. Adding comments is locked.", { id: "readonly-notice" });
-                                              return;
-                                            }
-                                            handleOpenComment(`catchment-${row.id}`, row.name);
-                                          }}
-                                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-[#0A7BC7] dark:text-sky-400 font-medium"
-                                        >
-                                          <MessageSquare className="size-3.5" />
-                                          <span>Add Comment / Assign Task</span>
-                                        </ContextMenuItem>
-
-                                        <ContextMenuSeparator className="h-px bg-border my-1" />
-
-                                        <ContextMenuItem
-                                          onClick={async () => {
-                                            if (isEffectiveReadOnly || isApprovedLocked) {
-                                              toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
-                                              return;
-                                            }
-                                            if (await confirm(`Are you sure you want to delete catchment "${row.name}"?`)) {
-                                              handleDeleteRow(row.id);
-                                            }
-                                          }}
-                                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 text-destructive rounded cursor-pointer font-medium"
-                                        >
-                                          <Trash2 className="size-3.5" />
-                                          <span>Delete Catchment</span>
-                                        </ContextMenuItem>
-                                      </ContextMenuContent>
-                                    </ContextMenu>
-                                  ))}
+                                  {calculatedResults.items.length > 0 && (
+                                    <tr className="bg-primary/5 dark:bg-primary/10 font-bold border-t-2 border-border text-foreground">
+                                      <td className="py-2.5 px-2 text-center text-muted-foreground border-r border-border/40 font-mono text-xs">Σ</td>
+                                      <td className="py-2.5 px-2 text-center text-muted-foreground border-r border-border/40 font-mono text-xs"></td>
+                                      <td className="py-2.5 px-3 border-r border-border/40 text-xs font-bold uppercase tracking-wider">Total / Composite</td>
+                                      <td className="py-2.5 px-3 text-right font-mono text-xs font-bold border-r border-border/40">{calculatedResults.totalArea.toFixed(1)}</td>
+                                      <td className="py-2.5 px-3 text-muted-foreground text-xs italic border-r border-border/40">{calculatedResults.imperviousPercentage}% Impervious</td>
+                                      <td className="py-2.5 px-2 text-center font-mono text-xs font-bold border-r border-border/40">{calculatedResults.avgC.toFixed(2)}</td>
+                                      <td className="py-2.5 px-3 text-right font-mono text-xs text-muted-foreground border-r border-border/40">—</td>
+                                      <td className="py-2.5 px-3 text-right font-mono text-xs font-extrabold text-[#0A7BC7] dark:text-[#38bdf8] border-r border-border/40">{calculatedResults.totalFlow.toFixed(2)}</td>
+                                      <td className="py-2.5 px-2 text-center"></td>
+                                    </tr>
+                                  )}
                                 </tbody>
                               </table>
+                            </div>
+
+                            {/* Bottom Status Bar matching Ventilation / Drainage */}
+                            <div className="px-4 py-2 bg-card border-t border-border flex items-center justify-between text-xs text-muted-foreground shrink-0 select-none flex-wrap gap-2">
+                              <div className="flex items-center gap-2">
+                                <span>Total Catchments: <strong className="text-foreground">{rows.length}</strong></span>
+                                <span className="text-border">|</span>
+                                <span>Impervious: <strong className="text-foreground">{calculatedResults.imperviousPercentage}%</strong></span>
+                              </div>
+                              <div className="flex items-center gap-3 font-mono text-[11px] flex-wrap">
+                                <span>Total Area: <strong className="text-foreground">{calculatedResults.totalArea.toFixed(1)} {isSI ? "m²" : "ft²"}</strong></span>
+                                <span className="text-border">|</span>
+                                <span>Weighted C: <strong className="text-foreground">{calculatedResults.avgC.toFixed(2)}</strong></span>
+                                <span className="text-border">|</span>
+                                <span>Total Flow: <strong className="text-primary font-bold">{calculatedResults.totalFlow.toFixed(2)} {isSI ? "L/s" : "GPM"}</strong></span>
+                              </div>
                             </div>
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-48 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
                           <ContextMenuItem
+                            onClick={handlePasteCatchments}
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-foreground font-medium text-[13px] disabled:opacity-50"
+                          >
+                            <ClipboardPaste className="size-3.5 text-muted-foreground" />
+                            <span>Paste Catchment</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onClick={handleAddRow}
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-foreground font-medium text-[13px] disabled:opacity-50"
+                          >
+                            <Plus className="size-3.5 text-muted-foreground" />
+                            <span>Add Catchment</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            onClick={() => {
+                              setSelectedIds(rows.map(r => r.id));
+                              toast.info(`Selected all ${rows.length} catchment(s)`);
+                            }}
+                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-foreground font-medium text-[13px]"
+                          >
+                            <Check className="size-3.5 text-muted-foreground" />
+                            <span>Select All</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+A</ContextMenuShortcut>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
                             onClick={() => {
                               if (isEffectiveReadOnly) return;
+                              pushToUndo(rows);
                               setRows([
                                 { id: "1", name: "Main Roof Area", area: 1200, surface: "concrete", coef: 0.95, intensity: 50 },
                                 { id: "2", name: "Pool Deck", area: 450, surface: "brick", coef: 0.85, intensity: 50 }
                               ]);
+                              setSelectedIds([]);
                               dirtyStore.set(true);
                               toast.success("Reset catchment schedule to default");
                             }}

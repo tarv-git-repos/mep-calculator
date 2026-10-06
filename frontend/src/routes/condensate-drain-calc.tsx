@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { useConfirm } from "@/hooks/use-confirm";
 import { downloadFile } from "@/lib/download";
@@ -143,6 +143,99 @@ export function checkIfCoilMissingData(coil: any): boolean {
   return getCoilMissingReasons(coil).length > 0;
 }
 
+interface InlineInputProps {
+  value: string | number;
+  onCommit: (val: string) => void;
+  className?: string;
+  type?: "text" | "number";
+  step?: string;
+  min?: number;
+  max?: number;
+  placeholder?: string;
+  disabled?: boolean;
+}
+
+function InlineInput({
+  value,
+  onCommit,
+  className = "",
+  type = "text",
+  step,
+  min,
+  max,
+  placeholder,
+  disabled
+}: InlineInputProps) {
+  const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+  const isEffectiveDisabled = disabled || isReadOnly;
+
+  const getCleanVal = (val: any) => {
+    if (val === undefined || val === null || val === "undefined" || val === "null") {
+      return "";
+    }
+    return String(val);
+  };
+
+  const [localVal, setLocalVal] = useState(getCleanVal(value));
+
+  useEffect(() => {
+    const clean = getCleanVal(value);
+    setLocalVal(prev => (prev === clean ? prev : clean));
+  }, [value]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      if (!isEffectiveDisabled && localVal !== getCleanVal(value)) {
+        onCommit(localVal);
+      }
+      e.currentTarget.blur();
+    } else if (e.key === "Escape") {
+      setLocalVal(getCleanVal(value));
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <input
+      type={type}
+      step={step}
+      min={min}
+      max={max}
+      disabled={isEffectiveDisabled}
+      placeholder={placeholder}
+      value={localVal}
+      onChange={(e) => {
+        if (isEffectiveDisabled) return;
+        setLocalVal(e.target.value);
+      }}
+      onKeyDown={handleKeyDown}
+      onBlur={() => {
+        if (isEffectiveDisabled) {
+          setLocalVal(getCleanVal(value));
+          return;
+        }
+        if (localVal !== getCleanVal(value)) {
+          onCommit(localVal);
+        }
+      }}
+      onClick={(e) => {
+        e.stopPropagation();
+      }}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+      }}
+      className={`bg-transparent border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${
+        isEffectiveDisabled
+          ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent"
+          : "hover:border-muted-foreground/30 focus:border-primary focus:bg-background/80 focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-text"
+      } ${className}`}
+    />
+  );
+}
+
 function CondensateDrainCalcPage() {
   const { project, forceSaveToCloud } = useWorkspace();
   const { user, userData, profile } = useAuth();
@@ -180,6 +273,33 @@ function CondensateDrainCalcPage() {
 
   const getCoilEditIds = (rId: string): string[] => {
     return selected.has(rId) ? Array.from(selected) : [rId];
+  };
+
+  const handleUpdateCoilField = (id: string, field: keyof CoilRow, val: string | number) => {
+    if (isLocked) {
+      toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
+      return;
+    }
+
+    const editIds = selected.has(id) && selected.size > 1 ? Array.from(selected) : [id];
+    const editSet = new Set(editIds);
+
+    const numFields: (keyof CoilRow)[] = ["dbIn", "wbIn", "dbOut", "wbOut", "flow"];
+    const isNum = numFields.includes(field);
+
+    let parsedVal: any = val;
+    if (isNum) {
+      const num = parseFloat(String(val));
+      parsedVal = isNaN(num) ? "" : num;
+    }
+
+    const newRows = rows.map((r) => {
+      if (!editSet.has(r.id)) return r;
+      if (field === "name" && editIds.length > 1 && r.id !== id) return r;
+      return { ...r, [field]: parsedVal };
+    });
+
+    updateRowsWithHistory(newRows);
   };
 
   const bulkUpdateCoils = (ids: string[], updates: Partial<CoilRow>) => {
@@ -515,23 +635,65 @@ function CondensateDrainCalcPage() {
     setCommentModalOpen(true);
   };
 
-  const handleSelectAll = () => {
-    if (selected.size === rows.length) {
+  const handleSelectAll = (e?: React.SyntheticEvent) => {
+    if (e) e.stopPropagation();
+    if (isLocked) {
+      toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
+    if (selected.size === rows.length && rows.length > 0) {
       setSelected(new Set());
     } else {
       setSelected(new Set(rows.map(r => r.id)));
     }
   };
 
-  const handleToggleSelectRow = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleToggleSelectRow = (id: string, e?: React.SyntheticEvent) => {
+    if (e) e.stopPropagation();
+    if (isLocked) {
+      toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     const next = new Set(selected);
     if (next.has(id)) next.delete(id);
     else next.add(id);
     setSelected(next);
   };
 
+  const handleSaveCurrent = () => {
+    try {
+      if (project?.id) {
+        const dataToSave = {
+          unitSystem,
+          rows
+        };
+        localStorage.setItem(`mep_condensate_calc_${project.id}`, JSON.stringify(dataToSave));
+        dirtyStore.set(false);
+        if (forceSaveToCloud) forceSaveToCloud();
+        toast.success("Condensate calculation saved!");
+      }
+    } catch (e) {
+      toast.error("Failed to save calculation.");
+    }
+  };
+
+  const blurActiveInput = () => {
+    const activeEl = document.activeElement;
+    if (!activeEl) return;
+    const tagName = activeEl.tagName.toUpperCase();
+    const isTextInput =
+      (tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
+      tagName === "TEXTAREA" ||
+      tagName === "SELECT" ||
+      (activeEl as HTMLElement).isContentEditable ||
+      activeEl.getAttribute("contenteditable") === "true";
+    if (isTextInput) {
+      (activeEl as HTMLElement).blur();
+    }
+  };
+
   const handleRowClick = (id: string, e: React.MouseEvent, idx: number) => {
+    blurActiveInput();
     if (e.shiftKey && lastClickedIndex !== null) {
       const start = Math.min(lastClickedIndex, idx);
       const end = Math.max(lastClickedIndex, idx);
@@ -547,6 +709,157 @@ function CondensateDrainCalcPage() {
     }
     setLastClickedIndex(idx);
   };
+
+  // Keyboard Shortcuts (Matching Ventilation: Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D, Ctrl+Z, Ctrl+Y, Escape, Delete, Backspace, Ctrl+S)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: Close open modals / dialogs or deselect rows
+      if (e.key === "Escape") {
+        if (editingCoil || commentModalOpen || isImportModalOpen || showFormulaModal) {
+          setEditingCoil(null);
+          setCommentModalOpen(false);
+          setIsImportModalOpen(false);
+          setShowFormulaModal(false);
+        } else {
+          const activeEl = document.activeElement;
+          const isTextInput = activeEl && (
+            (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
+            activeEl.tagName === "TEXTAREA" ||
+            activeEl.tagName === "SELECT" ||
+            (activeEl as HTMLElement).isContentEditable ||
+            activeEl.getAttribute("contenteditable") === "true"
+          );
+          if (!isTextInput) {
+            setSelected(new Set());
+            setLastClickedIndex(null);
+          }
+        }
+        return;
+      }
+
+      const activeEl = document.activeElement;
+      const isTextInput = activeEl && (
+        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
+        activeEl.tagName === "TEXTAREA" ||
+        activeEl.tagName === "SELECT" ||
+        (activeEl as HTMLElement).isContentEditable ||
+        activeEl.getAttribute("contenteditable") === "true"
+      );
+      if (isTextInput) return;
+
+      const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // 1. Ctrl+A / Cmd+A (Select All)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        const items = filteredRows.length > 0 ? filteredRows : rows;
+        if (items.length > 0) {
+          setSelected(new Set(items.map(r => r.id)));
+          toast.info(`Selected all ${items.length} coil(s)`);
+        }
+        return;
+      }
+
+      // 2. Delete / Backspace (Delete selected coils)
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          if (isLocked) {
+            toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
+            return;
+          }
+          handleDeleteCoil(Array.from(selected));
+        }
+        return;
+      }
+
+      // 3. Ctrl+C / Cmd+C: Copy selected coil(s)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          const toCopy = rows.filter(r => selected.has(r.id));
+          handleCopyCoil(toCopy);
+        }
+        return;
+      }
+
+      // 4. Ctrl+X / Cmd+X: Cut selected coil(s)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (isLocked) {
+          toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
+          return;
+        }
+        if (selected.size > 0) {
+          e.preventDefault();
+          const toCut = rows.filter(r => selected.has(r.id));
+          handleCutCoil(toCut);
+        }
+        return;
+      }
+
+      // 5. Ctrl+V / Cmd+V: Paste coil(s)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        if (isLocked) {
+          toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
+          return;
+        }
+        e.preventDefault();
+        handlePasteCoil();
+        return;
+      }
+
+      // 6. Ctrl+D / Cmd+D: Duplicate selected coil(s)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (isLocked) {
+          toast.info("Calculation is approved and locked. Discipline Coordinator can unlock to edit.", { id: "readonly-notice" });
+          return;
+        }
+        if (selected.size > 0) {
+          e.preventDefault();
+          const toDuplicate = rows.filter(r => selected.has(r.id));
+          handleDuplicateCoil(toDuplicate);
+        }
+        return;
+      }
+
+      // 7. Undo / Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // 8. Ctrl+S / Cmd+S: Save calculation
+      if (isCmdOrCtrl && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        handleSaveCurrent();
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    rows,
+    filteredRows,
+    selected,
+    editingCoil,
+    commentModalOpen,
+    isImportModalOpen,
+    showFormulaModal,
+    isLocked,
+    clipboard,
+    history,
+    historyIndex,
+    project?.id,
+    unitSystem,
+  ]);
 
   const handleRowDoubleClick = (coil: CoilRow) => {
     setEditingCoil(coil);
@@ -741,6 +1054,13 @@ function CondensateDrainCalcPage() {
               </div>
             </div>
 
+            {/* Notification Banner across all tabs */}
+            <CalculationStatusBanner
+              projectId={project?.id || "default"}
+              calculatorPath="/condensate-drain-calc"
+              calculatorTitle="Coil Condensate Calculator"
+            />
+
             {/* Active Tab View */}
             <div key={tab} className="flex-1 min-h-0 animate-fade-in flex flex-col">
               {tab === "coils" && (
@@ -876,26 +1196,22 @@ function CondensateDrainCalcPage() {
                           <thead className="sticky top-0 z-10">
                             <tr className="border-b border-border/70 bg-surface-2 text-muted-foreground font-semibold">
                               <th className="py-2.5 px-3 w-10 min-w-10 max-w-10 text-center">
-                                <button
-                                  type="button"
-                                  onClick={handleSelectAll}
-                                  className="text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-center mx-auto"
-                                  title={selected.size === rows.length ? "Deselect All" : "Select All"}
-                                >
-                                  {selected.size > 0 && selected.size === rows.length ? (
-                                    <CheckSquare className="size-4 text-[#0A7BC7]" />
-                                  ) : (
-                                    <Square className="size-4 text-muted-foreground/60" />
-                                  )}
-                                </button>
+                                <input
+                                  type="checkbox"
+                                  checked={selected.size > 0 && selected.size === rows.length && rows.length > 0 && !isLocked}
+                                  disabled={isLocked || rows.length === 0}
+                                  onChange={handleSelectAll}
+                                  className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed mx-auto block"
+                                  title={selected.size === rows.length && rows.length > 0 ? "Deselect All" : "Select All"}
+                                />
                               </th>
                               <th className="py-2.5 px-3 w-[22%]">Unit Ref</th>
-                              <th className="py-2.5 px-3 w-[13%]">Entering DB/WB</th>
-                              <th className="py-2.5 px-3 w-[13%]">Leaving DB/WB</th>
-                              <th className="py-2.5 px-3 w-[12%]">Air Flow</th>
-                              <th className="py-2.5 px-3 w-[11%]">W_in (kg/kg)</th>
-                              <th className="py-2.5 px-3 w-[11%]">W_out (kg/kg)</th>
-                              <th className="py-2.5 px-3 text-primary font-bold">Condensate ({ip ? "GPM" : "L/s"})</th>
+                              <th className="py-2.5 px-3 w-[13%] text-center">Entering DB/WB ({uTemp})</th>
+                              <th className="py-2.5 px-3 w-[13%] text-center">Leaving DB/WB ({uTemp})</th>
+                              <th className="py-2.5 px-3 w-[12%] text-center">Air Flow ({uFlow})</th>
+                              <th className="py-2.5 px-3 w-[11%] text-center">W_in (kg/kg)</th>
+                              <th className="py-2.5 px-3 w-[11%] text-center">W_out (kg/kg)</th>
+                              <th className="py-2.5 px-3 text-primary font-bold text-center">Condensate ({uCond})</th>
                               <th className="py-2.5 px-2 w-10 min-w-10 max-w-10 text-center" title="Flag coil for attention"></th>
                             </tr>
                           </thead>
@@ -932,17 +1248,20 @@ function CondensateDrainCalcPage() {
                                         }`}
                                       >
                                         {/* 1. Checkbox */}
-                                        <td className="py-2 px-3 w-10 min-w-10 max-w-10 text-center" onClick={(e) => handleToggleSelectRow(r.id, e)}>
-                                          {isSelected ? (
-                                            <CheckSquare className="size-4 text-[#0A7BC7] inline" />
-                                          ) : (
-                                            <Square className="size-4 text-muted-foreground/40 group-hover:text-muted-foreground inline" />
-                                          )}
+                                        <td className="py-1 px-3 w-10 min-w-10 max-w-10 text-center" onClick={(e) => handleToggleSelectRow(r.id, e)}>
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected && !isLocked}
+                                            disabled={isLocked}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => handleToggleSelectRow(r.id, e)}
+                                            className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed mx-auto block"
+                                          />
                                         </td>
 
                                         {/* 2. Unit Ref */}
-                                        <td className="py-2 px-3 font-sans font-semibold text-[13px] text-foreground">
-                                          <div className="flex items-center gap-1.5">
+                                        <td className="py-1 px-3 font-sans font-semibold text-[13px] text-foreground">
+                                          <div className="flex items-center gap-1.5 w-full min-w-[120px]">
                                             {hasComments && (
                                               <button
                                                 type="button"
@@ -956,34 +1275,92 @@ function CondensateDrainCalcPage() {
                                                 <MessageSquare className="size-3.5 fill-blue-500/20" />
                                               </button>
                                             )}
-                                            <span>{r.name}</span>
+                                            <InlineInput
+                                              type="text"
+                                              value={r.name}
+                                              disabled={isLocked}
+                                              onCommit={(val) => handleUpdateCoilField(r.id, "name", val)}
+                                              className="font-sans font-semibold text-[13px] text-foreground w-full"
+                                              placeholder="Unit Ref / Tag"
+                                            />
                                           </div>
                                         </td>
 
                                         {/* 3. Entering DB/WB */}
-                                        <td className="py-2 px-3 text-[13px] font-mono">
-                                          {r.dbIn}/{r.wbIn} {uTemp}
+                                        <td className="py-1 px-2 text-[13px] font-mono text-center">
+                                          <div className="flex items-center justify-center gap-1 min-w-[110px] mx-auto">
+                                            <InlineInput
+                                              type="number"
+                                              step="0.1"
+                                              value={r.dbIn}
+                                              disabled={isLocked}
+                                              onCommit={(val) => handleUpdateCoilField(r.id, "dbIn", val)}
+                                              className="w-14 text-center font-mono font-medium"
+                                              placeholder="DB"
+                                            />
+                                            <span className="text-muted-foreground/50 font-mono text-xs select-none">/</span>
+                                            <InlineInput
+                                              type="number"
+                                              step="0.1"
+                                              value={r.wbIn}
+                                              disabled={isLocked}
+                                              onCommit={(val) => handleUpdateCoilField(r.id, "wbIn", val)}
+                                              className="w-14 text-center font-mono font-medium"
+                                              placeholder="WB"
+                                            />
+                                          </div>
                                         </td>
 
                                         {/* 4. Leaving DB/WB */}
-                                        <td className="py-2 px-3 text-[13px] font-mono">
-                                          {r.dbOut}/{r.wbOut} {uTemp}
+                                        <td className="py-1 px-2 text-[13px] font-mono text-center">
+                                          <div className="flex items-center justify-center gap-1 min-w-[110px] mx-auto">
+                                            <InlineInput
+                                              type="number"
+                                              step="0.1"
+                                              value={r.dbOut}
+                                              disabled={isLocked}
+                                              onCommit={(val) => handleUpdateCoilField(r.id, "dbOut", val)}
+                                              className="w-14 text-center font-mono font-medium"
+                                              placeholder="DB"
+                                            />
+                                            <span className="text-muted-foreground/50 font-mono text-xs select-none">/</span>
+                                            <InlineInput
+                                              type="number"
+                                              step="0.1"
+                                              value={r.wbOut}
+                                              disabled={isLocked}
+                                              onCommit={(val) => handleUpdateCoilField(r.id, "wbOut", val)}
+                                              className="w-14 text-center font-mono font-medium"
+                                              placeholder="WB"
+                                            />
+                                          </div>
                                         </td>
 
                                         {/* 5. Air Flow */}
-                                        <td className="py-2 px-3 text-[13px] font-mono">
-                                          {r.flow.toLocaleString()} {uFlow}
+                                        <td className="py-1 px-3 text-[13px] font-mono text-center">
+                                          <div className="min-w-[90px] flex items-center justify-center mx-auto">
+                                            <InlineInput
+                                              type="number"
+                                              step="1"
+                                              min={0}
+                                              value={r.flow}
+                                              disabled={isLocked}
+                                              onCommit={(val) => handleUpdateCoilField(r.id, "flow", val)}
+                                              className="w-24 text-center font-mono font-medium"
+                                              placeholder="0"
+                                            />
+                                          </div>
                                         </td>
 
                                         {/* 6. W_in */}
-                                        <td className="py-2 px-3 text-[13px] font-mono">{r.wIn.toFixed(6)}</td>
+                                        <td className="py-2 px-3 text-[13px] font-mono text-muted-foreground select-text text-center">{r.wIn.toFixed(6)}</td>
 
                                         {/* 7. W_out */}
-                                        <td className="py-2 px-3 text-[13px] font-mono">{r.wOut.toFixed(6)}</td>
+                                        <td className="py-2 px-3 text-[13px] font-mono text-muted-foreground select-text text-center">{r.wOut.toFixed(6)}</td>
 
                                         {/* 8. Condensate Flow */}
-                                        <td className="py-2 px-3 text-[13px] font-mono font-bold text-primary">
-                                          {ip ? lpsToGpm(r.condFlow).toFixed(5) : r.condFlow.toFixed(5)} {ip ? "GPM" : "L/s"}
+                                        <td className="py-2 px-3 text-[13px] font-mono font-bold text-primary select-text text-center">
+                                          {ip ? lpsToGpm(r.condFlow).toFixed(5) : r.condFlow.toFixed(5)}
                                         </td>
 
                                         {/* 9. Flag Column */}
@@ -1067,6 +1444,7 @@ function CondensateDrainCalcPage() {
                                       >
                                         <Copy className="size-3.5 text-muted-foreground" />
                                         <span>{isSelected && selected.size > 1 ? `Duplicate (${selected.size}) Coils` : "Duplicate Coil"}</span>
+                                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
                                       </ContextMenuItem>
 
                                       <ContextMenuItem

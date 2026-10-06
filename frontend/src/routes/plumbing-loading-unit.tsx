@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -62,27 +62,38 @@ interface LUSpace {
   flagged?: boolean;
 }
 
+export function isLUPlaceholderName(name?: string): boolean {
+  if (!name) return true;
+  const n = name.trim().toLowerCase();
+  if (n === "" || n === "untitled space" || n === "untitled" || n === "new space") return true;
+  if (n.startsWith("new restroom") || n.startsWith("new space") || n.startsWith("space ")) return true;
+  return false;
+}
+
 export function getLUSpaceValidation(s?: Partial<LUSpace>) {
   const warnings: string[] = [];
-  if (!s) return { isFlagged: false, warnings: [] };
+  if (!s) return { isFlagged: false, isAutoFlagged: false, isMissing: false, warnings: [], reason: "" };
 
-  const descEmpty = !s.desc || s.desc.trim() === "";
-  const hasFixtures = s.fixtures && Object.values(s.fixtures).some(v => Number(v) > 0);
-  const qtyZero = !s.qty || Number(s.qty) <= 0;
+  const descTrimmed = (s.desc || "").trim();
+  const isPlaceholder = isLUPlaceholderName(descTrimmed);
+  const totalFixtures = Object.values(s.fixtures || {}).reduce((sum, v) => sum + (Number(v) || 0), 0);
+  const hasFixtures = totalFixtures > 0;
+  const validQty = (s.qty ?? 1) > 0 && (s.floorQty ?? 1) > 0;
 
-  const isCompletelyEmpty = descEmpty && !hasFixtures && qtyZero;
-
-  if (!isCompletelyEmpty) {
-    if (descEmpty) warnings.push("Space description is empty");
-    if (qtyZero) warnings.push("Space quantity must be at least 1");
-    if (!hasFixtures) warnings.push("No fixtures specified for this space");
+  if (isPlaceholder && !hasFixtures) {
+    warnings.push("Please enter space name and fixture counts (0 LU)");
+  } else {
+    if (isPlaceholder) warnings.push("Default placeholder space name (rename for clarity)");
+    if (!hasFixtures) warnings.push("No fixtures specified for this space (0 LU)");
+    if (!validQty) warnings.push("Space quantity and number of floors must be at least 1");
   }
 
   const isAutoFlagged = warnings.length > 0;
-  const isManualFlagged = s.flagged === true;
+  const isManualFlagged = s.flagged !== undefined;
   const isFlagged = s.flagged !== undefined ? Boolean(s.flagged) : isAutoFlagged;
+  const reason = warnings.join(" • ");
 
-  return { isFlagged, isManualFlagged, isAutoFlagged, warnings };
+  return { isFlagged, isManualFlagged, isAutoFlagged, isMissing: isAutoFlagged, warnings, reason };
 }
 
 export function calculateSpaceLU(space?: Partial<LUSpace>, weights: Record<string, number> = {}): number {
@@ -646,11 +657,12 @@ function FloorNameInput({
 function LoadingUnitPage() {
   const { project, activeProjectId, forceSaveToCloud, isReadOnly } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/plumbing-loading-unit", activeProjectId || project?.id);
-  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-loading-unit", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = profile?.full_name || (userData as any)?.name || (userData as any)?.email || "Lead Engineer";
 
   const isApprovedLocked = useCalculationLock("/plumbing-loading-unit", project?.id || activeProjectId);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-loading-unit", project?.id || activeProjectId);
+  const isLocked = isEffectiveReadOnly || isApprovedLocked;
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const [activeTab, setActiveTab] = useState<"spaces" | "report">("spaces");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
@@ -663,6 +675,13 @@ function LoadingUnitPage() {
   const [activeFloor, setActiveFloor] = useState<string>("6th FLOOR");
   const [showSpaceQty, setShowSpaceQty] = useState<boolean>(true);
   const [showFloorsCol, setShowFloorsCol] = useState<boolean>(true);
+
+  // Auto-clear selection when calculation is locked/approved
+  useEffect(() => {
+    if (isLocked) {
+      setSelectedIds([]);
+    }
+  }, [isLocked]);
 
   // Column Width Resizer State (Matching Ventilation / Busbar UI)
   const [luColWidths, setLuColWidths] = useState<Record<string, number>>({
@@ -723,6 +742,7 @@ function LoadingUnitPage() {
 
   // Selection states for Bulk Editing
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
 
   useEffect(() => {
     if (isApprovedLocked) {
@@ -1030,153 +1050,42 @@ function LoadingUnitPage() {
     return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
   }, [project?.id]);
 
-  const [undoStack, setUndoStack] = useState<any[][]>([]);
-  const [redoStack, setRedoStack] = useState<any[][]>([]);
-  const [clipboard, setClipboard] = useState<any[]>([]);
+  const [undoStack, setUndoStack] = useState<LUSpace[][]>([]);
+  const [redoStack, setRedoStack] = useState<LUSpace[][]>([]);
+  const [clipboard, setClipboard] = useState<LUSpace[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_clipboard_loading_unit_spaces");
+        if (saved) return JSON.parse(saved);
+      } catch (e) { }
+    }
+    return [];
+  });
 
-  const pushToUndo = (currentSpaces: any[]) => {
-    setUndoStack((prev) => [...prev, currentSpaces]);
+  const pushToUndo = (currentSpaces: LUSpace[]) => {
+    setUndoStack((prev) => [...prev.slice(-30), JSON.parse(JSON.stringify(currentSpaces))]);
     setRedoStack([]);
   };
 
   const handleUndo = () => {
-    if (undoStack.length === 0) return;
+    if (isApprovedLocked || undoStack.length === 0) return;
     const previous = undoStack[undoStack.length - 1];
-    setRedoStack((prev) => [...prev, iopSpaces]);
+    setRedoStack((prev) => [...prev.slice(-30), JSON.parse(JSON.stringify(iopSpaces))]);
     setIopSpaces(previous);
     setUndoStack((prev) => prev.slice(0, -1));
+    dirtyStore.set(true);
     toast.success("Undo successful");
   };
 
   const handleRedo = () => {
-    if (redoStack.length === 0) return;
+    if (isApprovedLocked || redoStack.length === 0) return;
     const next = redoStack[redoStack.length - 1];
-    setUndoStack((prev) => [...prev, iopSpaces]);
+    setUndoStack((prev) => [...prev.slice(-30), JSON.parse(JSON.stringify(iopSpaces))]);
     setIopSpaces(next);
     setRedoStack((prev) => prev.slice(0, -1));
+    dirtyStore.set(true);
     toast.success("Redo successful");
   };
-
-  // Keyboard Shortcuts (Ctrl+Z, Ctrl+Y, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A, Esc, Ctrl+D, Ctrl+S, Delete)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName);
-      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-
-      // 1. Esc key: Close modals or deselect rows
-      if (e.key === "Escape") {
-        if (editingSpace || assignCommentOpen || contextMenu) {
-          setEditingSpace(null);
-          setAssignCommentOpen(false);
-          setContextMenu(null);
-        } else {
-          setSelectedIds([]);
-        }
-        return;
-      }
-
-      // 2. Undo / Redo: Ctrl+Z / Ctrl+Y
-      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
-        if (!isInput) {
-          e.preventDefault();
-          handleUndo();
-        }
-        return;
-      }
-      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
-        if (!isInput) {
-          e.preventDefault();
-          handleRedo();
-        }
-        return;
-      }
-
-      // 3. Copy: Ctrl+C
-      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
-        if (!isInput && selectedIds.length > 0) {
-          e.preventDefault();
-          const toCopy = iopSpaces.filter(s => selectedIds.includes(s.id));
-          setClipboard(toCopy);
-          toast.success(`${toCopy.length} space(s) copied`);
-        }
-        return;
-      }
-
-      // 4. Cut: Ctrl+X
-      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
-        if (!isInput && selectedIds.length > 0) {
-          e.preventDefault();
-          const toCopy = iopSpaces.filter(s => selectedIds.includes(s.id));
-          setClipboard(toCopy);
-          pushToUndo(iopSpaces);
-          setIopSpaces(prev => prev.filter(s => !selectedIds.includes(s.id)));
-          setSelectedIds([]);
-          toast.success(`${toCopy.length} space(s) cut`);
-        }
-        return;
-      }
-
-      // 5. Paste: Ctrl+V
-      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
-        if (!isInput && clipboard.length > 0) {
-          e.preventDefault();
-          const pasted = clipboard.map((s, idx) => ({
-            ...s,
-            id: Date.now() + idx + Math.floor(Math.random() * 1000),
-            name: `${s.name} (Copy)`
-          }));
-          pushToUndo(iopSpaces);
-          setIopSpaces(prev => [...prev, ...pasted]);
-          setSelectedIds(pasted.map(p => p.id));
-          toast.success(`${pasted.length} space(s) pasted`);
-        }
-        return;
-      }
-
-      // 6. Ctrl+S / Cmd+S: Save calculation
-      if (isCmdOrCtrl && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        handleSaveCurrent();
-        return;
-      }
-
-      // 7. Ctrl+A / Cmd+A: Select All spaces
-      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
-        if (!isInput && iopSpaces.length > 0) {
-          e.preventDefault();
-          setSelectedIds(iopSpaces.map(s => s.id));
-        }
-        return;
-      }
-
-      // 8. Ctrl+D / Cmd+D: Duplicate selected space(s)
-      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
-        if (!isInput && selectedIds.length > 0) {
-          e.preventDefault();
-          handleBulkDuplicate();
-        }
-        return;
-      }
-
-      // 9. Delete / Backspace: Delete selected space(s)
-      if (!isInput && (e.key === "Delete" || e.key === "Backspace")) {
-        if (selectedIds.length > 0) {
-          e.preventDefault();
-          if (isApprovedLocked || (typeof window !== "undefined" && Boolean((window as any).__mep_approved_readonly))) {
-            toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
-            return;
-          }
-          pushToUndo(iopSpaces);
-          handleBulkDelete();
-        }
-        return;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIds, iopSpaces, editingSpace, assignCommentOpen, contextMenu, clipboard, undoStack, redoStack]);
 
   // Click Outside to Close Context Menu
   useEffect(() => {
@@ -1350,7 +1259,34 @@ function LoadingUnitPage() {
 
   const unitLabel = calculations.unitLabel;
 
-  // Selection Handlers
+  const currentWeights = activeWeights;
+
+  // Filtered spaces list for search, filter & sort
+  const filteredSpaces = useMemo(() => {
+    let list = iopSpaces || [];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(s => (s.desc || "").toLowerCase().includes(q) || (s.floor || "").toLowerCase().includes(q));
+    }
+    if (showFlaggedOnly) {
+      list = list.filter(s => getLUSpaceValidation(s).isFlagged);
+    }
+    if (filterFloor !== "all") {
+      list = list.filter(s => (s.floor || "6th FLOOR") === filterFloor);
+    }
+    if (sortBy === "desc") {
+      list = [...list].sort((a, b) => (a.desc || "").localeCompare(b.desc || ""));
+    } else if (sortBy === "lu") {
+      list = [...list].sort((a, b) => {
+        const luA = Object.entries(a.fixtures || {}).reduce((sum, [fid, qty]) => sum + (Number(qty) || 0) * (currentWeights[fid] || 0), 0);
+        const luB = Object.entries(b.fixtures || {}).reduce((sum, [fid, qty]) => sum + (Number(qty) || 0) * (currentWeights[fid] || 0), 0);
+        return luB - luA;
+      });
+    }
+    return list;
+  }, [iopSpaces, searchQuery, showFlaggedOnly, filterFloor, sortBy, currentWeights]);
+
+  // Selection Handlers (Matching Ventilation & Drainage)
   const handleToggleSelectAll = (checked: boolean) => {
     if (isApprovedLocked) {
       toast.info("Calculation is Approved and locked in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
@@ -1358,35 +1294,191 @@ function LoadingUnitPage() {
     }
     if (checked) {
       setSelectedIds(iopSpaces.map(s => s.id));
+      toast.info(`Selected all ${iopSpaces.length} space(s)`);
     } else {
       setSelectedIds([]);
     }
   };
 
-  const handleToggleSelect = (id: number, checked: boolean) => {
+  const handleToggleSelectSpace = (id: number, e?: React.MouseEvent, explicitChecked?: boolean) => {
     if (isApprovedLocked) {
       toast.info("Calculation is Approved and locked in Read-Only mode. Selection is locked.", { id: "readonly-notice" });
       return;
     }
-    if (checked) {
-      setSelectedIds([...selectedIds, id]);
-    } else {
-      setSelectedIds(selectedIds.filter(x => x !== id));
+
+    // Shift+Click Range Selection
+    if (e?.shiftKey && lastSelectedId !== null) {
+      const allIds = filteredSpaces.map(s => s.id);
+      const lastIdx = allIds.indexOf(lastSelectedId);
+      const curIdx = allIds.indexOf(id);
+      if (lastIdx !== -1 && curIdx !== -1) {
+        const start = Math.min(lastIdx, curIdx);
+        const end = Math.max(lastIdx, curIdx);
+        const rangeIds = allIds.slice(start, end + 1);
+        setSelectedIds(prev => Array.from(new Set([...prev, ...rangeIds])));
+        setLastSelectedId(id);
+        return;
+      }
     }
+
+    // Ctrl / Cmd or Explicit Checkbox Click (Toggle Selection)
+    if (e?.ctrlKey || e?.metaKey || explicitChecked !== undefined) {
+      setSelectedIds(prev => {
+        const isSelected = prev.includes(id);
+        const shouldSelect = explicitChecked !== undefined ? explicitChecked : !isSelected;
+        if (shouldSelect) {
+          return isSelected ? prev : [...prev, id];
+        } else {
+          return prev.filter(x => x !== id);
+        }
+      });
+      setLastSelectedId(id);
+      return;
+    }
+
+    // Plain Click (Select Single Row)
+    setSelectedIds([id]);
+    setLastSelectedId(id);
   };
 
-  // Bulk Edit Actions
+  // Clipboard & Bulk Actions (Matching Ventilation Standards)
+  const handleCopySpaces = (ids?: number[]) => {
+    const targetIds = ids && ids.length > 0 ? ids : selectedIds;
+    const targets = iopSpaces.filter(s => targetIds.includes(s.id));
+    if (targets.length === 0) return;
+    const cloned: LUSpace[] = JSON.parse(JSON.stringify(targets));
+    setClipboard(cloned);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("mep_clipboard_loading_unit_spaces", JSON.stringify(cloned));
+        const headers = ["Floor", "Space Description", ...LU_FIXTURES_META.map(f => f.label), "Unit LU", "Space Qty", "No. Floors", "Total LU"];
+        const rows = cloned.map(s => {
+          const spaceLu = calculateSpaceLU(s, activeWeights);
+          const totalLu = spaceLu * (s.qty || 1) * (s.floorQty || 1);
+          return [
+            s.floor || "6th FLOOR",
+            s.desc || "Space",
+            ...LU_FIXTURES_META.map(f => s.fixtures?.[f.key] || 0),
+            spaceLu.toFixed(1),
+            s.qty ?? 1,
+            s.floorQty ?? 1,
+            totalLu.toFixed(1),
+          ];
+        });
+        const tsv = [headers.join("\t"), ...rows.map(r => r.join("\t"))].join("\n");
+        navigator.clipboard?.writeText(tsv).catch(() => { });
+      } catch (e) { }
+    }
+    toast.info(`${targets.length} space(s) copied to clipboard`);
+  };
+
+  const handleCutSpaces = (ids?: number[]) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and locked in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    const targetIds = ids && ids.length > 0 ? ids : selectedIds;
+    const targets = iopSpaces.filter(s => targetIds.includes(s.id));
+    if (targets.length === 0) return;
+    if (targets.length >= iopSpaces.length) {
+      toast.error("Cannot cut all spaces. Keep at least one space in schedule.");
+      return;
+    }
+    pushToUndo(iopSpaces);
+    handleCopySpaces(targetIds);
+    setIopSpaces(prev => prev.filter(s => !targetIds.includes(s.id)));
+    setSelectedIds([]);
+    dirtyStore.set(true);
+    toast.info(`${targets.length} space(s) cut to clipboard`);
+  };
+
+  const handlePasteSpaces = () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and locked in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    let sourceSpaces = clipboard;
+    if (sourceSpaces.length === 0 && typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_clipboard_loading_unit_spaces");
+        if (saved) sourceSpaces = JSON.parse(saved);
+      } catch (e) { }
+    }
+    if (sourceSpaces.length === 0) {
+      toast.info("Clipboard is empty. Copy or cut spaces first (Ctrl+C).");
+      return;
+    }
+
+    pushToUndo(iopSpaces);
+    const targetFloor = activeFloor || floorSections[0] || "6th FLOOR";
+    const pasted: LUSpace[] = sourceSpaces.map((s, idx) => ({
+      ...s,
+      id: Date.now() + idx + Math.floor(Math.random() * 1000),
+      floor: floorSections.includes(s.floor) ? s.floor : targetFloor,
+      desc: `${(s.desc || "Space").replace(/ \(Copy(-\d+)?\)$/, "")} (Copy)`,
+      fixtures: { ...(s.fixtures || {}) }
+    }));
+
+    setIopSpaces(prev => [...prev, ...pasted]);
+    setSelectedIds(pasted.map(s => s.id));
+    dirtyStore.set(true);
+    toast.success(`${pasted.length} space(s) pasted from clipboard`);
+  };
+
+  const handleBulkDuplicate = (ids?: number[]) => {
+    if (isApprovedLocked) return;
+    const targetIds = ids && ids.length > 0 ? ids : selectedIds;
+    if (targetIds.length === 0) return;
+    pushToUndo(iopSpaces);
+    const duplicates: LUSpace[] = [];
+    iopSpaces.forEach(s => {
+      if (targetIds.includes(s.id)) {
+        duplicates.push({
+          ...s,
+          id: Date.now() + Math.floor(Math.random() * 100000),
+          desc: `${(s.desc || "Space").replace(/ \(Copy(-\d+)?\)$/, "")} (Copy)`,
+          fixtures: { ...(s.fixtures || {}) }
+        });
+      }
+    });
+    setIopSpaces(prev => [...prev, ...duplicates]);
+    setSelectedIds(duplicates.map(d => d.id));
+    dirtyStore.set(true);
+    toast.success(`Duplicated ${duplicates.length} space(s).`);
+  };
+
+  const handleBulkDelete = (ids?: number[]) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
+      return;
+    }
+    const targetIds = ids && ids.length > 0 ? ids : selectedIds;
+    if (targetIds.length === 0) return;
+    if (targetIds.length >= iopSpaces.length) {
+      toast.error("Cannot delete all spaces. Keep at least one space in schedule.");
+      return;
+    }
+    pushToUndo(iopSpaces);
+    const count = targetIds.length;
+    setIopSpaces(prev => prev.filter(s => !targetIds.includes(s.id)));
+    setSelectedIds([]);
+    dirtyStore.set(true);
+    toast.info(`Deleted ${count} space(s)`);
+  };
+
   const handleBulkMoveFloor = () => {
     if (selectedIds.length === 0) return;
     const newTargetFloor = prompt("Enter target Floor Section for selected space(s):", activeFloor);
     if (newTargetFloor && newTargetFloor.trim()) {
       const cleanFloor = newTargetFloor.trim().toUpperCase();
+      pushToUndo(iopSpaces);
       setIopSpaces(iopSpaces.map(s => {
         if (selectedIds.includes(s.id)) {
           return { ...s, floor: cleanFloor };
         }
         return s;
       }));
+      dirtyStore.set(true);
       toast.success(`Moved ${selectedIds.length} space(s) to ${cleanFloor}`);
     }
   };
@@ -1396,43 +1488,172 @@ function LoadingUnitPage() {
     const newQtyVal = prompt("Enter new Quantity for selected space(s):", "1");
     if (newQtyVal && !isNaN(Number(newQtyVal))) {
       const qtyNum = Math.max(1, Number(newQtyVal));
+      pushToUndo(iopSpaces);
       setIopSpaces(iopSpaces.map(s => {
         if (selectedIds.includes(s.id)) {
           return { ...s, qty: qtyNum };
         }
         return s;
       }));
+      dirtyStore.set(true);
       toast.success(`Updated Qty to ${qtyNum} for ${selectedIds.length} space(s)`);
     }
   };
 
-  const handleBulkDuplicate = () => {
-    if (selectedIds.length === 0) return;
-    const clones: LUSpace[] = [];
-    iopSpaces.forEach(s => {
-      if (selectedIds.includes(s.id)) {
-        clones.push({
-          ...s,
-          id: Date.now() + Math.random(),
-          desc: `${s.desc} (Copy)`
-        });
+  // Keyboard Shortcuts Listener (Ctrl+A, Escape, Delete, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D, Ctrl+Z, Ctrl+Y, Ctrl+S, F)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: Close modals / menus or deselect rows
+      if (e.key === "Escape") {
+        if (editingSpace || assignCommentOpen || contextMenu) {
+          setEditingSpace(null);
+          setAssignCommentOpen(false);
+          setContextMenu(null);
+        } else if (selectedIds.length > 0) {
+          e.preventDefault();
+          setSelectedIds([]);
+        }
+        return;
       }
-    });
-    setIopSpaces([...iopSpaces, ...clones]);
-    toast.success(`Duplicated ${clones.length} space(s)`);
-  };
 
-  const handleBulkDelete = () => {
-    if (isApprovedLocked) {
-      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
-      return;
-    }
-    if (selectedIds.length === 0) return;
-    const count = selectedIds.length;
-    setIopSpaces(iopSpaces.filter(s => !selectedIds.includes(s.id)));
-    setSelectedIds([]);
-    toast.info(`Deleted ${count} space(s)`);
-  };
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+      const activeEl = document.activeElement;
+      const isModalActive = Boolean(editingSpace || assignCommentOpen);
+
+      // Lock Protection: Block select-all and modification shortcuts when calculation is locked/approved
+      if (isLocked) {
+        if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (["Delete", "Backspace"].includes(e.key) || (isCmdOrCtrl && ["x", "v", "d", "z", "y"].includes(e.key.toLowerCase()))) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+      }
+
+      // 1. Ctrl+A / Cmd+A: Select All Spaces (when no modal is active)
+      if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+        if (!isModalActive) {
+          e.preventDefault();
+          if (activeEl && "blur" in activeEl) {
+            (activeEl as HTMLElement).blur();
+          }
+          if (iopSpaces.length > 0) {
+            setSelectedIds(iopSpaces.map(s => s.id));
+            toast.info(`Selected all ${iopSpaces.length} space(s) (Ctrl+A)`);
+          }
+          return;
+        }
+      }
+
+      // Do NOT intercept if typing inside an active form input/textarea/select
+      const isInput = activeEl && (
+        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
+        activeEl.tagName === "TEXTAREA" ||
+        (activeEl as HTMLElement).isContentEditable ||
+        activeEl.tagName === "SELECT"
+      );
+      if (isInput) return;
+
+      // 2. Undo / Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // 3. Delete / Backspace: Delete selected space(s)
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          handleBulkDelete();
+        }
+        return;
+      }
+
+      // 4. Ctrl+C: Copy selected space(s)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          handleCopySpaces();
+        }
+        return;
+      }
+
+      // 5. Ctrl+X: Cut selected space(s)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          handleCutSpaces();
+        }
+        return;
+      }
+
+      // 6. Ctrl+V: Paste space(s) from clipboard
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        handlePasteSpaces();
+        return;
+      }
+
+      // 7. Ctrl+D: Duplicate selected space(s)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          handleBulkDuplicate();
+        }
+        return;
+      }
+
+      // 8. Ctrl+S: Save calculation
+      if (isCmdOrCtrl && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        handleSaveCurrent();
+        return;
+      }
+
+      // 9. F key: Toggle Flag on selected space(s)
+      if (!isCmdOrCtrl && (e.key.toLowerCase() === "f" || e.code === "KeyF")) {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          const targets = iopSpaces.filter(s => selectedIds.includes(s.id));
+          const hasUnflagged = targets.some(s => !s.flagged && !getLUSpaceValidation(s).isMissing);
+          const newFlagged = hasUnflagged;
+          setIopSpaces(prev => prev.map(item => selectedIds.includes(item.id) ? { ...item, flagged: newFlagged } : item));
+          dirtyStore.set(true);
+          toast.info(newFlagged ? `Flagged ${targets.length} space(s) for review` : `Unflagged ${targets.length} space(s)`);
+        }
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    selectedIds,
+    iopSpaces,
+    editingSpace,
+    assignCommentOpen,
+    contextMenu,
+    clipboard,
+    undoStack,
+    redoStack,
+    isApprovedLocked,
+    floorSections,
+    activeFloor,
+    activeWeights,
+    filteredSpaces,
+    lastSelectedId
+  ]);
 
   const handleAddSpace = () => {
     if (isApprovedLocked) {
@@ -1446,12 +1667,13 @@ function LoadingUnitPage() {
     const nextId = Date.now();
     const newSpace: LUSpace = {
       id: nextId,
-      desc: "New Space",
+      desc: `New Space (${iopSpaces.length + 1})`,
       floor: targetFloor,
       qty: 1,
       floorQty: 1,
       std: selectedCategory || "med",
-      fixtures: {}
+      fixtures: {},
+      flagged: true
     };
     setIopSpaces(prev => [...prev, newSpace]);
     setShowFlaggedOnly(false);
@@ -1623,32 +1845,6 @@ function LoadingUnitPage() {
     });
   };
 
-  const currentWeights = activeWeights;
-
-  // Filtered spaces list for search, filter & sort
-  const filteredSpaces = useMemo(() => {
-    let list = iopSpaces || [];
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(s => (s.desc || "").toLowerCase().includes(q) || (s.floor || "").toLowerCase().includes(q));
-    }
-    if (showFlaggedOnly) {
-      list = list.filter(s => getLUSpaceValidation(s).isFlagged);
-    }
-    if (filterFloor !== "all") {
-      list = list.filter(s => (s.floor || "6th FLOOR") === filterFloor);
-    }
-    if (sortBy === "desc") {
-      list = [...list].sort((a, b) => (a.desc || "").localeCompare(b.desc || ""));
-    } else if (sortBy === "lu") {
-      list = [...list].sort((a, b) => {
-        const luA = Object.entries(a.fixtures || {}).reduce((sum, [fid, qty]) => sum + (Number(qty) || 0) * (currentWeights[fid] || 0), 0);
-        const luB = Object.entries(b.fixtures || {}).reduce((sum, [fid, qty]) => sum + (Number(qty) || 0) * (currentWeights[fid] || 0), 0);
-        return luB - luA;
-      });
-    }
-    return list;
-  }, [iopSpaces, searchQuery, showFlaggedOnly, filterFloor, sortBy, currentWeights]);
 
   // Group by floor for listing
   const floorsGrouped = useMemo(() => {
@@ -1681,8 +1877,8 @@ function LoadingUnitPage() {
                 type="button"
                 onClick={() => setIntelOpen((v) => !v)}
                 className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
                   }`}
                 title="Toggle Loading Unit Intelligence"
               >
@@ -1695,12 +1891,12 @@ function LoadingUnitPage() {
 
           {/* Unified White Card Container (Matching Ventilation Layout Structure) */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED"
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
-              : calcReviewState?.status === "REJECTED"
-                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-                : calcReviewState?.status === "REVIEWED"
-                  ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-                  : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
+            : calcReviewState?.status === "REJECTED"
+              ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+              : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
             }`}>
 
             {/* Row 1: Header / Main Tabs on Left + Standard & Category Dropdowns on Right */}
@@ -1710,8 +1906,8 @@ function LoadingUnitPage() {
                   type="button"
                   onClick={() => setActiveTab("spaces")}
                   className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${activeTab === "spaces"
-                      ? "bg-background text-foreground shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
+                    ? "bg-background text-foreground shadow-xs font-bold"
+                    : "text-muted-foreground hover:text-foreground"
                     }`}
                 >
                   Spaces
@@ -1721,8 +1917,8 @@ function LoadingUnitPage() {
                   type="button"
                   onClick={() => setActiveTab("report")}
                   className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${activeTab === "report"
-                      ? "bg-background text-foreground shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
+                    ? "bg-background text-foreground shadow-xs font-bold"
+                    : "text-muted-foreground hover:text-foreground"
                     }`}
                 >
                   Report
@@ -1734,50 +1930,56 @@ function LoadingUnitPage() {
                 <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900/60 p-1 px-3 rounded-full border border-border/80 text-xs font-semibold select-none">
                   <Globe className="size-3.5 text-primary shrink-0" />
                   <label className="text-[11px] font-bold text-muted-foreground whitespace-nowrap">Standard:</label>
-                  <select
-                    value={standardPreset}
-                    onChange={(e) => {
-                      const newPreset = e.target.value as StandardPreset;
-                      setStandardPreset(newPreset);
-                      setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset] || "std");
-                      setWeightOverrides({});
-                    }}
-                    className="bg-background border border-border/60 rounded-full px-2.5 py-0.5 text-xs font-bold text-foreground outline-none focus:border-primary shadow-2xs cursor-pointer h-7 max-w-[200px] sm:max-w-[250px] truncate"
-                  >
-                    <optgroup label="Regional UAE">
-                      <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10 * √LU)</option>
-                    </optgroup>
-                    <optgroup label="British Standards & CIPHE">
-                      <option value="iop_bs">IoP PESDG / BS EN 806 / BS 8558 (LU Standard)</option>
-                      <option value="bs_806">BS 806 / BS EN 806 (UK / Europe)</option>
-                      <option value="bs_8558">BS 8558 Water Supply</option>
-                      <option value="iop_low">IoP / CIPHE Low Demand</option>
-                      <option value="iop_med">IoP / CIPHE Medium Demand</option>
-                      <option value="iop_high">IoP / CIPHE High Demand</option>
-                    </optgroup>
-                    <optgroup label="International Codes (US)">
-                      <option value="ipc_upc">IPC / UPC Combined Standard (WSFU)</option>
-                      <option value="ipc">IPC (International Plumbing Code - Table E103.3)</option>
-                      <option value="upc">UPC (Uniform Plumbing Code)</option>
-                    </optgroup>
-                  </select>
+                  <div className="relative inline-flex items-center">
+                    <select
+                      value={standardPreset}
+                      onChange={(e) => {
+                        const newPreset = e.target.value as StandardPreset;
+                        setStandardPreset(newPreset);
+                        setSelectedCategory(DEFAULT_CATEGORY_FOR_PRESET[newPreset] || "std");
+                        setWeightOverrides({});
+                      }}
+                      className="appearance-none bg-background border border-border/60 rounded-full pl-2.5 pr-6 py-0.5 text-xs font-bold text-foreground outline-none focus:border-primary shadow-2xs cursor-pointer h-7 max-w-[200px] sm:max-w-[250px] truncate"
+                    >
+                      <optgroup label="Regional UAE">
+                        <option value="dubai">Dubai Standard (DBC 2021 / CIBSE Q = 0.10 * √LU)</option>
+                      </optgroup>
+                      <optgroup label="British Standards & CIPHE">
+                        <option value="iop_bs">IoP PESDG / BS EN 806 / BS 8558 (LU Standard)</option>
+                        <option value="bs_806">BS 806 / BS EN 806 (UK / Europe)</option>
+                        <option value="bs_8558">BS 8558 Water Supply</option>
+                        <option value="iop_low">IoP / CIPHE Low Demand</option>
+                        <option value="iop_med">IoP / CIPHE Medium Demand</option>
+                        <option value="iop_high">IoP / CIPHE High Demand</option>
+                      </optgroup>
+                      <optgroup label="International Codes (US)">
+                        <option value="ipc_upc">IPC / UPC Combined Standard (WSFU)</option>
+                        <option value="ipc">IPC (International Plumbing Code - Table E103.3)</option>
+                        <option value="upc">UPC (Uniform Plumbing Code)</option>
+                      </optgroup>
+                    </select>
+                    <ChevronDown className="size-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  </div>
                 </div>
 
                 {STANDARD_CATEGORIES[standardPreset] && STANDARD_CATEGORIES[standardPreset].length > 1 && (
                   <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900/60 p-1 px-3 rounded-full border border-border/80 text-xs font-semibold select-none">
                     <label className="text-[11px] font-bold text-muted-foreground whitespace-nowrap">Category:</label>
-                    <select
-                      value={selectedCategory}
-                      onChange={(e) => {
-                        setSelectedCategory(e.target.value);
-                        setWeightOverrides({});
-                      }}
-                      className="bg-background border border-border/60 rounded-full px-2.5 py-0.5 text-xs font-bold text-foreground outline-none focus:border-primary shadow-2xs cursor-pointer h-7 max-w-[150px] sm:max-w-[200px] truncate"
-                    >
-                      {STANDARD_CATEGORIES[standardPreset].map(cat => (
-                        <option key={cat.id} value={cat.id}>{cat.label}</option>
-                      ))}
-                    </select>
+                    <div className="relative inline-flex items-center">
+                      <select
+                        value={selectedCategory}
+                        onChange={(e) => {
+                          setSelectedCategory(e.target.value);
+                          setWeightOverrides({});
+                        }}
+                        className="appearance-none bg-background border border-border/60 rounded-full pl-2.5 pr-6 py-0.5 text-xs font-bold text-foreground outline-none focus:border-primary shadow-2xs cursor-pointer h-7 max-w-[150px] sm:max-w-[200px] truncate"
+                      >
+                        {STANDARD_CATEGORIES[standardPreset].map(cat => (
+                          <option key={cat.id} value={cat.id}>{cat.label}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="size-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
                   </div>
                 )}
 
@@ -1793,6 +1995,13 @@ function LoadingUnitPage() {
                 )}
               </div>
             </div>
+
+            {/* Notification Banner across all tabs */}
+            <CalculationStatusBanner
+              projectId={project?.id || "default"}
+              calculatorPath="/plumbing-loading-unit"
+              calculatorTitle="Loading Unit Calculator"
+            />
 
             {/* Row 2: Action Toolbar (Search, Filter, Sort, Import, Export, + Add Floor Section, + Add Space) */}
             {activeTab === "spaces" && (
@@ -1814,8 +2023,8 @@ function LoadingUnitPage() {
                     <PopoverTrigger asChild>
                       <button
                         className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${activeFiltersCount > 0
-                            ? "bg-primary/10 border-primary/45 text-primary font-medium"
-                            : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
+                          ? "bg-primary/10 border-primary/45 text-primary font-medium"
+                          : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
                           }`}
                         title="Filter spaces"
                       >
@@ -1838,16 +2047,19 @@ function LoadingUnitPage() {
                       </div>
                       <div className="flex flex-col gap-1">
                         <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Floor Section</span>
-                        <select
-                          value={filterFloor}
-                          onChange={(e) => setFilterFloor(e.target.value)}
-                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                        >
-                          <option value="all">All Floor Sections</option>
-                          {floorSections.map(fl => (
-                            <option key={fl} value={fl}>{fl}</option>
-                          ))}
-                        </select>
+                        <div className="relative flex items-center">
+                          <select
+                            value={filterFloor}
+                            onChange={(e) => setFilterFloor(e.target.value)}
+                            className="h-8 w-full appearance-none pl-2.5 pr-7 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer text-foreground focus:border-primary"
+                          >
+                            <option value="all">All Floor Sections</option>
+                            {floorSections.map(fl => (
+                              <option key={fl} value={fl}>{fl}</option>
+                            ))}
+                          </select>
+                          <ChevronDown className="size-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        </div>
                       </div>
                     </PopoverContent>
                   </Popover>
@@ -1857,8 +2069,8 @@ function LoadingUnitPage() {
                     <PopoverTrigger asChild>
                       <button
                         className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${sortBy !== "none" || rowDensity === "compact"
-                            ? "bg-primary/10 border-primary/45 text-primary font-medium"
-                            : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
+                          ? "bg-primary/10 border-primary/45 text-primary font-medium"
+                          : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
                           }`}
                         title="Sort & View Options"
                       >
@@ -1897,15 +2109,18 @@ function LoadingUnitPage() {
 
                       <div className="flex flex-col gap-1">
                         <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
-                        <select
-                          value={sortBy}
-                          onChange={(e) => setSortBy(e.target.value as any)}
-                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                        >
-                          <option value="none">Original Order</option>
-                          <option value="desc">Description (A-Z)</option>
-                          <option value="lu">Total LU (High to Low)</option>
-                        </select>
+                        <div className="relative flex items-center">
+                          <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value as any)}
+                            className="h-8 w-full appearance-none pl-2.5 pr-7 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer text-foreground focus:border-primary"
+                          >
+                            <option value="none">Original Order</option>
+                            <option value="desc">Description (A-Z)</option>
+                            <option value="lu">Total LU (High to Low)</option>
+                          </select>
+                          <ChevronDown className="size-3 absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        </div>
                       </div>
                     </PopoverContent>
                   </Popover>
@@ -1965,17 +2180,19 @@ function LoadingUnitPage() {
                 {/* Bulk actions bar overlay (Matching Ventilation Schedule exactly) */}
                 {!isApprovedLocked && selectedIds.length > 0 && (
                   <div className="absolute inset-0 flex items-center justify-between px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold">{selectedIds.length} selected</span>
                       <span className="text-primary/30">·</span>
-                      <BulkBtn icon={Copy} onClick={handleBulkDuplicate}>Duplicate ({selectedIds.length})</BulkBtn>
+                      <BulkBtn icon={Copy} onClick={() => handleCopySpaces()}>Copy</BulkBtn>
+                      <BulkBtn icon={Copy} onClick={() => handleCutSpaces()}>Cut</BulkBtn>
+                      <BulkBtn icon={Copy} onClick={() => handleBulkDuplicate()}>Duplicate</BulkBtn>
                       <BulkBtn icon={Building2} onClick={handleBulkMoveFloor}>Move to Floor</BulkBtn>
                       <BulkBtn icon={Edit3} onClick={handleBulkEditQty}>Edit Qty</BulkBtn>
-                      <BulkBtn icon={Trash2} onClick={handleBulkDelete}>Delete</BulkBtn>
+                      <BulkBtn icon={Trash2} onClick={() => handleBulkDelete()}>Delete</BulkBtn>
                     </div>
 
                     <button onClick={() => setSelectedIds([])} className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer">
-                      <X className="size-3" /> Clear
+                      <X className="size-3" /> Clear (Esc)
                     </button>
                   </div>
                 )}
@@ -2014,10 +2231,16 @@ function LoadingUnitPage() {
                           <th className="py-2 px-1 text-center">
                             <input
                               type="checkbox"
-                              checked={allSelected}
+                              disabled={isLocked}
+                              checked={allSelected && !isLocked}
+                              ref={(el) => {
+                                if (el) {
+                                  el.indeterminate = selectedIds.length > 0 && !allSelected && !isLocked;
+                                }
+                              }}
                               onChange={(e) => handleToggleSelectAll(e.target.checked)}
-                              className="size-3.5 accent-primary cursor-pointer rounded"
-                              title="Select All Spaces"
+                              className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={isLocked ? "Calculation is locked" : "Select All Spaces (Ctrl+A)"}
                             />
                           </th>
                           <th className="py-2 px-2 text-left text-[11px] tracking-wider truncate">DESCRIPTION</th>
@@ -2063,8 +2286,8 @@ function LoadingUnitPage() {
                                     }
                                   }}
                                   className={`w-11 h-5 text-center text-[10px] font-bold font-mono rounded border outline-none transition-all ${isOverridden
-                                      ? "bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400 font-extrabold focus:ring-1 focus:ring-amber-500"
-                                      : "bg-blue-500/5 dark:bg-blue-950/40 border-blue-500/30 text-[#0A7BC7] dark:text-blue-400 focus:ring-1 focus:ring-[#0A7BC7]"
+                                    ? "bg-amber-500/15 border-amber-500 text-amber-600 dark:text-amber-400 font-extrabold focus:ring-1 focus:ring-amber-500"
+                                    : "bg-blue-500/5 dark:bg-blue-950/40 border-blue-500/30 text-[#0A7BC7] dark:text-blue-400 focus:ring-1 focus:ring-[#0A7BC7]"
                                     } ${isApprovedLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                                   title={
                                     isOverridden
@@ -2087,8 +2310,8 @@ function LoadingUnitPage() {
                               }}
                               disabled={isApprovedLocked}
                               className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[8.5px] font-bold font-mono transition-all cursor-pointer ${showSpaceQty
-                                  ? "bg-[#0A7BC7] text-white shadow-2xs hover:bg-[#0865A3]"
-                                  : "bg-slate-200 dark:bg-slate-800 text-muted-foreground hover:bg-slate-300 dark:hover:bg-slate-700"
+                                ? "bg-[#0A7BC7] text-white shadow-2xs hover:bg-[#0865A3]"
+                                : "bg-slate-200 dark:bg-slate-800 text-muted-foreground hover:bg-slate-300 dark:hover:bg-slate-700"
                                 } ${isApprovedLocked ? "opacity-50 cursor-not-allowed" : ""}`}
                               title={showSpaceQty ? "Space Quantity enabled in calculation. Click to toggle OFF." : "Space Quantity disabled in calculation. Click to toggle ON."}
                             >
@@ -2106,8 +2329,8 @@ function LoadingUnitPage() {
                               }}
                               disabled={isApprovedLocked}
                               className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[8.5px] font-bold font-mono transition-all cursor-pointer ${showFloorsCol
-                                  ? "bg-[#0A7BC7] text-white shadow-2xs hover:bg-[#0865A3]"
-                                  : "bg-slate-200 dark:bg-slate-800 text-muted-foreground hover:bg-slate-300 dark:hover:bg-slate-700"
+                                ? "bg-[#0A7BC7] text-white shadow-2xs hover:bg-[#0865A3]"
+                                : "bg-slate-200 dark:bg-slate-800 text-muted-foreground hover:bg-slate-300 dark:hover:bg-slate-700"
                                 } ${isApprovedLocked ? "opacity-50 cursor-not-allowed" : ""}`}
                               title={showFloorsCol ? "No. of Floors multiplier enabled in calculation. Click to toggle OFF." : "No. of Floors multiplier disabled in calculation. Click to toggle ON."}
                             >
@@ -2163,7 +2386,7 @@ function LoadingUnitPage() {
                                         title={`Add a new space row to ${floor}`}
                                       >
                                         <Plus className="size-3" />
-                                        <span>+ Add Space to {floor}</span>
+                                        <span>Add Space to {floor}</span>
                                       </button>
                                       <button
                                         type="button"
@@ -2243,26 +2466,47 @@ function LoadingUnitPage() {
                                 <ContextMenuTrigger asChild>
                                   <tr
                                     id={`lu-space-${s.id}`}
-                                    onDoubleClick={() => {
+                                    data-row-id={s.id}
+                                    data-space-id={s.id}
+                                    data-item-id={s.id}
+                                    title="Click to select, Ctrl+Click to multi-select, Double-click to edit, Ctrl+A to select all"
+                                    onClick={(e) => {
+                                      if (isLocked) return;
+                                      const target = e.target as HTMLElement;
+                                      if (target.tagName === "INPUT" || target.tagName === "BUTTON" || target.closest("button") || target.closest("input") || target.closest("select")) {
+                                        return;
+                                      }
+                                      handleToggleSelectSpace(s.id, e);
+                                    }}
+                                    onDoubleClick={(e) => {
+                                      if (isLocked) {
+                                        toast.info("Calculation is Approved & Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+                                        return;
+                                      }
+                                      const target = e.target as HTMLElement;
+                                      if (target.tagName === "INPUT" || target.tagName === "BUTTON" || target.closest("button") || target.closest("input") || target.closest("select")) {
+                                        return;
+                                      }
                                       setSelectedIds([s.id]);
                                       setEditingSpace({ space: s, floor });
                                     }}
-                                    className={`group transition-all duration-150 cursor-pointer ${rowDensity === "compact" ? "h-7 text-[11px]" : "h-9 text-xs"} ${isEditing
-                                        ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-sm z-10 relative"
-                                        : isSelected
-                                          ? "bg-primary/15 dark:bg-primary/25 border-l-2 border-l-primary font-semibold"
-                                          : spaceIdx % 2 === 0
-                                            ? "bg-background hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
-                                            : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                                    className={`group transition-all duration-150 cursor-pointer ${rowDensity === "compact" ? "h-7 text-[11px]" : "h-8.5 text-xs"} ${isEditing
+                                      ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-sm z-10 relative"
+                                      : isSelected
+                                        ? "bg-primary/15 dark:bg-primary/25 border-l-2 border-l-primary font-semibold"
+                                        : spaceIdx % 2 === 0
+                                          ? "bg-background hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                                          : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
                                       }`}
                                   >
                                     <td className="p-1 text-center" onDoubleClick={(e) => e.stopPropagation()}>
                                       <div className="flex items-center justify-center gap-1">
                                         <input
                                           type="checkbox"
-                                          checked={isSelected}
-                                          onChange={(e) => handleToggleSelect(s.id, e.target.checked)}
-                                          className="size-3.5 accent-primary cursor-pointer rounded shrink-0"
+                                          disabled={isLocked}
+                                          checked={isSelected && !isLocked}
+                                          onChange={(e) => handleToggleSelectSpace(s.id, undefined, e.target.checked)}
+                                          className="size-3.5 accent-primary cursor-pointer rounded shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                                         />
 
                                         {Array.isArray(s.comments) && s.comments.length > 0 && (
@@ -2292,7 +2536,21 @@ function LoadingUnitPage() {
                                         onChange={(e) => {
                                           if (isApprovedLocked) return;
                                           const val = e.target.value;
-                                          setIopSpaces(prev => prev.map(item => item.id === s.id ? { ...item, desc: val } : item));
+                                          setIopSpaces(prev => prev.map(item => {
+                                            if (item.id === s.id) {
+                                              const updated = { ...item, desc: val };
+                                              const wasMissing = getLUSpaceValidation(item).isMissing;
+                                              const isMissing = getLUSpaceValidation(updated).isMissing;
+                                              let flagged = updated.flagged;
+                                              if (isMissing) {
+                                                flagged = true;
+                                              } else if (wasMissing && !isMissing) {
+                                                flagged = false;
+                                              }
+                                              return { ...updated, flagged };
+                                            }
+                                            return item;
+                                          }));
                                         }}
                                         className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1.5 py-0.5 text-xs font-bold text-foreground outline-none transition-all truncate cursor-text"
                                         title={s.desc || "Untitled Space"}
@@ -2328,8 +2586,8 @@ function LoadingUnitPage() {
                                               }));
                                             }}
                                             className={`w-7 h-5.5 text-center text-[11px] font-mono font-bold rounded border outline-none transition-all ${count > 0
-                                                ? "bg-primary/10 border-primary/40 text-foreground font-extrabold focus:bg-background focus:ring-1 focus:ring-primary"
-                                                : "bg-transparent border-transparent hover:border-border/40 text-muted-foreground/30 placeholder:text-muted-foreground/25 focus:bg-background focus:border-primary focus:text-foreground"
+                                              ? "bg-primary/10 border-primary/40 text-foreground font-extrabold focus:bg-background focus:ring-1 focus:ring-primary"
+                                              : "bg-transparent border-transparent hover:border-border/40 text-muted-foreground/30 placeholder:text-muted-foreground/25 focus:bg-background focus:border-primary focus:text-foreground"
                                               } ${isApprovedLocked ? "opacity-50 cursor-not-allowed" : "cursor-text"}`}
                                           />
                                         </td>
@@ -2384,15 +2642,26 @@ function LoadingUnitPage() {
                                       <div className="flex items-center justify-center gap-0.5">
                                         <button
                                           type="button"
-                                          onClick={() => {
-                                            const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
-                                            const newFlagged = !s.flagged;
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const targets = selectedIds.includes(s.id) && selectedIds.length > 1 ? selectedIds : [s.id];
+                                            const validation = getLUSpaceValidation(s);
+                                            const isEffectivelyFlagged = validation.isFlagged;
+                                            const newFlagged = !isEffectivelyFlagged;
                                             setIopSpaces(prev => prev.map(item => targets.includes(item.id) ? { ...item, flagged: newFlagged } : item));
+                                            dirtyStore.set(true);
+                                            toast.info(newFlagged ? `Flagged ${targets.length > 1 ? `${targets.length} spaces` : `"${s.desc}"`} for review` : `Unflagged ${targets.length > 1 ? `${targets.length} spaces` : `"${s.desc}"`}`);
                                           }}
-                                          className="p-0.5 text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded transition-colors cursor-pointer"
-                                          title={s.flagged ? "Unflag space" : "Flag space for review"}
+                                          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+                                          title={(() => {
+                                            const validation = getLUSpaceValidation(s);
+                                            if (validation.isMissing) {
+                                              return validation.reason || "Missing space data";
+                                            }
+                                            return isEffectivelyFlagged ? "Unflag space" : "Flag space for review";
+                                          })()}
                                         >
-                                          <Flag className={`size-3.5 ${s.flagged ? "fill-amber-500 text-amber-500" : ""}`} />
+                                          <Flag className={`size-3.5 transition-all duration-200 ${isEffectivelyFlagged ? "fill-red-500 text-red-500 scale-110" : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"}`} />
                                         </button>
                                       </div>
                                     </td>
@@ -2427,34 +2696,68 @@ function LoadingUnitPage() {
                                   >
                                     <Flag className={`size-3.5 ${s.flagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
                                     <span>{s.flagged ? "Unflag Space" : "Flag for Review"}</span>
-                                  </ContextMenuItem>
-                                  <ContextMenuItem
-                                    onClick={() => {
-                                      const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
-                                      handleBulkDuplicate();
-                                    }}
-                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
-                                  >
-                                    <Copy className="size-3.5 text-muted-foreground" />
-                                    <span>{selectedIds.includes(s.id) && selectedIds.length > 1 ? `Duplicate (${selectedIds.length}) Spaces` : "Duplicate Space"}</span>
+                                    <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">F</ContextMenuShortcut>
                                   </ContextMenuItem>
                                   <ContextMenuSeparator className="h-px bg-border my-1" />
                                   <ContextMenuItem
                                     onClick={() => {
                                       const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
-                                      setIopSpaces((prev) => prev.filter((item) => !targets.includes(item.id)));
-                                      setSelectedIds((prev) => prev.filter((id) => !targets.includes(id)));
-                                      toast.success(`Deleted ${targets.length} space(s)`);
+                                      handleCopySpaces(targets);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+                                  >
+                                    <Copy className="size-3.5 text-muted-foreground" />
+                                    <span>Copy Space{selectedIds.includes(s.id) && selectedIds.length > 1 ? "s" : ""}</span>
+                                    <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    disabled={isApprovedLocked}
+                                    onClick={() => {
+                                      const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
+                                      handleCutSpaces(targets);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+                                  >
+                                    <Copy className="size-3.5 text-muted-foreground" />
+                                    <span>Cut Space{selectedIds.includes(s.id) && selectedIds.length > 1 ? "s" : ""}</span>
+                                    <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</ContextMenuShortcut>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    disabled={isApprovedLocked}
+                                    onClick={handlePasteSpaces}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+                                  >
+                                    <Plus className="size-3.5 text-muted-foreground" />
+                                    <span>Paste Spaces</span>
+                                    <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    disabled={isApprovedLocked}
+                                    onClick={() => {
+                                      const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
+                                      handleBulkDuplicate(targets);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
+                                  >
+                                    <Copy className="size-3.5 text-muted-foreground" />
+                                    <span>Duplicate Space{selectedIds.includes(s.id) && selectedIds.length > 1 ? ` (${selectedIds.length})` : ""}</span>
+                                    <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
+                                  </ContextMenuItem>
+                                  <ContextMenuSeparator className="h-px bg-border my-1" />
+                                  <ContextMenuItem
+                                    disabled={isApprovedLocked}
+                                    onClick={() => {
+                                      const targets = selectedIds.includes(s.id) ? selectedIds : [s.id];
+                                      handleBulkDelete(targets);
                                     }}
                                     className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer text-[13px]"
                                   >
                                     <Trash2 className="size-3.5" />
-                                    <span>Delete Space</span>
+                                    <span>Delete Space{selectedIds.includes(s.id) && selectedIds.length > 1 ? ` (${selectedIds.length})` : ""}</span>
                                     <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
                                   </ContextMenuItem>
                                 </ContextMenuContent>
-                              </ContextMenu>
-                            );
+                              </ContextMenu>);
                           })}
                         </tbody>
                       ))}

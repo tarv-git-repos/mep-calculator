@@ -1,5 +1,5 @@
 import { CABLE_DATABASE, calculateConductorRows } from "@/lib/calc-conductor";
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { getMergedItemComments } from "@/utils/commentHelpers";
@@ -1234,6 +1234,13 @@ function ConductorSizingPage() {
               />
             </div>
           </div>
+
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={project?.id || "default"}
+            calculatorPath="/conductor-sizing"
+            calculatorTitle="Conductor Sizing"
+          />
 
           {/* Main Card Container for Data Grid & Tabs matching screenshot */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 

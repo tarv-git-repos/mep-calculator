@@ -1,6 +1,7 @@
 import { useWorkspace } from "@/lib/workspace-store";
 import {
   CalculationReviewBar,
+  CalculationStatusBanner,
   useCalculationEffectiveReadOnly,
   useCalculationReviewState,
 } from "@/components/workspace/CalculationReviewBar";
@@ -1166,6 +1167,13 @@ function LPDCalculationPage() {
               />
             </div>
           </div>
+
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={project?.id || "default"}
+            calculatorPath="/lpd-calculation"
+            calculatorTitle="LPD Calculation"
+          />
 
           {/* White Card Container for Grid */}
           <div

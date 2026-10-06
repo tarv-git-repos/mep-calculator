@@ -1,4 +1,4 @@
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -217,6 +217,7 @@ function CableVoltageDropPage() {
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const isApprovedLocked = useCalculationLock("/cable-voltage-drop", project?.id);
+  const isLocked = isEffectiveReadOnly || isApprovedLocked;
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
   const confirm = useConfirm();
   const prompt = usePrompt();
@@ -227,6 +228,13 @@ function CableVoltageDropPage() {
 
   const storageKey = `mep_cable_vd_rows_${activeProjectId || project?.id || "default"}`;
   const parentVdStorageKey = `mep_cable_vd_group_parent_${activeProjectId || project?.id || "default"}`;
+
+  useEffect(() => {
+    if (isLocked) {
+      setSelected(new Set());
+      setActiveRowId(undefined);
+    }
+  }, [isLocked]);
 
   const [groupParentVdMap, setGroupParentVdMap] = useState<Record<string, number>>(() => {
     if (typeof window !== "undefined") {
@@ -623,6 +631,10 @@ function CableVoltageDropPage() {
   };
 
   const handleToggle = (id: string, isShift?: boolean, isCtrl?: boolean) => {
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     setSelected((prev) => {
       const clickedIndex = filteredRows.findIndex((r) => r.id === id);
       if (clickedIndex === -1) return prev;
@@ -656,6 +668,10 @@ function CableVoltageDropPage() {
   };
 
   const handleToggleAll = () => {
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+      return;
+    }
     if (selected.size === filteredRows.length && filteredRows.length > 0) {
       setSelected(new Set());
     } else {
@@ -664,8 +680,8 @@ function CableVoltageDropPage() {
   };
 
   const handleToggleGroup = (ids: string[], select: boolean) => {
-    if (isEffectiveReadOnly) {
-      toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+    if (isLocked) {
+      toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
       return;
     }
     setSelected((prev) => {
@@ -848,6 +864,22 @@ function CableVoltageDropPage() {
         activeEl.isContentEditable
       );
       if (isInput) return;
+
+      if (isLocked) {
+        if (isCmdOrCtrl && (e.key.toLowerCase() === "a" || e.code === "KeyA")) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Selection is locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (
+          ["Delete", "Backspace"].includes(e.key) ||
+          (isCmdOrCtrl && ["x", "v", "d", "z", "y"].includes(e.key.toLowerCase()))
+        ) {
+          e.preventDefault();
+          toast.info("Calculation is Approved & Locked. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+      }
 
       if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
         e.preventDefault();
@@ -1703,6 +1735,13 @@ function CableVoltageDropPage() {
             </div>
           </div>
           
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={project?.id || "default"}
+            calculatorPath="/cable-voltage-drop"
+            calculatorTitle="Cable Voltage Drop"
+          />
+
           {/* Main Content Area */}
           <div className="flex-1 overflow-hidden flex flex-col relative">
             <div className="flex-1 flex flex-col bg-background overflow-hidden">
@@ -1714,12 +1753,16 @@ function CableVoltageDropPage() {
                     selected={selected}
                     onToggle={handleToggle}
                     onToggleAll={handleToggleAll}
+                    isReadOnly={isLocked}
                     groupBy={(r) => r.groupName || "Main Feeders"}
                     groupOrder={uniqueGroups}
                     renderGroupHeader={renderFeederGroupHeader}
                     renderGroupContextMenu={renderFeederGroupContextMenu}
                     onToggleGroup={handleToggleGroup}
-                    onRowDoubleClick={(row) => setPreviewRow(row)}
+                    onRowDoubleClick={(row) => {
+                      if (isLocked) return;
+                      setPreviewRow(row);
+                    }}
                     rowClassName={(r) => r.flagged ? "bg-red-500/5 hover:bg-red-500/10" : ""}
                     renderContextMenu={(row) => (
                       <ContextMenuContent className="w-56">

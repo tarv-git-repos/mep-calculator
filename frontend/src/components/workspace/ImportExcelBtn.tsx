@@ -156,7 +156,9 @@ export function ImportExcelBtn({ columnMapping, onImport, className, children }:
                 const normTarget = target.toLowerCase().replace(/[^a-z0-9]/g, "");
                 for (const rKey of rowKeys) {
                   const normRKey = rKey.toLowerCase().replace(/[^a-z0-9]/g, "");
-                  if (normRKey === normTarget || normRKey.includes(normTarget) || normTarget.includes(normRKey)) {
+                  const isExact = normRKey === normTarget;
+                  const isFuzzy = normRKey.length >= 3 && normTarget.length >= 3 && (normRKey.includes(normTarget) || normTarget.includes(normRKey));
+                  if (isExact || isFuzzy) {
                     if (row[rKey] !== undefined && row[rKey] !== null && row[rKey] !== "") {
                       foundVal = row[rKey];
                       break;
@@ -173,7 +175,7 @@ export function ImportExcelBtn({ columnMapping, onImport, className, children }:
             }
           }
 
-          if (matchedAnyField && (newObj.desc !== undefined || newObj.length !== undefined || newObj.loadKw !== undefined)) {
+          if (matchedAnyField && Object.keys(newObj).length > 0) {
             mappedRows.push(newObj);
           }
         });

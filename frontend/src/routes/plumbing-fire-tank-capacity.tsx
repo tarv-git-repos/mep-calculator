@@ -24,7 +24,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
-import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import {
@@ -964,27 +964,12 @@ function FireTankCapacityPage() {
             </div>
           </div>
 
-          {/* Approved & Locked Status Banner */}
-          {isApprovedLocked && (
-            <div className="flex items-center justify-between p-3 px-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 font-medium shadow-2xs">
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
-                  <Lock className="size-4" />
-                </div>
-                <div>
-                  <span className="font-bold text-emerald-900 dark:text-emerald-200">
-                    Calculation is APPROVED & LOCKED
-                  </span>
-                  <span className="text-emerald-700/80 dark:text-emerald-400/80 ml-1.5">
-                    This Fire Tank Capacity sheet is locked to protect engineering revision integrity.
-                  </span>
-                </div>
-              </div>
-              <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold uppercase tracking-wider">
-                Approved
-              </span>
-            </div>
-          )}
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={project?.id || "default"}
+            calculatorPath="/plumbing-fire-tank-capacity"
+            calculatorTitle="Fire Tank Capacity"
+          />
 
           {/* Main Card & Intelligence Drawer Container */}
           <div className="flex-1 min-h-0 flex gap-3 overflow-hidden">

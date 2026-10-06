@@ -377,7 +377,7 @@ export function DataGrid<T extends { id: string }>({
       >
         <div
           className="grid h-10 items-center text-[11.5px] font-semibold uppercase tracking-wider text-muted-foreground w-full"
-          style={{ gridTemplateColumns: gridTemplate, minWidth: totalDefaultWidth }}
+          style={{ gridTemplateColumns: gridTemplate, minWidth: "100%" }}
         >
           <div className="px-2 grid place-items-center">
             <input
@@ -432,8 +432,8 @@ export function DataGrid<T extends { id: string }>({
         } : undefined}
         className={isSticky ? "w-full relative z-10" : "flex-1 overflow-y-auto overflow-x-auto w-full relative z-10"}
       >
-        <div style={{ height: total * ROW_H, position: "relative", minWidth: totalDefaultWidth }} className="w-full">
-          <div style={{ transform: `translateY(${start * ROW_H}px)`, minWidth: totalDefaultWidth }} className="w-full">
+        <div style={{ height: total * ROW_H, position: "relative", minWidth: "100%" }} className="w-full">
+          <div style={{ transform: `translateY(${start * ROW_H}px)`, minWidth: "100%" }} className="w-full">
             {slice.map((item) => {
               if (item.type === "group") {
                 const groupVal = item.groupValue!;
@@ -494,7 +494,7 @@ export function DataGrid<T extends { id: string }>({
                       <ContextMenuTrigger asChild>
                         <div
                           className="grid h-[30px] w-full"
-                          style={{ gridTemplateColumns: "1fr", minWidth: totalDefaultWidth }}
+                          style={{ gridTemplateColumns: "1fr", minWidth: "100%" }}
                         >
                           {groupContent}
                         </div>
@@ -508,7 +508,7 @@ export function DataGrid<T extends { id: string }>({
                   <div
                     key={item.id}
                     className="grid h-[30px] w-full"
-                    style={{ gridTemplateColumns: "1fr", minWidth: totalDefaultWidth }}
+                    style={{ gridTemplateColumns: "1fr", minWidth: "100%" }}
                   >
                     {groupContent}
                   </div>
@@ -662,7 +662,7 @@ export function DataGrid<T extends { id: string }>({
                             ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                             : ""
                         } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
-                        style={{ gridTemplateColumns: gridTemplate, height: ROW_H, minWidth: totalDefaultWidth }}
+                        style={{ gridTemplateColumns: gridTemplate, height: ROW_H, minWidth: "100%" }}
                       >
                         {renderRowContent()}
                       </div>
@@ -727,7 +727,7 @@ export function DataGrid<T extends { id: string }>({
                       ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                       : ""
                   } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
-                  style={{ gridTemplateColumns: gridTemplate, height: ROW_H, minWidth: totalDefaultWidth }}
+                  style={{ gridTemplateColumns: gridTemplate, height: ROW_H, minWidth: "100%" }}
                 >
                   {renderRowContent()}
                 </div>

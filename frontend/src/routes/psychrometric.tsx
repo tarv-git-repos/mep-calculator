@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { useWorkspace } from "@/lib/workspace-store";
 import {
   CalculationReviewBar,
+  CalculationStatusBanner,
   useCalculationLock,
   useCalculationEffectiveReadOnly,
   useCalculationReviewState,
@@ -794,6 +795,13 @@ function PsychrometricPage() {
               <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} />
             </div>
           </div>
+
+          {/* Review / Approval Status Banner */}
+          <CalculationStatusBanner
+            projectId={activeProjectId || project?.id}
+            calculatorPath="/psychrometric"
+            calculatorTitle="Psychrometric Calculator"
+          />
 
           {/* White / Dark Card container for Parameters & Results Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED"
