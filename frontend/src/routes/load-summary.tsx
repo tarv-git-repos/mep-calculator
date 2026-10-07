@@ -8,7 +8,7 @@ import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { useState, useMemo, useEffect } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
-import { useConfirm } from "@/hooks/use-confirm";
+import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { Plus, Download, Trash, Copy, X, Database, Filter, ArrowUpDown, Sparkles, FileText, MessageSquare, Flag, Zap, Activity, Layers, UploadCloud, Building2, ExternalLink, Loader2, RefreshCw, Box } from "lucide-react";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
@@ -33,7 +33,10 @@ import {
   importIfcFileToLoadSummary,
   getCommercialBenchmarkLoads,
   hasActive3dSpaces,
+  extractFloorName,
+  sortLoadRowsFloorWise,
 } from "@/lib/calc-load-summary";
+import { getFloorRank } from "@/lib/bimViewerSpaceExtractor";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/load-summary")({
@@ -155,6 +158,7 @@ function LoadSummaryPage() {
   const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const confirm = useConfirm();
+  const prompt = usePrompt();
 
   const [rows, setRows] = useState<LoadRow[]>(() => {
     if (typeof window === "undefined") return [];
@@ -391,10 +395,27 @@ function LoadSummaryPage() {
           return sortDirection === "asc" ? numA - numB : numB - numA;
         }
       });
+    } else {
+      // Default: sort floor-wise by floor elevation rank and room name!
+      result = sortLoadRowsFloorWise(result);
     }
 
     return result;
   }, [rows, searchQuery, filterType, filterNonZeroOnly, filterWithRemarksOnly, filterFlaggedOnly, sortKey, sortDirection]);
+
+  // Unique floors ordered by elevation (Basement -> Ground -> 1st -> 2nd -> Roof)
+  const sortedFloorOrder = useMemo(() => {
+    const floorSet = new Set<string>();
+    filteredRows.forEach((r) => {
+      floorSet.add(extractFloorName(r));
+    });
+    return Array.from(floorSet).sort((a, b) => {
+      const rankA = getFloorRank(a);
+      const rankB = getFloorRank(b);
+      if (rankA !== rankB) return rankA - rankB;
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+    });
+  }, [filteredRows]);
 
   const totalPower = rows.reduce((acc, row) => acc + row.totalLoad, 0);
   const totalPowerWithSafety = totalPower * 1.1;
@@ -451,10 +472,11 @@ function LoadSummaryPage() {
     }
   };
 
-  const addRow = () => {
+  const addSpaceToFloor = (floor: string) => {
     const newId = `ls_${Math.random().toString(36).slice(2, 9)}`;
     const newRow: LoadRow = {
       id: newId,
+      floor,
       description: "",
       qty: 1,
       area: 0,
@@ -464,12 +486,17 @@ function LoadSummaryPage() {
       other: 0,
       totalLoad: 0,
       remarks: "",
-      flagged: false
+      flagged: false,
     };
     pushToHistory(rows, history, setHistory, setRedoStack);
-    setRows(prev => [...prev, computeRowOutputs(newRow)]);
+    setRows((prev) => [...prev, computeRowOutputs(newRow)]);
     setSelected(new Set());
     setActiveRowId(newId);
+  };
+
+  const addRow = () => {
+    const defaultFloor = sortedFloorOrder[0] || "FIRST FLOOR";
+    addSpaceToFloor(defaultFloor);
   };
 
   const loadDummyData = () => {
@@ -1442,7 +1469,7 @@ function LoadSummaryPage() {
                     onChange={(e) => setSortKey(e.target.value as any)}
                     className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-[12px] outline-none cursor-pointer"
                   >
-                    <option value="default">Default (S.No / Entry order)</option>
+                    <option value="default">Floor-wise & Space Name (Standard)</option>
                     <option value="description">Description</option>
                     <option value="totalLoad">Total Load (kW)</option>
                     <option value="area">Area (sq.m)</option>
@@ -1560,6 +1587,83 @@ function LoadSummaryPage() {
                         onToggleAll={handleToggleAll}
                         onRowDoubleClick={(row) => setPreviewRow(row)}
                         rowClassName={(row) => (row.flagged ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]" : "")}
+                        groupBy={(row) => extractFloorName(row)}
+                        groupOrder={sortedFloorOrder}
+                        onToggleGroup={(ids, select) => {
+                          setSelected((prev) => {
+                            const next = new Set(prev);
+                            ids.forEach((id) => (select ? next.add(id) : next.delete(id)));
+                            return next;
+                          });
+                        }}
+                        renderGroupHeader={(floorName) => {
+                          const floorRows = filteredRows.filter((r) => extractFloorName(r) === floorName);
+                          const spaceCount = floorRows.length;
+                          const floorTotalWatts = floorRows.reduce((sum, r) => sum + (r.totalLoad || 0) * (r.qty || 1) * 1000, 0);
+                          const floorTotalKw = floorTotalWatts / 1000;
+                          const floorTotalArea = floorRows.reduce((sum, r) => sum + (r.area || 0) * (r.qty || 1), 0);
+                          return (
+                            <div className="flex items-center justify-between w-full pr-3 text-[12px]">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold tracking-wide uppercase text-foreground">{floorName}</span>
+                                <span className="text-[10px] text-muted-foreground font-normal hidden sm:inline">(Right-click or press Delete to remove)</span>
+                              </div>
+                              <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground font-mono">
+                                <span>{spaceCount} {spaceCount === 1 ? "space" : "spaces"}</span>
+                                <span>·</span>
+                                <span>{floorTotalKw >= 10 ? `${floorTotalKw.toFixed(1)} kW` : `${Math.round(floorTotalWatts).toLocaleString()} W`}</span>
+                                <span>·</span>
+                                <span>{floorTotalArea.toFixed(1)} {unitSystem === "si" ? "m²" : "sq.ft"}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    addSpaceToFloor(floorName);
+                                  }}
+                                  className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-colors cursor-pointer"
+                                  title={`Add new space to ${floorName}`}
+                                >
+                                  <Plus className="size-3" /> Space
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }}
+                        renderGroupContextMenu={(floorName) => (
+                          <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
+                            <ContextMenuItem
+                              onClick={async () => {
+                                const newFloor = prompt ? await prompt("Enter new floor name:", floorName, { title: "Rename Floor" }) : window.prompt("Enter new floor name:", floorName);
+                                if (newFloor && newFloor.trim() !== "" && newFloor.trim().toUpperCase() !== floorName) {
+                                  pushToHistory(rows, history, setHistory, setRedoStack);
+                                  setRows(prev => prev.map(r => extractFloorName(r) === floorName ? { ...r, floor: newFloor.trim().toUpperCase() } : r));
+                                  toast.success(`Renamed ${floorName} to ${newFloor.trim().toUpperCase()}`);
+                                }
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <span>Rename Floor</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => {
+                                pushToHistory(rows, history, setHistory, setRedoStack);
+                                const floorRowIds = new Set(filteredRows.filter(r => extractFloorName(r) === floorName).map(r => r.id));
+                                setRows(prev => prev.filter(r => !floorRowIds.has(r.id)));
+                                setSelected(prev => {
+                                  const next = new Set(prev);
+                                  floorRowIds.forEach(id => next.delete(id));
+                                  return next;
+                                });
+                                toast.info(`Deleted all spaces in ${floorName}`);
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 text-destructive rounded cursor-pointer"
+                            >
+                              <Trash className="size-3.5" />
+                              <span>Delete Floor</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        )}
                         renderContextMenu={(row) => {
                           const rowComments = getMergedItemComments(row.id, row.description, (row as any).comments || commentsList.filter(c => c.targetId === row.id || (c as any).itemId === row.id), "/load-summary", project?.id);
                           return (
