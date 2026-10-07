@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -1044,17 +1044,10 @@ function DischargeUnitPage() {
               </div>
             </div>
 
-            {/* Notification Banner across all tabs */}
-            <CalculationStatusBanner
-              projectId={activeProjectId || project?.id}
-              calculatorPath="/plumbing-discharge-unit"
-              calculatorTitle="Discharge Unit Calculator"
-            />
-
             {/* Row 2: Toolbar Strip inside Spaces Tab */}
             {activeTab === "spaces" && (
               <div className="relative flex items-center justify-between px-3 h-10 bg-background border-b border-border/60 shrink-0 select-none gap-2 flex-wrap no-print">
-                {/* Left Controls: Search, Floor Dropdown, & Filters */}
+                {/* Left Controls: Search, Filter Popover, & Sort */}
                 <div className="flex items-center gap-1.5 flex-1 w-full sm:w-auto">
                   <div className="relative flex items-center">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
@@ -1065,43 +1058,6 @@ function DischargeUnitPage() {
                       className="h-8 w-44 sm:w-56 pl-8 pr-3 bg-surface-2 border border-border rounded-full text-xs outline-none focus:border-primary focus:bg-background transition-all text-foreground placeholder:text-muted-foreground"
                     />
                   </div>
-
-                  {uniqueFloors.length > 1 && (
-                    <div className="relative inline-flex items-center">
-                      <select
-                        value={filterFloor}
-                        onChange={(e) => setFilterFloor(e.target.value)}
-                        className="h-8 pl-3.5 pr-8 bg-surface-2 border border-border rounded-full text-xs font-semibold outline-none focus:border-primary focus:bg-background transition-all text-foreground cursor-pointer hover:bg-surface-3 appearance-none shadow-2xs"
-                      >
-                        <option value="all">All Floors ({uniqueFloors.length})</option>
-                        {uniqueFloors.map(fl => (
-                          <option key={fl} value={fl}>{fl}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="size-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowFlaggedOnly(prev => !prev);
-                      if (!showFlaggedOnly && flaggedCount > 0) {
-                        toast.info(`Filtering ${flaggedCount} flagged space(s) requiring data review`);
-                      }
-                    }}
-                    className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
-                      showFlaggedOnly
-                        ? "bg-red-500/15 border-red-500 text-red-600 dark:text-red-400 font-bold shadow-2xs"
-                        : flaggedCount > 0
-                          ? "border-amber-500/40 bg-amber-500/5 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
-                          : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                    }`}
-                    title={showFlaggedOnly ? "Showing flagged spaces only. Click to show all spaces." : `${flaggedCount} flagged space(s)`}
-                  >
-                    <Flag className={`size-3.5 ${flaggedCount > 0 || showFlaggedOnly ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
-                    <span>{showFlaggedOnly ? "Flagged Only" : `Flagged (${flaggedCount})`}</span>
-                  </button>
 
                   <Popover>
                     <PopoverTrigger asChild>
@@ -1121,7 +1077,7 @@ function DischargeUnitPage() {
                         )}
                       </button>
                     </PopoverTrigger>
-                    <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                    <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
                       <div className="flex items-center justify-between pb-1.5 border-b border-border">
                         <span className="text-[12px] font-semibold text-foreground">Filters</span>
                         {activeFiltersCount > 0 && (
@@ -1154,14 +1110,19 @@ function DischargeUnitPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-1">
-                        <span className="text-xs font-medium text-foreground">Flagged Only</span>
-                        <input
-                          type="checkbox"
-                          checked={showFlaggedOnly}
-                          onChange={(e) => setShowFlaggedOnly(e.target.checked)}
-                          className="size-3.5 accent-primary cursor-pointer rounded"
-                        />
+                      <div className="flex items-center justify-between pt-1.5 border-t border-border/60">
+                        <label className="flex items-center gap-2 text-[11.5px] font-semibold text-foreground cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={showFlaggedOnly}
+                            onChange={(e) => setShowFlaggedOnly(e.target.checked)}
+                            className="rounded border-gray-300 text-red-600 size-3.5 focus:ring-red-500"
+                          />
+                          <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                            <Flag className="size-3 fill-red-500 text-red-500" />
+                            Flagged / Warnings Only
+                          </span>
+                        </label>
                       </div>
                     </PopoverContent>
                   </Popover>

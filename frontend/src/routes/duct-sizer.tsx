@@ -1,5 +1,5 @@
 import { calculateDuctSize, calculateSMACNAWarnings, colebrook, CFM_TO_LPS, LPS_TO_CFM, INWG_TO_PAM, PAM_TO_INWG, FPM_TO_MPS, MPS_TO_FPM, IN_TO_MM, MM_TO_IN } from "@/lib/calc-duct-sizer";
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
@@ -1204,13 +1204,6 @@ function DuctSizerPage() {
                 </TBtn>
               </div>
             </div>
-
-            {/* Notification Banner across all tabs */}
-            <CalculationStatusBanner
-              projectId={activeProjectId}
-              calculatorPath="/duct-sizer"
-              calculatorTitle="Duct Sizer"
-            />
 
             {/* Main Content Area */}
             <div className="flex-1 overflow-y-auto p-6 pr-3 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">

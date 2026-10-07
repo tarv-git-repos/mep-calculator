@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadFile } from "@/lib/download";
@@ -591,13 +591,6 @@ function StaircasePressurizationPage() {
               <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
             </div>
           </div>
-
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={project?.id || activeProjectId || "default"}
-            calculatorPath="/staircase-pressurization"
-            calculatorTitle="Staircase Pressurization"
-          />
 
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${

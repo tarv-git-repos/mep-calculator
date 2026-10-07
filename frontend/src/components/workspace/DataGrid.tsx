@@ -379,7 +379,7 @@ export function DataGrid<T extends { id: string }>({
           className="grid h-10 items-center text-[11.5px] font-semibold uppercase tracking-wider text-muted-foreground w-full"
           style={{ gridTemplateColumns: gridTemplate, minWidth: "100%" }}
         >
-          <div className="px-2 grid place-items-center">
+          <div className="px-2 grid place-items-center h-full border-r border-border/60">
             <input
               type="checkbox"
               checked={allSelected && !isReadOnly}
@@ -394,13 +394,13 @@ export function DataGrid<T extends { id: string }>({
               className="size-3 accent-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             />
           </div>
-          {columns.map((c) => {
+          {columns.map((c, colIdx) => {
             const k = String(c.key);
-            const isLast = columns.indexOf(c) === columns.length - 1;
+            const isLast = colIdx === columns.length - 1;
             return (
               <div
                 key={k}
-                className={`relative px-2 border-l border-transparent hover:border-border transition-colors duration-150 first:border-l-0 group flex items-center h-full min-w-0 ${
+                className={`relative px-2 border-r border-border/60 last:border-r-0 hover:border-border transition-colors duration-150 group flex items-center h-full min-w-0 ${
                   c.align === "right" ? "justify-end text-right" :
                   c.align === "center" ? "justify-center text-center" : ""
                 }`}
@@ -539,7 +539,7 @@ export function DataGrid<T extends { id: string }>({
               const renderRowContent = () => (
                 <>
                   <div
-                    className="px-2 grid place-items-center"
+                    className="px-2 grid place-items-center h-full border-r border-border/40"
                     onClick={(e) => {
                       e.stopPropagation();
                       if (isReadOnly) {
@@ -574,12 +574,13 @@ export function DataGrid<T extends { id: string }>({
                       className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed"
                     />
                   </div>
-                  {columns.map((c) => {
+                  {columns.map((c, colIdx) => {
                     const isEditable = c.editable;
+                    const isLast = colIdx === columns.length - 1;
                     return (
                       <div
                         key={String(c.key)}
-                        className={`px-2 truncate min-w-0 flex items-center ${
+                        className={`px-2 truncate min-w-0 flex items-center h-full ${!isLast ? "border-r border-border/40" : ""} ${
                           c.align === "right" ? "justify-end text-right" :
                           c.align === "center" ? "justify-center text-center w-full" : ""
                         } ${c.mono ? "font-mono tabular text-[13.5px]" : ""} ${isEditable && !isReadOnly ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors" : ""}`}

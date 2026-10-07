@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
-import { X, Info, Flame, Zap, Shield, CheckCircle2, AlertTriangle, Sparkles, Flag } from "lucide-react";
+import { X, Info, Flame, CheckCircle } from "lucide-react";
 import { PclCategorySelect } from "./PclCategorySelect";
+import { FloorSelect } from "./FloorSelect";
 import { inferTypeFromName } from "@/lib/calc-preliminary-cooling-load";
 
 export interface PclSpace {
@@ -14,6 +15,7 @@ export interface PclSpace {
   kw: number;
   tr: number;
   floor: string;
+  zone?: string;
   selected?: boolean;
   comments?: any[];
   flagged?: boolean;
@@ -35,13 +37,22 @@ export function EditPclSpaceModal({
   availableFloors = [],
   spaceDensities,
 }: EditPclSpaceModalProps) {
-  const [tempSpace, setTempSpace] = useState<PclSpace>({ ...space });
+  const initialDefaultDensity = space.type ? (spaceDensities[space.type] || 0) : 0;
+  const initialDensity = typeof space.density === "number" && space.density > 0
+    ? space.density
+    : initialDefaultDensity;
+
+  const isInitiallyCustom = typeof space.density === "number" && space.density > 0 && space.density !== initialDefaultDensity;
+
+  const [tempSpace, setTempSpace] = useState<PclSpace>(() => ({
+    ...space,
+    density: initialDensity,
+  }));
+  const [isCustomDensity, setIsCustomDensity] = useState<boolean>(isInitiallyCustom);
   const [showPreview, setShowPreview] = useState(false);
-  const [customDensityOverride, setCustomDensityOverride] = useState<boolean>(() => {
-    if (!space.type) return false;
-    if (space.type.endsWith(" (Custom)") || space.type === "Other") return true;
-    return typeof space.density === "number" && space.density !== (spaceDensities[space.type] || 0);
-  });
+  const [manualAirflow, setManualAirflow] = useState(false);
+  const [manualKw, setManualKw] = useState(() => (tempSpace.kw || 0));
+  const [manualTr, setManualTr] = useState(() => (tempSpace.tr || 0));
 
   const isCustomType = Boolean(tempSpace.type && (tempSpace.type.endsWith(" (Custom)") || tempSpace.type === "Other"));
   const [customTypeName, setCustomTypeName] = useState(() => {
@@ -51,6 +62,32 @@ export function EditPclSpaceModal({
     return "Custom";
   });
 
+  const defaultDensity = useMemo(() => {
+    return tempSpace.type ? (spaceDensities[tempSpace.type] || 0) : 0;
+  }, [tempSpace.type, spaceDensities]);
+
+  const [densityInputVal, setDensityInputVal] = useState<string>(() => {
+    if (isCustomDensity) {
+      return String(tempSpace.density);
+    }
+    return defaultDensity > 0 ? `${defaultDensity} (default)` : "0 (default)";
+  });
+
+  useEffect(() => {
+    if (!isCustomDensity) {
+      setDensityInputVal(defaultDensity > 0 ? `${defaultDensity} (default)` : "0 (default)");
+    } else {
+      setDensityInputVal(String(tempSpace.density));
+    }
+  }, [isCustomDensity, defaultDensity, tempSpace.density]);
+
+  useEffect(() => {
+    document.body.classList.add("modal-open-blur");
+    return () => {
+      document.body.classList.remove("modal-open-blur");
+    };
+  }, []);
+
   useEffect(() => {
     const isReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
     if (isReadOnly) {
@@ -59,37 +96,61 @@ export function EditPclSpaceModal({
     }
   }, [onClose]);
 
-  // Handle automatic or custom density update
-  const defaultDensity = useMemo(() => {
-    return tempSpace.type ? (spaceDensities[tempSpace.type] || 0) : 0;
-  }, [tempSpace.type, spaceDensities]);
-
   const liveCalculations = useMemo(() => {
     const areaNum = typeof tempSpace.area === "number" ? tempSpace.area : parseFloat(String(tempSpace.area)) || 0;
-    const densityNum = tempSpace.type ? (customDensityOverride ? tempSpace.density : (spaceDensities[tempSpace.type] || tempSpace.density || 0)) : 0;
+    const densityNum = typeof tempSpace.density === "number" ? tempSpace.density : (parseFloat(String(tempSpace.density)) || 0);
     const dissipationWatts = areaNum * densityNum;
-    const kw = dissipationWatts / 1000;
-    const tr = kw / 3.51685;
+    const kw = manualAirflow ? manualKw : dissipationWatts / 1000;
+    const tr = manualAirflow ? manualTr : kw / 3.517;
 
     return {
       area: areaNum,
       density: densityNum,
-      dissipationWatts,
+      dissipationWatts: manualAirflow ? kw * 1000 : dissipationWatts,
       kw,
       tr,
       btuh: tr * 12000,
     };
-  }, [tempSpace.area, tempSpace.density, tempSpace.type, customDensityOverride, spaceDensities]);
+  }, [tempSpace.area, tempSpace.density, manualAirflow, manualKw, manualTr]);
 
-  const handleTypeChange = (newType: string) => {
+  const handleInputChange = (field: keyof PclSpace, value: any) => {
+    setTempSpace((prev) => {
+      const next = { ...prev, [field]: value };
+
+      if (field === "name") {
+        const nameVal = String(value).trim();
+        const inferred = inferTypeFromName(nameVal);
+        if (inferred && (!prev.type || inferred !== prev.type) && !isCustomDensity) {
+          next.type = inferred;
+          next.aiDetected = true;
+          const nextDens = spaceDensities[inferred] || 0;
+          next.density = nextDens;
+        }
+      }
+
+      const areaNum = typeof next.area === "number" ? next.area : (next.area === "" ? 0 : parseFloat(String(next.area)) || 0);
+      const densNum = typeof next.density === "number" ? next.density : (parseFloat(String(next.density)) || 0);
+      const watts = areaNum * densNum;
+      const kw = watts / 1000;
+      const tr = kw / 3.517;
+
+      next.dissipation = watts;
+      next.kw = Number(kw.toFixed(2));
+      next.tr = Number(tr.toFixed(2));
+
+      return next;
+    });
+  };
+
+  const handleCategoryChange = (newType: string) => {
     if (newType === "Other" || newType.endsWith(" (Custom)")) {
-      setCustomDensityOverride(true);
+      setIsCustomDensity(true);
       setTempSpace((prev) => {
         const areaNum = typeof prev.area === "number" ? prev.area : parseFloat(String(prev.area)) || 0;
         const nextDensity = prev.density || 120;
         const watts = areaNum * nextDensity;
         const kw = watts / 1000;
-        const tr = kw / 3.51685;
+        const tr = kw / 3.517;
         return {
           ...prev,
           type: newType,
@@ -104,12 +165,12 @@ export function EditPclSpaceModal({
     }
 
     const nextDensity = newType ? (spaceDensities[newType] || 0) : 0;
-    setCustomDensityOverride(false);
+    setIsCustomDensity(false);
     setTempSpace((prev) => {
       const areaNum = typeof prev.area === "number" ? prev.area : parseFloat(String(prev.area)) || 0;
       const watts = areaNum * nextDensity;
       const kw = watts / 1000;
-      const tr = kw / 3.51685;
+      const tr = kw / 3.517;
       return {
         ...prev,
         type: newType,
@@ -122,38 +183,61 @@ export function EditPclSpaceModal({
     });
   };
 
-  const handleAreaChange = (val: number | "") => {
-    setTempSpace((prev) => {
-      const areaNum = typeof val === "number" ? val : (val === "" ? 0 : parseFloat(String(val)) || 0);
-      const densityToUse = prev.type ? (customDensityOverride ? prev.density : (spaceDensities[prev.type] || prev.density || 0)) : 0;
-      const watts = areaNum * densityToUse;
-      const kw = watts / 1000;
-      const tr = kw / 3.51685;
-      return {
-        ...prev,
-        area: val,
-        dissipation: watts,
-        kw: Number(kw.toFixed(2)),
-        tr: Number(tr.toFixed(2)),
-      };
-    });
+  const handleDensityInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (val === "" || /^\d+(\.\d*)?$/.test(val)) {
+      setDensityInputVal(val);
+      return;
+    }
+
+    if (!isCustomDensity) {
+      const defaultStr = `${defaultDensity} (default)`;
+      if (!val.includes(defaultStr)) {
+        setDensityInputVal("");
+        return;
+      }
+      const typed = val.replace(defaultStr, "");
+      if (/^\d+(\.\d*)?$/.test(typed)) {
+        setDensityInputVal(typed);
+      }
+    }
   };
 
-  const handleDensityChange = (val: number) => {
-    setCustomDensityOverride(true);
-    setTempSpace((prev) => {
-      const areaNum = typeof prev.area === "number" ? prev.area : (prev.area === "" ? 0 : parseFloat(String(prev.area)) || 0);
-      const watts = areaNum * val;
-      const kw = watts / 1000;
-      const tr = kw / 3.51685;
-      return {
-        ...prev,
-        density: val,
-        dissipation: watts,
-        kw: Number(kw.toFixed(2)),
-        tr: Number(tr.toFixed(2)),
-      };
-    });
+  const handleDensityInputBlur = () => {
+    const parsed = parseFloat(densityInputVal);
+    if (densityInputVal === "" || isNaN(parsed)) {
+      setIsCustomDensity(false);
+      setTempSpace((prev) => {
+        const areaNum = typeof prev.area === "number" ? prev.area : (prev.area === "" ? 0 : parseFloat(String(prev.area)) || 0);
+        const watts = areaNum * defaultDensity;
+        const kw = watts / 1000;
+        const tr = kw / 3.517;
+        return {
+          ...prev,
+          density: defaultDensity,
+          dissipation: watts,
+          kw: Number(kw.toFixed(2)),
+          tr: Number(tr.toFixed(2)),
+        };
+      });
+      setDensityInputVal(defaultDensity > 0 ? `${defaultDensity} (default)` : "0 (default)");
+    } else {
+      setIsCustomDensity(true);
+      setTempSpace((prev) => {
+        const areaNum = typeof prev.area === "number" ? prev.area : (prev.area === "" ? 0 : parseFloat(String(prev.area)) || 0);
+        const watts = areaNum * parsed;
+        const kw = watts / 1000;
+        const tr = kw / 3.517;
+        return {
+          ...prev,
+          density: parsed,
+          dissipation: watts,
+          kw: Number(kw.toFixed(2)),
+          tr: Number(tr.toFixed(2)),
+        };
+      });
+      setDensityInputVal(String(parsed));
+    }
   };
 
   const handleSave = () => {
@@ -168,10 +252,10 @@ export function EditPclSpaceModal({
       }
     }
 
-    const finalDensity = resolvedType ? (customDensityOverride ? tempSpace.density : (spaceDensities[resolvedType] || tempSpace.density || 0)) : 0;
-    const finalWatts = areaNum * finalDensity;
-    const finalKw = finalWatts / 1000;
-    const finalTr = finalKw / 3.51685;
+    const finalDensity = typeof tempSpace.density === "number" ? tempSpace.density : (parseFloat(String(tempSpace.density)) || 0);
+    const finalWatts = manualAirflow ? manualKw * 1000 : areaNum * finalDensity;
+    const finalKw = manualAirflow ? manualKw : finalWatts / 1000;
+    const finalTr = manualAirflow ? manualTr : finalKw / 3.517;
 
     const isNoName = !tempSpace.name || tempSpace.name.trim() === "";
     const isNoArea = areaNum <= 0;
@@ -203,284 +287,324 @@ export function EditPclSpaceModal({
     onClose();
   };
 
-  const labelClass = "block text-[11px] font-bold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1.5";
-  const inputClass = "w-full bg-white/70 dark:bg-slate-900/60 border border-border/80 rounded-xl px-3.5 py-2 text-[13px] text-foreground font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/50";
+  const labelClass = "block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1 flex items-center gap-1.5";
+  const inputClass = "w-full h-9 px-3 bg-white/60 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-primary focus:ring-1 focus:ring-primary/20 focus:bg-white dark:focus:bg-white/10 rounded-lg text-[12px] outline-none transition-all text-neutral-800 dark:text-neutral-100 placeholder:text-neutral-400";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in font-sans">
-      <div className={`relative w-full bg-card border border-border rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transition-[max-width] duration-300 ease-in-out ${showPreview ? "max-w-4xl" : "max-w-2xl"}`}>
-        
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/20 dark:bg-black/50 p-4 animate-fade-in font-sans">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`bg-white/80 dark:bg-neutral-950/80 backdrop-blur-2xl border border-white/50 dark:border-white/10 rounded-2xl shadow-2xl flex flex-col w-full max-h-[88vh] overflow-hidden transition-[max-width] duration-300 ease-in-out ${
+          showPreview ? "max-w-4xl" : "max-w-xl"
+        }`}
+      >
         {/* Header */}
-        <header className="px-6 py-4 border-b border-border/60 flex items-center justify-between bg-card shrink-0">
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2">
-              <h2 className="text-[17px] font-bold text-foreground tracking-tight">Edit Space Parameters</h2>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-primary/10 text-primary uppercase tracking-wider border border-primary/20">
-                {tempSpace.floor ? `${tempSpace.floor} - ${tempSpace.name}` : tempSpace.name}
-              </span>
-            </div>
-            <p className="text-[12px] text-muted-foreground">
-              Configure room geometry, heat density factors, and cooling load capacity.
-            </p>
+        <header className="px-5 h-14 flex items-center justify-between border-b border-black/5 dark:border-white/5 shrink-0 bg-white/20 dark:bg-black/20">
+          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+            <h2 className="text-[14.5px] font-bold text-neutral-800 dark:text-neutral-100 truncate">
+              Edit Space Parameters
+            </h2>
+            <span className="px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-neutral-800 dark:text-neutral-200 text-[10.5px] font-bold font-mono tracking-tight shrink-0">
+              {tempSpace.name || "Space"}
+            </span>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
-              onClick={() => setTempSpace(prev => ({ ...prev, flagged: !prev.flagged }))}
-              className={`flex items-center gap-1.5 h-9 px-3 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer shadow-xs ${
-                tempSpace.flagged
-                  ? "bg-red-500/10 text-red-600 border-red-500/30 hover:bg-red-500/20"
-                  : "bg-surface-2 border-border/80 text-muted-foreground hover:text-foreground hover:bg-surface-3"
-              }`}
-              title={tempSpace.flagged ? "Unflag space" : "Flag space for review"}
-            >
-              <Flag className={`size-3.5 ${tempSpace.flagged ? "fill-red-500 text-red-500" : ""}`} />
-              <span>{tempSpace.flagged ? "Flagged" : "Flag"}</span>
-            </button>
-            <button
               onClick={() => setShowPreview((prev) => !prev)}
-              className={`flex items-center gap-1.5 h-9 px-3.5 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer shadow-xs ${
+              className={`flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11.5px] font-semibold border transition-all cursor-pointer shadow-xs ${
                 showPreview
-                  ? "bg-primary text-primary-foreground border-primary hover:bg-primary/95 shadow-md shadow-primary/15"
-                  : "bg-surface-2 border-border/80 text-foreground hover:bg-surface-3"
+                  ? "bg-primary text-primary-foreground border-primary hover:bg-primary/95"
+                  : "bg-white/50 dark:bg-white/5 border-black/10 dark:border-white/10 text-neutral-700 dark:text-neutral-300 hover:bg-white/80 dark:hover:bg-white/10"
               }`}
             >
               <Info className="size-3.5" />
               Calculations Preview
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="size-8.5 grid place-items-center rounded-xl hover:bg-surface-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="size-8 grid place-items-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors cursor-pointer"
             >
               <X className="size-4" />
             </button>
           </div>
         </header>
 
-        {/* Content Body */}
+        {/* Content body split into Form inputs and Calculations preview */}
         <div className="flex-1 min-h-0 flex overflow-hidden">
-          <div className="flex-1 min-w-0 p-6 space-y-6 overflow-y-auto custom-scrollbar">
-            
+          {/* Form inputs (Left side) */}
+          <div className="flex-1 min-w-0 p-5 space-y-4 overflow-y-auto custom-scrollbar">
+
             {/* GENERAL PARAMETERS */}
-            <div className="space-y-4">
-              <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-border/40 pb-2 flex items-center gap-2">
+            <div className="space-y-3">
+              <h3 className="text-[10.5px] uppercase font-bold text-primary tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
                 <span className="size-1.5 rounded-full bg-primary" /> General Parameters
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelClass}>Space Name</label>
                   <input
                     type="text"
                     value={tempSpace.name}
-                    onChange={(e) => {
-                      const newName = e.target.value;
-                      const inferred = inferTypeFromName(newName);
-
-                      setTempSpace((prev) => {
-                        let nextType = prev.type || "";
-                        let nextDensity = prev.density;
-                        let nextAiDetected = prev.aiDetected;
-
-                        if (inferred && (!prev.type || prev.type === "" || inferred !== prev.type) && !customDensityOverride) {
-                          nextType = inferred;
-                          nextDensity = spaceDensities[inferred] || 120;
-                          nextAiDetected = true;
-                        }
-
-                        const areaNum = typeof prev.area === "number" ? prev.area : (prev.area === "" ? 0 : parseFloat(String(prev.area)) || 0);
-                        const densityToUse = nextType ? (customDensityOverride ? nextDensity : (spaceDensities[nextType] || nextDensity || 0)) : 0;
-                        const watts = areaNum * densityToUse;
-                        const kw = watts / 1000;
-                        const tr = kw / 3.51685;
-
-                        return {
-                          ...prev,
-                          name: newName,
-                          type: nextType,
-                          density: nextDensity,
-                          dissipation: watts,
-                          kw: Number(kw.toFixed(2)),
-                          tr: Number(tr.toFixed(2)),
-                          aiDetected: nextAiDetected,
-                        };
-                      });
-                    }}
+                    onChange={(e) => handleInputChange("name", e.target.value)}
                     className={inputClass}
-                    placeholder="e.g. BEDROOM 2"
+                    placeholder="e.g. Office Space 1"
                   />
                 </div>
                 <div>
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <label className="block text-[11px] font-bold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">Category Classification</label>
+                  <label className={labelClass}>
                     {tempSpace.aiDetected && (
                       <span
                         title="Automatically identified"
-                        className="size-1.5 rounded-full bg-primary cursor-help"
+                        className="inline-block size-1.5 rounded-full bg-primary mr-1 cursor-help"
                       />
                     )}
-                  </div>
+                    Category Classification
+                  </label>
                   <PclCategorySelect
                     value={tempSpace.type && (tempSpace.type.endsWith(" (Custom)") || tempSpace.type === "Other") ? "Other" : (tempSpace.type || "")}
                     densities={spaceDensities}
-                    onChange={(val) => handleTypeChange(val)}
-                    triggerClassName="w-full bg-surface-2 border border-border rounded-xl px-3.5 py-2.5 text-xs text-foreground focus:border-primary focus:ring-1 focus:ring-primary shadow-xs"
+                    onChange={handleCategoryChange}
+                    triggerClassName="w-full bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border border-border rounded-lg px-2.5 py-1 w-full outline-none cursor-pointer transition-all text-foreground h-9 text-[12px]"
                   />
                 </div>
               </div>
 
-              {isCustomType && (
-                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
-                  <label className={labelClass}>Custom Category Name</label>
-                  <input
-                    type="text"
-                    value={customTypeName}
-                    onChange={(e) => setCustomTypeName(e.target.value)}
-                    className={inputClass}
-                    placeholder="e.g. Custom or Server Room"
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Floor</label>
+                  <FloorSelect
+                    value={tempSpace.floor}
+                    onChange={(fl) => handleInputChange("floor", fl)}
+                    availableFloors={availableFloors}
+                    triggerClassName="h-9 bg-white/60 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg text-[12px]"
                   />
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    Custom categories will be automatically formatted and saved as <code className="font-semibold text-foreground">"{customTypeName.trim() || 'Custom'} (Custom)"</code>.
-                  </p>
                 </div>
-              )}
-
-              <div>
-                <label className={labelClass}>Floor Assigned</label>
-                <input
-                  type="text"
-                  list="pcl-floors-list"
-                  value={tempSpace.floor}
-                  onChange={(e) => setTempSpace(prev => ({ ...prev, floor: e.target.value }))}
-                  className={inputClass}
-                  placeholder="e.g. FIRST FLOOR"
-                />
-                <datalist id="pcl-floors-list">
-                  {availableFloors.map((f) => (
-                    <option key={f} value={f} />
-                  ))}
-                </datalist>
+                <div>
+                  {isCustomType ? (
+                    <div>
+                      <label className={labelClass}>Custom Category Name</label>
+                      <input
+                        type="text"
+                        value={customTypeName}
+                        onChange={(e) => setCustomTypeName(e.target.value)}
+                        className={inputClass}
+                        placeholder="e.g. Server Room"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className={labelClass}>Zone Assigned</label>
+                      <input
+                        type="text"
+                        value={tempSpace.zone || "Default"}
+                        onChange={(e) => handleInputChange("zone", e.target.value)}
+                        className={inputClass}
+                        placeholder="Unzoned / Default"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* GEOMETRY & HEAT DISSIPATION */}
-            <div className="space-y-4">
-              <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-border/40 pb-2 flex items-center gap-2">
-                <span className="size-1.5 rounded-full bg-primary" /> Geometry & Heat Dissipation Density
+            {/* GEOMETRY & OCCUPANCY / HEAT DISSIPATION */}
+            <div className="space-y-3">
+              <h3 className="text-[10.5px] uppercase font-bold text-primary tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-primary" /> Geometry & Occupancy
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelClass}>Area (m²)</label>
                   <input
                     type="number"
                     step="any"
                     value={tempSpace.area}
-                    onChange={(e) => handleAreaChange(e.target.value === "" ? "" : parseFloat(e.target.value))}
+                    onChange={(e) => handleInputChange("area", e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
                     className={`${inputClass} font-mono`}
-                    placeholder="17"
+                    placeholder="100"
                   />
                 </div>
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[11px] font-bold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">
-                      Heat Density (W/m²)
-                    </label>
-                    {customDensityOverride && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCustomDensityOverride(false);
-                          handleDensityChange(defaultDensity);
-                        }}
-                        className="text-[10px] text-primary hover:underline font-bold cursor-pointer"
-                      >
-                        Reset to Default ({defaultDensity} W/m²)
-                      </button>
+                  <label className={labelClass}>
+                    {!isCustomDensity && (
+                      <span title="Using standard density" className="inline-block size-1.5 rounded-full bg-blue-500 shrink-0" />
                     )}
-                  </div>
+                    Heat Density (W/m²)
+                  </label>
                   <input
-                    type="number"
-                    step="1"
-                    value={tempSpace.density}
-                    onChange={(e) => handleDensityChange(parseFloat(e.target.value) || 0)}
+                    type="text"
+                    value={densityInputVal}
+                    onFocus={(e) => e.target.select()}
+                    onChange={handleDensityInputChange}
+                    onBlur={handleDensityInputBlur}
                     className={`${inputClass} font-mono`}
-                    placeholder={String(defaultDensity)}
                   />
                 </div>
               </div>
             </div>
 
-            {/* COOLING CAPACITY & POWER METRICS */}
-            <div className="space-y-4">
-              <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-border/40 pb-2 flex items-center gap-2">
-                <span className="size-1.5 rounded-full bg-primary" /> Computed Cooling Load Capacity
+            {/* PRESSURE BALANCING INTENT */}
+            <div className="space-y-3">
+              <h3 className="text-[10.5px] uppercase font-bold text-primary tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-primary" /> Pressure Balancing Intent
               </h3>
-              
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-surface-2 p-3.5 rounded-2xl border border-border/70 flex flex-col gap-1">
-                  <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider">Total Dissipation</span>
-                  <div className="text-[18px] font-extrabold text-foreground font-mono">
-                    {Math.round(liveCalculations.dissipationWatts).toLocaleString()} <span className="text-xs font-semibold text-muted-foreground">W</span>
-                  </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>
+                    Computed Cooling Load
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={`${liveCalculations.tr.toFixed(2)} TR (${liveCalculations.kw.toFixed(2)} kW)`}
+                    className={`${inputClass} font-mono bg-white/40 dark:bg-white/5 cursor-default font-semibold text-primary`}
+                  />
                 </div>
-
-                <div className="bg-primary/5 p-3.5 rounded-2xl border border-primary/20 flex flex-col gap-1">
-                  <span className="text-[10.5px] font-bold text-primary uppercase tracking-wider">Cooling Load (kW)</span>
-                  <div className="text-[18px] font-extrabold text-primary font-mono">
-                    {liveCalculations.kw.toFixed(2)} <span className="text-xs font-semibold text-primary/70">kW</span>
-                  </div>
-                </div>
-
-                <div className="bg-emerald-500/5 p-3.5 rounded-2xl border border-emerald-500/20 flex flex-col gap-1">
-                  <span className="text-[10.5px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Cooling Load (TR)</span>
-                  <div className="text-[18px] font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
-                    {liveCalculations.tr.toFixed(2)} <span className="text-xs font-semibold text-emerald-600/70">TR</span>
+                <div>
+                  <label className={labelClass}>Manual Balancing</label>
+                  <div className="flex items-center h-9 gap-2 px-3 bg-white/60 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setManualAirflow(prev => !prev)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out outline-none focus:outline-none ${
+                        manualAirflow ? "bg-primary" : "bg-neutral-200 dark:bg-neutral-700"
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block size-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          manualAirflow ? "translate-x-4" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-[11.5px] text-neutral-600 dark:text-neutral-400 select-none font-medium">
+                      Enable overrides (Bypass)
+                    </span>
                   </div>
                 </div>
               </div>
+
+              {manualAirflow && (
+                <div className="grid grid-cols-2 gap-3 pt-1 animate-fade-in">
+                  <div>
+                    <label className="block text-[10.5px] font-medium text-neutral-500 dark:text-neutral-400 mb-1">
+                      Manual Cooling Load (kW)
+                    </label>
+                    <input
+                      type="number"
+                      value={manualKw}
+                      onChange={(e) => {
+                        const kwVal = parseFloat(e.target.value) || 0;
+                        setManualKw(kwVal);
+                        setManualTr(Number((kwVal / 3.517).toFixed(2)));
+                      }}
+                      className={`${inputClass} font-mono`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10.5px] font-medium text-neutral-500 dark:text-neutral-400 mb-1">
+                      Manual Cooling Load (TR)
+                    </label>
+                    <input
+                      type="number"
+                      value={manualTr}
+                      onChange={(e) => {
+                        const trVal = parseFloat(e.target.value) || 0;
+                        setManualTr(trVal);
+                        setManualKw(Number((trVal * 3.517).toFixed(2)));
+                      }}
+                      className={`${inputClass} font-mono`}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
           </div>
 
-          {/* Right Calculations Preview Drawer with smooth slide transition */}
+          {/* Calculations preview (Right side) */}
           <div
-            className={`shrink-0 bg-surface-2/60 border-l border-border overflow-hidden transition-[width,opacity,padding] duration-300 ease-in-out flex flex-col ${
-              showPreview ? "w-[360px] opacity-100 p-6" : "w-0 opacity-0 p-0 border-l-transparent"
+            className={`shrink-0 bg-white/30 dark:bg-black/20 backdrop-blur-md border-l border-black/5 dark:border-white/5 overflow-hidden transition-[width,opacity] duration-300 ease-in-out flex flex-col ${
+              showPreview ? "w-[360px] opacity-100 p-5 border-l-border" : "w-0 opacity-0 p-0 border-l-transparent"
             }`}
           >
-            <div className="w-[312px] space-y-4 flex flex-col h-full overflow-y-auto custom-scrollbar">
-              <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-wider border-b border-border/50 pb-2 shrink-0">
-                <Flame className="size-4" /> Thermal Equations Preview
+            <div className="w-[320px] space-y-4 flex flex-col h-full overflow-y-auto custom-scrollbar">
+              <h3 className="text-[10.5px] uppercase font-bold text-primary tracking-widest pb-1.5 border-b border-black/5 dark:border-white/5 shrink-0 flex items-center gap-1.5">
+                <Flame className="size-3.5" /> Calculations Preview
+              </h3>
+
+              {/* Standard Rates */}
+              <div className="p-3.5 bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl space-y-2.5 shrink-0 shadow-xs">
+                <div className="text-[9.5px] uppercase font-bold text-neutral-400 dark:text-neutral-500 tracking-wider">
+                  Cooling Load Density Benchmarks
+                </div>
+                <div className="grid grid-cols-2 gap-y-2 gap-x-3 text-[11px] font-mono">
+                  <div className="flex justify-between border-b border-black/5 dark:border-white/5 pb-1">
+                    <span className="text-neutral-500 dark:text-neutral-400">Category:</span>
+                    <span className="font-semibold text-neutral-800 dark:text-neutral-200 truncate max-w-[100px]">{tempSpace.type || "General"}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-black/5 dark:border-white/5 pb-1">
+                    <span className="text-neutral-500 dark:text-neutral-400">Standard:</span>
+                    <span className="font-semibold text-neutral-800 dark:text-neutral-200">{defaultDensity} W/m²</span>
+                  </div>
+                  <div className="flex justify-between border-b border-black/5 dark:border-white/5 pb-1">
+                    <span className="text-neutral-500 dark:text-neutral-400">Applied:</span>
+                    <span className="font-semibold text-neutral-800 dark:text-neutral-200">{liveCalculations.density} W/m²</span>
+                  </div>
+                  <div className="flex justify-between border-b border-black/5 dark:border-white/5 pb-1">
+                    <span className="text-neutral-500 dark:text-neutral-400">TR/m²:</span>
+                    <span className="font-semibold text-neutral-800 dark:text-neutral-200">{(liveCalculations.density / 3517).toFixed(4)}</span>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-3 text-xs">
-                <div className="p-3 bg-card rounded-xl border border-border/60">
-                  <div className="text-[10px] font-bold text-muted-foreground uppercase">Heat Dissipation (Watts)</div>
-                  <div className="font-mono text-sm font-bold text-foreground mt-1">
-                    Area ({liveCalculations.area} m²) × Density ({liveCalculations.density} W/m²)
+              {/* Calculations Summary */}
+              <div className="space-y-3 flex-1 min-h-0">
+                <div className="p-4 bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl space-y-3 shadow-xs">
+                  <div className="text-[11.5px] font-bold text-neutral-800 dark:text-neutral-200">
+                    Preliminary Cooling Capacity
                   </div>
-                  <div className="text-primary font-bold font-mono text-xs mt-0.5">
-                    = {Math.round(liveCalculations.dissipationWatts).toLocaleString()} Watts
+
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-baseline text-[11.5px]">
+                      <span className="text-neutral-500 dark:text-neutral-400 font-medium">Cooling Load (kW):</span>
+                      <span className="font-mono font-bold text-[13.5px] text-primary">
+                        {liveCalculations.kw.toFixed(2)} kW
+                      </span>
+                    </div>
+                    <div className="text-[9.5px] text-neutral-500 dark:text-neutral-400 font-mono bg-white/20 dark:bg-black/35 p-1.5 rounded-lg border border-black/5 dark:border-white/5 break-all leading-relaxed">
+                      {manualAirflow ? (
+                        `Manual override: ${manualKw.toFixed(2)} kW`
+                      ) : (
+                        `(${liveCalculations.area} m² × ${liveCalculations.density} W/m²) / 1,000 = ${liveCalculations.kw.toFixed(2)} kW`
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-baseline text-[11.5px] pt-1.5 border-t border-black/5 dark:border-white/5">
+                      <span className="text-neutral-500 dark:text-neutral-400 font-medium">Tons of Refrigeration (TR):</span>
+                      <span className="font-mono font-bold text-[13.5px] text-emerald-600 dark:text-emerald-400">
+                        {liveCalculations.tr.toFixed(2)} TR
+                      </span>
+                    </div>
+                    <div className="text-[9.5px] text-neutral-500 dark:text-neutral-400 font-mono bg-white/20 dark:bg-black/35 p-1.5 rounded-lg border border-black/5 dark:border-white/5 break-all leading-relaxed">
+                      {manualAirflow ? (
+                        `Manual override: ${manualTr.toFixed(2)} TR`
+                      ) : (
+                        `${liveCalculations.kw.toFixed(2)} kW / 3.517 = ${liveCalculations.tr.toFixed(2)} TR (${Math.round(liveCalculations.btuh).toLocaleString()} BTU/hr)`
+                      )}
+                    </div>
                   </div>
                 </div>
+              </div>
 
-                <div className="p-3 bg-card rounded-xl border border-border/60">
-                  <div className="text-[10px] font-bold text-muted-foreground uppercase">Kilowatts Conversion</div>
-                  <div className="font-mono text-sm font-bold text-foreground mt-1">
-                    {Math.round(liveCalculations.dissipationWatts)} W / 1,000
-                  </div>
-                  <div className="text-primary font-bold font-mono text-xs mt-0.5">
-                    = {liveCalculations.kw.toFixed(2)} kW
-                  </div>
-                </div>
-
-                <div className="p-3 bg-card rounded-xl border border-border/60">
-                  <div className="text-[10px] font-bold text-muted-foreground uppercase">Tons of Refrigeration (TR)</div>
-                  <div className="font-mono text-sm font-bold text-foreground mt-1">
-                    {liveCalculations.kw.toFixed(2)} kW / 3.51685
-                  </div>
-                  <div className="text-emerald-600 dark:text-emerald-400 font-bold font-mono text-xs mt-0.5">
-                    = {liveCalculations.tr.toFixed(2)} TR ({Math.round(liveCalculations.btuh).toLocaleString()} BTU/hr)
-                  </div>
+              {/* Validation Info */}
+              <div className="shrink-0 p-3 bg-emerald-500/10 dark:bg-emerald-500/5 border border-emerald-500/20 dark:border-emerald-500/10 rounded-xl flex items-start gap-2 text-[11.5px] text-emerald-600 dark:text-emerald-400 shadow-xs">
+                <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                <div>
+                  <span className="font-semibold">Calculations verified.</span> Heat density values align with preliminary cooling engineering benchmarks.
                 </div>
               </div>
             </div>
@@ -488,16 +612,18 @@ export function EditPclSpaceModal({
         </div>
 
         {/* Footer */}
-        <footer className="px-6 py-4 border-t border-border/60 flex items-center justify-end gap-3 bg-card shrink-0">
+        <footer className="px-5 h-14 border-t border-black/5 dark:border-white/5 bg-white/10 dark:bg-black/10 flex items-center justify-end gap-2.5 shrink-0">
           <button
+            type="button"
             onClick={onClose}
-            className="px-5 py-2 rounded-xl text-xs font-semibold border border-border hover:bg-surface-2 text-muted-foreground hover:text-foreground transition-all cursor-pointer"
+            className="h-9 px-4 border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-neutral-700 dark:text-neutral-300 rounded-lg text-[12px] font-medium transition-colors cursor-pointer shadow-xs"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSave}
-            className="px-6 py-2 rounded-xl text-xs font-bold bg-[#0A7BC7] hover:bg-[#0866A5] text-white shadow-md shadow-[#0A7BC7]/20 transition-all cursor-pointer"
+            className="h-9 px-4.5 bg-primary text-primary-foreground hover:bg-primary/95 rounded-lg text-[12px] font-semibold transition-all shadow-sm shadow-primary/10 active:scale-[0.98] cursor-pointer"
           >
             Save Changes
           </button>

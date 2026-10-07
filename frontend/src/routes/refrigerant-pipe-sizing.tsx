@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
@@ -683,13 +683,6 @@ function RefrigerantPipeSizingPage() {
               </div>
             </div>
           </div>
-
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={project?.id || "default"}
-            calculatorPath="/refrigerant-pipe-sizing"
-            calculatorTitle="Refrigerant Pipe Sizer"
-          />
 
           {/* Secondary Action Row */}
           <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 mt-2 mb-2">

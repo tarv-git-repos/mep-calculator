@@ -12,10 +12,12 @@ import { loadOrgHierarchyFromStorage } from "@/utils/hierarchy";
 
 export type WorkflowRole = "Jr. / Design Engineer" | "Sr. Design Engineer" | "Discipline Coordinator";
 
-export type ReviewStatus = "DRAFT" | "REVIEWED" | "APPROVED" | "REJECTED";
+export type ReviewStatus = "DRAFT" | "SUBMITTED" | "REVIEWED" | "APPROVED" | "REJECTED";
 
 export interface CalculationReviewState {
   status: ReviewStatus;
+  submittedBy?: string;
+  submittedAt?: string;
   reviewedBy?: string;
   reviewedAt?: string;
   reviewerComments?: string;
@@ -237,15 +239,40 @@ export function CalculationReviewBar({
             const mEmail = String(m.email || "").toLowerCase().trim();
             const mName = String(m.name || "").toLowerCase().trim();
             const mId = String(m.id || "").toLowerCase().trim();
+            const currentFirst = currentName.split(' ')[0];
+            const mFirst = mName.split(' ')[0];
             return (currentEmail && mEmail === currentEmail) ||
                    (currentId && mId === currentId) ||
                    (currentName && mName === currentName) ||
                    (currentEmail && mEmail && (currentEmail.includes(mEmail) || mEmail.includes(currentEmail))) ||
-                   (currentName && mName && (currentName.includes(mName) || mName.includes(currentName)));
+                   (currentName && mName && (currentName.includes(mName) || mName.includes(currentName))) ||
+                   (currentFirst && mFirst && (currentFirst === mFirst || currentFirst.includes(mFirst) || mFirst.includes(currentFirst)));
           });
 
-          if (found && found.approvalAuthority) {
-            return found.approvalAuthority;
+          if (found) {
+            // Leaf node check: if nobody reports to them, they are strictly a submitter
+            const hasSubordinates = members.some((m: any) => {
+              const pIds = Array.isArray(m.parentIds) ? m.parentIds : (m.parentId ? [m.parentId] : []);
+              return pIds.includes(found.id);
+            });
+
+            if (!hasSubordinates) {
+              return "NONE"; // Submitter role
+            }
+
+            if (found.approvalAuthority && found.approvalAuthority !== "NONE") {
+              return found.approvalAuthority;
+            }
+            
+            // Middle manager without explicit authority
+            const roleStr = String(found.role || found.designation || "").toUpperCase();
+            if (roleStr.includes("SR") || roleStr.includes("SENIOR") || roleStr.includes("REVIEW")) {
+                return "REVIEW";
+            }
+            if (roleStr.includes("COORDINATOR") || roleStr.includes("MANAGER") || roleStr.includes("ADMIN")) {
+                return "APPROVE_REJECT";
+            }
+            return "REVIEW"; // Default for middle managers
           }
         }
       } catch (e) {}
@@ -262,6 +289,13 @@ export function CalculationReviewBar({
     const desNorm = desVal.replace(/[\s\-_.]/g, "");
 
     if (
+      roleVal === "SR_DESIGN_ENGINEER" || roleNorm.includes("SRDESIGN") || roleNorm.includes("SENIOR") ||
+      desVal.includes("senior") || desVal.includes("sr.") || desVal.includes("sr ") ||
+      desNorm.includes("srdesign") || desNorm.includes("senior")
+    ) {
+      return "REVIEW";
+    }
+    if (
       roleVal === "SUPER_ADMIN" || roleVal === "ORG_ADMIN" || currentEmail === "admin@tarv.ai" ||
       roleNorm.includes("SUPERADMIN") || roleNorm.includes("ORGADMIN")
     ) {
@@ -274,13 +308,6 @@ export function CalculationReviewBar({
       desNorm.includes("coordinator") || desNorm.includes("projectmanager")
     ) {
       return "APPROVE_REJECT";
-    }
-    if (
-      roleVal === "SR_DESIGN_ENGINEER" || roleNorm.includes("SRDESIGN") || roleNorm.includes("SENIOR") ||
-      desVal.includes("senior") || desVal.includes("sr.") || desVal.includes("sr ") ||
-      desNorm.includes("srdesign") || desNorm.includes("senior")
-    ) {
-      return "REVIEW";
     }
 
     return "NONE";
@@ -315,12 +342,14 @@ export function CalculationReviewBar({
   });
 
   // Modal States
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   
+  const [submitComments, setSubmitComments] = useState("");
   const [srComments, setSrComments] = useState("");
   const [approveComments, setApproveComments] = useState("");
   const [rejectReason, setRejectReason] = useState("");
@@ -397,6 +426,92 @@ export function CalculationReviewBar({
         } 
       }));
     }
+  };
+
+  // Action 0: Jr. Design Engineer Submit Task
+  const handleJrSubmitTask = async () => {
+    const isViewer = profile?.role === 'VIEWER' || userData?.role === 'VIEWER';
+    if (isViewer) {
+      toast.info("Viewer role cannot submit actions.", { id: "readonly-notice" });
+      setShowSubmitModal(false);
+      return;
+    }
+    const timestamp = new Date().toLocaleString();
+    const commentText = submitComments.trim() || "Task Submitted for Review";
+    const updated: CalculationReviewState = {
+      ...reviewState,
+      status: "SUBMITTED",
+      submittedBy: currentUserName,
+      submittedAt: timestamp,
+      history: [
+        ...(reviewState.history || []),
+        {
+          action: "SUBMITTED",
+          user: currentUserName,
+          role: "Jr. / Design Engineer",
+          timestamp,
+          comment: commentText
+        }
+      ]
+    };
+
+    updateReviewState(updated);
+    setShowSubmitModal(false);
+
+    try {
+      const notifRecord = {
+        id: `submit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        targetId: `calc_${calculatorPath || "review"}`,
+        targetName: calculatorTitle,
+        targetType: "Calculation Submission",
+        text: `${currentUserName} has submitted "${calculatorTitle}" for your review: "${commentText}"`,
+        authorId: profile?.id || userData?.id || "jr_designer",
+        authorName: currentUserName,
+        timestamp: new Date().toISOString(),
+        isReviewStateNotif: true,
+        targetRole: "sr_design_engineer",
+        projectId: effectiveProjectId,
+        calculatorPath
+      };
+
+      const currentProj = workspaceStore.getState().project;
+      if (currentProj) {
+        const wdata = currentProj.workspace_data || {};
+        const existingNotifs = Array.isArray(wdata.notifications) ? wdata.notifications : [];
+        const updatedWdata = {
+          ...wdata,
+          notifications: [notifRecord, ...existingNotifs]
+        };
+        api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
+        workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
+      }
+
+      window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: notifRecord }));
+      window.dispatchEvent(new CustomEvent("mep-notification-added", { detail: notifRecord }));
+    } catch (e) {
+      console.error("Failed to save notification:", e);
+    }
+
+    setSubmitComments("");
+
+    try {
+      await api.logActivity("CALCULATION_SUBMITTED", {
+        calculatorTitle,
+        submittedBy: currentUserName,
+        comments: submitComments
+      });
+
+      const revisions = workspaceStore.getState().project?.revisions || [];
+      const newRevNumber = revisions.length + 1;
+      // Trigger actual file-based backup via VersionManager
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent('mep_trigger_save_version', { 
+          detail: { description: `Submitted by ${currentUserName}` } 
+        }));
+      }
+    } catch (e) {}
+
+    toast.success("Task submitted successfully! Sr. Design Engineers have been notified.");
   };
 
   // Action 1: Sr. Design Engineer Submit Review
@@ -531,6 +646,43 @@ export function CalculationReviewBar({
         } catch (err) {
           console.error("Failed to send review notifications to coordinators:", err);
         }
+
+        // Also notify the original Submitter (Jr. Design Engineer)
+        if (reviewState.submittedBy) {
+          try {
+            const projectUsers: any[] = (currentProj as any).project_users || [];
+            projectUsers.forEach((pu: any) => {
+              if (!pu) return;
+              const puName = String(pu.user?.name || pu.name || "").toLowerCase().trim();
+              const submitterNameLower = reviewState.submittedBy!.toLowerCase().trim();
+              if (puName && (submitterNameLower.includes(puName) || puName.includes(submitterNameLower))) {
+                const puId = String(pu.user_id || pu.id || pu.user?.id || pu.email || "");
+                if (puId) {
+                  api.sendNotification({
+                    recipientId: puId,
+                    title: `\u2705 TASK REVIEWED: ${calculatorTitle}`,
+                    message: `Your task "${calculatorTitle}" was REVIEWED by ${currentUserName} (Sr. Design Engineer). Notes: "${commentText}"`,
+                    link: `${calculatorPath}`,
+                    metadata: {
+                      id: `review_notify_${Date.now()}`,
+                      projectId: effectiveProjectId,
+                      calculatorPath,
+                      targetId: `calc_${calculatorPath}`,
+                      targetName: calculatorTitle,
+                      targetType: "Calculation Review",
+                      authorName: currentUserName,
+                      text: `Your task was reviewed by ${currentUserName}`,
+                      isReviewStateNotif: true,
+                      createdAt: new Date().toISOString()
+                    }
+                  }).catch(e => console.error("Failed to notify submitter", e));
+                }
+              }
+            });
+          } catch (e) {
+            console.error("Failed to notify submitter", e);
+          }
+        }
       }
 
       window.dispatchEvent(new CustomEvent("mep_notification_received", { detail: coordNotifRecord }));
@@ -556,6 +708,14 @@ export function CalculationReviewBar({
         reviewedBy: currentUserName,
         comments: srComments
       });
+
+      const revisions = workspaceStore.getState().project?.revisions || [];
+      const newRevNumber = revisions.length + 1;
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent('mep_trigger_save_version', { 
+          detail: { description: `Reviewed by ${currentUserName}` } 
+        }));
+      }
     } catch (e) {}
 
     toast.success("Review submitted! Discipline Coordinator has been notified to check for approval.");
@@ -602,8 +762,78 @@ export function CalculationReviewBar({
       
       const revisions = workspaceStore.getState().project?.revisions || [];
       const newRevNumber = revisions.length + 1;
-      const dateStr = new Date().toLocaleDateString();
-      workspaceStore.saveAsRevision(`V_${newRevNumber} - Approved on ${dateStr}`);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent('mep_trigger_save_version', { 
+          detail: { description: `Approved by ${currentUserName}` } 
+        }));
+      }
+
+      // Send approval notifications to all engineers (Reviewer & Submitter)
+      const notifRecord = {
+        id: `approve_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        targetId: `calc_${calculatorPath || "review"}`,
+        targetName: calculatorTitle,
+        targetType: "Calculation Approval",
+        text: `Calculation "${calculatorTitle}" was APPROVED by ${currentUserName} (Discipline Coordinator).`,
+        authorId: profile?.id || userData?.id || "coordinator",
+        authorName: currentUserName,
+        timestamp: new Date().toISOString(),
+        isReviewStateNotif: true,
+        targetRole: "all_engineers",
+        projectId: effectiveProjectId,
+        calculatorPath
+      };
+
+      const currentProj = workspaceStore.getState().project;
+      if (currentProj) {
+        const wdata = currentProj.workspace_data || {};
+        const existingNotifs = Array.isArray(wdata.notifications) ? wdata.notifications : [];
+        const updatedWdata = {
+          ...wdata,
+          notifications: [notifRecord, ...existingNotifs]
+        };
+        api.saveWorkspace(effectiveProjectId, updatedWdata).catch(console.error);
+        workspaceStore.updateProject({ ...currentProj, workspace_data: updatedWdata });
+
+        const projectUsers: any[] = (currentProj as any).project_users || [];
+        const coordinatorUserId = String(profile?.id || userData?.id || "");
+        
+        projectUsers.forEach((pu: any) => {
+          if (!pu) return;
+          const puId = String(pu.user_id || pu.id || pu.user?.id || pu.email || pu.user?.email || "");
+          if (puId && puId !== coordinatorUserId) {
+            api.sendNotification({
+              recipientId: puId,
+              title: `\u2705 CALCULATION APPROVED: ${calculatorTitle}`,
+              message: `"${calculatorTitle}" was APPROVED by ${currentUserName} (Discipline Coordinator). Notes: "${commentText}"`,
+              link: `${calculatorPath}`,
+              metadata: {
+                id: notifRecord.id,
+                projectId: effectiveProjectId,
+                calculatorPath,
+                targetId: notifRecord.targetId,
+                targetName: calculatorTitle,
+                targetType: "Calculation Approval",
+                authorName: currentUserName,
+                text: notifRecord.text,
+                isReviewStateNotif: true,
+                targetRole: "all_engineers",
+                createdAt: notifRecord.timestamp,
+              }
+            }).catch(e => console.error("Failed to notify engineer of approval", puId, e));
+          }
+        });
+      }
+
+      window.dispatchEvent(new CustomEvent("mep-notification-added"));
+      window.dispatchEvent(new CustomEvent("mep-review-state-updated", {
+        detail: {
+          status: "APPROVED",
+          approvedBy: currentUserName,
+          calculatorTitle,
+          projectId: effectiveProjectId
+        }
+      }));
     } catch (e) {}
 
     toast.success("Calculation APPROVED! Status updated for all team members.");
@@ -727,6 +957,14 @@ export function CalculationReviewBar({
         rejectedBy: currentUserName,
         reason: rejectReason
       });
+
+      const revisions = workspaceStore.getState().project?.revisions || [];
+      const newRevNumber = revisions.length + 1;
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent('mep_trigger_save_version', { 
+          detail: { description: `Rejected by ${currentUserName}` } 
+        }));
+      }
     } catch (e) {}
 
     toast.error("Calculation REJECTED. All engineers in the project have been notified.");
@@ -772,6 +1010,7 @@ export function CalculationReviewBar({
   const isApproved = reviewState.status === "APPROVED";
   const isReviewed = reviewState.status === "REVIEWED";
   const isRejected = reviewState.status === "REJECTED";
+  const isSubmitted = reviewState.status === "SUBMITTED";
 
   return (
     <div className="calculation-review-bar no-print select-none inline-flex items-center gap-2">
@@ -857,7 +1096,34 @@ export function CalculationReviewBar({
         </button>
       )}
 
-      {/* C. JR / DESIGN ENGINEER NOTES BUTTON (Only when Reviewer Sr. Engineer and NOT Rejected/Approved) */}
+      {/* C. JR / DESIGN ENGINEER (Submit Task) */}
+      {userRole === "Jr. / Design Engineer" && !isApproved && !isSubmitted && !isReviewed && (
+        <button
+          onClick={() => setShowSubmitModal(true)}
+          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-full shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+        >
+          <Send className="size-3.5" />
+          <span>Submit Task</span>
+        </button>
+      )}
+
+      {/* C2. JR / DESIGN ENGINEER (Already Submitted Badge) */}
+      {userRole === "Jr. / Design Engineer" && isSubmitted && !isApproved && !isReviewed && !isRejected && (
+        <span className="px-3 py-1 bg-blue-500/10 text-blue-600 border border-blue-500/20 font-bold text-xs rounded-full flex items-center gap-1.5 shrink-0 cursor-default">
+          <Clock className="size-3.5" />
+          <span>Pending Review</span>
+        </span>
+      )}
+
+      {/* C3. JR / DESIGN ENGINEER (Reviewed Badge) */}
+      {userRole === "Jr. / Design Engineer" && isReviewed && !isApproved && !isRejected && (
+        <span className="px-3 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-bold text-xs rounded-full flex items-center gap-1.5 shrink-0 cursor-default">
+          <CheckCircle2 className="size-3.5" />
+          <span>Reviewed</span>
+        </span>
+      )}
+
+      {/* D. JR / DESIGN ENGINEER NOTES BUTTON (Only when Reviewer Sr. Engineer and NOT Rejected/Approved) */}
       {userRole === "Jr. / Design Engineer" && isReviewed && reviewState.reviewerComments && !isApproved && !isRejected && (
         <button
           onClick={() => setShowDetailsModal(true)}
@@ -866,6 +1132,44 @@ export function CalculationReviewBar({
           <MessageSquare className="size-3.5 text-primary" />
           <span>Review Notes</span>
         </button>
+      )}
+
+      {/* MODAL 0: Jr. Design Engineer Submit Modal */}
+      {showSubmitModal && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 review-modal" role="dialog">
+          <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md p-6 animate-scale-in">
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2 mb-2">
+              <Send className="size-5 text-blue-500" />
+              Submit Task for Review
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              You are submitting <span className="font-bold text-foreground">{calculatorTitle}</span> for review by a Sr. Design Engineer.
+            </p>
+            <textarea
+              value={submitComments}
+              onChange={(e) => setSubmitComments(e.target.value)}
+              placeholder="Add optional notes for the reviewer..."
+              rows={4}
+              className="w-full p-3 bg-surface-2 border border-border rounded-xl text-xs font-medium outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 text-foreground resize-none"
+            />
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowSubmitModal(false)}
+                className="px-4 py-2 border border-border text-xs font-semibold rounded-xl hover:bg-surface-2 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleJrSubmitTask}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Send className="size-3.5" />
+                Submit Task
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* MODAL 1: Sr. Design Engineer Review Comments Modal */}
@@ -1126,41 +1430,6 @@ export function CalculationReviewBar({
         </div>,
         document.body
       )}
-    </div>
-  );
-}
-
-
-export function CalculationStatusBanner({ projectId, calculatorPath }: { projectId?: string, calculatorPath: string }) {
-  const reviewState = useCalculationReviewState(calculatorPath, projectId);
-  
-  if (!reviewState || reviewState.status === 'DRAFT') return null;
-  
-  const isApproved = reviewState.status === 'APPROVED';
-  const isReviewed = reviewState.status === 'REVIEWED';
-  const isRejected = reviewState.status === 'REJECTED';
-  
-  const bgColor = isApproved ? 'bg-green-500/20' : isReviewed ? 'bg-blue-500/20' : isRejected ? 'bg-red-500/20' : 'bg-[#333]';
-  const borderColor = isApproved ? 'border-green-500/30' : isReviewed ? 'border-blue-500/30' : isRejected ? 'border-red-500/30' : 'border-[#444]';
-  const textColor = isApproved ? 'text-green-400' : isReviewed ? 'text-blue-400' : isRejected ? 'text-red-400' : 'text-gray-300';
-  
-  return (
-    <div className={`w-full px-4 py-2 flex items-center justify-between border-b ${bgColor} ${borderColor}`}>
-      <div className="flex items-center gap-3">
-        {isApproved && <CheckCircle2 className={`size-5 ${textColor}`} />}
-        {isReviewed && <ShieldCheck className={`size-5 ${textColor}`} />}
-        {isRejected && <XCircle className={`size-5 ${textColor}`} />}
-        <div>
-          <div className={`text-sm font-medium ${textColor}`}>
-            {isApproved ? 'Calculation Approved' : isReviewed ? 'Calculation Reviewed' : isRejected ? 'Calculation Rejected' : 'Draft'}
-          </div>
-          <div className="text-[11px] text-gray-400 mt-0.5">
-            {isApproved ? `Approved by ${reviewState.approvedBy || 'Unknown'}` : 
-             isReviewed ? `Reviewed by ${reviewState.reviewedBy || 'Unknown'}` : 
-             isRejected ? `Rejected by ${reviewState.rejectedBy || 'Unknown'}` : ''}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

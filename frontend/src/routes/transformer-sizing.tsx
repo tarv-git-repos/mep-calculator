@@ -201,8 +201,7 @@ function TransformerSizingPage() {
     powerFactor: 0.8,
   });
 
-  // Table rows
-  const [loadRows, setLoadRows] = useState<LoadRow[]>([
+  const defaultDemoLoads: LoadRow[] = [
     {
       id: "1",
       selected: false,
@@ -223,7 +222,35 @@ function TransformerSizingPage() {
       demandFactor: 0.85,
       remarks: "Primary AC plant"
     }
-  ]);
+  ];
+
+  // Table rows
+  const [loadRows, setLoadRows] = useState<LoadRow[]>(() => {
+    if (typeof window === "undefined") return defaultDemoLoads;
+    try {
+      const pId = activeProjectId || project?.id || "default";
+      const saved = localStorage.getItem(`mep_transformer_loads_${pId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return defaultDemoLoads;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const pId = activeProjectId || project?.id || "default";
+      const saved = localStorage.getItem(`mep_transformer_loads_${pId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setLoadRows(parsed);
+        }
+      }
+    } catch {}
+  }, [activeProjectId, project?.id]);
 
   // Calculations
   const calculatedData = useMemo(() => {

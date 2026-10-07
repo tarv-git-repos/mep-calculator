@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from "react";
-import { X, Sparkles, Table, Sun } from "lucide-react";
+import { X, Sparkles, Table, Sun, Zap, Lightbulb, Layers } from "lucide-react";
 import { toast } from "sonner";
 import { workspaceStore } from "@/lib/workspace-store";
 import { predictSpacePressure } from "@/lib/ai-occupancy";
 import { Extracted3DSpace, sortSpacesByFloorAndName, isMepValidSpaceName } from "@/lib/bimViewerSpaceExtractor";
 import { convertBimSpaceToLuxRow } from "@/lib/calc-lighting-lux";
+import { convertBimSpacesToCbsRows } from "@/lib/calc-central-battery";
+import { convertBimSpacesToLpdGroupsSplit, defaultProject, type LpdProject } from "@/lib/calc-lpd-calculation";
+import { convertBimSpacesToLoadRows } from "@/lib/calc-load-summary";
 
 interface BimScheduleReviewModalProps {
   isOpen: boolean;
@@ -159,6 +161,123 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
       toast.error("Failed to save Lighting LUX rows.");
     }
   };
+
+  const handleSyncToCentralBattery = () => {
+    const spacesToCommit = records.filter((r) => selectedIds.has(r.id));
+    if (spacesToCommit.length === 0) {
+      toast.error("No spaces selected to sync to Central Battery Sizing.");
+      return;
+    }
+
+    const cbsRows = convertBimSpacesToCbsRows(spacesToCommit);
+    const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "") || "default";
+
+    try {
+      localStorage.setItem(`mep_central_battery_rows_${activeProjId}`, JSON.stringify(cbsRows));
+      toast.success(`⚡ Synced ${cbsRows.length} spaces to Central Battery Sizing (NFPA 101 / BS 5266)!`, {
+        action: {
+          label: "Open Central Battery",
+          onClick: () => {
+            window.location.href = "/central-battery-sizing";
+          }
+        }
+      });
+      onClose();
+    } catch (err) {
+      console.error("Failed to sync to Central Battery:", err);
+      toast.error("Failed to save Central Battery rows.");
+    }
+  };
+
+  const handleSyncToLpd = () => {
+    const spacesToCommit = records.filter((r) => selectedIds.has(r.id));
+    if (spacesToCommit.length === 0) {
+      toast.error("No spaces selected to sync to LPD Calculation.");
+      return;
+    }
+
+    const { internalGroups, externalGroups, internalSpacesCount, externalSpacesCount } = convertBimSpacesToLpdGroupsSplit(spacesToCommit);
+
+    try {
+      const saved = localStorage.getItem("mep-lpd-calc-v2");
+      let projects: LpdProject[] = [];
+      let currentProjectId = "";
+
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.projects && parsed.projects.length > 0) {
+            projects = parsed.projects;
+            currentProjectId = parsed.currentProjectId || projects[0].id;
+          }
+        } catch (e) {}
+      }
+
+      if (projects.length === 0) {
+        const defProj = defaultProject();
+        defProj.internalGroups = internalGroups.length > 0 ? internalGroups : defProj.internalGroups;
+        defProj.externalGroups = externalGroups.length > 0 ? externalGroups : defProj.externalGroups;
+        projects = [defProj];
+        currentProjectId = defProj.id;
+      } else {
+        projects = projects.map((p) => {
+          if (p.id === currentProjectId) {
+            return {
+              ...p,
+              internalGroups: internalGroups.length > 0 ? internalGroups : p.internalGroups,
+              externalGroups: externalGroups.length > 0 ? externalGroups : p.externalGroups,
+            };
+          }
+          return p;
+        });
+      }
+
+      localStorage.setItem("mep-lpd-calc-v2", JSON.stringify({ projects, currentProjectId }));
+      const parts: string[] = [];
+      if (internalSpacesCount > 0) parts.push(`${internalSpacesCount} internal`);
+      if (externalSpacesCount > 0) parts.push(`${externalSpacesCount} external (gardens/terraces)`);
+      toast.success(`💡 Synced ${spacesToCommit.length} spaces (${parts.join(", ")}) into LPD Calculation!`, {
+        action: {
+          label: "Open LPD Calculation",
+          onClick: () => {
+            window.location.href = "/lpd-calculation";
+          },
+        },
+      });
+      onClose();
+    } catch (err) {
+      console.error("Failed to sync to LPD Calculation:", err);
+      toast.error("Failed to save LPD Calculation spaces.");
+    }
+  };
+
+  const handleSyncToLoadSummary = () => {
+    const spacesToCommit = records.filter((r) => selectedIds.has(r.id));
+    if (spacesToCommit.length === 0) {
+      toast.error("No spaces selected to sync to Load Summary.");
+      return;
+    }
+
+    const loadRows = convertBimSpacesToLoadRows(spacesToCommit);
+    const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "") || "default";
+
+    try {
+      localStorage.setItem(`mep_load_summary_rows_${activeProjId}`, JSON.stringify(loadRows));
+      toast.success(`⚡ Synced ${loadRows.length} spaces to Electrical Load Summary (Lighting + Small Power + HVAC)!`, {
+        action: {
+          label: "Open Load Summary",
+          onClick: () => {
+            window.location.href = "/load-summary";
+          },
+        },
+      });
+      onClose();
+    } catch (err) {
+      console.error("Failed to sync to Load Summary:", err);
+      toast.error("Failed to save Load Summary spaces.");
+    }
+  };
+
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -366,16 +485,43 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
             <button
               onClick={handleSyncToLightingLux}
               disabled={selectedIds.size === 0}
-              className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-md shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-md shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               title="Generate 13-column CIBSE Lighting calculation from 3D IFC spaces"
             >
               <Sun className="size-3.5" />
               Sync to Lighting LUX ({selectedIds.size})
             </button>
             <button
+              onClick={handleSyncToLpd}
+              disabled={selectedIds.size === 0}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-md shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Generate ASHRAE 90.1 LPD schedule grouped by floor"
+            >
+              <Lightbulb className="size-3.5" />
+              Sync to LPD ({selectedIds.size})
+            </button>
+            <button
+              onClick={handleSyncToCentralBattery}
+              disabled={selectedIds.size === 0}
+              className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-md shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Generate Life-Safety Central Battery Schedule (NFPA 101 / BS 5266)"
+            >
+              <Zap className="size-3.5" />
+              Sync to Central Battery ({selectedIds.size})
+            </button>
+            <button
+              onClick={handleSyncToLoadSummary}
+              disabled={selectedIds.size === 0}
+              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-md shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Aggregate Lighting, Small Power, and HVAC into Electrical Load Summary"
+            >
+              <Layers className="size-3.5" />
+              Sync to Load Summary ({selectedIds.size})
+            </button>
+            <button
               onClick={handleSaveToProject}
               disabled={selectedIds.size === 0}
-              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-md shadow-md transition-all disabled:opacity-50 cursor-pointer"
+              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-md shadow-md transition-all disabled:opacity-50 cursor-pointer"
             >
               Save {selectedIds.size} Spaces to Project Schedule
             </button>

@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
@@ -1371,13 +1371,6 @@ function CircuitBreakerSizingPage() {
                     </div>
                   )}
                 </div>
-
-                {/* Review / Approval Status Banner */}
-                <CalculationStatusBanner
-                  projectId={activeProjectId || project?.id || "default"}
-                  calculatorPath="/circuit-breaker-sizing"
-                  calculatorTitle="Circuit Breaker Sizing"
-                />
 
                 {/* Data Grid Area */}
                 <div className="flex-1 min-h-0 overflow-hidden flex flex-col">

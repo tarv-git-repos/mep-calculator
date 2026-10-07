@@ -110,16 +110,16 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
         data: projectData
       };
 
-      // 1. Overwrite / sync to server database
+      // 1. Overwrite / sync to server database (and disk if web version)
+      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath') || 'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Versions';
       try {
-        await api.saveVersionToServer(projectName, calculatorName, payload);
+        await api.saveVersionToServer(projectName, calculatorName, payload, basePath);
       } catch (e) {
         console.warn("Cloud version update warning:", e);
       }
 
       // 2. Overwrite / save to local disk if in desktop app
       const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath');
       if (isTauri && basePath) {
         try {
           const safeBasePath = basePath.replace(/['"]/g, '');
@@ -169,7 +169,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
     setIsModalOpen(true);
   };
 
-  const confirmSaveAsVersion = async () => {
+  const executeSaveAsVersion = async (customDesc?: string) => {
     setIsModalOpen(false);
 
     try {
@@ -196,10 +196,12 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       const nextV = maxV >= 0 ? maxV + 1 : 0;
       const versionStr = `V${nextV}`;
       
+      const finalDesc = typeof customDesc === 'string' ? customDesc : descriptionInput.trim();
+
       const payload = {
         _versionMetadata: {
           version: versionStr,
-          description: descriptionInput.trim() || `Version ${versionStr}`,
+          description: finalDesc || `Version ${versionStr}`,
           user: userName,
           createdBy: userName,
           createdAt: new Date().toISOString(),
@@ -227,16 +229,16 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
         localStorage.setItem(cacheKey, JSON.stringify(filteredCache));
       } catch (e) {}
 
-      // 1. Sync to server database so ALL project members see the saved version
+      // 1. Sync to server database (and disk if web version) so ALL project members see the saved version
+      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath') || 'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Versions';
       try {
-        await api.saveVersionToServer(projectName, calculatorName, payload);
+        await api.saveVersionToServer(projectName, calculatorName, payload, basePath);
       } catch (e) {
         console.warn("Cloud version sync warning:", e);
       }
 
       // 2. Also save to local disk if running in desktop app and path configured
       const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath');
       if (isTauri && basePath) {
         try {
           const safeBasePath = basePath.replace(/['"]/g, '');
@@ -467,6 +469,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       const candidateBasePaths = [
         localStorage.getItem('versionsPath'),
         localStorage.getItem('localBackupPath'),
+        'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Versions',
         'Z:\\Versions',
         'Z:/Versions'
       ].filter(Boolean).map(p => String(p).replace(/['"]/g, ''));
@@ -571,6 +574,16 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [projectName, calculatorName, historyList, activeVersionName]);
 
+  // Listen for workflow actions that trigger automatic version saving
+  useEffect(() => {
+    const handleTriggerSave = (e: any) => {
+      const desc = e.detail?.description || 'Workflow Action Update';
+      executeSaveAsVersion(desc);
+    };
+    window.addEventListener('mep_trigger_save_version', handleTriggerSave);
+    return () => window.removeEventListener('mep_trigger_save_version', handleTriggerSave);
+  }, [projectName, calculatorName, historyList, activeVersionName, userData]);
+
   return (
     <div className="flex items-center gap-2">
       {/* Version Dropdown */}
@@ -636,7 +649,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
                   Cancel
                 </button>
                 <button 
-                  onClick={confirmSaveAsVersion}
+                  onClick={() => executeSaveAsVersion()}
                   className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
                 >
                   Save

@@ -125,10 +125,10 @@ export function DialuxStreetLightingModal({
 
   // 4. Three.js 3D Viewport Setup
   const mountRef = useRef<HTMLDivElement>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sceneRef = useRef<any>(null);
+  const cameraRef = useRef<any>(null);
+  const controlsRef = useRef<any>(null);
+  const rendererRef = useRef<any>(null);
 
   useEffect(() => {
     if (!isOpen || !mountRef.current) return;

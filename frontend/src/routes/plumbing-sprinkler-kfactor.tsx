@@ -1,7 +1,7 @@
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { api } from "@/services/api";
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { EditSprinklerCustomModal } from "@/components/workspace/EditSprinklerCustomModal";
 import { SprinklerKFactorSelect } from "@/components/workspace/SprinklerKFactorSelect";
 import { SprinklerHazardSelect } from "@/components/workspace/SprinklerHazardSelect";
@@ -1650,13 +1650,6 @@ function SprinklerKFactorPage() {
               {actions}
             </div>
           </div>
-
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={activeProjectId || project?.id || "default"}
-            calculatorPath="/plumbing-sprinkler-kfactor"
-            calculatorTitle="Sprinkler K-Factor & Hydraulic Calculation"
-          />
 
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${

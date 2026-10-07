@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -676,13 +676,6 @@ export function FireTankDurationPage() {
               />
             </div>
           </div>
-
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={project?.id || "default"}
-            calculatorPath="/plumbing-fire-tank-duration"
-            calculatorTitle="Fire Water Tank Duration"
-          />
 
           {/* White card container for Tabs & Content */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${

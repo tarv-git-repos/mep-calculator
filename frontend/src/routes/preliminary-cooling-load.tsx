@@ -9,7 +9,7 @@ import { TBtn } from "@/components/workspace/Button";
 import {
   Plus, Trash2, Download, Upload, X, Sparkles, AlertTriangle, CheckCircle2,
   Info, Gauge, FileText, Printer, FileSpreadsheet, Copy, ChevronDown, ChevronUp, Wrench, RefreshCw, Bookmark, HelpCircle,
-  Filter, ArrowUpDown, Edit3, MessageSquare, Flag, Box, Wind
+  Filter, ArrowUpDown, Edit3, MessageSquare, Flag, Box, Wind, Scissors, ClipboardPaste, CopyPlus, SlidersHorizontal
 } from "lucide-react";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { useWorkspace } from "@/lib/workspace-store";
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditPclSpaceModal } from "@/components/workspace/EditPclSpaceModal";
@@ -73,9 +73,11 @@ interface InlineInputProps {
   step?: string;
   min?: number;
   placeholder?: string;
+  disabled?: boolean;
+  readOnly?: boolean;
 }
 
-function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder }: InlineInputProps) {
+function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled, readOnly }: InlineInputProps) {
   const [localVal, setLocalVal] = useState(value === "" ? "" : String(value));
 
   useEffect(() => {
@@ -101,6 +103,8 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       min={min}
       value={localVal}
       placeholder={placeholder}
+      disabled={disabled}
+      readOnly={readOnly}
       onChange={(e) => setLocalVal(e.target.value)}
       onBlur={() => {
         if (localVal !== (value === "" ? "" : String(value))) {
@@ -280,11 +284,11 @@ function PclIntelligenceDrawer({
           <div className="space-y-1.5 text-[11.5px]">
             <div className="flex justify-between py-0.5 border-b border-border/40">
               <span className="text-muted-foreground">Total Conditioned Area:</span>
-              <span className="font-mono font-bold text-foreground">{totalArea.toFixed(1)} mÂ²</span>
+              <span className="font-mono font-bold text-foreground">{totalArea.toFixed(1)} m²</span>
             </div>
             <div className="flex justify-between py-0.5 border-b border-border/40">
               <span className="text-muted-foreground">Avg Heat Density:</span>
-              <span className="font-mono font-bold text-foreground">{avgDensity.toFixed(1)} W/mÂ²</span>
+              <span className="font-mono font-bold text-foreground">{avgDensity.toFixed(1)} W/m²</span>
             </div>
             <div className="flex justify-between py-0.5 border-b border-border/40">
               <span className="text-muted-foreground">Total Cooling Load (kW):</span>
@@ -304,15 +308,15 @@ function PclIntelligenceDrawer({
           </span>
           {avgDensity > 300 ? (
             <div className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded p-2 mb-2">
-              High average heat density detected ({avgDensity.toFixed(1)} W/mÂ²). Ensure dedicated airflow and high air-change rates.
+              High average heat density detected ({avgDensity.toFixed(1)} W/m²). Ensure dedicated airflow and high air-change rates.
             </div>
           ) : (
             <div className="text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded p-2 mb-2">
-              Average heat density is within normal range ({avgDensity.toFixed(1)} W/mÂ²).
+              Average heat density is within normal range ({avgDensity.toFixed(1)} W/m²).
             </div>
           )}
           <CollapsibleMissingPclSection
-            label="High density spaces (>300 W/mÂ²)"
+            label="High density spaces (>300 W/m²)"
             count={highDensityItems.length}
             itemsList={highDensityItems}
             isOpen={openSections.highDensity}
@@ -574,9 +578,10 @@ function PreliminaryCoolingLoadPage() {
     } catch (e) {}
 
     // 2. Check project workspace_data spaces
-    if (ventSpaces.length === 0 && project?.workspace_data?.spaces) {
-      if (Array.isArray(project.workspace_data.spaces) && project.workspace_data.spaces.length > 0) {
-        ventSpaces = project.workspace_data.spaces;
+    const projWsSpaces = (project as any)?.workspace_data?.spaces;
+    if (ventSpaces.length === 0 && projWsSpaces) {
+      if (Array.isArray(projWsSpaces) && projWsSpaces.length > 0) {
+        ventSpaces = projWsSpaces;
       }
     }
 
@@ -681,7 +686,7 @@ function PreliminaryCoolingLoadPage() {
       }
       setRows([]);
     }
-  }, [activeProjectId, project?.id, project?.workspace_data]);
+  }, [activeProjectId, project?.id, (project as any)?.workspace_data]);
 
   // Save to local storage and sync on rows change
   const saveRows = (newRows: PclRow[]) => {
@@ -699,7 +704,7 @@ function PreliminaryCoolingLoadPage() {
       
       // Save directly to cloud workspace and backend storage
       if (typeof forceSaveToCloud === "function") {
-        forceSaveToCloud(true);
+        (forceSaveToCloud as any)(true);
       }
 
       // Trigger PlumbingZoneLinker sync
@@ -925,7 +930,7 @@ function PreliminaryCoolingLoadPage() {
         }
         if (importOpen && selectedPending.size > 0) {
           e.preventDefault();
-          confirm(`Are you sure you want to remove the ${selectedPending.size} selected pending spaces?`).then((ok) => {
+          confirm(`Are you sure you want to remove the ${selectedPending.size} selected pending spaces?`).then((ok: any) => {
             if (ok) {
               setPendingRecords((prev) => prev.filter((r) => !selectedPending.has(r.id)));
               setSelectedPending(new Set());
@@ -933,7 +938,7 @@ function PreliminaryCoolingLoadPage() {
           });
         } else if (!importOpen && selected.size > 0) {
           e.preventDefault();
-          confirm(`Are you sure you want to delete the ${selected.size} selected spaces?`).then((ok) => {
+          confirm(`Are you sure you want to delete the ${selected.size} selected spaces?`).then((ok: any) => {
             if (ok) {
               const selectedIds = Array.from(selected);
               pushToUndo(rows);
@@ -982,6 +987,35 @@ function PreliminaryCoolingLoadPage() {
           saveRows([...rows, ...pasted]);
           setSelected(new Set(pasted.map((s) => s.id)));
           toast.success(`${pasted.length} space(s) pasted`);
+        }
+        return;
+      }
+
+      // 6. Duplicate: Ctrl+D
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (!importOpen && selected.size > 0) {
+          e.preventDefault();
+          if (isApprovedLocked) {
+            toast.info("Calculation is Approved and Locked. Duplicating is locked.", { id: "readonly-notice" });
+            return;
+          }
+          const selectedIds = Array.from(selected);
+          const clones = selectedIds.map((id, index) => {
+            const targetRow = rows.find((s) => s.id === id);
+            if (!targetRow) return null;
+            return {
+              ...targetRow,
+              id: `pcl-${Date.now()}-${index}-${Math.random()}`,
+              name: `${targetRow.name} (Clone)`,
+            };
+          }).filter(Boolean) as PclRow[];
+
+          if (clones.length > 0) {
+            pushToUndo(rows);
+            saveRows([...rows, ...clones]);
+            setSelected(new Set(clones.map((s) => s.id)));
+            toast.success(`Duplicated ${clones.length} space(s)`);
+          }
         }
         return;
       }
@@ -1072,7 +1106,7 @@ function PreliminaryCoolingLoadPage() {
       return;
     }
     const defaultNum = rows.length + 1;
-    const targetFloor = selectedFloor || "Default";
+    const targetFloor = selectedFloor || (sortedFloorsForGrid.length > 0 ? sortedFloorsForGrid[0] : "GF");
     const defaultName = `Space ${defaultNum}`;
 
     const newRow: PclRow = {
@@ -1089,7 +1123,8 @@ function PreliminaryCoolingLoadPage() {
     };
 
     saveRows([...rows, newRow]);
-    toast.success(`New space "${newRow.name}" added on floor "${targetFloor}"`);
+    setEditingSpace(newRow);
+    toast.success(`New Space "${newRow.name}" created! Edit details in popup.`);
   };
 
   const handleDeleteSelected = async () => {
@@ -1483,7 +1518,7 @@ function PreliminaryCoolingLoadPage() {
     const projectNo = projectInfo.projectNumber || project?.code || "P000";
     const projectName = projectInfo.projectName || project?.name || "";
     const clientName = projectInfo.client || project?.client || "";
-    const endUser = projectInfo.consultant || (project as any)?.endUser || project?.location || "";
+    const endUser = projectInfo.consultant || (project as any)?.endUser || (project as any)?.location || "";
 
     sheet.mergeCells("A4:D4");
     sheet.getCell("A4").value = `Calculation No.:   ${calcNo}`;
@@ -1758,7 +1793,7 @@ function PreliminaryCoolingLoadPage() {
   const columns: Column<PclRow>[] = [
     {
       key: "name",
-      header: "Name of Space",
+      header: "NAME OF SPACE",
       width: 240,
       editable: true,
       render: (r) => (
@@ -1841,30 +1876,9 @@ function PreliminaryCoolingLoadPage() {
       ),
     },
     {
-      key: "floor",
-      header: "Floor",
-      width: 100,
-      align: "center",
-      mono: true,
-      editable: true,
-      render: (r) => (
-        <InlineInput disabled={isApprovedLocked} readOnly={isApprovedLocked}
-          value={r.floor || "Default"}
-          onCommit={(newFloor) => {
-            const editIds = getSpaceEditIds(r.id);
-            const editSet = new Set(editIds);
-            const cleanFloor = newFloor.trim() || "Default";
-            saveRows(rows.map((row) => editSet.has(row.id) ? { ...row, floor: cleanFloor } : row));
-          }}
-          className="font-mono text-center text-[13px]"
-          placeholder="Default"
-        />
-      ),
-    },
-    {
       key: "area",
-      header: "Area (m²)",
-      width: 90,
+      header: "AREA (M²)",
+      width: 95,
       align: "center",
       mono: true,
       editable: true,
@@ -1873,7 +1887,7 @@ function PreliminaryCoolingLoadPage() {
           type="number"
           min={1}
           value={r.area}
-          placeholder="—"
+          placeholder="-"
           onCommit={(newAreaStr) => {
             const editIds = getSpaceEditIds(r.id);
             const editSet = new Set(editIds);
@@ -1915,7 +1929,7 @@ function PreliminaryCoolingLoadPage() {
     },
     {
       key: "type",
-      header: "Type of Space",
+      header: "TYPE OF SPACE",
       width: 270,
       editable: true,
       render: (r) => {
@@ -2006,31 +2020,43 @@ function PreliminaryCoolingLoadPage() {
     },
     {
       key: "density",
-      header: "Density",
+      header: "DENSITY",
       width: 100,
-      align: "right",
+      align: "center",
       mono: true,
-      render: (r) => r.type && r.density ? `${r.density} W/mÂ²` : <span className="text-muted-foreground/35 font-mono">â€”</span>,
+      render: (r) => (
+        <div className="w-full text-center">
+          {r.type && r.density ? `${r.density} W/m²` : <span className="text-muted-foreground/40 font-mono">-</span>}
+        </div>
+      ),
     },
     {
       key: "kw",
-      header: "Load (kW)",
-      width: 90,
-      align: "right",
+      header: "LOAD (KW)",
+      width: 100,
+      align: "center",
       mono: true,
-      render: (r) => (!r.area || !r.type || r.kw === 0) ? (
-        <span className="text-muted-foreground/35 font-mono">â€”</span>
-      ) : `${r.kw.toFixed(2)} kW`,
+      render: (r) => (
+        <div className="w-full text-center">
+          {(!r.area || !r.type || !r.kw || r.kw === 0 || isNaN(r.kw)) ? (
+            <span className="text-muted-foreground/40 font-mono">-</span>
+          ) : `${r.kw.toFixed(2)} kW`}
+        </div>
+      ),
     },
     {
       key: "tr",
-      header: "Load (TR)",
-      width: 90,
-      align: "right",
+      header: "LOAD (TR)",
+      width: 100,
+      align: "center",
       mono: true,
-      render: (r) => (!r.area || !r.type || r.tr === 0) ? (
-        <span className="text-muted-foreground/35 font-mono">â€”</span>
-      ) : `${r.tr.toFixed(2)} TR`,
+      render: (r) => (
+        <div className="w-full text-center">
+          {(!r.area || !r.type || !r.tr || r.tr === 0 || isNaN(r.tr)) ? (
+            <span className="text-muted-foreground/40 font-mono">-</span>
+          ) : `${r.tr.toFixed(2)} TR`}
+        </div>
+      ),
     },
     {
       key: "flagged",
@@ -2074,31 +2100,20 @@ function PreliminaryCoolingLoadPage() {
     const selectedIds = selected.has(row.id) ? Array.from(selected) : [row.id];
     const isMulti = selectedIds.length > 1;
     const targetsCount = selectedIds.length;
+    const targetRows = rows.filter((s) => selectedIds.includes(s.id));
 
     return (
       <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        {/* Add Comment */}
         <ContextMenuItem
-          onClick={() => {
-            const clones = selectedIds.map((id, index) => {
-              const targetRow = rows.find((s) => s.id === id);
-              if (!targetRow) return null;
-              return {
-                ...targetRow,
-                id: `pcl-${Date.now()}-${index}-${Math.random()}`,
-                name: `${targetRow.name} (Clone)`,
-              };
-            }).filter(Boolean) as PclRow[];
-            
-            if (clones.length > 0) {
-              saveRows([...rows, ...clones]);
-            }
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+          onClick={() => handleOpenComment(row)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
         >
-          <Copy className="size-3.5 text-muted-foreground" />
-          <span>{isMulti ? "Duplicate Selected" : "Duplicate Space"}</span>
+          <MessageSquare className="size-3.5" />
+          <span>Add Comment</span>
         </ContextMenuItem>
 
+        {/* Flag Space */}
         <ContextMenuItem
           onClick={() => {
             const anyUnflagged = selectedIds.some((id) => !rows.find((s) => s.id === id)?.flagged);
@@ -2110,28 +2125,164 @@ function PreliminaryCoolingLoadPage() {
           <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
           <span>{row.flagged ? (isMulti ? "Unflag Selected" : "Unflag Space") : (isMulti ? "Flag Selected" : "Flag Space")}</span>
         </ContextMenuItem>
-        
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
 
+        {/* Cut */}
         <ContextMenuItem
-          onClick={() => handleOpenComment(row)}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          onClick={() => {
+            if (isApprovedLocked) {
+              toast.info("Calculation is Approved and Locked.", { id: "readonly-notice" });
+              return;
+            }
+            setClipboard(targetRows);
+            pushToUndo(rows);
+            saveRows(rows.filter((s) => !selectedIds.includes(s.id)));
+            setSelected(new Set());
+            toast.success(`${targetRows.length} space(s) cut`);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
         >
-          <MessageSquare className="size-3.5" />
-          <span>Add Comment / Assign Task</span>
+          <Scissors className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? "Cut Selected" : "Cut"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</ContextMenuShortcut>
         </ContextMenuItem>
-        
+
+        {/* Copy */}
+        <ContextMenuItem
+          onClick={() => {
+            setClipboard(targetRows);
+            toast.success(`${targetRows.length} space(s) copied`);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Copy className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? "Copy Selected" : "Copy"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        {/* Paste */}
+        <ContextMenuItem
+          disabled={clipboard.length === 0 || isApprovedLocked}
+          onClick={() => {
+            if (isApprovedLocked) {
+              toast.info("Calculation is Approved and Locked.", { id: "readonly-notice" });
+              return;
+            }
+            if (clipboard.length > 0) {
+              const pasted = clipboard.map((r, idx) => ({
+                ...r,
+                id: `pcl-${Date.now()}-${idx}-${Math.random()}`,
+                name: `${r.name} (Copy)`
+              }));
+              pushToUndo(rows);
+              saveRows([...rows, ...pasted]);
+              setSelected(new Set(pasted.map((s) => s.id)));
+              toast.success(`${pasted.length} space(s) pasted`);
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
+        >
+          <ClipboardPaste className="size-3.5 text-muted-foreground" />
+          <span>Paste</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+        </ContextMenuItem>
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
-        
+
+        {/* Edit Space (Above duplicate space) */}
+        {isMulti ? (
+          <ContextMenuItem
+            onClick={() => {
+              if (isApprovedLocked) {
+                toast.info("Calculation is Approved and Locked.", { id: "readonly-notice" });
+                return;
+              }
+              setBulkEditValues({
+                floor: "",
+                type: "",
+                area: "",
+                flagged: false,
+              });
+              setBulkEditFields({
+                floor: false,
+                type: false,
+                area: false,
+                flagged: false,
+              });
+              setBulkEditOpen(true);
+            }}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+          >
+            <Edit3 className="size-3.5 text-muted-foreground" />
+            <span>Bulk Edit ({targetsCount} spaces)</span>
+          </ContextMenuItem>
+        ) : (
+          <ContextMenuItem
+            onClick={() => {
+              if (isApprovedLocked) {
+                toast.info("Calculation is Approved and Locked.", { id: "readonly-notice" });
+                return;
+              }
+              setEditingSpace(row);
+            }}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+          >
+            <Edit3 className="size-3.5 text-muted-foreground" />
+            <span>Edit Space</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+          </ContextMenuItem>
+        )}
+
+        {/* Duplicate Space (Above delete) */}
+        <ContextMenuItem
+          onClick={() => {
+            if (isApprovedLocked) {
+              toast.info("Calculation is Approved and Locked.", { id: "readonly-notice" });
+              return;
+            }
+            const clones = selectedIds.map((id, index) => {
+              const targetRow = rows.find((s) => s.id === id);
+              if (!targetRow) return null;
+              return {
+                ...targetRow,
+                id: `pcl-${Date.now()}-${index}-${Math.random()}`,
+                name: `${targetRow.name} (Clone)`,
+              };
+            }).filter(Boolean) as PclRow[];
+
+            if (clones.length > 0) {
+              pushToUndo(rows);
+              saveRows([...rows, ...clones]);
+              setSelected(new Set(clones.map((s) => s.id)));
+              toast.success(`Duplicated ${clones.length} space(s)`);
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <CopyPlus className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? "Duplicate Selected" : "Duplicate Space"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        {/* Delete (Last at bottom) */}
         <ContextMenuItem
           onClick={async () => {
-            const msg = targetsCount === 1 
+            if (isApprovedLocked) {
+              toast.info("Calculation is Approved and Locked.", { id: "readonly-notice" });
+              return;
+            }
+            const msg = targetsCount === 1
               ? `Are you sure you want to delete space "${row.name}"?`
               : `Are you sure you want to delete the ${targetsCount} selected spaces?`;
-            
+
             if (await confirm(msg)) {
+              pushToUndo(rows);
               saveRows(rows.filter((s) => !selectedIds.includes(s.id)));
               setSelected(new Set());
+              toast.info(`Deleted ${targetsCount} space(s)`);
             }
           }}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
@@ -2226,13 +2377,6 @@ function PreliminaryCoolingLoadPage() {
             </div>
           </div>
 
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={activeProjectId || project?.id || "default"}
-            calculatorPath="/preliminary-cooling-load"
-            calculatorTitle="Preliminary Cooling Load"
-          />
-
           {/* White card container for Tabs & Data Grid */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED" 
@@ -2240,7 +2384,7 @@ function PreliminaryCoolingLoadPage() {
               : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Tabs Selector row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/60">
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/60 modal-blur-bg">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                 <button
                   onClick={() => setActiveTab("calculator")}
@@ -2263,6 +2407,13 @@ function PreliminaryCoolingLoadPage() {
                   Report
                 </button>
               </div>
+
+              {/* Right Side Action Button: Export */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={handlePrintPDF}>
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
+              </div>
             </div>
 
             {/* Active Tab View */}
@@ -2271,7 +2422,7 @@ function PreliminaryCoolingLoadPage() {
                 <div className="flex-1 min-h-0 flex flex-col relative">
                     
                     {/* Toolbar matching Ventilation */}
-                    <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
+                    <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none modal-blur-bg">
                       <input
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -2366,7 +2517,7 @@ function PreliminaryCoolingLoadPage() {
                             <ArrowUpDown className="size-3.5 shrink-0" />
                             {floorOrder.length > 0 && (
                               <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                                âœ“
+                                ✓
                               </span>
                             )}
                           </button>
@@ -2384,7 +2535,7 @@ function PreliminaryCoolingLoadPage() {
                             )}
                           </div>
                           <p className="text-[10.5px] text-muted-foreground mb-3 leading-snug">
-                            Use â–² / â–¼ buttons or drag floors to change their sorting order in grid views.
+                            Use ▲ / ▼ buttons or drag floors to change their sorting order in grid views.
                           </p>
                           <div className="flex flex-col gap-1.5 max-h-[250px] overflow-y-auto pr-0.5">
                             {sortedFloorsForGrid.map((floor, index) => (
@@ -2433,18 +2584,53 @@ function PreliminaryCoolingLoadPage() {
                         </PopoverContent>
                       </Popover>
                       
+                      {/* View Options & Column Distribution Popover */}
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            className="relative inline-flex items-center justify-center h-7 w-7 rounded-full border border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible"
+                            title="View / Column Distribution"
+                          >
+                            <SlidersHorizontal className="size-3.5 shrink-0" />
+                            <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                              View Options
+                            </span>
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50 text-xs">
+                          <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                            <span className="text-[12px] font-semibold text-foreground">Column Distribution</span>
+                          </div>
+                          <p className="text-[10.5px] text-muted-foreground leading-snug">
+                            Drag column divider lines in table headers to adjust custom widths. Click below to restore auto-distribution.
+                          </p>
+                          <button
+                            onClick={() => {
+                              try {
+                                localStorage.removeItem("mep_grid_preliminary-cooling-load");
+                                window.dispatchEvent(new Event("resize"));
+                                toast.success("Column widths reset to auto-distribution");
+                              } catch (e) {}
+                            }}
+                            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground font-semibold text-[11.5px] border border-border transition-colors cursor-pointer"
+                          >
+                            <RefreshCw className="size-3 text-primary" />
+                            Reset Column Widths
+                          </button>
+                        </PopoverContent>
+                      </Popover>
+                      
                       <div className="ml-auto flex items-center gap-1">
                         <TBtn 
-    disabled={isApprovedLocked}
-    onClick={() => {
-      if (isApprovedLocked) {
-        toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
-        return;
-      }
-      setSourceModalOpen(true);
-    }}
-  ><Download className="size-3.5" /> Import</TBtn>
-                        <TBtn onClick={() => exportPreliminaryCoolingLoadPDF(rows, { projectName: projectInfo.projectName, client: projectInfo.client, projectNo: projectInfo.projectNumber, calcNo: projectInfo.calcNumber, date: projectInfo.date, reviewState: calcReviewState })}><FileText className="size-3.5" /> Export</TBtn>
+                          disabled={isApprovedLocked}
+                          onClick={() => {
+                            if (isApprovedLocked) {
+                              toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to import spaces.", { id: "readonly-notice" });
+                              return;
+                            }
+                            setSourceModalOpen(true);
+                          }}
+                        ><Download className="size-3.5" /> Import</TBtn>
                         <TBtn primary onClick={handleAddNewSpace}><Plus className="size-3.5" /> New Space</TBtn>
                       </div>
 
@@ -2452,17 +2638,19 @@ function PreliminaryCoolingLoadPage() {
                       {!isApprovedLocked && selected.size > 0 && (
                         <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
                           <span className="font-semibold">{selected.size} selected</span>
-                          <span className="text-primary/30">Â·</span>
+                          <span className="text-primary/30">·</span>
                           <BulkBtn icon={Edit3} onClick={() => {
                             setBulkEditValues({
                               floor: "",
                               type: "",
                               area: "",
+                              flagged: false,
                             });
                             setBulkEditFields({
                               floor: false,
                               type: false,
                               area: false,
+                              flagged: false,
                             });
                             setBulkEditOpen(true);
                           }}>Bulk edit</BulkBtn>
@@ -2495,6 +2683,7 @@ function PreliminaryCoolingLoadPage() {
                             };
 
                             const remaining = rows.filter(r => !selectedIdsArray.includes(r.id));
+                            pushToUndo(rows);
                             saveRows([...remaining, mergedSpace]);
                             setSelected(new Set([mergedSpace.id]));
                             toast.success(`Merged ${selectedSpaces.length} spaces into "${mergedName}"`);
@@ -2537,6 +2726,8 @@ function PreliminaryCoolingLoadPage() {
                         </div>
                       ) : (
                         <DataGrid
+                          gridId="preliminary-cooling-load"
+                          activeRowId={editingSpace?.id}
                           rows={filteredRows}
                           columns={columns}
                           selected={selected}
@@ -2572,7 +2763,7 @@ function PreliminaryCoolingLoadPage() {
                     </div>
 
                     {/* Bottom stats summary bar */}
-                    <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none">
+                    <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none no-print modal-blur-bg">
                       <div>Showing <span className="text-foreground font-medium tabular">{filteredRows.length.toLocaleString()}</span> of {rows.length.toLocaleString()} spaces</div>
                       <div className="flex items-center gap-3 tabular">
                         <span>Total Area: <span className="font-mono text-foreground font-bold">{calculatedData.totalArea.toFixed(1)} m²</span></span>
@@ -2583,268 +2774,278 @@ function PreliminaryCoolingLoadPage() {
                     </div>
                   </div>
                 ) : (
-                  /* Printable Report tab view matching Sewage Pump Sizing standard */
-                  <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                  <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
-                    
-                    <div className="flex justify-between items-start pb-4 border-b border-border">
-                      <div>
-                        <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
+                  /* Printable Report tab view matching exact standard layout */
+                  <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+                    <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
+                      
+                      {/* 1. Title */}
+                      <div className="pb-1">
+                        <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
                           Preliminary Cooling Load Calculation Report
                         </h2>
-                        <p className="text-[12px] text-muted-foreground mt-0.5">
-                          ASHRAE Handbook Fundamentals &amp; Area-Density Space Cooling Load Analysis
-                        </p>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[11px] text-muted-foreground block mt-0.5">Date: {formatDateStr(new Date())}</span>
+
+                      {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format) */}
+                      <div className="border border-border rounded-xl overflow-hidden text-xs">
+                        <table className="w-full border-collapse">
+                          <tbody>
+                            <tr className="border-b border-border divide-x divide-border">
+                              <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                              <td className="p-2.5 font-mono text-foreground font-medium">{projectInfo.calcNumber || "CALC-HVAC-PCL01"}</td>
+                              <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                              <td className="p-2.5 font-mono font-medium">{projectInfo.date || new Date().toISOString().split("T")[0]}</td>
+                            </tr>
+                            <tr className="border-b border-border divide-x divide-border">
+                              <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                              <td className="p-2.5 font-mono">{projectInfo.projectNumber || project?.code || "MEP-PCL-2026"}</td>
+                              <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                              <td className="p-2.5">{projectInfo.client || project?.client || "Prestige Group developers"}</td>
+                            </tr>
+                            <tr className="divide-x divide-border">
+                              <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                              <td className="p-2.5">{projectInfo.projectName || project?.name || "Preliminary Cooling Load Estimation"}</td>
+                              <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                              <td className="p-2.5">{(project as any)?.endUser || "g"}</td>
+                            </tr>
+                          </tbody>
+                        </table>
                       </div>
-                    </div>
 
-                    {/* Table 1: Design Parameters & Overall Summary */}
-                    <div className="space-y-2">
-                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                        1. Design Parameters &amp; Overall Summary
-                      </h3>
-                      <table className="w-full text-[12px] border-collapse border border-border">
-                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                          <tr>
-                            <th className="border border-border p-2 text-center w-12">No.</th>
-                            <th className="border border-border p-2 text-left">Design Parameter Description</th>
-                            <th className="border border-border p-2 text-center w-28">Value</th>
-                            <th className="border border-border p-2 text-center w-20">Unit</th>
-                            <th className="border border-border p-2 text-left">Standard / Code Reference</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                            <td className="border border-border p-2 font-bold">Total Conditioned Spaces</td>
-                            <td className="border border-border p-2 text-center font-bold">{rows.length}</td>
-                            <td className="border border-border p-2 text-center">spaces</td>
-                            <td className="border border-border p-2 text-muted-foreground">Architectural Space Schedule Inventory</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                            <td className="border border-border p-2 font-bold">Total Conditioned Floor Area</td>
-                            <td className="border border-border p-2 text-center font-bold">{calculatedData.totalArea.toFixed(1)}</td>
-                            <td className="border border-border p-2 text-center">m²</td>
-                            <td className="border border-border p-2 text-muted-foreground">Sum of Scheduled Usable Room Areas</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                            <td className="border border-border p-2 font-bold">Total Preliminary Cooling Load</td>
-                            <td className="border border-border p-2 text-center font-bold">{calculatedData.totalKw.toFixed(2)}</td>
-                            <td className="border border-border p-2 text-center">kW</td>
-                            <td className="border border-border p-2 text-muted-foreground">Cumulative Sensible &amp; Latent Heat Gain</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                            <td className="border border-border p-2 font-bold">Total Preliminary Cooling Capacity</td>
-                            <td className="border border-border p-2 text-center font-bold text-pink-600 dark:text-pink-400">{calculatedData.totalTr.toFixed(2)}</td>
-                            <td className="border border-border p-2 text-center font-bold">TR</td>
-                            <td className="border border-border p-2 text-muted-foreground">1 TR = 3.517 kW (12,000 BTU/hr)</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">5</td>
-                            <td className="border border-border p-2 font-bold">Area-Weighted Average Load Density</td>
-                            <td className="border border-border p-2 text-center font-bold">{calculatedData.avgDensity.toFixed(1)}</td>
-                            <td className="border border-border p-2 text-center">W/m²</td>
-                            <td className="border border-border p-2 text-muted-foreground">ASHRAE Fundamentals Heat Density Benchmarks</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">6</td>
-                            <td className="border border-border p-2 font-bold">Active Building Levels / Floors</td>
-                            <td className="border border-border p-2 text-center font-bold">{new Set(rows.map(r => r.floor || "General")).size}</td>
-                            <td className="border border-border p-2 text-center">levels</td>
-                            <td className="border border-border p-2 text-muted-foreground">Vertical Zoning &amp; Distribution</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">7</td>
-                            <td className="border border-border p-2 font-bold">Peak Single-Space Load Density</td>
-                            <td className="border border-border p-2 text-center font-bold">{rows.length > 0 ? Math.max(...rows.map(r => r.density || 0)).toFixed(1) : "0.0"}</td>
-                            <td className="border border-border p-2 text-center">W/m²</td>
-                            <td className="border border-border p-2 text-muted-foreground">Critical High-Density Zone Assessment</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">8</td>
-                            <td className="border border-border p-2 font-bold">Preliminary Safety &amp; Diversity Margin</td>
-                            <td className="border border-border p-2 text-center font-bold">+10.0</td>
-                            <td className="border border-border p-2 text-center">%</td>
-                            <td className="border border-border p-2 text-muted-foreground">Engineering Diversity &amp; Preliminary Plant Margin</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
+                      {/* 3. Space & Cooling Load Schedule (2-Tier Header Table) */}
+                      <div className="border border-border rounded-xl overflow-x-auto">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                              <th rowSpan={2} className="p-2 border-r border-border w-12 text-center">
+                                Sr.<br />No.
+                              </th>
+                              <th colSpan={3} className="p-2 border-r border-border text-center">
+                                Space Parameters
+                              </th>
+                              <th colSpan={3} className="p-2 border-r border-border text-center">
+                                Design Parameters
+                              </th>
+                              <th colSpan={3} className="p-2 text-center">
+                                Cooling Load Metrics
+                              </th>
+                            </tr>
+                            <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                              <th className="p-2 border-r border-border w-24 text-center">Space Floor</th>
+                              <th className="p-2 border-r border-border text-left min-w-[120px]">Space Name</th>
+                              <th className="p-2 border-r border-border text-left min-w-[130px]">Space Type</th>
+                              <th className="p-2 border-r border-border w-20 text-center">Area (m²)</th>
+                              <th className="p-2 border-r border-border w-20 text-center">Occupancy</th>
+                              <th className="p-2 border-r border-border w-24 text-center">Density (W/m²)</th>
+                              <th className="p-2 border-r border-border w-24 text-center">Heat Gain (W)</th>
+                              <th className="p-2 border-r border-border w-20 text-center">Load (kW)</th>
+                              <th className="p-2 w-20 text-center">Load (TR)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {(() => {
+                              const rowsByFloor: { [floor: string]: PclRow[] } = {};
+                              const floorOrder: string[] = [];
 
-                    {/* Table 2: Floor-Wise Cooling Load Distribution */}
-                    <div className="space-y-2">
-                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                        2. Floor-Wise Cooling Load Distribution
-                      </h3>
-                      <table className="w-full text-[12px] border-collapse border border-border">
-                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                          <tr>
-                            <th className="border border-border p-2 text-center w-12">No.</th>
-                            <th className="border border-border p-2 text-left">Floor Level / Zone</th>
-                            <th className="border border-border p-2 text-center w-28">Spaces</th>
-                            <th className="border border-border p-2 text-right w-32">Area (m²)</th>
-                            <th className="border border-border p-2 text-right w-32">Load (kW)</th>
-                            <th className="border border-border p-2 text-right w-28">Load (TR)</th>
-                            <th className="border border-border p-2 text-right w-32">Avg Density (W/m²)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(() => {
-                            const floorMap: Record<string, { count: number; area: number; kw: number; tr: number }> = {};
-                            rows.forEach(r => {
-                              const fl = r.floor || "General";
-                              if (!floorMap[fl]) floorMap[fl] = { count: 0, area: 0, kw: 0, tr: 0 };
-                              const a = typeof r.area === "number" ? r.area : (parseFloat(String(r.area)) || 0);
-                              floorMap[fl].count += 1;
-                              floorMap[fl].area += a;
-                              floorMap[fl].kw += r.kw || 0;
-                              floorMap[fl].tr += r.tr || 0;
-                            });
+                              const sorted = [...rows].sort((a, b) => {
+                                const flA = (a.floor || "Default").toLowerCase();
+                                const flB = (b.floor || "Default").toLowerCase();
+                                if (flA !== flB) return flA.localeCompare(flB);
+                                return (a.name || "").localeCompare(b.name || "");
+                              });
 
-                            return (
-                              <>
-                                {Object.keys(floorMap).sort().map((fl, idx) => {
-                                  const fData = floorMap[fl];
-                                  const avgD = fData.area > 0 ? (fData.kw * 1000) / fData.area : 0;
-                                  return (
-                                    <tr key={fl}>
-                                      <td className="border border-border p-2 text-center text-muted-foreground">{idx + 1}</td>
-                                      <td className="border border-border p-2 font-bold text-foreground">{displayFloor(fl)}</td>
-                                      <td className="border border-border p-2 text-center font-mono">{fData.count}</td>
-                                      <td className="border border-border p-2 text-right font-mono">{fData.area.toFixed(1)}</td>
-                                      <td className="border border-border p-2 text-right font-mono font-semibold">{fData.kw.toFixed(2)}</td>
-                                      <td className="border border-border p-2 text-right font-mono font-bold text-pink-600 dark:text-pink-400">{fData.tr.toFixed(2)}</td>
-                                      <td className="border border-border p-2 text-right font-mono">{avgD.toFixed(1)}</td>
+                              sorted.forEach((r) => {
+                                const fl = r.floor || "Default";
+                                if (!rowsByFloor[fl]) {
+                                  rowsByFloor[fl] = [];
+                                  floorOrder.push(fl);
+                                }
+                                rowsByFloor[fl].push(r);
+                              });
+
+                              let globalSrNo = 1;
+                              let grandArea = 0;
+                              let grandWatts = 0;
+                              let grandKw = 0;
+                              let grandTr = 0;
+
+                              return (
+                                <>
+                                  {floorOrder.map((floorName) => {
+                                    const floorRows = rowsByFloor[floorName];
+                                    let floorArea = 0;
+                                    let floorWatts = 0;
+                                    let floorKw = 0;
+                                    let floorTr = 0;
+
+                                    return (
+                                      <React.Fragment key={floorName}>
+                                        {floorRows.map((r) => {
+                                          const areaVal = typeof r.area === "number" ? r.area : (parseFloat(String(r.area)) || 0);
+                                          const densityVal = r.density || 120;
+                                          const wattsVal = r.dissipation || (areaVal * densityVal);
+                                          const kwVal = typeof r.kw === "number" && r.kw > 0 ? r.kw : wattsVal / 1000;
+                                          const trVal = typeof r.tr === "number" && r.tr > 0 ? r.tr : kwVal / 3.517;
+
+                                          floorArea += areaVal;
+                                          floorWatts += wattsVal;
+                                          floorKw += kwVal;
+                                          floorTr += trVal;
+
+                                          grandArea += areaVal;
+                                          grandWatts += wattsVal;
+                                          grandKw += kwVal;
+                                          grandTr += trVal;
+
+                                          return (
+                                            <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                                              <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">
+                                                {globalSrNo++}
+                                              </td>
+                                              <td className="p-2 border-r border-border text-center">
+                                                {r.floor || "Default"}
+                                              </td>
+                                              <td className="p-2 border-r border-border font-medium">
+                                                {r.name || "-"}
+                                              </td>
+                                              <td className="p-2 border-r border-border text-muted-foreground">
+                                                {r.type || "General"}
+                                              </td>
+                                              <td className="p-2 border-r border-border text-center font-mono">
+                                                {areaVal.toFixed(1)}
+                                              </td>
+                                              <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">
+                                                {r.occupancy ? String(r.occupancy) : "-"}
+                                              </td>
+                                              <td className="p-2 border-r border-border text-center font-mono">
+                                                {densityVal.toFixed(0)}
+                                              </td>
+                                              <td className="p-2 border-r border-border text-center font-mono">
+                                                {Math.round(wattsVal).toLocaleString()}
+                                              </td>
+                                              <td className="p-2 border-r border-border text-center font-mono">
+                                                {kwVal.toFixed(2)}
+                                              </td>
+                                              <td className="p-2 text-center font-mono">
+                                                {trVal.toFixed(2)}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+
+                                        {/* Floor Total Row matching Screenshot */}
+                                        <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t border-b border-border">
+                                          <td className="p-2 border-r border-border text-center"></td>
+                                          <td className="p-2 border-r border-border text-center font-bold">
+                                            {floorName}
+                                          </td>
+                                          <td className="p-2 border-r border-border font-bold">
+                                            TOTAL ({floorName})
+                                          </td>
+                                          <td className="p-2 border-r border-border"></td>
+                                          <td className="p-2 border-r border-border text-center font-mono font-bold">
+                                            {floorArea.toFixed(1)}
+                                          </td>
+                                          <td className="p-2 border-r border-border"></td>
+                                          <td className="p-2 border-r border-border"></td>
+                                          <td className="p-2 border-r border-border text-center font-mono font-bold">
+                                            {Math.round(floorWatts).toLocaleString()}
+                                          </td>
+                                          <td className="p-2 border-r border-border text-center font-mono font-bold">
+                                            {floorKw.toFixed(2)}
+                                          </td>
+                                          <td className="p-2 text-center font-mono font-bold">
+                                            {floorTr.toFixed(2)}
+                                          </td>
+                                        </tr>
+                                      </React.Fragment>
+                                    );
+                                  })}
+
+                                  {/* Grand Total Row if multiple floors */}
+                                  {floorOrder.length > 1 && (
+                                    <tr className="bg-slate-100 dark:bg-zinc-800 font-black border-t-2 border-border">
+                                      <td className="p-2 border-r border-border text-center"></td>
+                                      <td className="p-2 border-r border-border text-center">ALL</td>
+                                      <td className="p-2 border-r border-border">OVERALL TOTAL</td>
+                                      <td className="p-2 border-r border-border"></td>
+                                      <td className="p-2 border-r border-border text-center font-mono">
+                                        {grandArea.toFixed(1)}
+                                      </td>
+                                      <td className="p-2 border-r border-border"></td>
+                                      <td className="p-2 border-r border-border"></td>
+                                      <td className="p-2 border-r border-border text-center font-mono">
+                                        {Math.round(grandWatts).toLocaleString()}
+                                      </td>
+                                      <td className="p-2 border-r border-border text-center font-mono">
+                                        {grandKw.toFixed(2)}
+                                      </td>
+                                      <td className="p-2 text-center font-mono">
+                                        {grandTr.toFixed(2)}
+                                      </td>
                                     </tr>
-                                  );
-                                })}
-                                <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                                  <td colSpan={2} className="border border-border p-2 text-center">TOTAL / OVERALL</td>
-                                  <td className="border border-border p-2 text-center font-mono">{rows.length}</td>
-                                  <td className="border border-border p-2 text-right font-mono">{calculatedData.totalArea.toFixed(1)}</td>
-                                  <td className="border border-border p-2 text-right font-mono">{calculatedData.totalKw.toFixed(2)}</td>
-                                  <td className="border border-border p-2 text-right font-mono text-pink-600 dark:text-pink-400">{calculatedData.totalTr.toFixed(2)}</td>
-                                  <td className="border border-border p-2 text-right font-mono">{calculatedData.avgDensity.toFixed(1)}</td>
-                                </tr>
-                              </>
-                            );
-                          })()}
-                        </tbody>
-                      </table>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* 4. 3-Tier Signature Sign-Off Block (Exact #FFE6CC Header) */}
+                      {(() => {
+                        const sig = getSignatureBlockDetails(
+                          project?.id || "default",
+                          "/preliminary-cooling-load",
+                          currentUserName,
+                          calcReviewState
+                        );
+                        return (
+                          <div className="pt-2">
+                            <div className="border border-border rounded-xl overflow-hidden text-xs">
+                              <table className="w-full border-collapse">
+                                <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
+                                  <tr className="divide-x divide-border">
+                                    <th className="p-2.5 w-28 text-center"></th>
+                                    <th className="p-2.5 text-center w-1/3">Originator</th>
+                                    <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                                    <th className="p-2.5 text-center w-1/3">Approver</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border">
+                                  <tr className="divide-x divide-border">
+                                    <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                                    <td className="p-2.5 text-center font-medium">
+                                      {sig.originatedName || currentUserName || "Abubakar Chanda"}
+                                    </td>
+                                    <td className="p-2.5 text-center font-medium">
+                                      {sig.reviewerName || ""}
+                                    </td>
+                                    <td className="p-2.5 text-center font-medium">
+                                      {sig.approverName || ""}
+                                    </td>
+                                  </tr>
+                                  <tr className="divide-x divide-border">
+                                    <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                                    <td className="p-2.5 text-center font-mono">
+                                      {sig.originatedDate || formatDateStr(new Date().toISOString())}
+                                    </td>
+                                    <td className="p-2.5 text-center font-mono">
+                                      {sig.reviewerDate || ""}
+                                    </td>
+                                    <td className="p-2.5 text-center font-mono">
+                                      {sig.approverDate || ""}
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                     </div>
-
-                    {/* Table 3: Comprehensive Space Cooling Load Schedule */}
-                    <div className="space-y-2">
-                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                        3. Comprehensive Space Cooling Load Schedule
-                      </h3>
-                      <table className="w-full text-left text-[11px] border-collapse border border-border font-sans">
-                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                          <tr>
-                            <th className="border border-border p-2 text-center w-12">No.</th>
-                            <th className="border border-border p-2 text-left">Name of Space</th>
-                            <th className="border border-border p-2 text-center w-20">Floor</th>
-                            <th className="border border-border p-2 text-right w-24">Area (m²)</th>
-                            <th className="border border-border p-2 text-left">Type of Space / Classification</th>
-                            <th className="border border-border p-2 text-right w-36">Cooling Density (W/m²)</th>
-                            <th className="border border-border p-2 text-right w-28">Cooling Load (kW)</th>
-                            <th className="border border-border p-2 text-right w-24">Cooling Load (TR)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(() => {
-                            const grouped: Record<string, PclRow[]> = {};
-                            rows.forEach(row => {
-                              const fl = row.floor || "General";
-                              if (!grouped[fl]) grouped[fl] = [];
-                              grouped[fl].push(row);
-                            });
-
-                            let sNo = 1;
-
-                            return (
-                              <>
-                                {Object.keys(grouped).sort().map(floor => (
-                                  <React.Fragment key={floor}>
-                                    <tr className="bg-[#DCEFFB] dark:bg-blue-950/40 font-bold text-[#06456F] dark:text-blue-300">
-                                      <td colSpan={8} className="border border-border p-2 font-sans">{displayFloor(floor)}</td>
-                                    </tr>
-                                    {grouped[floor].map(r => (
-                                      <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                                        <td className="border border-border p-2 text-center text-muted-foreground">{sNo++}</td>
-                                        <td className="border border-border p-2 font-medium">{r.name}</td>
-                                        <td className="border border-border p-2 text-center font-mono">{displayFloor(r.floor || "GF")}</td>
-                                        <td className="border border-border p-2 text-right font-mono">{(typeof r.area === 'number' ? r.area : (parseFloat(String(r.area)) || 0)).toFixed(1)}</td>
-                                        <td className="border border-border p-2 text-muted-foreground">{r.type || "Unassigned"}</td>
-                                        <td className="border border-border p-2 text-right font-mono">{(r.density || 120).toFixed(1)}</td>
-                                        <td className="border border-border p-2 text-right font-mono font-semibold">{r.kw.toFixed(2)}</td>
-                                        <td className="border border-border p-2 text-right font-mono font-bold text-pink-600 dark:text-pink-400">{r.tr.toFixed(2)}</td>
-                                      </tr>
-                                    ))}
-                                  </React.Fragment>
-                                ))}
-                                <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                                  <td colSpan={3} className="border border-border p-2 font-sans">TOTAL</td>
-                                  <td className="border border-border p-2 text-right font-mono">{calculatedData.totalArea.toFixed(1)}</td>
-                                  <td className="border border-border p-2"></td>
-                                  <td className="border border-border p-2 text-right font-mono">{calculatedData.avgDensity.toFixed(1)}</td>
-                                  <td className="border border-border p-2 text-right font-mono">{calculatedData.totalKw.toFixed(2)}</td>
-                                  <td className="border border-border p-2 text-right font-mono text-pink-600 dark:text-pink-400">{calculatedData.totalTr.toFixed(2)}</td>
-                                </tr>
-                              </>
-                            );
-                          })()}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Table 4: Engineering Design Standards & Compliance Guidelines */}
-                    <div className="space-y-2">
-                      <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-                        4. Engineering Design Standards &amp; Compliance Guidelines
-                      </h3>
-                      <table className="w-full text-[12px] border-collapse border border-border">
-                        <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                          <tr>
-                            <th className="border border-border p-2 text-center w-12">No.</th>
-                            <th className="border border-border p-2 text-left w-60">Standard / Authority Reference</th>
-                            <th className="border border-border p-2 text-left">Mandatory Engineering Compliance &amp; Criteria</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                            <td className="border border-border p-2 font-bold">ASHRAE Handbook Fundamentals Chapter 18</td>
-                            <td className="border border-border p-2 text-muted-foreground">Non-residential space heat balance and area-density cooling load estimation methodology for early-stage equipment sizing.</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                            <td className="border border-border p-2 font-bold">ASHRAE Standard 90.1 / 62.1</td>
-                            <td className="border border-border p-2 text-muted-foreground">Building envelope thermal performance limits and minimum mechanical outdoor air ventilation rate criteria.</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                            <td className="border border-border p-2 font-bold">Diversity &amp; Sizing Margin</td>
-                            <td className="border border-border p-2 text-muted-foreground">Instantaneous peak block load diversity and standard 10% safety margin applied for central chiller plant and AHU capacities.</td>
-                          </tr>
-                          <tr>
-                            <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                            <td className="border border-border p-2 font-bold">Hydronic Sizing Rule (CHW)</td>
-                            <td className="border border-border p-2 text-muted-foreground">Nominal 2.4 GPM/TR at 10°F ΔT (or 0.57 m³/h·TR at 5.5°C ΔT) for preliminary chilled water piping and primary pump head sizing.</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-
                   </div>
-                </div>
-              )}
+                )}
             </div>
           </div>
         </div>
@@ -3445,6 +3646,20 @@ function PreliminaryCoolingLoadPage() {
             </footer>
           </div>
         </div>
+      )}
+
+      {/* Edit Space Modal */}
+      {editingSpace && (
+        <EditPclSpaceModal
+          space={editingSpace}
+          onClose={() => setEditingSpace(null)}
+          onSave={(updatedSpace) => {
+            saveRows(rows.map((r) => (r.id === updatedSpace.id ? updatedSpace : r)));
+            setEditingSpace(null);
+          }}
+          availableFloors={allUniqueFloors}
+          spaceDensities={SPACE_DENSITIES}
+        />
       )}
     </AppShell>
   );

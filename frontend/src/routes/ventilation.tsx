@@ -8,6 +8,7 @@ import {
   ChevronDown, ChevronUp, Trash2, Edit3, Copy, X, Bookmark, Wrench,
   Sparkles, AlertTriangle, CheckCircle2, Info, Gauge, FileText, Printer, FileSpreadsheet,
   FolderKanban, ArrowUpDown, GripVertical, Check, Flag, ChevronsUpDown, MessageSquare, MapPin,
+  Scissors, ClipboardPaste, CopyPlus, SlidersHorizontal, RefreshCw,
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
@@ -21,7 +22,7 @@ import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile } from "@/lib/bimViewerSpaceExtractor";
 import { getProjectIfcFile } from "@/lib/projectIfcStorage";
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { SharedAssignmentModal } from "@/components/workspace/SharedAssignmentModal";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EquipmentPlacementModal } from "@/components/workspace/EquipmentPlacementModal";
@@ -372,6 +373,7 @@ function SpacesView() {
     copySpaces,
     cutSpaces,
     pasteSpaces,
+    hasClipboard,
     setWorkspaceState,
     undo,
     redo,
@@ -1542,7 +1544,175 @@ function SpacesView() {
     const targetsCount = selectedIds.length;
 
     return (
-      <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        {/* Add Comment */}
+        <ContextMenuItem
+          onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Adding comments is locked.", { id: "readonly-notice" });
+              return;
+            }
+            setCommentTarget({ id: row.id, name: row.name, type: 'space' });
+            setAssignCommentOpen(true);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-3.5" />
+          <span>Add Comment</span>
+        </ContextMenuItem>
+
+        {/* Assign Zone */}
+        <ContextMenuItem
+          onClick={async () => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Zone assignment is locked.", { id: "readonly-notice" });
+              return;
+            }
+            const targets = selected.has(row.id) ? Array.from(selected) : [row.id];
+            const selectedSpaces = spaces.filter((s) => targets.includes(s.id));
+            const missingCategoryOrArea = selectedSpaces.some(
+              (s) => !s.category || s.category.trim() === "" || !s.area || s.area <= 0
+            );
+            if (missingCategoryOrArea) {
+              await confirm("Cannot form zone: Category and Area are compulsory for all selected spaces.", {
+                title: "Validation Error",
+                confirmText: "OK",
+                hideCancel: true,
+              });
+              return;
+            }
+            const hasPositiveSpace = selectedSpaces.some((s) => s.pressure === "Positive");
+            if (!hasPositiveSpace) {
+              await confirm("Cannot form zone: A zone must contain at least one positive-pressure space.", {
+                title: "Validation Error",
+                confirmText: "OK",
+                hideCancel: true,
+              });
+              return;
+            }
+            if (!selected.has(row.id)) {
+              setSelected(new Set([row.id]));
+            }
+            setAssignZoneOpen(true);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <GroupIcon className="size-3.5 text-muted-foreground" />
+          <span>Assign Zone</span>
+        </ContextMenuItem>
+
+        {/* Assign Equipment */}
+        <ContextMenuItem
+          onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Equipment assignment is locked.", { id: "readonly-notice" });
+              return;
+            }
+            if (!selected.has(row.id)) {
+              setSelected(new Set([row.id]));
+            }
+            setAssignEquipOpen(true);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Plus className="size-3.5 text-muted-foreground" />
+          <span>Assign Equipment</span>
+        </ContextMenuItem>
+
+        {/* Auto-Zone */}
+        <ContextMenuItem
+          disabled={isEffectiveReadOnly}
+          onClick={() => {
+            if (isEffectiveReadOnly) {
+              toast.info(isLockedByOther ? `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Auto-Zoning is locked.` : "Workspace is in Read-Only mode. Auto-Zoning is locked.", { id: "readonly-notice" });
+              return;
+            }
+            const targets = selected.has(row.id) ? Array.from(selected) : [row.id];
+            const selectedSpaces = spaces.filter((s) => targets.includes(s.id));
+            triggerAutoZoning(selectedSpaces);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Sparkles className="size-3.5 text-muted-foreground" />
+          <span>Auto-Zone</span>
+        </ContextMenuItem>
+
+        {/* Merge Spaces */}
+        <ContextMenuItem
+          disabled={!isMulti}
+          onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Merging spaces is locked.", { id: "readonly-notice" });
+              return;
+            }
+            const names = selectedIds.map(id => spaces.find(s => s.id === id)?.name).filter(Boolean);
+            setMergeName((names[0] || "Merged Space") + " (Merged)");
+            setPrimarySpaceId(selectedIds[0] || "");
+            setMergeOpen(true);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
+        >
+          <Copy className="size-3.5 text-muted-foreground" />
+          <span>Merge Spaces</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        {/* Cut */}
+        <ContextMenuItem
+          onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Editing is locked.", { id: "readonly-notice" });
+              return;
+            }
+            cutSpaces(selectedIds);
+            setSelected(new Set());
+            toast.success(`${targetsCount} space(s) cut`);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Scissors className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? "Cut Selected" : "Cut"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        {/* Copy */}
+        <ContextMenuItem
+          onClick={() => {
+            copySpaces(selectedIds);
+            toast.success(`${targetsCount} space(s) copied`);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Copy className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? "Copy Selected" : "Copy"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        {/* Paste */}
+        <ContextMenuItem
+          disabled={!hasClipboard || isReadOnly}
+          onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Editing is locked.", { id: "readonly-notice" });
+              return;
+            }
+            const pasted = pasteSpaces();
+            if (pasted.length > 0) {
+              setSelected(new Set(pasted.map((s) => s.id)));
+              toast.success(`${pasted.length} space(s) pasted`);
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
+        >
+          <ClipboardPaste className="size-3.5 text-muted-foreground" />
+          <span>Paste</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        {/* Edit Space */}
         {isMulti ? (
           <ContextMenuItem
             onClick={() => {
@@ -1600,6 +1770,7 @@ function SpacesView() {
           </ContextMenuItem>
         )}
 
+        {/* Duplicate Space */}
         <ContextMenuItem
           onClick={() => {
             if (isReadOnly) {
@@ -1619,124 +1790,20 @@ function SpacesView() {
 
             if (clones.length > 0) {
               addSpacesBulk(clones);
+              setSelected(new Set(clones.map((s) => s.id)));
+              toast.success(`Duplicated ${clones.length} space(s)`);
             }
           }}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
         >
-          <Copy className="size-3.5 text-muted-foreground" />
+          <CopyPlus className="size-3.5 text-muted-foreground" />
           <span>{isMulti ? "Duplicate Selected" : "Duplicate Space"}</span>
-        </ContextMenuItem>
-
-        <ContextMenuItem
-          onClick={() => {
-            if (isReadOnly) {
-              toast.info("Workspace is in Read-Only mode. Adding comments is locked.", { id: "readonly-notice" });
-              return;
-            }
-            setCommentTarget({ id: row.id, name: row.name, type: 'space' });
-            setAssignCommentOpen(true);
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-        >
-          <MessageSquare className="size-3.5" />
-          <span>Add Comment / Assign Task</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
         </ContextMenuItem>
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
 
-        <ContextMenuItem
-          onClick={async () => {
-            if (isReadOnly) {
-              toast.info("Workspace is in Read-Only mode. Zone assignment is locked.", { id: "readonly-notice" });
-              return;
-            }
-            const targets = selected.has(row.id) ? Array.from(selected) : [row.id];
-            const selectedSpaces = spaces.filter((s) => targets.includes(s.id));
-            const missingCategoryOrArea = selectedSpaces.some(
-              (s) => !s.category || s.category.trim() === "" || !s.area || s.area <= 0
-            );
-            if (missingCategoryOrArea) {
-              await confirm("Cannot form zone: Category and Area are compulsory for all selected spaces.", {
-                title: "Validation Error",
-                confirmText: "OK",
-                hideCancel: true,
-              });
-              return;
-            }
-            const hasPositiveSpace = selectedSpaces.some((s) => s.pressure === "Positive");
-            if (!hasPositiveSpace) {
-              await confirm("Cannot form zone: A zone must contain at least one positive-pressure space.", {
-                title: "Validation Error",
-                confirmText: "OK",
-                hideCancel: true,
-              });
-              return;
-            }
-            if (!selected.has(row.id)) {
-              setSelected(new Set([row.id]));
-            }
-            setAssignZoneOpen(true);
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-        >
-          <GroupIcon className="size-3.5 text-muted-foreground" />
-          <span>Assign Zone</span>
-        </ContextMenuItem>
-
-        <ContextMenuItem
-          onClick={() => {
-            if (isReadOnly) {
-              toast.info("Workspace is in Read-Only mode. Equipment assignment is locked.", { id: "readonly-notice" });
-              return;
-            }
-            if (!selected.has(row.id)) {
-              setSelected(new Set([row.id]));
-            }
-            setAssignEquipOpen(true);
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-        >
-          <Plus className="size-3.5 text-muted-foreground" />
-          <span>Assign Equipment</span>
-        </ContextMenuItem>
-
-        <ContextMenuItem
-          disabled={isEffectiveReadOnly}
-          onClick={() => {
-            if (isEffectiveReadOnly) {
-              toast.info(isLockedByOther ? `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Auto-Zoning is locked.` : "Workspace is in Read-Only mode. Auto-Zoning is locked.", { id: "readonly-notice" });
-              return;
-            }
-            const targets = selected.has(row.id) ? Array.from(selected) : [row.id];
-            const selectedSpaces = spaces.filter((s) => targets.includes(s.id));
-            triggerAutoZoning(selectedSpaces);
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-        >
-          <Sparkles className="size-3.5 text-muted-foreground" />
-          <span>Auto-Zone</span>
-        </ContextMenuItem>
-
-        <ContextMenuItem
-          disabled={!isMulti}
-          onClick={() => {
-            if (isReadOnly) {
-              toast.info("Workspace is in Read-Only mode. Merging spaces is locked.", { id: "readonly-notice" });
-              return;
-            }
-            const names = selectedIds.map(id => spaces.find(s => s.id === id)?.name).filter(Boolean);
-            setMergeName((names[0] || "Merged Space") + " (Merged)");
-            setPrimarySpaceId(selectedIds[0] || "");
-            setMergeOpen(true);
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-        >
-          <Copy className="size-3.5 text-muted-foreground" />
-          <span>Merge Spaces</span>
-        </ContextMenuItem>
-
-        <ContextMenuSeparator className="h-px bg-border my-1" />
-
+        {/* Delete */}
         <ContextMenuItem
           onClick={async () => {
             if (isReadOnly) {
@@ -1750,6 +1817,7 @@ function SpacesView() {
             if (await confirm(msg)) {
               deleteSpaces(selectedIds);
               setSelected(new Set());
+              toast.info(`Deleted ${targetsCount} space(s)`);
             }
           }}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
@@ -2363,7 +2431,7 @@ function SpacesView() {
     },
 
     {
-      key: "occupancy", header: "OCC.", width: 80, align: "center", mono: true, editable: true, render: (r) => (
+      key: "occupancy", header: "OCCUPANCY", width: 95, align: "center", mono: true, editable: true, render: (r) => (
         <div className="flex items-center justify-center gap-1.5 w-full h-full px-1">
           {!r.isOccupancyCustomized && (
             <span title="Default occupancy value" className="size-1.5 rounded-full bg-blue-500 shrink-0" />
@@ -2390,8 +2458,8 @@ function SpacesView() {
       )
     },
 
-    { key: "minFresh", header: "MIN FRESH (L/S)", width: 100, align: "center", mono: true, render: (r) => Math.round(r.minOA || 0).toLocaleString() },
-    { key: "minExtract", header: "MIN EXTRACT (L/S)", width: 100, align: "center", mono: true, render: (r) => Math.round(r.minExt || 0).toLocaleString() },
+    { key: "minFresh", header: "MIN FRESH AIR (L/S)", width: 135, align: "center", mono: true, render: (r) => Math.round(r.minOA || 0).toLocaleString() },
+    { key: "minExtract", header: "MIN EXTRACT AIR (L/S)", width: 140, align: "center", mono: true, render: (r) => Math.round(r.minExt || 0).toLocaleString() },
     {
       key: "flagged",
       header: "",
@@ -2658,7 +2726,36 @@ function SpacesView() {
         return;
       }
 
-      // 6. Undo/Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
+      // 6. Duplicate: Ctrl+D
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (isEffectiveReadOnly) {
+          toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+          return;
+        }
+        if (!importOpen && selected.size > 0) {
+          e.preventDefault();
+          const selectedIds = Array.from(selected);
+          const clones = selectedIds.map((id, index) => {
+            const targetRow = spaces.find((s) => s.id === id);
+            if (!targetRow) return null;
+            return {
+              ...targetRow,
+              id: `sp-${Date.now()}-${index}-${Math.random()}`,
+              code: `${targetRow.code}-CLONE`,
+              name: `${targetRow.name} (Clone)`,
+            };
+          }).filter(Boolean) as Space[];
+
+          if (clones.length > 0) {
+            addSpacesBulk(clones);
+            setSelected(new Set(clones.map((s) => s.id)));
+            toast.success(`Duplicated ${clones.length} space(s)`);
+          }
+        }
+        return;
+      }
+
+      // 7. Undo/Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
       if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
         const ok = undo();
@@ -2679,10 +2776,12 @@ function SpacesView() {
     importOpen,
     pendingRecords,
     rows,
+    spaces,
     selected,
     selectedPending,
     isEffectiveReadOnly,
     deleteSpaces,
+    addSpacesBulk,
     copySpaces,
     cutSpaces,
     pasteSpaces,
@@ -2924,6 +3023,42 @@ function SpacesView() {
           </PopoverContent>
         </Popover>
 
+        {/* View Options & Column Distribution Popover */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              className="relative inline-flex items-center justify-center h-7 w-7 rounded-full border border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible"
+              title="View / Column Distribution"
+            >
+              <SlidersHorizontal className="size-3.5 shrink-0" />
+              <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                View Options
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50 text-xs">
+            <div className="flex items-center justify-between pb-1.5 border-b border-border">
+              <span className="text-[12px] font-semibold text-foreground">Column Distribution</span>
+            </div>
+            <p className="text-[10.5px] text-muted-foreground leading-snug">
+              Drag column divider lines in table headers to adjust custom widths. Click below to restore auto-distribution.
+            </p>
+            <button
+              onClick={() => {
+                try {
+                  localStorage.removeItem("mep_grid_ventilation_spaces");
+                  window.dispatchEvent(new Event("resize"));
+                  toast.success("Column widths reset to auto-distribution");
+                } catch (e) {}
+              }}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground font-semibold text-[11.5px] border border-border transition-colors cursor-pointer"
+            >
+              <RefreshCw className="size-3 text-primary" />
+              Reset Column Widths
+            </button>
+          </PopoverContent>
+        </Popover>
+
         <div className="ml-auto flex items-center gap-1">
           <TBtn
             disabled={isEffectiveReadOnly}
@@ -3042,13 +3177,6 @@ function SpacesView() {
         )}
       </div>
 
-      {/* Notification Banner across ventilation workspace */}
-      <CalculationStatusBanner
-        projectId={activeProjectId || project?.id}
-        calculatorPath="/ventilation"
-        calculatorTitle="Ventilation & Air Balance"
-      />
-
       {/* Grid */}
       <div className="flex-1 min-h-0 flex flex-col">
         {spaces.length === 0 ? (
@@ -3079,6 +3207,7 @@ function SpacesView() {
           </div>
         ) : (
           <DataGrid
+            gridId="ventilation_spaces"
             rows={rows}
             columns={columns}
             selected={selected}

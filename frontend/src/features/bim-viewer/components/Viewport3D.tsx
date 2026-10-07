@@ -11,7 +11,7 @@ import { Toolbar } from './Toolbar';
 import { DropOverlay } from './DropOverlay';
 import { workspaceStore } from '@/lib/workspace-store';
 import { saveProjectIfcFile, getProjectIfcFile, deleteProjectIfcFile } from '@/lib/projectIfcStorage';
-import { isMepValidSpaceName, sortSpacesByFloorAndName } from '@/lib/bimViewerSpaceExtractor';
+import { isMepValidSpaceName, sortSpacesByFloorAndName, resolveBestSpaceName } from '@/lib/bimViewerSpaceExtractor';
 import { api as backendApi } from '@/services/api';
 
 import { ensureApiBridge } from '../tauri-bridge';
@@ -1051,11 +1051,12 @@ export function Viewport3D() {
                             const fullSpace = spaceDataMap.find((e: any) => e.expressId === sp.expressId) || sp;
                             const cleanLongName = String(sp.longName || fullSpace.longName || "").trim();
                             const cleanName = String(sp.name || fullSpace.name || "").trim();
-                            const displayName = cleanLongName || cleanName || `Space ${sp.expressId}`;
+                            const displayName = resolveBestSpaceName(cleanLongName, cleanName, fullSpace.objectType, fullSpace.roomName, sp.expressId);
                             if (!isMepValidSpaceName(displayName)) return;
 
                             const storeyName = String(st.name || "Ground Floor").trim();
                             const area = parseFloat(String(fullSpace.quantities?.Area || fullSpace.quantities?.NetArea || sp.quantities?.Area || sp.area || 0)) || 0;
+                            if (area < 1.0) return;
                             let height = parseFloat(String(fullSpace.quantities?.Height || fullSpace.quantities?.UnboundedHeight || sp.quantities?.Height || sp.height || 3.0)) || 3.0;
                             if (height > 100) height = height / 1000;
 

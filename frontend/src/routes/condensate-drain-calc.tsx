@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { useConfirm } from "@/hooks/use-confirm";
 import { downloadFile } from "@/lib/download";
@@ -1053,13 +1053,6 @@ function CondensateDrainCalcPage() {
                 </TBtn>
               </div>
             </div>
-
-            {/* Notification Banner across all tabs */}
-            <CalculationStatusBanner
-              projectId={project?.id || "default"}
-              calculatorPath="/condensate-drain-calc"
-              calculatorTitle="Coil Condensate Calculator"
-            />
 
             {/* Active Tab View */}
             <div key={tab} className="flex-1 min-h-0 animate-fade-in flex flex-col">

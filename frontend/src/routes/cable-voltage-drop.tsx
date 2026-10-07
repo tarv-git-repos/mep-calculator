@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -1735,13 +1735,6 @@ function CableVoltageDropPage() {
             </div>
           </div>
           
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={project?.id || "default"}
-            calculatorPath="/cable-voltage-drop"
-            calculatorTitle="Cable Voltage Drop"
-          />
-
           {/* Main Content Area */}
           <div className="flex-1 overflow-hidden flex flex-col relative">
             <div className="flex-1 flex flex-col bg-background overflow-hidden">

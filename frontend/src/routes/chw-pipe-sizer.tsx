@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { exportCHWPipePDF } from "@/lib/exportCHWPipePDF";
@@ -407,13 +407,6 @@ function ChwPipeSizerPage() {
                 </TBtn>
               </div>
             </div>
-
-            {/* Notification Banner across all tabs */}
-            <CalculationStatusBanner
-              projectId={activeProjectId}
-              calculatorPath="/chw-pipe-sizer"
-              calculatorTitle="CHW Pipe Sizer"
-            />
 
             {/* TAB CONTENT: REPORT VIEW OR CALCULATOR VIEW */}
             {activeTab === "report" ? (

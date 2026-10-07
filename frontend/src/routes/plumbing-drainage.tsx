@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useConfirm } from "@/hooks/use-confirm";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
@@ -1587,13 +1587,6 @@ function DrainagePage() {
                 />
               </div>
             </div>
-
-            {/* Notification Banner across all tabs */}
-            <CalculationStatusBanner
-              projectId={project?.id || "default"}
-              calculatorPath="/plumbing-drainage"
-              calculatorTitle="Drainage Pipe Sizing"
-            />
 
             {/* Active Tab View */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">

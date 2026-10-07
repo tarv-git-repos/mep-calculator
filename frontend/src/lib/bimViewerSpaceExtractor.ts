@@ -20,6 +20,7 @@ export interface Extracted3DSpace {
   source: "3d-viewer" | "ifc-file" | "workspace";
   lightFixtureCount?: number;
   lightFixtureType?: string;
+  isExternal?: boolean;
 }
 
 /**
@@ -65,6 +66,86 @@ export function cleanSpaceName(rawName: string, fallbackId?: string | number): s
   }
   s = s.replace(/^ifcspace[\s.:_-]*/i, "Room ");
   return s.trim() || (fallbackId ? `Space ${fallbackId}` : "Space");
+}
+
+/**
+ * Intelligently resolves the best human-readable space name from IFC parameters and property sets.
+ * Prevents generic BOMA scheme codes like "(A) USABLE AREA" from hiding specific room names like "Office 101".
+ */
+export function resolveBestSpaceName(
+  longName?: string,
+  name?: string,
+  objectType?: string,
+  propertyRoomName?: string,
+  fallbackId?: string | number
+): string {
+  const isGenericAreaScheme = (val?: string) => {
+    if (!val) return false;
+    const v = val.trim().toUpperCase();
+    return (
+      /^\([A-Z0-9]+\)\s*(USABLE|COMMON|CIRCULATION|SERVICE|RENTABLE|GROSS|VERTICAL|PENETRATION)/i.test(v) ||
+      /^(USABLE AREA|COMMON AREA|CIRCULATION AREA|SERVICE AREA|GROSS AREA)$/i.test(v)
+    );
+  };
+
+  // Helper to format generic BOMA schemes cleanly
+  const formatSchemeName = (scheme: string): string => {
+    const s = scheme.toUpperCase();
+    if (s.includes("USABLE")) return "Usable Office Area";
+    if (s.includes("COMMON") || s.includes("SERVICE")) return "Common / Service Area";
+    if (s.includes("CIRCULATION")) return "Circulation Corridor";
+    if (s.includes("PENETRATION") || s.includes("VERTICAL")) return "Vertical Shaft / Riser";
+    return scheme.replace(/^\([A-Z0-9]+\)\s*/i, "").trim();
+  };
+
+  const isNumericOnly = (val: string) => /^\d+$/.test(val.trim());
+
+  // 1. If property sets contain a specific room name, prioritize that
+  if (propertyRoomName && propertyRoomName.trim() && !isGenericAreaScheme(propertyRoomName)) {
+    return cleanSpaceName(propertyRoomName.trim(), fallbackId);
+  }
+
+  const cleanName = (name || "").trim();
+  const cleanLong = (longName || "").trim();
+
+  // 2. If cleanName is numeric only (e.g. "1", "4", "12") and cleanLong is an area scheme:
+  // Format as "Room 1 — Usable Office Area", "Room 12 — Circulation Corridor", etc.
+  if (isNumericOnly(cleanName)) {
+    if (cleanLong) {
+      const cat = formatSchemeName(cleanLong);
+      return `Room ${cleanName} — ${cat}`;
+    }
+    return `Room ${cleanName}`;
+  }
+
+  // 3. If cleanName is a real room name (e.g. "Office 101", "Bathroom", "Back Garden") and cleanLong is a generic scheme, prioritize cleanName
+  if (cleanName && !isGenericAreaScheme(cleanName) && !/^\([A-Z0-9]+\)$/i.test(cleanName)) {
+    if (isGenericAreaScheme(cleanLong)) {
+      return cleanSpaceName(cleanName, fallbackId);
+    }
+  }
+
+  // 4. If cleanLong is specific and not a generic scheme, use it
+  if (cleanLong && !isGenericAreaScheme(cleanLong)) {
+    return cleanSpaceName(cleanLong, fallbackId);
+  }
+
+  // 5. If cleanName is available and not just a code like "(A)"
+  if (cleanName && !/^\([A-Z0-9]+\)$/i.test(cleanName)) {
+    return cleanSpaceName(cleanName, fallbackId);
+  }
+
+  // 6. Fallback to cleanLong (e.g. "(A) USABLE AREA")
+  if (cleanLong) {
+    return cleanSpaceName(formatSchemeName(cleanLong), fallbackId);
+  }
+
+  // 7. ObjectType fallback
+  if (objectType && objectType.trim() && !isGenericAreaScheme(objectType)) {
+    return cleanSpaceName(objectType.trim(), fallbackId);
+  }
+
+  return cleanSpaceName(cleanName || objectType || "", fallbackId);
 }
 
 /**
@@ -319,15 +400,19 @@ export function autoGroupBimZones<T extends Extracted3DSpace>(spaces: T[]): T[] 
 /**
  * Extracts spaces from currently loaded 3D Viewer session or workspace store
  */
-export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
+export function extractSpacesFromActiveViewer(projectId?: string): Extracted3DSpace[] {
   const spaces: Extracted3DSpace[] = [];
 
   const win = typeof window !== "undefined" ? (window as any) : {};
   let activeBimData = win.__BIM_VIEWER_SPACES__ || win.__BIM_VIEWER_MODEL_DATA__;
 
+  const pId = projectId || (typeof workspaceStore !== "undefined" ? workspaceStore.getState().activeProjectId : "") || "default";
+
   if ((!activeBimData || activeBimData.length === 0) && typeof localStorage !== "undefined") {
     try {
-      const stored = localStorage.getItem("mep_active_bim_spaces");
+      const storedProj = localStorage.getItem(`mep_active_bim_spaces_${pId}`);
+      const storedGen = localStorage.getItem("mep_active_bim_spaces");
+      const stored = storedProj || storedGen;
       if (stored) {
         activeBimData = JSON.parse(stored);
       }
@@ -358,10 +443,15 @@ export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
 
   if (Array.isArray(activeBimData) && activeBimData.length > 0) {
     activeBimData.forEach((sp: any, idx: number) => {
-      const rawExtractedName = String(sp.longName || sp.name || sp.number || "").trim();
-      const rawName = cleanSpaceName(rawExtractedName, idx + 1);
+      const rawName = resolveBestSpaceName(
+        String(sp.longName || "").trim(),
+        String(sp.name || sp.number || "").trim(),
+        String(sp.objectType || "").trim(),
+        String(sp.roomName || "").trim(),
+        idx + 1
+      );
       const area = parseFloat(String(sp.area || sp.netArea || 0)) || 0;
-      if (!isMepValidSpaceName(rawName) && area <= 0) return;
+      if (!isMepValidSpaceName(rawName) || area < 1.0) return;
 
       const levelName = String(sp.level || sp.storeyName || sp.levelName || "Ground Floor").trim();
       const zoneName = String(sp.zone || sp.zoneName || "Default").trim();
@@ -399,6 +489,10 @@ export function extractSpacesFromActiveViewer(): Extracted3DSpace[] {
         source: "3d-viewer",
         lightFixtureCount: sp.lightFixtureCount !== undefined ? sp.lightFixtureCount : undefined,
         lightFixtureType: sp.lightFixtureType || "",
+        isExternal: Boolean(
+          sp.isExternal ||
+          /garden|landscape|patio|courtyard|terrace|balcony|deck|parking|outdoor|exterior|canopy|porch|plaza|walkway|facade|driveway|pergola/i.test(rawName)
+        ),
       });
     });
 
@@ -482,11 +576,28 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
       const longNameStr = String(line.LongName?.value || "").trim();
       const nameStr = String(line.Name?.value || "").trim();
       const objectTypeStr = String(line.ObjectType?.value || "").trim();
-      
-      const rawName = cleanSpaceName(longNameStr || nameStr || objectTypeStr, idx + 1);
+      const propRoomName = String(
+        propMgr.findProp(
+          id,
+          [
+            "Room Name",
+            "RoomName",
+            "Space Name",
+            "SpaceName",
+            "Room_Name",
+            "Space_Name",
+            "Room Description",
+            "Name",
+            "Description",
+          ],
+          relMgr.relDefines
+        ) || ""
+      ).trim();
+
+      const rawName = resolveBestSpaceName(longNameStr, nameStr, objectTypeStr, propRoomName, idx + 1);
       const quantities = propMgr.getQuantities(id, relMgr.relDefines);
       const area = parseFloat(String(quantities.Area || quantities.NetArea || quantities.GrossArea || 0)) || 0;
-      if (!isMepValidSpaceName(rawName) && area <= 0) return;
+      if (!isMepValidSpaceName(rawName) || area < 1.0) return;
       let height = parseFloat(String(quantities.Height || quantities.UnboundedHeight || 3.0)) || 3.0;
       if (height > 100) height = height / 1000;
 
@@ -552,6 +663,11 @@ export async function extractSpacesFromIFCFile(file: File): Promise<Extracted3DS
         source: "ifc-file",
         lightFixtureCount: lightFixtureCount > 0 ? lightFixtureCount : undefined,
         lightFixtureType: lightFixtureType || "",
+        isExternal: Boolean(
+          propMgr.findProp(id, ["IsExternal", "isExternal", "External"], relMgr.relDefines) ||
+          line.PredefinedType?.value === "EXTERNAL" ||
+          /garden|landscape|patio|courtyard|terrace|balcony|deck|parking|outdoor|exterior|canopy|porch|plaza|walkway|facade|driveway|pergola/i.test(rawName)
+        ),
       });
     });
 

@@ -1,5 +1,5 @@
 import { calculateComputedRows, computeRowSizing, computeAirflowFromKw, getCpWater, DIFFUSER_DATA, DIFFUSER_NAMES, type DiffuserType, type DiffuserSize, type DiffuserRowItem } from "@/lib/calc-diffuser";
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -1945,13 +1945,6 @@ function DiffuserSelectorPage() {
               />
             </div>
           </div>
-
-        {/* Review / Approval Status Banner */}
-        <CalculationStatusBanner
-          projectId={project?.id || activeProjectId || "default"}
-          calculatorPath="/diffuser-selector"
-          calculatorTitle="Diffuser Selection Schedule"
-        />
 
         {/* White card container for Tabs & Data Grid */}
         <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${

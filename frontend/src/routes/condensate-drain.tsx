@@ -1,5 +1,5 @@
 import { calculateDrainResults, type CondMode } from "@/lib/calc-condensate-drain";
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { kwToTr, trToKw, kwToBtu, btuToKw, mToFt, ftToM } from "@/utils/conversions";
@@ -1173,13 +1173,6 @@ export function CondensateDrainPage() {
               />
             </div>
           </div>
-
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={activeProjectId || project?.id}
-            calculatorPath="/condensate-drain"
-            calculatorTitle="Condensate Drain Sizing"
-          />
 
           {/* Main Card Container for Tabs & Content (Matching FM-200 Layout) */}
           <div

@@ -1,7 +1,6 @@
-import { useWorkspace } from "@/lib/workspace-store";
+import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import {
   CalculationReviewBar,
-  CalculationStatusBanner,
   useCalculationEffectiveReadOnly,
   useCalculationReviewState,
 } from "@/components/workspace/CalculationReviewBar";
@@ -34,6 +33,7 @@ import {
   Filter,
   ArrowUpDown,
   FileText,
+  Calculator,
 } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
@@ -41,7 +41,7 @@ import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { cn } from "@/lib/utils";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
-import { exportLpdExcel } from "../lib/exportLpdExcel";
+import { exportLpdPDF } from "../lib/exportLpdPDF";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import {
   type LightFixture,
@@ -56,8 +56,17 @@ import {
   defaultSpace,
   defaultGroup,
   defaultProject,
-  getLpdCalculationPreview
+  getLpdCalculationPreview,
+  convertBimSpacesToLpdGroups,
+  convertBimSpacesToLpdGroupsSplit,
 } from "@/lib/calc-lpd-calculation";
+import { getProjectIfcFile } from "@/lib/projectIfcStorage";
+import {
+  extractSpacesFromActiveViewer,
+  extractSpacesFromIFCFile,
+  getFloorRank,
+  type Extracted3DSpace,
+} from "@/lib/bimViewerSpaceExtractor";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import {
@@ -136,14 +145,21 @@ function LPDCalculationPage() {
   };
 
   const getBaselineLpdForType = (type: string, system: "si" | "ip" = unitSystem): number | undefined => {
+    if (!type) return undefined;
     const norm = type.toLowerCase().trim();
+    let sqmVal = authorityMapping[type] ?? authorityMapping[norm];
+    if (sqmVal === undefined) {
+      const matchKey = Object.keys(authorityMapping).find(
+        (k) => k.toLowerCase().trim() === norm
+      );
+      if (matchKey) sqmVal = authorityMapping[matchKey];
+    }
+
     if (system === "ip") {
       if (LPD_AUTHORITY_MAPPING[norm] !== undefined) return LPD_AUTHORITY_MAPPING[norm];
-      const sqmVal = authorityMapping[norm] ?? authorityMapping[type];
       if (sqmVal !== undefined) return Number((sqmVal / 10.76391).toFixed(2));
       return undefined;
     } else {
-      const sqmVal = authorityMapping[norm] ?? authorityMapping[type];
       if (sqmVal !== undefined) return Number(sqmVal.toFixed(2));
       if (LPD_AUTHORITY_MAPPING[norm] !== undefined) return Number((LPD_AUTHORITY_MAPPING[norm] * 10.76391).toFixed(2));
       return undefined;
@@ -163,6 +179,15 @@ function LPDCalculationPage() {
   // Calculation Preview Modal State
   const [previewData, setPreviewData] = useState<CalculationPreviewData | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  // Add Custom Area Type Modal State
+  const [customAreaModalOpen, setCustomAreaModalOpen] = useState(false);
+  const [customAreaTarget, setCustomAreaTarget] = useState<{
+    groupId: string;
+    spaceId: string;
+  } | null>(null);
+  const [newAreaName, setNewAreaName] = useState("");
+  const [newAreaBaselineLpd, setNewAreaBaselineLpd] = useState("");
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -227,6 +252,9 @@ function LPDCalculationPage() {
                     if (s.flagged === undefined) s.flagged = false;
                     if (!Array.isArray(s.comments)) s.comments = [];
                     if (!Array.isArray(s.fixtures) || s.fixtures.length === 0) s.fixtures = [defaultFixture()];
+                    if (typeof s.remarks === "string" && s.remarks.startsWith("BIM extract:")) {
+                      s.remarks = "";
+                    }
                   });
                 }
               });
@@ -268,6 +296,14 @@ function LPDCalculationPage() {
     const external = (currentProject?.externalGroups || []).reduce((acc, g) => acc + (g.spaces?.length || 0), 0);
     return internal + external;
   }, [currentProject]);
+
+  const internalSpacesTotal = useMemo(() => {
+    return (currentProject?.internalGroups || []).reduce((acc, g) => acc + (g.spaces?.length || 0), 0);
+  }, [currentProject?.internalGroups]);
+
+  const externalSpacesTotal = useMemo(() => {
+    return (currentProject?.externalGroups || []).reduce((acc, g) => acc + (g.spaces?.length || 0), 0);
+  }, [currentProject?.externalGroups]);
 
   const updateProject = (fn: (p: LpdProject) => LpdProject) => {
     setProjects((prev) => {
@@ -709,9 +745,57 @@ function LPDCalculationPage() {
   };
 
   const handleExport = () => {
-    exportLpdExcel(currentProject, unitSystem);
-    toast.success("Exporting LPD Calculation to Excel...");
+    exportLpdPDF(currentProject, unitSystem);
   };
+
+  const handleSaveCustomArea = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanName = newAreaName.trim();
+    if (!cleanName) {
+      toast.error("Please enter a valid area type name");
+      return;
+    }
+
+    let enteredLpd = parseFloat(newAreaBaselineLpd);
+    if (isNaN(enteredLpd) || enteredLpd <= 0) {
+      enteredLpd = unitSystem === "ip" ? 0.60 : 6.50;
+    }
+
+    // In authorityMapping, values are stored in W/m² (SI)
+    const lpdSqm = unitSystem === "ip" ? enteredLpd * 10.76391 : enteredLpd;
+
+    const newMap = {
+      ...authorityMapping,
+      [cleanName]: lpdSqm,
+    };
+    setAuthorityMapping(newMap);
+    localStorage.setItem("mep-lpd-custom-mapping-sqm", JSON.stringify(newMap));
+
+    if (customAreaTarget) {
+      updateSpace(customAreaTarget.groupId, customAreaTarget.spaceId, "areaType", cleanName);
+      updateSpace(customAreaTarget.groupId, customAreaTarget.spaceId, "baselineLpd", enteredLpd.toFixed(2));
+    }
+
+    toast.success(
+      `Added custom area type "${cleanName}" (${enteredLpd.toFixed(2)} ${unitSystem === "ip" ? "W/sq.ft" : "W/m²"})`
+    );
+    setCustomAreaModalOpen(false);
+    setCustomAreaTarget(null);
+    setNewAreaName("");
+    setNewAreaBaselineLpd("");
+  };
+
+  useEffect(() => {
+    if (!customAreaModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setCustomAreaModalOpen(false);
+        setCustomAreaTarget(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [customAreaModalOpen]);
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -881,6 +965,95 @@ function LPDCalculationPage() {
 
 
 
+  const handleSyncFrom3DStudio = async () => {
+    try {
+      toast.loading("Scanning 3D Studio for spaces & luminaires...", { id: "lpd-3d-sync" });
+      let extracted: Extracted3DSpace[] = extractSpacesFromActiveViewer();
+      toast.dismiss("lpd-3d-sync");
+
+      // Fallback 1: Check project IFC file in IndexedDB storage
+      if (extracted.length === 0) {
+        const savedProjectFile = await getProjectIfcFile(activeProjectId || project?.id);
+        if (savedProjectFile instanceof File) {
+          toast.loading("Extracting 3D geometry & luminaires from project IFC model...", { id: "lpd-ifc-parse" });
+          extracted = await extractSpacesFromIFCFile(savedProjectFile);
+          toast.dismiss("lpd-ifc-parse");
+        }
+      }
+
+      // Fallback 2: Check active memory window session file
+      if (extracted.length === 0) {
+        const win = typeof window !== "undefined" ? (window as any) : {};
+        const savedFile = win.__ACTIVE_IFC_FILE__ || win._currentLoadedFile;
+        if (savedFile instanceof File) {
+          toast.loading("Extracting 3D geometry & luminaires from IFC model...", { id: "lpd-ifc-parse" });
+          extracted = await extractSpacesFromIFCFile(savedFile);
+          toast.dismiss("lpd-ifc-parse");
+        }
+      }
+
+      // Fallback 3: Check workspace store spaces if available
+      if (extracted.length === 0) {
+        const wsSpaces = workspaceStore.getState().spaces || [];
+        if (wsSpaces.length > 0) {
+          extracted = wsSpaces.map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            level: s.floor || s.level || "GROUND FLOOR",
+            zone: s.zone || "Default",
+            category: s.category || "General Office / Space",
+            area: Number(s.area) || 20,
+            height: Number(s.height) || 3.0,
+            fixtures: s.fixtures || "",
+            multiplier: s.multiplier || 1,
+            aiDetected: true,
+            confidence: 0.9,
+            pressure: s.pressure || "0",
+            pressureAutoDetected: false,
+            source: "workspace" as const,
+          }));
+        }
+      }
+
+      if (extracted.length === 0) {
+        toast.info("No active 3D IFC spaces found.", {
+          description: "Open 3D Studio (/bim-viewer) to load your IFC model, or click below to launch 3D Studio.",
+          action: {
+            label: "Open 3D Studio",
+            onClick: () => {
+              window.location.href = "/bim-viewer";
+            },
+          },
+        });
+        return;
+      }
+
+      const { internalGroups, externalGroups, internalSpacesCount, externalSpacesCount } = convertBimSpacesToLpdGroupsSplit(extracted);
+
+      updateProject((p) => ({
+        ...p,
+        internalGroups: internalGroups.length > 0 ? internalGroups : p.internalGroups,
+        externalGroups: externalGroups.length > 0 ? externalGroups : p.externalGroups,
+      }));
+
+      const parts: string[] = [];
+      if (internalSpacesCount > 0) {
+        parts.push(`${internalSpacesCount} internal room(s) in "Internal Area"`);
+      }
+      if (externalSpacesCount > 0) {
+        parts.push(`${externalSpacesCount} outdoor space(s) (e.g. Garden/Terrace) in "External Area"`);
+      }
+
+      toast.success(
+        `✨ Synced ${extracted.length} spaces from 3D Studio: ${parts.join(" and ")}! ASHRAE 90.1 baselines applied automatically.`,
+        { duration: 5500 }
+      );
+    } catch (err) {
+      console.error("Failed to sync spaces from 3D Studio:", err);
+      toast.error("Failed to sync spaces from 3D Studio.");
+    }
+  };
+
   const handleOpenCalculationPreview = (space: LpdSpace, groupName?: string) => {
     const data = getLpdCalculationPreview(space, unitSystem, groupName);
     setPreviewData(data);
@@ -972,7 +1145,15 @@ function LPDCalculationPage() {
 
   // Filtered groups & spaces calculation
   const filteredGroups = useMemo(() => {
-    return activeGroups.map((group) => {
+    // Sort groups floor-wise (Basement -> Ground -> 1st -> 2nd -> Roof -> Exterior)
+    const sortedActiveGroups = [...activeGroups].sort((a, b) => {
+      const rankA = getFloorRank(a.name);
+      const rankB = getFloorRank(b.name);
+      if (rankA !== rankB) return rankA - rankB;
+      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+    });
+
+    return sortedActiveGroups.map((group) => {
       const filteredSpaces = (group.spaces || []).filter((space) => {
         // Query search
         if (searchQuery.trim() !== "") {
@@ -1025,7 +1206,9 @@ function LPDCalculationPage() {
 
       // Sort spaces within the group if sortKey is set
       const sortedSpaces = [...filteredSpaces];
-      if (sortKey === "name-asc") {
+      if (sortKey === "default") {
+        sortedSpaces.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }));
+      } else if (sortKey === "name-asc") {
         sortedSpaces.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       } else if (sortKey === "name-desc") {
         sortedSpaces.sort((a, b) => (b.name || "").localeCompare(a.name || ""));
@@ -1167,13 +1350,6 @@ function LPDCalculationPage() {
               />
             </div>
           </div>
-
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={project?.id || "default"}
-            calculatorPath="/lpd-calculation"
-            calculatorTitle="LPD Calculation"
-          />
 
           {/* White Card Container for Grid */}
           <div
@@ -1400,8 +1576,18 @@ function LPDCalculationPage() {
                 </Popover>
               </div>
 
-              {/* Right Controls: Import, Export, + New Space */}
+              {/* Right Controls: Sync 3D BIM, Import, Export, + New Space */}
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSyncFrom3DStudio}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 transition-all cursor-pointer shadow-2xs"
+                  title="Extract & sync rooms and fixture counts from 3D Studio (IFC model)"
+                >
+                  <Sparkles className="size-3.5 text-blue-500" />
+                  <span>Sync 3D BIM</span>
+                </button>
+
                 <ImportExcelBtn
                   columnMapping={{
                     "Space Name": ["Space Name", "Space", "Room", "Location", "Area Description"],
@@ -1488,24 +1674,42 @@ function LPDCalculationPage() {
                   <button
                     type="button"
                     onClick={() => updateProjectField("type", "Internal")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer flex items-center gap-1.5 ${
                       currentProject.type === "Internal"
                         ? "bg-background shadow-xs text-foreground font-bold"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    Internal Area
+                    <span>Internal Area</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold transition-colors ${
+                        currentProject.type === "Internal"
+                          ? "bg-primary/15 text-primary"
+                          : "bg-muted/80 text-muted-foreground"
+                      }`}
+                    >
+                      {internalSpacesTotal}
+                    </span>
                   </button>
                   <button
                     type="button"
                     onClick={() => updateProjectField("type", "External")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer flex items-center gap-1.5 ${
                       currentProject.type === "External"
                         ? "bg-background shadow-xs text-foreground font-bold"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    External Area
+                    <span>External Area</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold transition-colors ${
+                        currentProject.type === "External"
+                          ? "bg-primary/15 text-primary"
+                          : "bg-muted/80 text-muted-foreground"
+                      }`}
+                    >
+                      {externalSpacesTotal}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -1540,44 +1744,29 @@ function LPDCalculationPage() {
                         title={allSelected ? "Deselect All" : "Select All Spaces"}
                       />
                     </th>
-                    <th className="px-2 py-2 w-12 text-center border-r border-border/50">S.No</th>
                     <th className="px-3 py-2 w-56 border-r border-border/50">Space Name</th>
                     <th className="px-3 py-2 w-56 border-r border-border/50">Category / Type of Area</th>
                     <th className="px-3 py-2 w-44 border-r border-border/50">Light Type</th>
                     <th className="px-2 py-2 w-20 text-center border-r border-border/50">Watts</th>
                     <th className="px-2 py-2 w-16 text-center border-r border-border/50">Qty</th>
                     <th className="px-2 py-2 w-24 text-center border-r border-border/50">Total Watts</th>
-                    {unitSystem === "si" ? (
-                      <>
-                        <th className="px-2 py-2 w-24 text-center border-r border-border/50">Area (m²)</th>
-                        <th className="px-2 py-2 w-24 text-center border-r border-border/50">Area (sq.ft)</th>
-                        <th className="px-3 py-2 w-32 text-center border-r border-border/50 text-primary">
-                          Proposed LPD
-                          <br />
-                          <span className="text-[9.5px] font-normal text-muted-foreground">(W/m²)</span>
-                        </th>
-                        <th className="px-3 py-2 w-28 text-center border-r border-border/50">
-                          Baseline LPD
-                          <br />
-                          <span className="text-[9.5px] font-normal text-muted-foreground">(W/m²)</span>
-                        </th>
-                      </>
-                    ) : (
-                      <>
-                        <th className="px-2 py-2 w-24 text-center border-r border-border/50">Area (sq.ft)</th>
-                        <th className="px-2 py-2 w-24 text-center border-r border-border/50">Area (m²)</th>
-                        <th className="px-3 py-2 w-32 text-center border-r border-border/50 text-primary">
-                          Proposed LPD
-                          <br />
-                          <span className="text-[9.5px] font-normal text-muted-foreground">(W/sq.ft)</span>
-                        </th>
-                        <th className="px-3 py-2 w-28 text-center border-r border-border/50">
-                          Baseline LPD
-                          <br />
-                          <span className="text-[9.5px] font-normal text-muted-foreground">(W/sq.ft)</span>
-                        </th>
-                      </>
-                    )}
+                    <th className="px-2 py-2 w-28 text-center border-r border-border/50">
+                      Area {unitSystem === "si" ? "(m²)" : "(sq.ft)"}
+                    </th>
+                    <th className="px-3 py-2 w-32 text-center border-r border-border/50 text-primary">
+                      Proposed LPD
+                      <br />
+                      <span className="text-[9.5px] font-normal text-muted-foreground">
+                        ({unitSystem === "si" ? "W/m²" : "W/sq.ft"})
+                      </span>
+                    </th>
+                    <th className="px-3 py-2 w-28 text-center border-r border-border/50">
+                      Baseline LPD
+                      <br />
+                      <span className="text-[9.5px] font-normal text-muted-foreground">
+                        ({unitSystem === "si" ? "W/m²" : "W/sq.ft"})
+                      </span>
+                    </th>
                     <th className="px-3 py-2 w-36 border-r border-border/50">Remarks</th>
                     <th className="px-2 py-2 w-10 text-center border-r border-border/50" title="Add Fixture to Space"></th>
                     <th className="px-2 py-2 w-10 text-center" title="Flag Space">
@@ -1624,7 +1813,7 @@ function LPDCalculationPage() {
                             });
                           }}
                         >
-                          <td colSpan={15} className="p-0">
+                          <td colSpan={13} className="p-0">
                             <div className="flex items-center px-3 py-2 hover:bg-slate-200/60 dark:hover:bg-zinc-700/60 transition-colors cursor-pointer">
                               <input
                                 type="checkbox"
@@ -1736,15 +1925,8 @@ function LPDCalculationPage() {
                                   <tr
                                     key={fixture.id}
                                     id={`space-row-${space.id}`}
-                                    onClick={(e) => {
-                                      const target = e.target as HTMLElement;
-                                      if (
-                                        ["INPUT", "SELECT", "TEXTAREA", "BUTTON", "A"].includes(target.tagName) ||
-                                        target.closest("button")
-                                      ) {
-                                        return;
-                                      }
-                                      toggleSelectRow(space.id);
+                                    onClick={() => {
+                                      // Row selection is handled by checkbox and S.NO click
                                     }}
                                     onDoubleClick={(e) => {
                                       const target = e.target as HTMLElement;
@@ -1767,6 +1949,12 @@ function LPDCalculationPage() {
                                         spaceId: space.id,
                                         groupId: group.id,
                                       });
+                                    }}
+                                    onDoubleClick={(e) => {
+                                      const tag = (e.target as HTMLElement).tagName;
+                                      if (tag !== "INPUT" && tag !== "SELECT" && tag !== "BUTTON") {
+                                        handleOpenCalculationPreview(space, group.name);
+                                      }
                                     }}
                                     className={cn(
                                       "border-b border-border/40 transition-colors group/row",
@@ -1792,20 +1980,6 @@ function LPDCalculationPage() {
                                             onDoubleClick={(e) => e.stopPropagation()}
                                             className="size-3.5 accent-primary cursor-pointer align-middle"
                                           />
-                                        </td>
-
-                                        {/* Serial Number */}
-                                        <td
-                                          className="px-2 py-1.5 text-center font-mono text-muted-foreground border-r border-border/40 text-[11.5px] cursor-pointer hover:bg-primary/5 select-none"
-                                          rowSpan={space.fixtures.length}
-                                          onClick={() => toggleSelectRow(space.id)}
-                                          onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            handleOpenCalculationPreview(space, group.name);
-                                          }}
-                                          title="Click to select/deselect space. Double-click to view calculation preview."
-                                        >
-                                          {srNo}
                                         </td>
 
                                         {/* Space Name */}
@@ -1872,48 +2046,32 @@ function LPDCalculationPage() {
                                                 handleOpenCalculationPreview(space, group.name);
                                               }}
                                               title="Double-click to view calculation preview"
-                                              onChange={async (e) => {
+                                              onChange={(e) => {
                                                 const val = e.target.value;
                                                 if (val === "ADD_NEW") {
-                                                  const newArea = await prompt(
-                                                    "Enter new Area Name:",
-                                                    "",
-                                                    { title: "New Area Name" }
+                                                  const currentBaseline = parseFloat(space.baselineLpd);
+                                                  setCustomAreaTarget({
+                                                    groupId: group.id,
+                                                    spaceId: space.id,
+                                                  });
+                                                  setNewAreaName("");
+                                                  setNewAreaBaselineLpd(
+                                                    !isNaN(currentBaseline) && currentBaseline > 0
+                                                      ? currentBaseline.toFixed(2)
+                                                      : unitSystem === "ip"
+                                                      ? "0.60"
+                                                      : "6.50"
                                                   );
-                                                  if (newArea && newArea.trim()) {
-                                                    const cleanArea = newArea.trim();
-                                                    const newLpdStr = await prompt(
-                                                      `Enter Baseline LPD for '${cleanArea}' (${unitSystem === "si" ? "W/m²" : "W/sq.ft"}):`,
-                                                      "",
-                                                      { title: "Baseline LPD" }
-                                                    );
-                                                    if (newLpdStr && !isNaN(Number(newLpdStr))) {
-                                                      const enteredLpd = Number(newLpdStr);
-                                                      const lpdSqm = unitSystem === "ip" ? enteredLpd * 10.76391 : enteredLpd;
-                                                      const newMap = {
-                                                        ...authorityMapping,
-                                                        [cleanArea]: lpdSqm,
-                                                      };
-                                                      setAuthorityMapping(newMap);
-                                                      localStorage.setItem(
-                                                        "mep-lpd-custom-mapping-sqm",
-                                                        JSON.stringify(newMap)
-                                                      );
-                                                      updateSpace(group.id, space.id, "areaType", cleanArea);
-                                                      updateSpace(
-                                                        group.id,
-                                                        space.id,
-                                                        "baselineLpd",
-                                                        enteredLpd.toFixed(2)
-                                                      );
-                                                    }
-                                                  }
-                                                } else {
-                                                  updateSpace(group.id, space.id, "areaType", val);
+                                                  setCustomAreaModalOpen(true);
+                                                  return;
                                                 }
+                                                updateSpace(group.id, space.id, "areaType", val);
                                               }}
                                             >
                                               <option value="">Select Category / Type...</option>
+                                              {space.areaType && authorityMapping[space.areaType] === undefined && (
+                                                <option value={space.areaType}>{space.areaType}</option>
+                                              )}
                                               {Object.keys(authorityMapping)
                                                 .sort()
                                                 .map((k) => (
@@ -2055,16 +2213,20 @@ function LPDCalculationPage() {
                                         <td
                                           className="px-2 py-1.5 border-r border-border/40 text-center font-mono font-semibold text-[13px] text-foreground cursor-pointer hover:bg-primary/5 select-none"
                                           rowSpan={space.fixtures.length}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
                                           onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             handleOpenCalculationPreview(space, group.name);
                                           }}
-                                          title="Double-click to view calculation preview"
+                                          title="Click or double-click to view calculation preview"
                                         >
                                           {totalWatts.toLocaleString()}
                                         </td>
 
-                                        {/* Area (m²) */}
+                                        {/* Area */}
                                         <td
                                           className="p-0 border-r border-border/40"
                                           rowSpan={space.fixtures.length}
@@ -2091,43 +2253,37 @@ function LPDCalculationPage() {
                                           />
                                         </td>
 
-                                        {/* Area (sq.ft) */}
-                                        <td
-                                          className="px-2 py-1.5 border-r border-border/40 text-center font-mono text-muted-foreground text-[12px] bg-surface-2/30 cursor-pointer hover:bg-primary/5 select-none"
-                                          rowSpan={space.fixtures.length}
-                                          onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            handleOpenCalculationPreview(space, group.name);
-                                          }}
-                                          title="Double-click to view calculation preview"
-                                        >
-                                          {rawArea > 0 ? secondaryArea.toFixed(1) : "—"}
-                                        </td>
-
                                         {/* Proposed LPD (W/m²) */}
                                         <td
-                                          className="px-2 py-1.5 border-r border-border/40 text-center cursor-pointer select-none group/lpd"
+                                          className="px-2 py-1.5 border-r border-border/40 text-center cursor-pointer select-none group/lpd hover:bg-primary/5"
                                           rowSpan={space.fixtures.length}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenCalculationPreview(space, group.name);
+                                          }}
                                           onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             handleOpenCalculationPreview(space, group.name);
                                           }}
-                                          title="Double-click to view step-by-step calculation preview"
+                                          title="Click or double-click to view step-by-step calculation preview & formula breakdown"
                                         >
                                           {rawArea > 0 ? (
                                             <span
                                               className={cn(
-                                                "inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11.5px] font-mono font-bold border transition-all hover:scale-105 shadow-2xs",
+                                                "inline-flex items-center gap-1 justify-center px-2 py-0.5 rounded-full text-[11.5px] font-mono font-bold border transition-all hover:scale-105 shadow-2xs",
                                                 isCompliant
                                                   ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
                                                   : "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 animate-pulse"
                                               )}
-                                              title="Double-click to view step-by-step calculation preview"
                                             >
-                                              {proposedLpd.toFixed(3)}
+                                              <span>{proposedLpd.toFixed(3)}</span>
+                                              <Calculator className="size-3 opacity-60 hover:opacity-100" />
                                             </span>
                                           ) : (
-                                            <span className="font-mono text-muted-foreground text-[11.5px] hover:text-foreground">0.000</span>
+                                            <span className="inline-flex items-center gap-1 font-mono text-muted-foreground text-[11.5px] hover:text-foreground">
+                                              <span>0.000</span>
+                                              <Calculator className="size-3 opacity-40 hover:opacity-100" />
+                                            </span>
                                           )}
                                         </td>
 
@@ -2247,7 +2403,7 @@ function LPDCalculationPage() {
                         {/* Add Row Button at bottom of group */}
                         {group.isExpanded && (
                           <tr>
-                            <td colSpan={15} className="p-2 bg-background/50 border-t border-border/40">
+                            <td colSpan={13} className="p-2 bg-background/50 border-t border-border/40">
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -2361,7 +2517,7 @@ function LPDCalculationPage() {
             type="button"
             className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-primary/10 text-primary rounded cursor-pointer font-semibold transition-colors"
             onClick={() => {
-              const gName = currentProject.groups?.find((g) => g.id === spaceContextMenu.groupId)?.name;
+              const gName = activeGroups.find((g) => g.id === spaceContextMenu.groupId)?.name;
               handleOpenCalculationPreview(activeContextSpace, gName);
               setSpaceContextMenu(null);
             }}
@@ -2440,6 +2596,30 @@ function LPDCalculationPage() {
           >
             <Copy className="size-3.5 text-muted-foreground" />
             <span>Duplicate Space</span>
+          </button>
+
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            onClick={() => {
+              const gid = spaceContextMenu.groupId;
+              const sid = activeContextSpace.id;
+              setSpaceContextMenu(null);
+              const currentBaseline = parseFloat(activeContextSpace.baselineLpd);
+              setCustomAreaTarget({ groupId: gid, spaceId: sid });
+              setNewAreaName("");
+              setNewAreaBaselineLpd(
+                !isNaN(currentBaseline) && currentBaseline > 0
+                  ? currentBaseline.toFixed(2)
+                  : unitSystem === "ip"
+                  ? "0.60"
+                  : "6.50"
+              );
+              setCustomAreaModalOpen(true);
+            }}
+          >
+            <Plus className="size-3.5 text-muted-foreground" />
+            <span>Add Custom Area Type...</span>
           </button>
 
           {selected.size > 1 && selected.has(activeContextSpace.id) && (
@@ -2609,6 +2789,110 @@ function LPDCalculationPage() {
         onClose={() => setIsPreviewOpen(false)}
         data={previewData}
       />
+
+      {/* Add Custom Area Type Modal */}
+      {customAreaModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in-50 duration-150"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setCustomAreaModalOpen(false);
+              setCustomAreaTarget(null);
+            }
+          }}
+        >
+          <div className="bg-background border border-border rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border/60 bg-surface-1">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-primary/10 text-primary rounded-xl">
+                  <Plus className="size-4" />
+                </div>
+                <div>
+                  <h2 className="text-[14.5px] font-bold text-foreground leading-tight">Add Custom Area Type</h2>
+                  <p className="text-[11.5px] text-muted-foreground">
+                    Define a custom space classification & baseline LPD limit
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomAreaModalOpen(false);
+                  setCustomAreaTarget(null);
+                }}
+                className="p-1.5 hover:bg-surface-2 rounded-lg text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {/* Modal Body / Form */}
+            <form onSubmit={handleSaveCustomArea} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1.5">
+                  Area Type Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  value={newAreaName}
+                  onChange={(e) => setNewAreaName(e.target.value)}
+                  placeholder="e.g. Server Room, Prayer Room, Coffee Bar, Pantry"
+                  className="w-full bg-background border border-border rounded-xl px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-foreground">
+                    Baseline LPD ({unitSystem === "ip" ? "W/sq.ft" : "W/m²"})
+                  </label>
+                  <span className="text-[10.5px] text-muted-foreground">
+                    {unitSystem === "ip" ? "IP Unit" : "SI Unit"}
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={newAreaBaselineLpd}
+                  onChange={(e) => setNewAreaBaselineLpd(e.target.value)}
+                  placeholder={unitSystem === "ip" ? "0.60" : "6.50"}
+                  className="w-full bg-background border border-border rounded-xl px-3 py-2 text-[13px] font-mono text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Standard baseline allowance. Can also be fine-tuned per space in the table.
+                </p>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border/50">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomAreaModalOpen(false);
+                    setCustomAreaTarget(null);
+                  }}
+                  className="px-4 py-2 border border-border bg-background hover:bg-surface-2 rounded-xl text-xs font-medium text-foreground transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl text-xs font-semibold transition-all shadow-xs cursor-pointer active:scale-95"
+                >
+                  <Plus className="size-3.5" />
+                  <span>Add Area Type</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

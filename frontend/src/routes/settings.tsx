@@ -527,6 +527,22 @@ export function SettingsPage() {
           setAutoSavePath(selected);
           localStorage.setItem('localBackupPath', selected);
         }
+      } else {
+        // Use the backend server to pop up the native Windows folder picker on localhost
+        try {
+          const res = await fetch('http://localhost:4000/api/browse-folder');
+          const data = await res.json();
+          if (data.success && data.path) {
+            setAutoSavePath(data.path);
+            localStorage.setItem('localBackupPath', data.path);
+          }
+        } catch (e) {
+          toast.info("Could not launch native folder picker. Please manually type or paste the folder path into the input field.", {
+            duration: 5000,
+            position: "bottom-right",
+            style: { border: '1px solid #3b82f6', color: '#3b82f6' }
+          });
+        }
       }
     } catch (err) {
       console.warn('Folder selection prompt fallback', err);

@@ -1253,6 +1253,60 @@ function CompanyHierarchyPage() {
     toast.success("Reset custom card positions to auto layout!");
   }, [userData, profile]);
 
+  const handleWorkflowAction = useCallback((action: string, member: HierarchyUser, managers: HierarchyUser[]) => {
+    let title = "";
+    let message = "";
+    let recipients: string[] = [];
+    
+    if (action === "submit") {
+      title = "Task Submitted";
+      message = `${member.name} has submitted a task for review.`;
+      recipients = managers.map(m => m.email);
+      toast.success("Task submitted successfully. Managers notified.");
+    } else if (action === "review") {
+      title = "Task Reviewed & Commented";
+      message = `${member.name} has reviewed the task and added comments.`;
+      recipients = managers.map(m => m.email);
+      toast.success("Task reviewed. Discipline Coordinator notified.");
+    } else if (action === "approve" || action === "reject") {
+      title = action === "approve" ? "Task Approved" : "Task Rejected";
+      message = action === "approve" 
+        ? `${member.name} has approved the task.` 
+        : `${member.name} has rejected the task. Please revise.`;
+      
+      const children = members.filter(m => {
+          const pIds = getMemberParentIds(m);
+          return pIds.includes(member.id) || pIds.some(pid => {
+              const parent = members.find(pm => pm.id === pid);
+              return parent && getMemberParentIds(parent).includes(member.id);
+          });
+      });
+      recipients = children.map(m => m.email);
+      if (action === "approve") {
+          toast.success("Task approved. Team notified.");
+      } else {
+          toast.error("Task rejected. Team notified.");
+      }
+    }
+
+    recipients = Array.from(new Set(recipients));
+
+    recipients.forEach(rEmail => {
+      api.sendNotification({
+        recipientId: rEmail,
+        title,
+        message,
+        link: "/company-hierarchy",
+        metadata: {
+          targetId: member.id,
+          targetType: "HierarchyTask",
+          targetName: title
+        }
+      }).catch(e => console.error("Failed to notify", e));
+    });
+  }, [members]);
+
+
   return (
     <AppShell 
       title="Company Hierarchy" 
@@ -1520,10 +1574,13 @@ function CompanyHierarchyPage() {
                                   member={member}
                                   managers={managers}
                                   position={customPositions[member.id]}
+                                  currentUserEmail={currentUserEmail}
+                                  hasSubordinates={members.some(m => getMemberParentIds(m).includes(member.id))}
                                   onStartDrag={handleNodeDragStart}
                                   onAddReport={handleOpenAddModal}
                                   onEdit={handleOpenEditModal}
                                   onDelete={handleDeleteMember}
+                                  onWorkflowAction={handleWorkflowAction}
                                 />
                               </div>
                             );
@@ -1967,22 +2024,43 @@ function NodeCard({
   member,
   managers,
   position,
+  currentUserEmail,
+  hasSubordinates,
   onStartDrag,
   onAddReport,
   onEdit,
-  onDelete
+  onDelete,
+  onWorkflowAction
 }: {
   member: HierarchyUser;
   managers: HierarchyUser[];
   position?: { x: number; y: number };
+  currentUserEmail?: string;
+  hasSubordinates?: boolean;
   onStartDrag: (e: React.MouseEvent, id: string) => void;
   onAddReport: (parentId: string) => void;
   onEdit: (m: HierarchyUser) => void;
   onDelete: (id: string, name: string) => void;
+  onWorkflowAction?: (action: string, member: HierarchyUser, managers: HierarchyUser[]) => void;
 }) {
   const displayTitle = getMemberDisplayDesignation(member);
   const parentIds = getMemberParentIds(member);
   const isMoved = Boolean(position && (position.x !== 0 || position.y !== 0));
+  
+  const isCurrentUser = member.email.toLowerCase().trim() === (currentUserEmail || "").toLowerCase().trim();
+  const rawEffRole = normalizeHierarchyRole(member.role);
+  const rawEffDesig = normalizeHierarchyRole(member.designation);
+  // If role is generic, try to use designation to determine the specific role tier
+  const finalRole = (rawEffRole === "USER" || rawEffRole === "ENGINEER" || rawEffRole === "DESIGN_ENGINEER") && rawEffDesig !== "USER" 
+    ? rawEffDesig 
+    : rawEffRole;
+
+  const isApprover = member.approvalAuthority === "APPROVE_REJECT" || ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(finalRole);
+  
+  // Deterministic workflow logic based on tree structure
+  const showSubmit = !hasSubordinates; // Leaf nodes always submit
+  const showApprove = hasSubordinates && isApprover; // Managers with approve authority
+  const showReview = hasSubordinates && !isApprover; // Middle managers without approve authority
 
   return (
     <div
@@ -2067,6 +2145,48 @@ function NodeCard({
             {managers.map((m) => m.name).join(", ")}
           </span>
         </div>
+      )}
+
+      {/* Dynamic Workflow Actions based on Login and Tree Hierarchy Logic */}
+      {isCurrentUser && (
+        <>
+          {showSubmit && (
+            <div className="pt-2 border-t border-border/40 mt-1">
+              <button 
+                onClick={(e) => { e.stopPropagation(); if (onWorkflowAction) onWorkflowAction("submit", member, managers); }}
+                className="w-full py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 border border-blue-500/20 text-[11px] font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                Submit Task
+              </button>
+            </div>
+          )}
+          {showReview && (
+            <div className="pt-2 border-t border-border/40 mt-1">
+              <button 
+                onClick={(e) => { e.stopPropagation(); if (onWorkflowAction) onWorkflowAction("review", member, managers); }}
+                className="w-full py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 border border-amber-500/20 text-[11px] font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                Review & Add Comments
+              </button>
+            </div>
+          )}
+          {showApprove && (
+            <div className="pt-2 border-t border-border/40 mt-1 flex gap-2">
+              <button 
+                onClick={(e) => { e.stopPropagation(); if (onWorkflowAction) onWorkflowAction("approve", member, managers); }}
+                className="flex-1 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 border border-emerald-500/20 text-[11px] font-bold transition-colors flex items-center justify-center cursor-pointer shadow-xs"
+              >
+                Approve
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); if (onWorkflowAction) onWorkflowAction("reject", member, managers); }}
+                className="flex-1 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 border border-rose-500/20 text-[11px] font-bold transition-colors flex items-center justify-center cursor-pointer shadow-xs"
+              >
+                Reject
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -25,7 +25,7 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
@@ -962,14 +962,6 @@ function ChwPumpHeadPage() {
               </TBtn>
             </div>
           </div>
-
-          {/* Notification Banner across workspace */}
-          <CalculationStatusBanner
-            projectId={project?.id || "default"}
-            calculatorPath="/chw-pump-head"
-            calculatorTitle="CHW Pump Head"
-            className="rounded-xl"
-          />
 
           {/* Core Calculator Layout (Balanced 6-6 Column Grid - No Scrolling Needed) */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">

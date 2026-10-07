@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -1406,13 +1406,6 @@ function CableTraySizingPage() {
             </button>
           </div>
         </div>
-
-        {/* Notification Banner across workspace */}
-        <CalculationStatusBanner
-          projectId={project?.id || "default"}
-          calculatorPath="/cable-tray-sizing"
-          calculatorTitle="Cable Tray Sizing"
-        />
 
         <div className="flex-1 overflow-y-auto flex flex-col p-4 md:p-6 gap-4 bg-background">
         

@@ -4144,7 +4144,7 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
 
-    const { projectName, calculatorName, version, description, data } = await getRequestBody(req);
+    const { projectName, calculatorName, version, description, data, versionsPath } = await getRequestBody(req);
     if (!projectName || !calculatorName) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
 
     const versions = readVersionsData();
@@ -4195,6 +4195,39 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {}
 
       logActivity(user, 'UPDATE_VERSION', { projectName: safeProjectName, calculatorName: safeCalculatorName, version: versionNumber });
+      
+      if (versionsPath) {
+        try {
+          const safeBasePath = String(versionsPath).replace(/['"]/g, '');
+          const safeProj = safeProjectName.replace(/[<>:"/\\|?*]/g, '_');
+          const safeCalc = safeCalculatorName.replace(/[<>:"/\\|?*]/g, '_');
+          const projectDir = path.join(safeBasePath, safeProj, safeCalc);
+          if (!fs.existsSync(projectDir)) {
+            fs.mkdirSync(projectDir, { recursive: true });
+          }
+          const finalFileName = `${versionNumber.toLowerCase()}.json`;
+          const filePath = path.join(projectDir, finalFileName);
+          
+          const payloadToWrite = {
+            _versionMetadata: {
+              version: versionNumber,
+              description: currentItem.description,
+              user: currentItem.user,
+              createdBy: currentItem.createdBy,
+              createdAt: currentItem.createdAt,
+              editedBy: currentItem.editedBy,
+              lastEditedAt: currentItem.lastEditedAt,
+              timestamp: currentItem.timestamp
+            },
+            data: data
+          };
+          
+          fs.writeFileSync(filePath, JSON.stringify(payloadToWrite, null, 2), 'utf8');
+        } catch(e) {
+          console.error("Failed to write updated version to versionsPath:", e);
+        }
+      }
+      
       return sendJSON(res, 200, { success: true, message: `Version ${versionNumber} updated on server`, version: currentItem });
     }
 
@@ -4238,6 +4271,38 @@ const server = http.createServer(async (req, res) => {
         created_at: timestamp
       }]);
     } catch (e) {}
+
+    if (versionsPath) {
+      try {
+        const safeBasePath = String(versionsPath).replace(/['"]/g, '');
+        const safeProj = safeProjectName.replace(/[<>:"/\\|?*]/g, '_');
+        const safeCalc = safeCalculatorName.replace(/[<>:"/\\|?*]/g, '_');
+        const projectDir = path.join(safeBasePath, safeProj, safeCalc);
+        if (!fs.existsSync(projectDir)) {
+          fs.mkdirSync(projectDir, { recursive: true });
+        }
+        const finalFileName = `${versionNumber.toLowerCase()}.json`;
+        const filePath = path.join(projectDir, finalFileName);
+        
+        const payloadToWrite = {
+          _versionMetadata: {
+            version: versionNumber,
+            description: newVersionItem.description,
+            user: newVersionItem.user,
+            createdBy: newVersionItem.createdBy,
+            createdAt: newVersionItem.createdAt,
+            editedBy: newVersionItem.editedBy,
+            lastEditedAt: newVersionItem.lastEditedAt,
+            timestamp: newVersionItem.timestamp
+          },
+          data: data
+        };
+        
+        fs.writeFileSync(filePath, JSON.stringify(payloadToWrite, null, 2), 'utf8');
+      } catch(e) {
+        console.error("Failed to write new version to versionsPath:", e);
+      }
+    }
 
     logActivity(user, 'SAVE_VERSION', { projectName: safeProjectName, calculatorName: safeCalculatorName, version: versionNumber });
     return sendJSON(res, 200, { success: true, message: 'Version saved to server', version: newVersionItem });
@@ -4392,6 +4457,48 @@ const server = http.createServer(async (req, res) => {
 
     return sendJSON(res, 200, { success: true, versions: list });
   }
+  // ==========================================
+  // NATIVE FOLDER BROWSER FOR WEB CLIENT
+  // ==========================================
+  if (req.method === 'GET' && url === '/api/browse-folder') {
+    import('child_process').then(({ exec }) => {
+      import('os').then(({ default: os }) => {
+        const tempFile = path.join(os.tmpdir(), `browse_${Date.now()}.ps1`);
+      const psScript = `
+Add-Type -AssemblyName System.windows.forms
+$f = New-Object System.Windows.Forms.FolderBrowserDialog
+$f.ShowNewFolderButton = $true
+$f.Description = "Select Auto Save Directory"
+$f.RootFolder = "MyComputer"
+
+$wrapper = New-Object System.Windows.Forms.NativeWindow
+$wrapper.AssignHandle([System.Diagnostics.Process]::GetCurrentProcess().MainWindowHandle)
+
+$res = $f.ShowDialog($wrapper)
+if ($res -eq 'OK') {
+  Write-Output $f.SelectedPath
+}
+      `;
+      
+      fs.writeFileSync(tempFile, psScript, 'utf8');
+      
+      exec(`powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tempFile}"`, (error, stdout, stderr) => {
+        try { fs.unlinkSync(tempFile); } catch(e){}
+        const selected = stdout ? stdout.trim() : '';
+        if (selected) {
+          sendJSON(res, 200, { success: true, path: selected });
+        } else {
+          sendJSON(res, 200, { success: false });
+        }
+      });
+    }).catch(e => {
+      sendJSON(res, 500, { success: false });
+    });
+  }).catch(e => {
+    sendJSON(res, 500, { success: false });
+  });
+  return;
+}
 
   // 404 Fallback
   return sendJSON(res, 404, { success: false, message: 'Endpoint not found' });

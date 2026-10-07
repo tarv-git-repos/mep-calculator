@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, type CalculationReviewState, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, type CalculationReviewState, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { EditBuildingModal } from "@/components/workspace/EditBuildingModal";
@@ -1557,13 +1557,6 @@ export function FireWaterDemandPage() {
                 </div>
               )}
             </div>
-
-            {/* Notification Banner across all tabs */}
-            <CalculationStatusBanner
-              projectId={project?.id || "default"}
-              calculatorPath="/plumbing-fire-water-demand"
-              calculatorTitle="Fire Water Demand"
-            />
 
             {/* TAB 1: SCHEDULE (FULL-HEIGHT SPACIOUS DATAGRID WITH DOUBLE-CLICK EDITING) */}
             {tab === "schedule" && (

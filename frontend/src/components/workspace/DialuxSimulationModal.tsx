@@ -7688,9 +7688,9 @@ export function DialuxSimulationModal({
                     onSaveCurrentView={handleSaveCurrentView}
                     onApplySavedView={handleApplySavedView}
                     onDeleteSavedView={handleDeleteSavedView}
-                    powerDensityWPerM2={simulationResult.powerDensity || 0}
-                    roomArea={roomArea}
-                    totalWatts={simulationResult.totalWatts || 0}
+                    powerDensityWPerM2={simulationResult.powerDensityWPerM2 || 0}
+                    roomArea={effectiveArea}
+                    totalWatts={simulationResult.connectedPowerW || 0}
                   />
                 </div>
               </div>
@@ -7905,19 +7905,19 @@ export function DialuxSimulationModal({
                       <div className="bg-slate-900/80 p-1.5 rounded border border-slate-800 flex flex-col">
                         <span className="text-slate-400">Total Load</span>
                         <span className="text-white font-mono font-bold text-[11px]">
-                          {(simulationResult.totalWatts || 0).toLocaleString()} W
+                          {(simulationResult.connectedPowerW || 0).toLocaleString()} W
                         </span>
                       </div>
                       <div className="bg-slate-900/80 p-1.5 rounded border border-slate-800 flex flex-col">
                         <span className="text-slate-400">Power Density</span>
                         <span className="text-amber-400 font-mono font-bold text-[11px]">
-                          {(simulationResult.powerDensity || 0).toFixed(2)} W/m²
+                          {(simulationResult.powerDensityWPerM2 || 0).toFixed(2)} W/m²
                         </span>
                       </div>
                       <div className="bg-slate-900/80 p-1.5 rounded border border-slate-800 flex flex-col">
                         <span className="text-slate-400">Annual LENI</span>
                         <span className="text-cyan-400 font-mono font-bold text-[11px]">
-                          {((simulationResult.powerDensity || 0) * 2.5).toFixed(1)} kWh/m²/a
+                          {((simulationResult.powerDensityWPerM2 || 0) * 2.5).toFixed(1)} kWh/m²/a
                         </span>
                       </div>
                       <div className="bg-slate-900/80 p-1.5 rounded border border-slate-800 flex flex-col">
@@ -7930,7 +7930,7 @@ export function DialuxSimulationModal({
 
                     <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px]">
                       <span className="text-slate-400">Compliance Status:</span>
-                      {(simulationResult.powerDensity || 0) <= 8.0 ? (
+                      {(simulationResult.powerDensityWPerM2 || 0) <= 8.0 ? (
                         <span className="text-emerald-400 font-bold flex items-center gap-1">
                           <Check className="size-3" /> Compliant
                         </span>

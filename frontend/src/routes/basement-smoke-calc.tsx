@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -1997,13 +1997,6 @@ function BasementSmokeCalcPage() {
               <UnitToggle unitSystem={unitSystem} onChange={(target, shouldConvert) => executeUnitSystemChange(target, shouldConvert)} disabled={isEffectiveReadOnly} />
             </div>
           </div>
-
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={project?.id || activeProjectId || "default"}
-            calculatorPath="/basement-smoke-calc"
-            calculatorTitle="Basement Smoke Extract Schedule"
-          />
 
           {/* White Card Container for Tabs & Content */}
           <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${

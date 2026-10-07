@@ -36,7 +36,6 @@ import {
 } from "@/components/ui/context-menu";
 import {
   CalculationReviewBar,
-  CalculationStatusBanner,
   useCalculationEffectiveReadOnly,
   useCalculationReviewState,
   type CalculationReviewState
@@ -626,13 +625,6 @@ function TankSizingPage() {
               <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
             </div>
           </div>
-
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={project?.id || "default"}
-            calculatorPath="/plumbing-tank-sizing"
-            calculatorTitle="Tank Sizing"
-          />
 
           {/* Main Content Card Container */}
           <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${

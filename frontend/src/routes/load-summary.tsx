@@ -10,7 +10,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
-import { Plus, Download, Trash, Copy, X, Database, Filter, ArrowUpDown, Sparkles, FileText, MessageSquare, Flag } from "lucide-react";
+import { Plus, Download, Trash, Copy, X, Database, Filter, ArrowUpDown, Sparkles, FileText, MessageSquare, Flag, Zap, Activity, Layers, UploadCloud, Building2, ExternalLink, Loader2, RefreshCw, Box } from "lucide-react";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
@@ -23,7 +23,17 @@ import {
   CalculationPreviewModal,
   type CalculationPreviewData,
 } from "@/components/calculator-framework/CalculationPreviewModal";
-import { type LoadRow, computeRowOutputs, getCalculationPreview } from "@/lib/calc-load-summary";
+import {
+  type LoadRow,
+  computeRowOutputs,
+  getCalculationPreview,
+  pullFromOtherCalculators,
+  exportToTransformerSizing,
+  exportToGeneratorSizing,
+  importIfcFileToLoadSummary,
+  getCommercialBenchmarkLoads,
+  hasActive3dSpaces,
+} from "@/lib/calc-load-summary";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/load-summary")({
@@ -146,7 +156,43 @@ function LoadSummaryPage() {
 
   const confirm = useConfirm();
 
-  const [rows, setRows] = useState<LoadRow[]>([]);
+  const [rows, setRows] = useState<LoadRow[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const pId = activeProjectId || project?.id || "default";
+      const saved = localStorage.getItem(`mep_load_summary_rows_${pId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(computeRowOutputs);
+        }
+      }
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const pId = activeProjectId || project?.id || "default";
+      const saved = localStorage.getItem(`mep_load_summary_rows_${pId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setRows(parsed.map(computeRowOutputs));
+        }
+      }
+    } catch {}
+  }, [activeProjectId, project?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const pId = activeProjectId || project?.id || "default";
+      localStorage.setItem(`mep_load_summary_rows_${pId}`, JSON.stringify(rows));
+    } catch {}
+  }, [rows, activeProjectId, project?.id]);
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeRowId, setActiveRowId] = useState<string>();
   
@@ -268,6 +314,11 @@ function LoadSummaryPage() {
       currentUserId: userData?.id || profile?.id
     }).catch(console.error);
   };
+
+  // 3D BIM Sync Modal State
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [isExtractingIfc, setIsExtractingIfc] = useState(false);
+  const [ifcFileName, setIfcFileName] = useState<string | null>(null);
 
   // Toolbar state: search, filter, and sort
   const [previewRow, setPreviewRow] = useState<LoadRow | null>(null);
@@ -432,6 +483,87 @@ function LoadSummaryPage() {
     pushToHistory(rows, history, setHistory, setRedoStack);
     setRows(prev => [...prev, ...dummy.map(computeRowOutputs)]);
     toast.success("Loaded sample office loads.");
+  };
+
+  const handlePullFromCalculators = () => {
+    const pId = activeProjectId || project?.id || "default";
+    const result = pullFromOtherCalculators(pId, rows);
+    if (result.sourceType === "none" || (result.spacesUpdated === 0 && result.newSpacesAdded === 0)) {
+      setSyncModalOpen(true);
+      return;
+    }
+    pushToHistory(rows, history, setHistory, setRedoStack);
+    setRows(result.rows);
+    toast.success(`✨ Synced ${result.rows.length} spaces (${result.spacesUpdated} updated, ${result.newSpacesAdded} added)!`, {
+      description: `Lighting: ${result.lightingTotalKw} kW · HVAC: ${result.hvacTotalKw} kW aggregated from 3D & other calculators.`,
+    });
+  };
+
+  const handleIfcFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsExtractingIfc(true);
+    setIfcFileName(file.name);
+    try {
+      const pId = activeProjectId || project?.id || "default";
+      const newRows = await importIfcFileToLoadSummary(file, pId);
+      pushToHistory(rows, history, setHistory, setRedoStack);
+      setRows(newRows);
+      setSyncModalOpen(false);
+      toast.success(`✨ Extracted ${newRows.length} spaces from ${file.name}!`, {
+        description: "Rooms, floor areas, and ASHRAE/NEC electrical & HVAC loads calculated.",
+      });
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || "Failed to parse spaces from IFC file.");
+    } finally {
+      setIsExtractingIfc(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleLoadBenchmarkSpaces = () => {
+    const benchmarkRows = getCommercialBenchmarkLoads();
+    pushToHistory(rows, history, setHistory, setRedoStack);
+    setRows(benchmarkRows);
+    setSyncModalOpen(false);
+    toast.success(`🏢 Loaded 10 standard commercial spaces!`, {
+      description: "Includes Reception, Open Office, Boardroom, Meeting Rooms, Server Room, AHU Plant Room, and Electrical Room.",
+    });
+  };
+
+  const handleCascadeToTransformer = () => {
+    if (rows.length === 0) {
+      toast.error("No loads in Load Summary to size transformer.");
+      return;
+    }
+    const pId = activeProjectId || project?.id || "default";
+    const loads = exportToTransformerSizing(pId, rows);
+    toast.success(`⚡ Exported ${loads.length} connected loads to Transformer Sizing!`, {
+      action: {
+        label: "Open Transformer Sizing",
+        onClick: () => {
+          window.location.href = "/transformer-sizing";
+        },
+      },
+    });
+  };
+
+  const handleCascadeToGenerator = () => {
+    if (rows.length === 0) {
+      toast.error("No loads in Load Summary to size generator.");
+      return;
+    }
+    const pId = activeProjectId || project?.id || "default";
+    const loads = exportToGeneratorSizing(pId, rows);
+    toast.success(`⚡ Exported ${loads.length} essential/emergency loads to Generator Sizing!`, {
+      action: {
+        label: "Open Generator Sizing",
+        onClick: () => {
+          window.location.href = "/generator-sizing";
+        },
+      },
+    });
   };
 
   const deleteSelected = async () => {
@@ -1347,6 +1479,14 @@ function LoadSummaryPage() {
 
             {/* Right side buttons */}
             <div className="ml-auto flex items-center gap-1.5">
+              <TBtn
+                onClick={handlePullFromCalculators}
+                className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/20"
+                title="Pull room areas, Lighting kW from Lux/LPD, and HVAC kW from 3D Ventilation"
+              >
+                <Sparkles className="size-3.5 text-indigo-500" /> Pull from 3D / Calculators
+              </TBtn>
+
               <ImportExcelBtn
                 columnMapping={importColumnMapping}
                 onImport={handleImportExcelRows}
@@ -1504,10 +1644,17 @@ function LoadSummaryPage() {
                         <Plus className="size-3.5" /> Add First Row
                       </button>
                       <button 
+                        onClick={handlePullFromCalculators}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full text-[12.5px] font-medium shadow-sm transition-all cursor-pointer"
+                        title="Auto-pull spaces, Lighting kW, and HVAC kW from 3D Studio & other calculators"
+                      >
+                        <Sparkles className="size-3.5" /> Auto-Pull from 3D & Calculators
+                      </button>
+                      <button 
                         onClick={loadDummyData}
                         className="flex items-center gap-1.5 px-4 py-2 border border-border hover:bg-surface-2 rounded-full text-[12.5px] font-medium transition-all cursor-pointer"
                       >
-                        <Sparkles className="size-3.5 text-primary" /> Load Sample Data
+                        <Layers className="size-3.5 text-muted-foreground" /> Load Sample Data
                       </button>
                     </div>
                   </div>
@@ -1522,9 +1669,9 @@ function LoadSummaryPage() {
                         <span className="ml-2 font-mono text-primary font-medium">({filteredPower.toFixed(2)} kW filtered)</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-4 tabular">
+                    <div className="flex items-center gap-3 tabular">
                       <span>Σ Power: <span className="font-mono text-foreground font-semibold">{totalPower.toFixed(2)} kW</span></span>
-                      <span>Σ Power (+10%): <span className="font-mono text-blue-600 dark:text-blue-400 font-semibold">{totalPowerWithSafety.toFixed(2)} kW</span></span>
+                      <span>Σ (+10%): <span className="font-mono text-blue-600 dark:text-blue-400 font-semibold">{totalPowerWithSafety.toFixed(2)} kW</span></span>
                       <div className="flex items-center gap-1.5 pl-2 border-l border-border/80">
                         <span>Transformers:</span>
                         <input
@@ -1532,8 +1679,26 @@ function LoadSummaryPage() {
                           value={transformers}
                           onChange={(e) => setTransformers(e.target.value)}
                           placeholder="e.g. 2 x 1500 kVA"
-                          className="h-5 w-32 px-1.5 bg-background/80 border border-border/80 rounded text-[11px] font-mono outline-none focus:border-primary"
+                          className="h-5 w-28 px-1.5 bg-background/80 border border-border/80 rounded text-[11px] font-mono outline-none focus:border-primary"
                         />
+                      </div>
+                      <div className="flex items-center gap-1.5 pl-2 border-l border-border/80">
+                        <button
+                          type="button"
+                          onClick={handleCascadeToTransformer}
+                          className="px-2 py-0.5 rounded text-[10.5px] font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Export connected loads directly to Transformer Sizing (/transformer-sizing)"
+                        >
+                          <Zap className="size-3" /> Size Transformer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCascadeToGenerator}
+                          className="px-2 py-0.5 rounded text-[10.5px] font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Export emergency & essential loads to Generator Sizing (/generator-sizing)"
+                        >
+                          <Activity className="size-3" /> Size Generator
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1567,6 +1732,186 @@ function LoadSummaryPage() {
         onClose={() => setPreviewRow(null)}
         data={previewRow ? getCalculationPreview(previewRow, unitSystem, totalPower) : null}
       />
+
+      {/* Sync from 3D BIM / External Calculators Modal */}
+      {syncModalOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4"
+          onClick={() => {
+            if (!isExtractingIfc) setSyncModalOpen(false);
+          }}
+        >
+          <div
+            className="bg-background border border-border rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/30">
+              <div className="flex items-center gap-3">
+                <div className="size-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 border border-indigo-500/20">
+                  <Box className="size-5" />
+                </div>
+                <div>
+                  <h3 className="text-[16px] font-semibold text-foreground tracking-tight flex items-center gap-2">
+                    Pull Spaces from 3D BIM / Calculators
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
+                      BIM SYNC
+                    </span>
+                  </h3>
+                  <p className="text-[12px] text-muted-foreground mt-0.5">
+                    Connect architectural spaces and calculate automated lighting, power, & HVAC loads
+                  </p>
+                </div>
+              </div>
+              <button
+                disabled={isExtractingIfc}
+                onClick={() => setSyncModalOpen(false)}
+                className="size-8 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Notice Banner */}
+              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[12px] text-amber-900 dark:text-amber-200 flex items-start gap-3">
+                <Sparkles className="size-4 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-amber-900 dark:text-amber-100">
+                    No 3D Model Spaces Cached in Current Browser Session
+                  </p>
+                  <p className="text-[11.5px] text-muted-foreground dark:text-amber-200/80 mt-1">
+                    Load Summary aggregates room areas, lighting (LUX/LPD), and HVAC loads directly from your 3D BIM models (<code className="font-mono text-foreground font-semibold">.ifc</code>). Choose an option below to populate real spaces:
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Option 1: Direct IFC Upload */}
+              <div className="p-4 rounded-xl border border-border bg-surface-1 hover:border-indigo-500/40 transition-colors">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="size-9 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-500 shrink-0 mt-0.5">
+                      <UploadCloud className="size-4.5" />
+                    </div>
+                    <div>
+                      <h4 className="text-[13px] font-semibold text-foreground">
+                        Option 1: Upload .IFC Model File Directly
+                      </h4>
+                      <p className="text-[11.5px] text-muted-foreground mt-0.5">
+                        Instantly extracts all architectural spaces, floor areas, and levels with Web-IFC, automatically calculating ASHRAE & NEC load densities.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3.5 pt-3 border-t border-border/50 flex items-center gap-3">
+                  <label className={`inline-flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold transition-all cursor-pointer ${
+                    isExtractingIfc
+                      ? "bg-muted text-muted-foreground cursor-wait"
+                      : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm hover:shadow"
+                  }`}>
+                    {isExtractingIfc ? (
+                      <>
+                        <Loader2 className="size-3.5 animate-spin" />
+                        Extracting BIM spaces...
+                      </>
+                    ) : (
+                      <>
+                        <UploadCloud className="size-3.5" />
+                        Select .IFC File
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept=".ifc,.ifczip"
+                      className="hidden"
+                      disabled={isExtractingIfc}
+                      onChange={handleIfcFileUpload}
+                    />
+                  </label>
+                  <span className="text-[11px] text-muted-foreground">
+                    Supported: IFC2X3, IFC4
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Option 2: Open 3D Studio */}
+              <div className="p-4 rounded-xl border border-border bg-surface-1 hover:border-border-strong transition-colors">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="size-9 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0 mt-0.5">
+                      <Box className="size-4.5" />
+                    </div>
+                    <div>
+                      <h4 className="text-[13px] font-semibold text-foreground">
+                        Option 2: Open 3D BIM Studio
+                      </h4>
+                      <p className="text-[11.5px] text-muted-foreground mt-0.5">
+                        Load and inspect your full 3D building geometry in the interactive BIM viewer, then click <strong className="text-foreground">"Sync to Load Summary"</strong> in the Schedule Review modal.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3.5 pt-3 border-t border-border/50">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.location.href = "/3d-view";
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-surface-2 hover:bg-surface-3 text-foreground border border-border transition-colors cursor-pointer"
+                  >
+                    <ExternalLink className="size-3.5" />
+                    Open 3D Studio Viewer
+                  </button>
+                </div>
+              </div>
+
+              {/* Action Option 3: Load Benchmark Template */}
+              <div className="p-4 rounded-xl border border-border bg-surface-1 hover:border-emerald-500/40 transition-colors">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="size-9 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">
+                      <Building2 className="size-4.5" />
+                    </div>
+                    <div>
+                      <h4 className="text-[13px] font-semibold text-foreground">
+                        Option 3: Load Standard Benchmark Project (10 Spaces)
+                      </h4>
+                      <p className="text-[11.5px] text-muted-foreground mt-0.5">
+                        Populate 10 standard commercial spaces (Reception, Open Office, Boardroom, Server Room, AHU Plant Room, Electrical Room, etc.) with realistic ASHRAE 90.1 lighting LPD, NEC power, and HVAC loads.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3.5 pt-3 border-t border-border/50">
+                  <button
+                    type="button"
+                    onClick={handleLoadBenchmarkSpaces}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="size-3.5" />
+                    Load 10 Standard Commercial Spaces
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3.5 border-t border-border bg-muted/20 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setSyncModalOpen(false)}
+                className="px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-surface-2 hover:bg-surface-3 text-foreground border border-border transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

@@ -1,8 +1,16 @@
 import { type CalculationPreviewData, type CalculationStep } from "@/components/calculator-framework/CalculationPreviewModal";
 import type { TaskComment } from "@/lib/ventilation-calc";
+import { workspaceStore } from "@/lib/workspace-store";
+import {
+  type Extracted3DSpace,
+  extractSpacesFromActiveViewer,
+  isMepValidSpaceName,
+  getFloorRank,
+} from "@/lib/bimViewerSpaceExtractor";
 
 export interface LoadRow {
   id: string;
+  floor?: string;
   description: string;
   qty: number;
   area: number;
@@ -14,6 +22,157 @@ export interface LoadRow {
   remarks: string;
   flagged?: boolean;
   comments?: TaskComment[];
+}
+
+/**
+ * Extracts normalized floor level name from LoadRow
+ */
+export function extractFloorName(row: LoadRow): string {
+  if (row.floor && row.floor.trim()) return row.floor.trim().toUpperCase();
+  const match = (row.description || "").match(/^\[(.*?)\]/);
+  if (match && match[1]) {
+    const raw = match[1].trim().toUpperCase();
+    if (raw === "L01" || raw === "L1") return "FIRST FLOOR";
+    if (raw === "L02" || raw === "L2") return "SECOND FLOOR";
+    if (raw === "L00" || raw === "GF" || raw === "L0") return "GROUND FLOOR";
+    if (raw === "B1") return "BASEMENT 1";
+    if (raw === "ROOF") return "ROOF LEVEL";
+    return raw;
+  }
+  return "FIRST FLOOR";
+}
+
+/**
+ * Sorts load rows floor-wise (Basement -> Ground -> 1st -> 2nd -> Roof)
+ * and then alphabetically by space name inside each floor.
+ */
+export function sortLoadRowsFloorWise(rows: LoadRow[]): LoadRow[] {
+  return [...rows].sort((a, b) => {
+    const floorA = extractFloorName(a);
+    const floorB = extractFloorName(b);
+    const rankA = getFloorRank(floorA);
+    const rankB = getFloorRank(floorB);
+
+    if (rankA !== rankB) {
+      return rankA - rankB;
+    }
+
+    if (floorA !== floorB) {
+      return floorA.localeCompare(floorB, undefined, { numeric: true, sensitivity: "base" });
+    }
+
+    const nameA = (a.description || "").replace(/^\[.*?\]\s*/, "").trim();
+    const nameB = (b.description || "").replace(/^\[.*?\]\s*/, "").trim();
+    return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+export interface SpaceBenchmark {
+  lpd: number;          // Lighting Power Density (W/m²) per ASHRAE 90.1
+  smallPower: number;   // Small Power / Sockets Density (W/m²) per NEC / DEWA
+  hvacElectric: number; // HVAC Electrical Power Density (We/m²) [1 TR ≈ 3.51 kWth ≈ 1.2 kWe]
+  otherEquipment: number; // Dedicated equipment allowance (kW)
+  defaultCategory: string;
+}
+
+export const SPACE_BENCHMARKS: Record<string, SpaceBenchmark> = {
+  office: {
+    lpd: 7.0,
+    smallPower: 18.0,
+    hvacElectric: 34.0,
+    otherEquipment: 0.0,
+    defaultCategory: "General Office / Space",
+  },
+  meeting: {
+    lpd: 7.5,
+    smallPower: 10.0,
+    hvacElectric: 48.0,
+    otherEquipment: 0.5,
+    defaultCategory: "Conference / Meeting Room",
+  },
+  server: {
+    lpd: 6.0,
+    smallPower: 500.0,
+    hvacElectric: 135.0,
+    otherEquipment: 5.0,
+    defaultCategory: "Electrical / Switch Room",
+  },
+  corridor: {
+    lpd: 4.5,
+    smallPower: 2.0,
+    hvacElectric: 17.0,
+    otherEquipment: 0.0,
+    defaultCategory: "Corridor / Circulation",
+  },
+  restroom: {
+    lpd: 5.5,
+    smallPower: 5.0,
+    hvacElectric: 8.0,
+    otherEquipment: 1.5, // Hand dryers / water heater
+    defaultCategory: "Rest Room / Changing Room",
+  },
+  storage: {
+    lpd: 4.0,
+    smallPower: 3.0,
+    hvacElectric: 10.0,
+    otherEquipment: 0.0,
+    defaultCategory: "Storage / Warehouse",
+  },
+  plant: {
+    lpd: 5.0,
+    smallPower: 10.0,
+    hvacElectric: 12.0,
+    otherEquipment: 3.0, // Pump / fan controls
+    defaultCategory: "Mechanical Plant / AHU Room",
+  },
+  kitchen: {
+    lpd: 8.0,
+    smallPower: 35.0,
+    hvacElectric: 60.0,
+    otherEquipment: 5.0, // Kitchen appliances
+    defaultCategory: "Commercial Kitchen / Pantry",
+  },
+  retail: {
+    lpd: 10.0,
+    smallPower: 25.0,
+    hvacElectric: 42.0,
+    otherEquipment: 1.0,
+    defaultCategory: "Retail / Shop",
+  },
+};
+
+/**
+ * Categorizes a space by name / category and returns standard engineering benchmarks
+ */
+export function getSpaceTypeBenchmark(spaceName: string, category?: string): SpaceBenchmark {
+  const text = `${spaceName || ""} ${category || ""}`.toLowerCase();
+
+  if (/server|data\s*center|mdf|idf|telecom|ups|battery/i.test(text)) {
+    return SPACE_BENCHMARKS.server;
+  }
+  if (/kitchen|pantry|canteen|cafeteria|dining/i.test(text)) {
+    return SPACE_BENCHMARKS.kitchen;
+  }
+  if (/meeting|conference|board\s*room|seminar|huddle/i.test(text)) {
+    return SPACE_BENCHMARKS.meeting;
+  }
+  if (/corridor|circulation|passage|hallway|lobby|vestibule|atrium|foyer/i.test(text)) {
+    return SPACE_BENCHMARKS.corridor;
+  }
+  if (/toilet|restroom|washroom|wc|changing|bathroom|shower/i.test(text)) {
+    return SPACE_BENCHMARKS.restroom;
+  }
+  if (/storage|store|warehouse|archive|janitor/i.test(text)) {
+    return SPACE_BENCHMARKS.storage;
+  }
+  if (/plant|ahu|mechanical|electrical|switch|transformer|generator|pump|chiller|boiler/i.test(text)) {
+    return SPACE_BENCHMARKS.plant;
+  }
+  if (/retail|shop|showroom|boutique/i.test(text)) {
+    return SPACE_BENCHMARKS.retail;
+  }
+
+  return SPACE_BENCHMARKS.office;
 }
 
 export const computeRowOutputs = (row: LoadRow): LoadRow => {
@@ -32,6 +191,453 @@ export const computeRowOutputs = (row: LoadRow): LoadRow => {
 
   return { ...row, totalLoad: Number(totalLoad.toFixed(2)) };
 };
+
+/**
+ * Converts Extracted 3D BIM Spaces into LoadRow items for Load Summary,
+ * sorted floor-wise by elevation and room name.
+ */
+export function convertBimSpacesToLoadRows(spaces: Extracted3DSpace[]): LoadRow[] {
+  const sortedSpaces = [...spaces].sort((a, b) => {
+    const rankA = getFloorRank(a.level);
+    const rankB = getFloorRank(b.level);
+    if (rankA !== rankB) return rankA - rankB;
+    if (a.level !== b.level) return (a.level || "").localeCompare(b.level || "", undefined, { numeric: true, sensitivity: "base" });
+    return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
+  });
+
+  return sortedSpaces.map((s, idx) => {
+    const area = Math.max(0.1, Number(s.area) || 10);
+    const qty = s.multiplier && s.multiplier > 0 ? s.multiplier : 1;
+    const bench = getSpaceTypeBenchmark(s.name, s.category);
+    const floor = (s.level || "GROUND FLOOR").toUpperCase().trim();
+
+    // 1. Lighting Load (kW)
+    let lightingKw = 0;
+    if (s.lightFixtureCount && s.lightFixtureCount > 0) {
+      lightingKw = Number(((s.lightFixtureCount * 36) / 1000).toFixed(2));
+    } else {
+      lightingKw = Number(((area * bench.lpd) / 1000).toFixed(2));
+    }
+
+    // 2. Small Power (kW)
+    const powerKw = Number(((area * bench.smallPower) / 1000).toFixed(2));
+
+    // 3. HVAC (kW)
+    const hvacKw = Number(((area * bench.hvacElectric) / 1000).toFixed(2));
+
+    // 4. Other (kW)
+    const otherKw = bench.otherEquipment;
+
+    const row: LoadRow = {
+      id: `ls_3d_${Date.now()}_${idx}`,
+      floor,
+      description: s.name.trim(),
+      qty,
+      area: Number(area.toFixed(2)),
+      lighting: lightingKw,
+      power: powerKw,
+      hvac: hvacKw,
+      other: otherKw,
+      totalLoad: 0,
+      remarks: `3D BIM ${floor} · LPD: ${bench.lpd}W/m² · Power: ${bench.smallPower}W/m² · HVAC: ${bench.hvacElectric}We/m²`,
+    };
+
+    return computeRowOutputs(row);
+  });
+}
+
+/**
+ * Checks if 3D BIM spaces currently exist in session or storage
+ */
+export function hasActive3dSpaces(projectId: string = "default"): boolean {
+  if (typeof window !== "undefined" && (window as any).__BIM_VIEWER_SPACES__?.length > 0) return true;
+  if (typeof localStorage !== "undefined") {
+    try {
+      const p1 = localStorage.getItem(`mep_active_bim_spaces_${projectId}`);
+      if (p1 && JSON.parse(p1).length > 0) return true;
+      const p2 = localStorage.getItem("mep_active_bim_spaces");
+      if (p2 && JSON.parse(p2).length > 0) return true;
+    } catch {}
+  }
+  return false;
+}
+
+/**
+ * Parses an IFC file dynamically and generates complete Load Summary rows
+ */
+export async function importIfcFileToLoadSummary(file: File, projectId: string = "default"): Promise<LoadRow[]> {
+  const { extractSpacesFromIFCFile } = await import("./bimViewerSpaceExtractor");
+  const extracted = await extractSpacesFromIFCFile(file);
+  if (!extracted || extracted.length === 0) {
+    throw new Error("No spaces (IFCSPACE) found in this IFC file.");
+  }
+
+  try {
+    localStorage.setItem("mep_active_bim_spaces", JSON.stringify(extracted));
+    localStorage.setItem(`mep_active_bim_spaces_${projectId}`, JSON.stringify(extracted));
+  } catch (e) {}
+
+  return convertBimSpacesToLoadRows(extracted);
+}
+
+/**
+ * Creates realistic multi-room benchmark commercial office loads grouped by floor
+ */
+export function getCommercialBenchmarkLoads(): LoadRow[] {
+  const templates = [
+    { floor: "GROUND FLOOR", name: "Reception & Main Lobby", area: 85, category: "Corridor / Circulation", qty: 1 },
+    { floor: "FIRST FLOOR", name: "Executive Boardroom", area: 65, category: "Conference / Meeting Room", qty: 1 },
+    { floor: "FIRST FLOOR", name: "Main MDF / Server Room", area: 25, category: "Electrical / Switch Room", qty: 1 },
+    { floor: "FIRST FLOOR", name: "Meeting Rooms (A & B)", area: 35, category: "Conference / Meeting Room", qty: 2 },
+    { floor: "FIRST FLOOR", name: "Open Office Workstations", area: 320, category: "General Office / Space", qty: 1 },
+    { floor: "FIRST FLOOR", name: "Restroom Blocks (Male & Female)", area: 30, category: "Rest Room / Changing Room", qty: 2 },
+    { floor: "FIRST FLOOR", name: "Staff Breakout Pantry", area: 45, category: "Commercial Kitchen / Pantry", qty: 1 },
+    { floor: "ROOF LEVEL", name: "Circulation Corridors & Lift Lobby", area: 110, category: "Corridor / Circulation", qty: 1 },
+    { floor: "ROOF LEVEL", name: "Main Distribution Electrical Room", area: 20, category: "Electrical / Switch Room", qty: 1 },
+    { floor: "ROOF LEVEL", name: "Primary AHU / Plant Room", area: 40, category: "Mechanical Plant / AHU Room", qty: 1 },
+  ];
+
+  const rows = templates.map((t, idx) => {
+    const bench = getSpaceTypeBenchmark(t.name, t.category);
+    const lightingKw = Number(((t.area * bench.lpd) / 1000).toFixed(2));
+    const powerKw = Number(((t.area * bench.smallPower) / 1000).toFixed(2));
+    const hvacKw = Number(((t.area * bench.hvacElectric) / 1000).toFixed(2));
+    const otherKw = bench.otherEquipment;
+
+    const row: LoadRow = {
+      id: `ls_bench_${Date.now()}_${idx}`,
+      floor: t.floor,
+      description: t.name,
+      qty: t.qty,
+      area: t.area,
+      lighting: lightingKw,
+      power: powerKw,
+      hvac: hvacKw,
+      other: otherKw,
+      totalLoad: 0,
+      remarks: `ASHRAE 90.1 & NEC Benchmark · LPD: ${bench.lpd}W/m² · Sockets: ${bench.smallPower}W/m²`,
+    };
+    return computeRowOutputs(row);
+  });
+
+  return sortLoadRowsFloorWise(rows);
+}
+
+/**
+ * Intelligently aggregates data across 3D Studio, Lighting LUX / LPD, and HVAC Ventilation
+ */
+export function pullFromOtherCalculators(
+  projectId: string = "default",
+  existingRows: LoadRow[] = []
+): {
+  rows: LoadRow[];
+  spacesUpdated: number;
+  newSpacesAdded: number;
+  lightingTotalKw: number;
+  hvacTotalKw: number;
+  sourceType: "3d-bim" | "calculators" | "workspace" | "none";
+} {
+  const pId = projectId || "default";
+
+  // Check if existing rows are merely the default dummy placeholder spaces (New Space 1, 2, 3)
+  const isOnlyDummyRows =
+    existingRows.length === 0 ||
+    existingRows.every((r) => /^(\[.+\]\s*)?new\s*space\s*\d+$/i.test(r.description.trim()));
+
+  // 1. First priority: Check 3D BIM Spaces from active viewer or localStorage
+  let bimSpaces: Extracted3DSpace[] = [];
+  try {
+    const fromViewer = extractSpacesFromActiveViewer(pId);
+    if (fromViewer && fromViewer.length > 0) {
+      bimSpaces = fromViewer;
+    }
+  } catch {}
+
+  if (bimSpaces.length === 0 && typeof localStorage !== "undefined") {
+    try {
+      const storedProj = localStorage.getItem(`mep_active_bim_spaces_${pId}`);
+      const storedGen = localStorage.getItem("mep_active_bim_spaces");
+      const stored = storedProj || storedGen;
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          bimSpaces = parsed;
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Fetch Lighting LUX rows if available
+  const luxSpaces = new Map<string, { lightingKw: number; area?: number; fixtures?: number }>();
+  if (typeof localStorage !== "undefined") {
+    try {
+      const luxRaw = localStorage.getItem(`mep_lux_calc_${pId}`) || localStorage.getItem("mep_lux_calc_default");
+      if (luxRaw) {
+        const parsed = JSON.parse(luxRaw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((lr: any) => {
+            const name = (lr.spaceName || lr.name || "").trim().toLowerCase();
+            const kw = lr.calculatedWatts
+              ? lr.calculatedWatts / 1000
+              : (lr.luminaireQty || 0) * (lr.luminaireWatts || 36) / 1000;
+            if (name && kw > 0) {
+              luxSpaces.set(name, {
+                lightingKw: Number(kw.toFixed(2)),
+                area: Number(lr.area || (lr.length && lr.width ? lr.length * lr.width : 0)),
+                fixtures: lr.luminaireQty,
+              });
+            }
+          });
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Fetch Ventilation spaces from workspaceStore
+  const wsSpaces = (workspaceStore.getState().spaces || []).filter(
+    (s) => !/^new\s*space\s*\d+$/i.test(s.name.trim())
+  );
+
+  // CASE A: 3D BIM Spaces exist!
+  if (bimSpaces.length > 0) {
+    const valid3D = bimSpaces.filter(
+      (s) => isMepValidSpaceName(s.name) && !/^new\s*space\s*\d+$/i.test(s.name.trim()) && s.area > 0.5
+    );
+
+    if (valid3D.length > 0) {
+      const converted = convertBimSpacesToLoadRows(valid3D);
+      // Enrich with Lux and Ventilation if available
+      const enriched = converted.map((row) => {
+        const rawName = row.description.replace(/^\[.*?\]\s*/, "").trim().toLowerCase();
+        const luxMatch = luxSpaces.get(rawName) || luxSpaces.get(row.description.toLowerCase());
+        if (luxMatch) {
+          row.lighting = luxMatch.lightingKw;
+        }
+        const ventMatch = wsSpaces.find((s) => s.name.trim().toLowerCase() === rawName);
+        if (ventMatch && ventMatch.freshAir && ventMatch.freshAir > 0) {
+          const freshKw = ventMatch.freshAir * 0.015;
+          if (freshKw > row.hvac) row.hvac = Number(freshKw.toFixed(2));
+        }
+        return computeRowOutputs(row);
+      });
+
+      const sortedEnriched = sortLoadRowsFloorWise(enriched);
+      const lightingTotalKw = sortedEnriched.reduce((sum, r) => sum + (r.lighting || 0) * (r.qty || 1), 0);
+      const hvacTotalKw = sortedEnriched.reduce((sum, r) => sum + (r.hvac || 0) * (r.qty || 1), 0);
+
+      return {
+        rows: sortedEnriched,
+        spacesUpdated: isOnlyDummyRows ? 0 : existingRows.length,
+        newSpacesAdded: sortedEnriched.length,
+        lightingTotalKw: Number(lightingTotalKw.toFixed(2)),
+        hvacTotalKw: Number(hvacTotalKw.toFixed(2)),
+        sourceType: "3d-bim",
+      };
+    }
+  }
+
+  // CASE A.5: Check LPD Calculator (mep-lpd-calc-v2) where BIM spaces may be cached
+  let lpdSpacesList: LoadRow[] = [];
+  if (typeof localStorage !== "undefined") {
+    try {
+      const lpdSaved = localStorage.getItem("mep-lpd-calc-v2");
+      if (lpdSaved) {
+        const parsed = JSON.parse(lpdSaved);
+        const projects = Array.isArray(parsed.projects) ? parsed.projects : [];
+        const curProj = projects.find((p: any) => p.id === pId) || projects[0];
+        if (curProj) {
+          const allGroups = [...(curProj.internalGroups || []), ...(curProj.externalGroups || [])];
+          let rowIdx = 0;
+          allGroups.forEach((g: any) => {
+            const floorName = (g.name || "GROUND FLOOR").toUpperCase().trim();
+            (g.spaces || []).forEach((s: any) => {
+              const rawName = (s.name || "").trim();
+              if (!rawName || /^new\s*space\s*\d+$/i.test(rawName)) return;
+              const area = Math.max(0.1, parseFloat(s.areaSqM) || 15);
+              const bench = getSpaceTypeBenchmark(rawName, s.areaType);
+              const totalWatts = (s.fixtures || []).reduce(
+                (sum: number, f: any) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0),
+                0
+              );
+              const lightingKw = totalWatts > 0
+                ? Number((totalWatts / 1000).toFixed(2))
+                : Number(((area * bench.lpd) / 1000).toFixed(2));
+              const powerKw = Number(((area * bench.smallPower) / 1000).toFixed(2));
+              const hvacKw = Number(((area * bench.hvacElectric) / 1000).toFixed(2));
+
+              const row: LoadRow = {
+                id: `ls_lpd_${Date.now()}_${rowIdx++}`,
+                floor: floorName,
+                description: rawName,
+                qty: 1,
+                area: Number(area.toFixed(2)),
+                lighting: lightingKw,
+                power: powerKw,
+                hvac: hvacKw,
+                other: bench.otherEquipment,
+                totalLoad: 0,
+                remarks: `From LPD [${floorName}] · LPD: ${bench.lpd}W/m² · Power: ${bench.smallPower}W/m² · HVAC: ${bench.hvacElectric}We/m²`,
+                flagged: Boolean(s.flagged),
+              };
+              lpdSpacesList.push(computeRowOutputs(row));
+            });
+          });
+        }
+      }
+    } catch {}
+  }
+
+  if (lpdSpacesList.length > 0) {
+    const sorted = sortLoadRowsFloorWise(lpdSpacesList);
+    const lightingTotalKw = sorted.reduce((sum, r) => sum + (r.lighting || 0) * (r.qty || 1), 0);
+    const hvacTotalKw = sorted.reduce((sum, r) => sum + (r.hvac || 0) * (r.qty || 1), 0);
+
+    return {
+      rows: sorted,
+      spacesUpdated: isOnlyDummyRows ? 0 : existingRows.length,
+      newSpacesAdded: sorted.length,
+      lightingTotalKw: Number(lightingTotalKw.toFixed(2)),
+      hvacTotalKw: Number(hvacTotalKw.toFixed(2)),
+      sourceType: "3d-bim",
+    };
+  }
+
+  // CASE B: Non-dummy Ventilation or Lighting spaces exist!
+  if (wsSpaces.length > 0 || luxSpaces.size > 0) {
+    const rowMap = new Map<string, LoadRow>();
+    if (!isOnlyDummyRows) {
+      existingRows.forEach((r) => {
+        rowMap.set(r.description.toLowerCase(), { ...r });
+      });
+    }
+
+    let spacesUpdated = 0;
+    let newSpacesAdded = 0;
+
+    wsSpaces.forEach((sp: any, idx: number) => {
+      const rawName = (sp.name || `Space ${idx + 1}`).trim();
+      const floor = sp.floor ? sp.floor.toUpperCase().trim() : "GROUND FLOOR";
+      const fullName = `[${floor}] ${rawName}`.toLowerCase();
+      const bench = getSpaceTypeBenchmark(sp.name, sp.category);
+      const area = Math.max(0.1, Number(sp.area) || 15);
+      const qty = sp.multiplier && sp.multiplier > 0 ? sp.multiplier : 1;
+
+      const luxMatch = luxSpaces.get(rawName.toLowerCase()) || luxSpaces.get(fullName);
+      const lightingKw = luxMatch ? luxMatch.lightingKw : Number(((area * bench.lpd) / 1000).toFixed(2));
+
+      let hvacKw = 0;
+      if (sp.freshAir && sp.freshAir > 0) {
+        const freshKw = sp.freshAir * 0.015;
+        const spaceCoolingKw = (area * bench.hvacElectric) / 1000;
+        hvacKw = Number(Math.max(freshKw, spaceCoolingKw).toFixed(2));
+      } else {
+        hvacKw = Number(((area * bench.hvacElectric) / 1000).toFixed(2));
+      }
+
+      const powerKw = Number(((area * bench.smallPower) / 1000).toFixed(2));
+      const otherKw = bench.otherEquipment;
+
+      const existing = rowMap.get(fullName) || rowMap.get(rawName.toLowerCase());
+      if (existing) {
+        existing.area = Number(area.toFixed(2));
+        existing.qty = qty;
+        existing.lighting = lightingKw;
+        existing.hvac = hvacKw;
+        if (!existing.floor) existing.floor = floor;
+        if (!existing.power || existing.power === 0) existing.power = powerKw;
+        rowMap.set(fullName, computeRowOutputs(existing));
+        spacesUpdated++;
+      } else {
+        const newRow: LoadRow = {
+          id: `ls_agg_${Date.now()}_${idx}`,
+          floor,
+          description: rawName,
+          qty,
+          area: Number(area.toFixed(2)),
+          lighting: lightingKw,
+          power: powerKw,
+          hvac: hvacKw,
+          other: otherKw,
+          totalLoad: 0,
+          remarks: `Auto-Pulled [${floor}] · LUX: ${lightingKw}kW · HVAC: ${hvacKw}kW · Power: ${powerKw}kW`,
+        };
+        rowMap.set(fullName, computeRowOutputs(newRow));
+        newSpacesAdded++;
+      }
+    });
+
+    const finalRows = sortLoadRowsFloorWise(Array.from(rowMap.values()));
+    const lightingTotalKw = finalRows.reduce((sum, r) => sum + (r.lighting || 0) * (r.qty || 1), 0);
+    const hvacTotalKw = finalRows.reduce((sum, r) => sum + (r.hvac || 0) * (r.qty || 1), 0);
+
+    return {
+      rows: finalRows,
+      spacesUpdated,
+      newSpacesAdded,
+      lightingTotalKw: Number(lightingTotalKw.toFixed(2)),
+      hvacTotalKw: Number(hvacTotalKw.toFixed(2)),
+      sourceType: "calculators",
+    };
+  }
+
+  // CASE C: No real spaces found anywhere in cache
+  return {
+    rows: existingRows,
+    spacesUpdated: 0,
+    newSpacesAdded: 0,
+    lightingTotalKw: 0,
+    hvacTotalKw: 0,
+    sourceType: "none",
+  };
+}
+
+/**
+ * Prepares and saves data into Transformer Sizing (/transformer-sizing)
+ */
+export function exportToTransformerSizing(projectId: string = "default", rows: LoadRow[]) {
+  const pId = projectId || "default";
+  const transformerLoads = rows.map((r, idx) => ({
+    id: `tr_load_${Date.now()}_${idx}`,
+    description: r.description,
+    lightingHeatingKw: Number(((r.lighting + r.other) * (r.qty || 1)).toFixed(2)),
+    inductiveMotorKw: Number(((r.hvac + r.power) * (r.qty || 1)).toFixed(2)),
+    connectedLoad: Number(r.totalLoad.toFixed(2)),
+    diversityFactor: 0.9,
+    demandFactor: 0.85,
+    selected: false,
+  }));
+
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(`mep_transformer_loads_${pId}`, JSON.stringify(transformerLoads));
+  }
+  return transformerLoads;
+}
+
+/**
+ * Prepares and saves emergency & critical loads into Generator Sizing (/generator-sizing)
+ */
+export function exportToGeneratorSizing(projectId: string = "default", rows: LoadRow[]) {
+  const pId = projectId || "default";
+  const generatorLoads = rows
+    .filter((r) => {
+      const text = r.description.toLowerCase();
+      // Life safety, server rooms, HVAC, pumps, or stairwells
+      return /server|plant|pump|stair|lift|elevator|critical|emergency|ahu|hvac/i.test(text) || r.hvac > 0;
+    })
+    .map((r, idx) => ({
+      id: `gen_load_${Date.now()}_${idx}`,
+      description: `[Backup] ${r.description}`,
+      connectedKw: Number(r.totalLoad.toFixed(2)),
+      emergencyKw: Number(((r.hvac + r.other + r.lighting * 0.3) * (r.qty || 1)).toFixed(2)), // Essential HVAC + 30% emergency lighting
+      isEmergency: true,
+      startingMethod: "DOL",
+    }));
+
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(`mep_generator_loads_${pId}`, JSON.stringify(generatorLoads));
+  }
+  return generatorLoads;
+}
 
 export const getCalculationPreview = (row: LoadRow, unitSystem: "si" | "ip", totalPower: number): CalculationPreviewData => {
   const qty = Number(row.qty) || 1;

@@ -1,4 +1,5 @@
 import { type CalculationPreviewData } from "@/components/calculator-framework/CalculationPreviewModal";
+import { getFloorRank } from "@/lib/bimViewerSpaceExtractor";
 
 export interface LightFixture {
   id: string;
@@ -58,6 +59,13 @@ export const LPD_AUTHORITY_MAPPING: Record<string, number> = {
   "toilet": 0.90,
   "balcony": 0.61,
   "bath": 0.63,
+  "Exterior/Landscape Area": 0.05,
+  "Garden / Landscape (Exterior)": 0.05,
+  "Walkway / Plaza (Exterior)": 0.10,
+  "Parking Lot / Driveway (Exterior)": 0.08,
+  "Balcony / Terrace (Exterior)": 0.15,
+  "Building Façade / Canopy (Exterior)": 0.15,
+  "Open Parking Garage (Exterior)": 0.15,
   "bedroom": 0.50,
   "bedroom-1": 0.50,
   "bedroom-3": 0.50,
@@ -446,3 +454,250 @@ export const getLpdCalculationPreview = (space: LpdSpace, unitSystem: "si" | "ip
         : `Design LPD: ${proposedLpd.toFixed(3)} ${lpdUnit}. Baseline limit not set.`,
   };
 };
+
+export interface BimSpaceForLpd {
+  id: string;
+  name: string;
+  level?: string;
+  zone?: string;
+  category?: string;
+  area: number;
+  height?: number;
+  fixtures?: string;
+  lightFixtureCount?: number;
+  lightFixtureType?: string;
+  isExternal?: boolean;
+}
+
+/**
+ * Determines whether a BIM space is an external / outdoor area
+ */
+export function isBimSpaceExternal(s: BimSpaceForLpd): boolean {
+  if (s.isExternal === true) return true;
+  const text = `${s.name || ""} ${s.category || ""} ${s.zone || ""}`.toLowerCase();
+  return /garden|landscape|patio|courtyard|terrace|balcony|deck|parking|outdoor|exterior|canopy|porch|plaza|walkway|facade|driveway|pergola/i.test(text);
+}
+
+export interface BimLpdGroupsSplit {
+  internalGroups: LpdGroup[];
+  externalGroups: LpdGroup[];
+  internalSpacesCount: number;
+  externalSpacesCount: number;
+}
+
+export function convertBimSpacesToLpdGroups(
+  spaces: BimSpaceForLpd[],
+  options?: { isExternal?: boolean }
+): LpdGroup[] {
+  if (!spaces || spaces.length === 0) return [];
+
+  // 1. Group spaces by floor / level
+  const floorMap = new Map<string, BimSpaceForLpd[]>();
+  for (const s of spaces) {
+    const rawFloor = s.level?.trim() || "GROUND FLOOR";
+    let floorKey = rawFloor.toUpperCase();
+    if (options?.isExternal && !/EXTERIOR|EXTERNAL|OUTDOOR|GROUNDS|LANDSCAPE/i.test(floorKey)) {
+      floorKey = `${floorKey} (EXTERIOR)`;
+    }
+    if (!floorMap.has(floorKey)) {
+      floorMap.set(floorKey, []);
+    }
+    floorMap.get(floorKey)!.push(s);
+  }
+
+  // Sort floors floor-wise (Basement -> Ground -> 1st -> 2nd -> Roof -> Exterior)
+  const sortedFloorNames = Array.from(floorMap.keys()).sort((a, b) => {
+    const rankA = getFloorRank(a);
+    const rankB = getFloorRank(b);
+    if (rankA !== rankB) return rankA - rankB;
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+  });
+
+  const groups: LpdGroup[] = [];
+
+  sortedFloorNames.forEach((floorName) => {
+    const floorSpaces = floorMap.get(floorName) || [];
+    // Filter out architectural micro-slivers (< 1.0 m² / ~10.7 sq.ft) which are Revit Area Separation Line boundary artifacts
+    const validSpaces = floorSpaces.filter((s) => (s.area || 0) >= 1.0);
+    const targetSpaces = validSpaces.length > 0 ? validSpaces : floorSpaces;
+
+    // Sort spaces alphabetically by name within this floor (as shown in standard BIM schedule)
+    targetSpaces.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }));
+
+    const lpdSpaces: LpdSpace[] = targetSpaces.map((s, idx) => {
+      const nameLower = s.name.toLowerCase();
+      const catLower = (s.category || "").toLowerCase();
+      const text = `${nameLower} ${catLower}`;
+      const isExt = options?.isExternal || isBimSpaceExternal(s);
+
+      let areaType = "Office >150 and 300 ft2 (Space Method)";
+      let fixtureType = "LED Panel 600x600";
+      let watts = "36";
+      let qty = "4";
+
+      if (isExt) {
+        // Exterior space typing & ASHRAE 90.1 baselines
+        if (/garden|landscape/i.test(text)) {
+          areaType = "Garden / Landscape (Exterior)";
+          fixtureType = "LED Garden Bollard / Spike 15W";
+          watts = "15";
+          qty = Math.max(2, Math.round(s.area / 35)).toString();
+        } else if (/walkway|plaza|pathway|sidewalk/i.test(text)) {
+          areaType = "Walkway / Plaza (Exterior)";
+          fixtureType = "LED Post-Top / Path Light 25W";
+          watts = "25";
+          qty = Math.max(2, Math.round(s.area / 25)).toString();
+        } else if (/parking|driveway/i.test(text)) {
+          areaType = "Parking Lot / Driveway (Exterior)";
+          fixtureType = "LED Pole Mount Luminaire 60W";
+          watts = "60";
+          qty = Math.max(1, Math.round(s.area / 50)).toString();
+        } else if (/balcony|terrace|patio|deck|veranda|porch/i.test(text)) {
+          areaType = "Balcony / Terrace (Exterior)";
+          fixtureType = "LED Wall Pack / Downlight 18W";
+          watts = "18";
+          qty = Math.max(1, Math.round(s.area / 15)).toString();
+        } else if (/canopy|facade/i.test(text)) {
+          areaType = "Building Façade / Canopy (Exterior)";
+          fixtureType = "LED Canopy Luminaire 30W";
+          watts = "30";
+          qty = Math.max(1, Math.round(s.area / 20)).toString();
+        } else {
+          areaType = "Exterior/Landscape Area";
+          fixtureType = "LED Exterior Luminaire 20W";
+          watts = "20";
+          qty = Math.max(2, Math.round(s.area / 30)).toString();
+        }
+      } else if (/corridor|circulation|passage|hallway/i.test(text)) {
+        areaType = "Corridor (Space Method)";
+        fixtureType = "LED Downlight 12W";
+        watts = "12";
+        qty = Math.max(1, Math.round(s.area / 6)).toString();
+      } else if (/conference|meeting|boardroom/i.test(text)) {
+        areaType = "Conference/Meeting/Multipurpose Rooms (Space Method)";
+        fixtureType = "LED Downlight 18W";
+        watts = "18";
+        qty = Math.max(2, Math.round(s.area / 4.5)).toString();
+      } else if (/bathroom|toilet|restroom|washroom|wc|bath/i.test(text)) {
+        areaType = "Restroom (Space Method)";
+        fixtureType = "LED Downlight 15W";
+        watts = "15";
+        qty = Math.max(1, Math.round(s.area / 5)).toString();
+      } else if (/electrical|plant|ahu|pump|transformer|switch/i.test(text)) {
+        areaType = "Electrical/Mechanical Room (Space Method)";
+        fixtureType = "Linear LED Batten 40W";
+        watts = "40";
+        qty = Math.max(1, Math.round(s.area / 8)).toString();
+      } else if (/storage|store|warehouse/i.test(text)) {
+        areaType = "Storage Room - 50 ft2 (Space Method)";
+        fixtureType = "Linear LED Batten 28W";
+        watts = "28";
+        qty = Math.max(1, Math.round(s.area / 10)).toString();
+      } else if (/stair|staircase|stairwell/i.test(text)) {
+        areaType = "Stairwell (Space Method)";
+        fixtureType = "LED Bulkhead 16W";
+        watts = "16";
+        qty = "2";
+      } else if (/lobby|reception|foyer/i.test(text)) {
+        areaType = "Lobby - Elevator (Space Method)";
+        fixtureType = "Architectural LED Linear 30W";
+        watts = "30";
+        qty = Math.max(2, Math.round(s.area / 6)).toString();
+      } else if (/dining|canteen|cafeteria/i.test(text)) {
+        areaType = "All other dining areas (Space Method)";
+        fixtureType = "LED Panel 600x600 36W";
+        watts = "36";
+        qty = Math.max(2, Math.round(s.area / 7)).toString();
+      } else if (/class|lecture|training/i.test(text)) {
+        areaType = "All other classrooms/lecture halls/training rooms (Space Method)";
+        fixtureType = "LED Panel 600x600 36W";
+        watts = "36";
+        qty = Math.max(2, Math.round(s.area / 5)).toString();
+      } else {
+        // General Office sizing
+        if (s.area <= 14) {
+          areaType = "Office - Office 150 ft2 (Space Method)";
+          fixtureType = "LED Panel 600x600 36W";
+          watts = "36";
+          qty = Math.max(1, Math.round(s.area / 6)).toString();
+        } else if (s.area <= 28) {
+          areaType = "Office >150 and 300 ft2 (Space Method)";
+          fixtureType = "LED Panel 600x600 36W";
+          watts = "36";
+          qty = Math.max(2, Math.round(s.area / 6)).toString();
+        } else {
+          areaType = "Offices >300 ft2 (Space Method)";
+          fixtureType = "LED Panel 600x600 36W";
+          watts = "36";
+          qty = Math.max(4, Math.round(s.area / 6)).toString();
+        }
+      }
+
+      // Check if 3D model had actual light fixtures placed
+      if (s.lightFixtureCount && s.lightFixtureCount > 0) {
+        qty = s.lightFixtureCount.toString();
+        if (s.lightFixtureType) {
+          fixtureType = s.lightFixtureType;
+        }
+      }
+
+      const baselineVal = DEFAULT_AUTHORITY_MAPPING_SQM[areaType] || (isExt ? 0.54 : 7.1);
+
+      return {
+        id: `lpd-sp-${Date.now()}-${idx}`,
+        name: s.name,
+        areaType,
+        areaSqM: s.area > 0 ? s.area.toFixed(2) : "25.00",
+        baselineLpd: baselineVal.toFixed(2),
+        remarks: "",
+        flagged: false,
+        fixtures: [
+          {
+            id: `fix-${Date.now()}-${idx}`,
+            type: fixtureType,
+            watts,
+            qty,
+          },
+        ],
+      };
+    });
+
+    groups.push({
+      id: `lpd-grp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+      name: floorName,
+      isExpanded: true,
+      spaces: lpdSpaces,
+    });
+  });
+
+  return groups;
+}
+
+/**
+ * Splits BIM spaces into Internal and External groups according to building envelope logic
+ */
+export function convertBimSpacesToLpdGroupsSplit(spaces: BimSpaceForLpd[]): BimLpdGroupsSplit {
+  const internalSpaces: BimSpaceForLpd[] = [];
+  const externalSpaces: BimSpaceForLpd[] = [];
+
+  for (const s of spaces) {
+    if (isBimSpaceExternal(s)) {
+      externalSpaces.push(s);
+    } else {
+      internalSpaces.push(s);
+    }
+  }
+
+  const internalGroups = convertBimSpacesToLpdGroups(internalSpaces, { isExternal: false });
+  const externalGroups = convertBimSpacesToLpdGroups(externalSpaces, { isExternal: true });
+
+  const internalSpacesCount = internalGroups.reduce((acc, g) => acc + (g.spaces?.length || 0), 0);
+  const externalSpacesCount = externalGroups.reduce((acc, g) => acc + (g.spaces?.length || 0), 0);
+
+  return {
+    internalGroups,
+    externalGroups,
+    internalSpacesCount,
+    externalSpacesCount,
+  };
+}

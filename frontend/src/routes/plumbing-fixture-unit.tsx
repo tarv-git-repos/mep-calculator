@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -1805,13 +1805,6 @@ function FixtureUnitPage() {
                 )}
               </div>
             </div>
-
-            {/* Notification Banner across all tabs */}
-            <CalculationStatusBanner
-              projectId={project?.id || "default"}
-              calculatorPath="/plumbing-fixture-unit"
-              calculatorTitle="Fixture Unit Calculator"
-            />
 
             {/* Row 2: Action Toolbar (Search, Filter, Sort, Import, Export, + Add Floor Section, + Add Space) */}
             {activeTab === "spaces" && (

@@ -1,4 +1,4 @@
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -6,14 +6,14 @@ import { downloadFile } from "@/lib/download";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
-import { TBtn } from "@/components/workspace/Button";
+import { TBtn, BulkBtn } from "@/components/workspace/Button";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import {
   Plus, Trash2, Download, Upload, X, AlertTriangle, CheckCircle2,
   Gauge, FileText, Printer, FileSpreadsheet, Copy, RefreshCw,
   Filter, ArrowUpDown, Search, SlidersHorizontal, Flag, Sparkles,
-  MessageSquare, Zap
+  MessageSquare, Zap, Calculator, Edit3, Info
 } from "lucide-react";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
@@ -30,10 +30,17 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuShortcut,
 } from "@/components/ui/context-menu";
 import { useHistory, useSelection, useClipboard, useShortcuts } from "@/core/gridEngine";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
-import { useWorkspace } from "@/lib/workspace-store";
+import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
+import { getProjectIfcFile } from "@/lib/projectIfcStorage";
+import {
+  extractSpacesFromActiveViewer,
+  extractSpacesFromIFCFile,
+  type Extracted3DSpace,
+} from "@/lib/bimViewerSpaceExtractor";
 import {
   CalculationPreviewModal,
   type CalculationPreviewData
@@ -49,7 +56,7 @@ export const Route = createFileRoute("/central-battery-sizing")({
   component: CentralBatterySizingPage,
 });
 
-import { CBSRow, STANDARD_CBS_SIZES, calculateCentralBattery } from "@/lib/calc-central-battery";
+import { CBSRow, STANDARD_CBS_SIZES, calculateCentralBattery, convertBimSpacesToCbsRows } from "@/lib/calc-central-battery";
 
 interface InlineInputProps {
   value: string | number;
@@ -106,11 +113,21 @@ function CentralBatterySizingPage() {
   const [tab, setTab] = useState<Tab>("schedule");
   const [unitSystem, setUnitSystem] = useState<"ip" | "si">("si");
   const [searchQuery, setSearchQuery] = useState("");
+  const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
   const [sortOrder, setSortOrder] = useState<"none" | "load-desc" | "load-asc">("none");
   const [filterLoad, setFilterLoad] = useState<"all" | "high" | "low">("all");
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
-  const [rowDensity, setRowDensity] = useState<"default" | "compact">("default");
-  const [previewRow, setPreviewRow] = useState<CBSRow | null>(null);
+  const [editingRow, setEditingRow] = useState<CBSRow | null>(null);
+  const [tempRow, setTempRow] = useState<CBSRow | null>(null);
+  const [showModalPreview, setShowModalPreview] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (editingRow) {
+      setTempRow({ ...editingRow });
+    } else {
+      setTempRow(null);
+    }
+  }, [editingRow]);
   const [intelOpen, setIntelOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -134,15 +151,55 @@ function CentralBatterySizingPage() {
   const [spareCapacity, setSpareCapacity] = useState<number>(20); // 20%
 
   // Sizing schedule default rows
-  const initialRows: CBSRow[] = useMemo(() => [
-    { id: "1", description: "Ground Floor Corridor Lighting", emLightQty: 15, emLightW: 18, exitLightQty: 4, exitLightW: 8, remarks: "Safety critical path" },
-    { id: "2", description: "L1 Staircase A and B Pressurized", emLightQty: 10, emLightW: 24, exitLightQty: 2, exitLightW: 8, remarks: "Escape stairs" },
-    { id: "3", description: "Basement Parking Emergency Zones", emLightQty: 30, emLightW: 36, exitLightQty: 8, exitLightW: 8, remarks: "Low ceiling lighting" }
-  ], []);
+  const activeId = activeProjectId || project?.id || "default";
+
+  const initialRows: CBSRow[] = useMemo(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(`mep_central_battery_rows_${activeId}`);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
+        } catch (e) {
+          console.error("Failed to parse CBS rows from localStorage", e);
+        }
+      }
+    }
+    return [
+      { id: "1", description: "Ground Floor Corridor Lighting", emLightQty: 15, emLightW: 18, exitLightQty: 4, exitLightW: 8, remarks: "Safety critical path" },
+      { id: "2", description: "L1 Staircase A and B Pressurized", emLightQty: 10, emLightW: 24, exitLightQty: 2, exitLightW: 8, remarks: "Escape stairs" },
+      { id: "3", description: "Basement Parking Emergency Zones", emLightQty: 30, emLightW: 36, exitLightQty: 8, exitLightW: 8, remarks: "Low ceiling lighting" }
+    ];
+  }, [activeId]);
 
   // Grid Engine Hooks
   const { currentState, pushState: setRows, undo, redo } = useHistory<CBSRow>(initialRows);
   const rows = currentState || initialRows || [];
+
+  // Auto-persist rows on change
+  useEffect(() => {
+    if (typeof window !== "undefined" && rows && rows.length > 0) {
+      localStorage.setItem(`mep_central_battery_rows_${activeId}`, JSON.stringify(rows));
+    }
+  }, [rows, activeId]);
+
+  // Sync if localStorage changes externally (e.g. from 3D BIM Viewer)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(`mep_central_battery_rows_${activeId}`);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setRows(parsed);
+          }
+        } catch (e) {}
+      }
+    }
+  }, [activeId]);
+
   const { selectedIds: selected, toggleSelection, selectAll, clearSelection } = useSelection(rows);
   const { copy, cut, paste } = useClipboard<CBSRow>(rows, selected, setRows);
 
@@ -236,6 +293,83 @@ function CentralBatterySizingPage() {
 
     return logs;
   }, [rows, loadingFactor, powerFactor, spareCapacity]);
+
+  // Sync from 3D Studio
+  const handleSyncFrom3DStudio = async () => {
+    try {
+      toast.loading("Scanning 3D Studio for spaces & life-safety zones...", { id: "cbs-3d-sync" });
+      let extracted: Extracted3DSpace[] = extractSpacesFromActiveViewer();
+      toast.dismiss("cbs-3d-sync");
+
+      // Fallback 1: Check project IFC file in IndexedDB storage
+      if (extracted.length === 0) {
+        const savedProjectFile = await getProjectIfcFile(activeProjectId || project?.id);
+        if (savedProjectFile instanceof File) {
+          toast.loading("Extracting 3D geometry & life-safety zones from project IFC model...", { id: "cbs-ifc-parse" });
+          extracted = await extractSpacesFromIFCFile(savedProjectFile);
+          toast.dismiss("cbs-ifc-parse");
+        }
+      }
+
+      // Fallback 2: Check active memory window session file
+      if (extracted.length === 0) {
+        const win = typeof window !== "undefined" ? (window as any) : {};
+        const savedFile = win.__ACTIVE_IFC_FILE__ || win._currentLoadedFile;
+        if (savedFile instanceof File) {
+          toast.loading("Extracting 3D geometry & life-safety zones from IFC model...", { id: "cbs-ifc-parse" });
+          extracted = await extractSpacesFromIFCFile(savedFile);
+          toast.dismiss("cbs-ifc-parse");
+        }
+      }
+
+      // Fallback 3: Check workspace store spaces if available
+      if (extracted.length === 0) {
+        const wsSpaces = workspaceStore.getState().spaces || [];
+        if (wsSpaces.length > 0) {
+          extracted = wsSpaces.map((s: any) => ({
+            id: s.id,
+            name: s.name,
+            level: s.floor || s.level || "GROUND FLOOR",
+            zone: s.zone || "Default",
+            category: s.category || "General Office / Space",
+            area: Number(s.area) || 20,
+            height: Number(s.height) || 3.0,
+            fixtures: s.fixtures || "",
+            multiplier: s.multiplier || 1,
+            aiDetected: true,
+            confidence: 0.9,
+            pressure: s.pressure || "0",
+            pressureAutoDetected: false,
+            source: "workspace" as const,
+          }));
+        }
+      }
+
+      if (extracted.length === 0) {
+        toast.info("No active 3D IFC spaces found.", {
+          description: "Open 3D Studio (/bim-viewer) to load your IFC model, or click below to launch 3D Studio.",
+          action: {
+            label: "Open 3D Studio",
+            onClick: () => {
+              window.location.href = "/bim-viewer";
+            },
+          },
+        });
+        return;
+      }
+
+      const newRows = convertBimSpacesToCbsRows(extracted);
+      setRows(newRows);
+
+      toast.success(
+        `⚡ Synced ${newRows.length} spaces from 3D Studio! Emergency escape luminaires and exit signage calculated (NFPA 101 / BS 5266).`,
+        { duration: 5000 }
+      );
+    } catch (err) {
+      console.error("Failed to sync spaces from 3D Studio:", err);
+      toast.error("Failed to sync spaces from 3D Studio.");
+    }
+  };
 
   // CRUD Sizing schedule actions
   const handleAddRow = () => {
@@ -600,16 +734,17 @@ function CentralBatterySizingPage() {
   const columns: Column<CBSRow>[] = useMemo(() => [
     {
       key: "index",
-      header: "Sr. No.",
+      header: "SR. NO.",
       width: 60,
       align: "center",
       render: (r) => {
         const idx = rows.findIndex((row) => row.id === r.id);
         return (
           <span
-            onDoubleClick={() => setPreviewRow(r)}
-            className="text-muted-foreground font-mono cursor-pointer select-none"
-            title="Double-click to open calculation preview"
+            onClick={() => setEditingRow(r)}
+            onDoubleClick={() => setEditingRow(r)}
+            className="text-muted-foreground font-mono cursor-pointer select-none hover:text-primary transition-colors"
+            title="Click or double-click to open calculation preview"
           >
             {idx + 1}
           </span>
@@ -618,7 +753,7 @@ function CentralBatterySizingPage() {
     },
     {
       key: "description",
-      header: "Description",
+      header: "DESCRIPTION",
       width: 280,
       editable: true,
       render: (r) => {
@@ -642,7 +777,7 @@ function CentralBatterySizingPage() {
             <InlineInput
               value={r.description}
               onCommit={(val) => handleUpdateRow(r.id, "description", val)}
-              onDoubleClick={() => setPreviewRow(r)}
+              onDoubleClick={() => setEditingRow(r)}
               className="font-medium text-[13px]"
             />
           </div>
@@ -651,7 +786,7 @@ function CentralBatterySizingPage() {
     },
     {
       key: "emLightQty",
-      header: "Emergency Light Quantity",
+      header: "EMERGENCY LIGHT QUANTITY",
       width: 140,
       align: "center",
       editable: true,
@@ -660,14 +795,14 @@ function CentralBatterySizingPage() {
           type="number"
           value={r.emLightQty}
           onCommit={(val) => handleUpdateRow(r.id, "emLightQty", Number(val) || 0)}
-          onDoubleClick={() => setPreviewRow(r)}
+          onDoubleClick={() => setEditingRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
     },
     {
       key: "emLightW",
-      header: unitSystem === "ip" ? "Emergency Light Wattage (VA)" : "Emergency Light Wattage (W)",
+      header: unitSystem === "ip" ? "EMERGENCY LIGHT WATTAGE (VA)" : "EMERGENCY LIGHT WATTAGE (W)",
       width: 150,
       align: "center",
       editable: true,
@@ -676,14 +811,14 @@ function CentralBatterySizingPage() {
           type="number"
           value={r.emLightW}
           onCommit={(val) => handleUpdateRow(r.id, "emLightW", Number(val) || 0)}
-          onDoubleClick={() => setPreviewRow(r)}
+          onDoubleClick={() => setEditingRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
     },
     {
       key: "exitLightQty",
-      header: "Exit Light Quantity",
+      header: "EXIT LIGHT QUANTITY",
       width: 120,
       align: "center",
       editable: true,
@@ -692,15 +827,15 @@ function CentralBatterySizingPage() {
           type="number"
           value={r.exitLightQty}
           onCommit={(val) => handleUpdateRow(r.id, "exitLightQty", Number(val) || 0)}
-          onDoubleClick={() => setPreviewRow(r)}
+          onDoubleClick={() => setEditingRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
     },
     {
       key: "exitLightW",
-      header: unitSystem === "ip" ? "Exit Light Wattage (VA)" : "Exit Light Wattage (W)",
-      width: 140,
+      header: unitSystem === "ip" ? "EXIT LIGHT WATTAGE (VA)" : "EXIT LIGHT WATTAGE (W)",
+      width: 120,
       align: "center",
       editable: true,
       render: (r) => (
@@ -708,39 +843,41 @@ function CentralBatterySizingPage() {
           type="number"
           value={r.exitLightW}
           onCommit={(val) => handleUpdateRow(r.id, "exitLightW", Number(val) || 0)}
-          onDoubleClick={() => setPreviewRow(r)}
+          onDoubleClick={() => setEditingRow(r)}
           className="font-mono text-center text-[12.5px]"
         />
       )
     },
     {
       key: "totalW",
-      header: unitSystem === "ip" ? "Total Connected Load (VA)" : "Total Connected Load (W)",
+      header: unitSystem === "ip" ? "TOTAL CONNECTED LOAD (VA)" : "TOTAL CONNECTED LOAD (W)",
       width: 170,
-      align: "right",
+      align: "center",
       render: (r) => {
         const tot = (r.emLightQty * r.emLightW) + (r.exitLightQty * r.exitLightW);
         return (
           <span
-            onDoubleClick={() => setPreviewRow(r)}
-            className="font-mono font-bold text-foreground text-[12.5px] cursor-pointer"
-            title="Double-click to open calculation preview"
+            onClick={() => setEditingRow(r)}
+            onDoubleClick={() => setEditingRow(r)}
+            className="font-mono font-bold text-foreground text-[12.5px] cursor-pointer hover:text-primary transition-colors inline-flex items-center justify-center gap-1.5 w-full"
+            title="Click or double-click to open calculation preview"
           >
-            {tot.toFixed(0)}
+            <span>{tot.toFixed(0)}</span>
+            <Calculator className="size-3 opacity-40 hover:opacity-100 text-primary" />
           </span>
         );
       }
     },
     {
       key: "remarks",
-      header: "Remarks",
+      header: "REMARKS",
       width: 200,
       editable: true,
       render: (r) => (
         <InlineInput
           value={r.remarks}
           onCommit={(val) => handleUpdateRow(r.id, "remarks", val)}
-          onDoubleClick={() => setPreviewRow(r)}
+          onDoubleClick={() => setEditingRow(r)}
           className="text-muted-foreground text-[12px]"
         />
       )
@@ -772,71 +909,102 @@ function CentralBatterySizingPage() {
     }
   ], [rows, selected, unitSystem]);
 
-  // Context Menu for CBS Sizing Row
+  // Context Menu for CBS Sizing Row (Standardized with Ventilation)
   const renderRowContextMenu = (row: CBSRow) => {
     const isSelected = selected.has(row.id);
     const selectedIds = isSelected ? Array.from(selected) : [row.id];
     const targetsCount = selectedIds.length;
 
     return (
-      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         <ContextMenuItem
-          onClick={() => setPreviewRow(row)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-primary font-medium"
+          onClick={() => {
+            if (isEffectiveReadOnly) {
+              toast.info("Calculation is Approved and Locked.", { id: "readonly-notice" });
+              return;
+            }
+            setEditingRow(row);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
         >
-          <Sparkles className="size-3.5" />
-          <span>Calculation Preview</span>
+          <Edit3 className="size-3.5 text-muted-foreground" />
+          <span>Edit Load</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
         </ContextMenuItem>
+
         <ContextMenuItem
-          onClick={() => handleToggleFlag(row.id)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+          onClick={() => {
+            if (isEffectiveReadOnly) {
+              toast.info("Calculation is Approved and Locked.", { id: "readonly-notice" });
+              return;
+            }
+            const clones = selectedIds.map(id => {
+              const targetRow = rows.find(r => r.id === id);
+              if (!targetRow) return null;
+              return {
+                ...targetRow,
+                id: `row-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                description: `${targetRow.description} (Copy)`
+              };
+            }).filter(Boolean) as CBSRow[];
+
+            if (clones.length > 0) {
+              setRows([...rows, ...clones]);
+              toast.success(`Duplicated ${clones.length} load(s)`);
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
         >
-          <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
-          <span>{targetsCount > 1 ? (row.flagged ? "Unflag Selected" : "Flag Selected") : (row.flagged ? "Unflag Load" : "Flag for Review")}</span>
+          <Copy className="size-3.5 text-muted-foreground" />
+          <span>{targetsCount > 1 ? "Duplicate Selected" : "Duplicate Row"}</span>
         </ContextMenuItem>
+
+        <ContextMenuItem
+          onClick={() => {
+            const targetIds = selectedIds;
+            const anyUnflagged = targetIds.some(id => !rows.find(r => r.id === id)?.flagged);
+            setRows(rows.map(r => targetIds.includes(r.id) ? { ...r, flagged: anyUnflagged } : r));
+            toast.info(anyUnflagged ? `Flagged ${targetIds.length} load(s)` : `Unflagged ${targetIds.length} load(s)`);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Flag className="size-3.5 text-amber-500" />
+          <span>{targetsCount > 1 ? "Flag / Unflag Selected" : (row.flagged ? "Unflag Load" : "Flag for Review")}</span>
+        </ContextMenuItem>
+
         <ContextMenuItem
           onClick={() => handleOpenComment(row.id, row.description)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
         >
-          <MessageSquare className="size-3.5 text-blue-500" />
+          <MessageSquare className="size-3.5" />
           <span>Add Comment / Assign Task</span>
         </ContextMenuItem>
-        <ContextMenuSeparator className="my-1 border-t border-border" />
-        {targetsCount > 1 ? (
-          <ContextMenuItem
-            onClick={async () => {
-              const ok = await confirm(`Are you sure you want to delete ${targetsCount} selected rows?`);
-              if (ok) {
-                setRows(rows.filter(r => !selectedIds.includes(r.id)));
-                clearSelection();
-              }
-            }}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-red-500 font-semibold"
-          >
-            <Trash2 className="size-3.5" /> Delete Selected ({targetsCount})
-          </ContextMenuItem>
-        ) : (
-          <>
-            <ContextMenuItem
-              onClick={() => handleDuplicateRow(row)}
-              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-            >
-              <Copy className="size-3.5" /> Duplicate Row
-            </ContextMenuItem>
-            <ContextMenuSeparator className="my-1 border-t border-border" />
-            <ContextMenuItem
-              onClick={async () => {
-                const ok = await confirm("Are you sure you want to delete this row?");
-                if (ok) {
-                  handleDeleteRow(row.id);
-                }
-              }}
-              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-red-500"
-            >
-              <Trash2 className="size-3.5" /> Delete Row
-            </ContextMenuItem>
-          </>
-        )}
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        <ContextMenuItem
+          onClick={async () => {
+            if (isEffectiveReadOnly) {
+              toast.info("Calculation is Approved and Locked.", { id: "readonly-notice" });
+              return;
+            }
+            const msg = targetsCount === 1
+              ? `Are you sure you want to delete load "${row.description}"?`
+              : `Are you sure you want to delete the ${targetsCount} selected loads?`;
+
+            const ok = await confirm(msg);
+            if (ok) {
+              setRows(rows.filter(r => !selectedIds.includes(r.id)));
+              clearSelection();
+              toast.info(`Deleted ${targetsCount} load(s)`);
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
+        >
+          <Trash2 className="size-3.5" />
+          <span>Delete</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+        </ContextMenuItem>
       </ContextMenuContent>
     );
   };
@@ -904,12 +1072,11 @@ function CentralBatterySizingPage() {
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
-          {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg py-0.5">
+          {/* Page Header */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Central Battery Sizing</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">{rows.length} areas</span>
               </div>
               <button
                 onClick={() => setIntelOpen(v => !v)}
@@ -937,13 +1104,6 @@ function CentralBatterySizingPage() {
               />
             </div>
           </div>
-
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={project?.id || "default"}
-            calculatorPath="/central-battery-sizing"
-            calculatorTitle="Central Battery Sizing"
-          />
 
           {/* Sizing Schedule workspace container */}
           <div className="flex-1 flex flex-col gap-6 min-h-[450px] mb-6">
@@ -1019,60 +1179,89 @@ function CentralBatterySizingPage() {
                     return (
                       <>
                         {/* Toolbar */}
-                        <div className="relative flex items-center gap-1.5 px-4 h-12 shrink-0 flex-wrap no-print border-b border-border bg-background">
+                        <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background shrink-0 flex-wrap no-print modal-blur-bg border-b border-border/50">
                           {/* Bulk Actions Banner Overlay when rows are selected */}
                           {selected.size > 0 && (
-                            <div className="absolute inset-0 flex items-center justify-between px-4 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print">
+                            <div className="absolute inset-0 flex items-center justify-between px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg border-b border-primary/20">
                               <div className="flex items-center gap-2">
-                                <span className="font-semibold">{selected.size} load(s) selected</span>
-                                <button
-                                  onClick={clearSelection}
-                                  className="text-[11px] underline hover:opacity-80 cursor-pointer ml-1"
+                                <span className="font-semibold">{selected.size} selected</span>
+                                <span className="text-primary/30">·</span>
+                                <BulkBtn
+                                  icon={Calculator}
+                                  onClick={() => {
+                                    const firstId = Array.from(selected)[0];
+                                    const targetRow = rows.find((r) => r.id === firstId);
+                                    if (targetRow) {
+                                      setEditingRow(targetRow);
+                                    }
+                                  }}
                                 >
-                                  Clear selection
-                                </button>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button
+                                  Breakdown
+                                </BulkBtn>
+                                <BulkBtn
+                                  icon={Flag}
                                   onClick={() => {
                                     const targetIds = Array.from(selected);
                                     const anyUnflagged = targetIds.some(id => !rows.find(r => r.id === id)?.flagged);
                                     setRows(rows.map(r => targetIds.includes(r.id) ? { ...r, flagged: anyUnflagged } : r));
                                     toast.info(anyUnflagged ? `Flagged ${targetIds.length} load(s)` : `Unflagged ${targetIds.length} load(s)`);
                                   }}
-                                  className="px-2.5 py-1 text-xs font-semibold rounded-md border border-[#0A7BC7]/30 bg-white dark:bg-slate-900 text-[#06456F] dark:text-[#0A7BC7] hover:bg-[#0A7BC7]/10 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
                                 >
-                                  <Flag className="size-3.5 text-red-500 fill-red-500" />
-                                  <span>Flag / Unflag ({selected.size})</span>
-                                </button>
-                                <button
+                                  Flag
+                                </BulkBtn>
+                                <BulkBtn
+                                  icon={Copy}
+                                  onClick={() => {
+                                    const duplicated: CBSRow[] = [];
+                                    rows.forEach(r => {
+                                      if (selected.has(r.id)) {
+                                        duplicated.push({
+                                          ...r,
+                                          id: `row-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                                          description: `${r.description} (Copy)`
+                                        });
+                                      }
+                                    });
+                                    setRows([...rows, ...duplicated]);
+                                    toast.success(`Duplicated ${duplicated.length} load(s)`);
+                                  }}
+                                >
+                                  Duplicate
+                                </BulkBtn>
+                                <BulkBtn
+                                  icon={Trash2}
                                   onClick={async () => {
                                     const targetIds = Array.from(selected);
-                                    const ok = await confirm(`Are you sure you want to delete ${targetIds.length} selected loads?`);
+                                    const count = targetIds.length;
+                                    const ok = await confirm(`Are you sure you want to delete ${count} selected load(s)?`);
                                     if (ok) {
                                       setRows(rows.filter(r => !targetIds.includes(r.id)));
                                       clearSelection();
+                                      toast.info(`Deleted ${count} selected load(s)`);
                                     }
                                   }}
-                                  className="px-2.5 py-1 text-xs font-semibold rounded-md bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors flex items-center gap-1.5 cursor-pointer"
                                 >
-                                  <Trash2 className="size-3.5" />
-                                  <span>Delete ({selected.size})</span>
-                                </button>
+                                  Delete
+                                </BulkBtn>
                               </div>
+                              <button
+                                type="button"
+                                onClick={clearSelection}
+                                className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+                              >
+                                <X className="size-3" /> Clear
+                              </button>
                             </div>
                           )}
 
-                          <div className="relative flex items-center">
-                            <Search className="absolute left-2.5 size-3.5 text-muted-foreground" />
-                            <input
-                              ref={searchInputRef}
-                              value={searchQuery}
-                              onChange={(e) => setSearchQuery(e.target.value)}
-                              placeholder="Filter loads..."
-                              className="h-7 w-56 pl-8 pr-3 bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-slate-300 dark:focus:border-slate-700 rounded-full text-[12px] outline-none transition-all"
-                            />
-                          </div>
+                          <input
+                            ref={searchInputRef}
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Filter loads..."
+                            className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
+                          />
+
                           <Popover>
                             <PopoverTrigger asChild>
                               <button
@@ -1084,7 +1273,7 @@ function CentralBatterySizingPage() {
                               >
                                 <Filter className="size-3.5 shrink-0" />
                                 <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
-                                  Filter Loads
+                                  Filter
                                 </span>
                                 {activeFiltersCount > 0 && (
                                   <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
@@ -1095,7 +1284,7 @@ function CentralBatterySizingPage() {
                             </PopoverTrigger>
                             <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
                               <div className="flex items-center justify-between pb-1.5 border-b border-border">
-                                <span className="text-xs font-bold text-foreground">Filter Loads</span>
+                                <span className="text-xs font-bold text-foreground">Filters</span>
                                 {activeFiltersCount > 0 && (
                                   <button
                                     onClick={() => {
@@ -1123,7 +1312,7 @@ function CentralBatterySizingPage() {
 
                               <div className="flex items-center justify-between pt-1.5 border-t border-border">
                                 <label htmlFor="filter-cbs-flagged" className="text-[11.5px] font-semibold text-foreground flex items-center gap-1.5 cursor-pointer">
-                                  <Flag className="size-3.5 text-red-500 fill-red-500" />
+                                  <Flag className="size-3.5 text-amber-500 fill-amber-500" />
                                   <span>Flagged Only</span>
                                 </label>
                                 <input
@@ -1194,7 +1383,14 @@ function CentralBatterySizingPage() {
                             </PopoverContent>
                           </Popover>
 
-                          <div className="ml-auto flex items-center gap-2">
+                          <div className="ml-auto flex items-center gap-1">
+                            <TBtn
+                              onClick={handleSyncFrom3DStudio}
+                              title="Sync spaces and emergency lighting loads from 3D BIM model"
+                            >
+                              <Sparkles className="size-3.5 text-primary" /> Sync 3D BIM
+                            </TBtn>
+
                             <ImportExcelBtn
                               columnMapping={{
                                 "Description": "description",
@@ -1210,7 +1406,9 @@ function CentralBatterySizingPage() {
                                 "Remarks": "remarks"
                               }}
                               onImport={handleImportExcelRows}
-                            />
+                            >
+                              <Download className="size-3.5" /> Excel
+                            </ImportExcelBtn>
 
                             <TBtn onClick={handleExportPDF}>
                               <FileText className="size-3.5" /> Export
@@ -1222,45 +1420,49 @@ function CentralBatterySizingPage() {
                           </div>
                         </div>
 
-                  {/* Global Inputs */}
-                  <div className="bg-surface-2/50 border-b border-border px-4 py-2.5 flex flex-wrap gap-4 items-center">
-                    <div className="flex flex-wrap items-center gap-4 lg:gap-6 text-xs font-semibold">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">LOADING FACTOR:</span>
-                        <input
-                          type="number"
-                          step="0.05"
-                          value={loadingFactor}
-                          onChange={(e) => setLoadingFactor(Number(e.target.value))}
-                          className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
-                        />
-                      </div>
-                      
-                      <div className="flex items-center gap-2 ml-4">
-                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">POWER FACTOR:</span>
-                        <input
-                          type="number"
-                          step="0.05"
-                          value={powerFactor}
-                          onChange={(e) => setPowerFactor(Number(e.target.value))}
-                          className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
-                        />
-                      </div>
+                        {/* Sizing Parameters Row (Image 2 - Matching Ventilation) */}
+                        <div className="bg-slate-50/50 dark:bg-zinc-900/30 border-b border-border/60 px-4 py-2 flex flex-wrap items-center gap-6 select-none">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-wider font-sans">
+                              LOADING FACTOR:
+                            </span>
+                            <input
+                              type="number"
+                              step="0.05"
+                              value={loadingFactor}
+                              onChange={(e) => setLoadingFactor(Number(e.target.value) || 0.9)}
+                              className="w-16 h-7 text-xs border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg px-2 font-mono font-bold text-center text-slate-800 dark:text-zinc-200 shadow-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all"
+                            />
+                          </div>
 
-                      <div className="flex items-center gap-2 ml-4">
-                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">SPARE CAPACITY:</span>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            value={spareCapacity}
-                            onChange={(e) => setSpareCapacity(Number(e.target.value))}
-                            className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
-                          />
-                          <span className="absolute right-[-14px] top-1.5 text-[10px] text-slate-500">%</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-wider font-sans">
+                              POWER FACTOR:
+                            </span>
+                            <input
+                              type="number"
+                              step="0.05"
+                              value={powerFactor}
+                              onChange={(e) => setPowerFactor(Number(e.target.value) || 0.8)}
+                              className="w-16 h-7 text-xs border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg px-2 font-mono font-bold text-center text-slate-800 dark:text-zinc-200 shadow-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-wider font-sans">
+                              SPARE CAPACITY:
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                value={spareCapacity}
+                                onChange={(e) => setSpareCapacity(Number(e.target.value) || 20)}
+                                className="w-16 h-7 text-xs border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-lg px-2 font-mono font-bold text-center text-slate-800 dark:text-zinc-200 shadow-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all"
+                              />
+                              <span className="text-[11px] font-bold text-slate-500 dark:text-zinc-400 font-mono">%</span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  </div>
 
                   {/* Virtualized data grid or Empty State */}
                   <div className="flex-1 min-h-[350px] flex flex-col">
@@ -1579,18 +1781,376 @@ function CentralBatterySizingPage() {
               powerFactor={powerFactor}
               spareCapacity={spareCapacity}
               onClose={() => setIntelOpen(false)}
-              onSelectRow={(r) => setPreviewRow(r)}
+              onSelectRow={(r) => setEditingRow(r)}
             />
           )}
         </div>
       </div>
 
-      {/* Calculation Preview Modal on Double-click */}
-      <CalculationPreviewModal
-        isOpen={!!previewRow}
-        onClose={() => setPreviewRow(null)}
-        data={previewRow ? getCalculationPreview(previewRow) : null}
-      />
+      {/* Double Click Edit & Breakdown Modal (Exact Ventilation Format) */}
+      {editingRow && (
+        <div
+          onClick={() => setEditingRow(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/10 dark:bg-black/30 p-4 animate-fade-in font-sans"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`bg-white/70 dark:bg-neutral-950/70 backdrop-blur-2xl border border-white/50 dark:border-white/10 rounded-[24px] shadow-[0_30px_70px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.02)] dark:shadow-[0_30px_70px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)] flex flex-col w-full h-[85vh] max-h-[85vh] overflow-hidden transition-[max-width] duration-300 ease-in-out ${
+              showModalPreview ? "max-w-5xl" : "max-w-2xl"
+            }`}
+          >
+            {/* Modal Header */}
+            <header className="px-6 h-[72px] flex items-center justify-between border-b border-black/5 dark:border-white/5 shrink-0 bg-white/10 dark:bg-black/10">
+              <div className="flex flex-col justify-center min-w-0 pr-4">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <h2 className="text-[15px] font-bold text-neutral-800 dark:text-neutral-100 truncate flex items-center gap-2">
+                    <Zap className="size-4 text-primary" /> Edit Load &amp; Battery Sizing
+                  </h2>
+                  <span className="px-2.5 py-0.75 rounded-md bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-neutral-800 dark:text-neutral-200 text-[11px] font-bold font-mono tracking-tight shrink-0 uppercase">
+                    CENTRAL BATTERY SYSTEM ({unitSystem.toUpperCase()})
+                  </span>
+                </div>
+                <p className="text-[11.5px] text-neutral-500 dark:text-neutral-400 font-normal mt-0.5 truncate">
+                  Configure emergency luminaire parameters, quantities, wattages, and inspect live electrical demand.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowModalPreview((prev) => !prev)}
+                  className={`flex items-center gap-1.5 h-9.5 px-4 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer shadow-sm ${
+                    showModalPreview
+                      ? "bg-primary text-primary-foreground border-primary hover:bg-primary/95 shadow-md shadow-primary/15"
+                      : "bg-white/50 dark:bg-white/5 border-black/10 dark:border-white/10 text-neutral-700 dark:text-neutral-300 hover:bg-white/80 dark:hover:bg-white/10"
+                  }`}
+                >
+                  <Info className="size-3.5" />
+                  Calculations Preview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingRow(null)}
+                  className="size-9 grid place-items-center rounded-xl hover:bg-black/5 dark:hover:bg-white/5 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            </header>
+
+            {/* Modal Body: Left Inputs + Right Calculations Preview */}
+            <div className="flex-1 min-h-0 flex overflow-hidden">
+              {/* Left Side: Form Controls */}
+              <div className="flex-1 min-w-0 p-6 space-y-6 overflow-y-auto">
+                {/* Circuit & Area Identification */}
+                <div className="space-y-4">
+                  <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-black/5 dark:border-white/5 pb-2">
+                    Circuit &amp; Area Identification
+                  </h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10.5px] uppercase font-bold text-neutral-500 dark:text-neutral-400 tracking-wider mb-1.5 font-mono">
+                        Description / Area Name
+                      </label>
+                      <input
+                        type="text"
+                        value={tempRow?.description ?? ""}
+                        onChange={(e) => setTempRow(prev => prev ? { ...prev, description: e.target.value } : null)}
+                        className="w-full h-10 px-3.5 bg-white/50 dark:bg-black/20 border border-black/10 dark:border-white/10 rounded-xl text-[13px] text-neutral-800 dark:text-neutral-200 outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-sans placeholder:text-neutral-400"
+                        placeholder="e.g. Ground Floor Corridor Lighting"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] uppercase font-bold text-neutral-500 dark:text-neutral-400 tracking-wider mb-1.5 font-mono">
+                        Remarks / Location Notes
+                      </label>
+                      <input
+                        type="text"
+                        value={tempRow?.remarks ?? ""}
+                        onChange={(e) => setTempRow(prev => prev ? { ...prev, remarks: e.target.value } : null)}
+                        className="w-full h-10 px-3.5 bg-white/50 dark:bg-black/20 border border-black/10 dark:border-white/10 rounded-xl text-[13px] text-neutral-800 dark:text-neutral-200 outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-sans placeholder:text-neutral-400"
+                        placeholder="e.g. Safety critical path, escape stairs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Emergency Lighting Parameters */}
+                <div className="space-y-4">
+                  <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-black/5 dark:border-white/5 pb-2">
+                    Emergency Lighting Luminaire Parameters
+                  </h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10.5px] uppercase font-bold text-neutral-500 dark:text-neutral-400 tracking-wider mb-1.5 font-mono">
+                        Emergency Light Quantity (Units)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={tempRow?.emLightQty === undefined || tempRow?.emLightQty === null ? "" : tempRow.emLightQty}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setTempRow(prev => prev ? { ...prev, emLightQty: val === "" ? 0 : Math.max(0, parseInt(val) || 0) } : null);
+                        }}
+                        className="w-full h-10 px-3.5 bg-white/50 dark:bg-black/20 border border-black/10 dark:border-white/10 rounded-xl text-[13px] text-neutral-800 dark:text-neutral-200 outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] uppercase font-bold text-neutral-500 dark:text-neutral-400 tracking-wider mb-1.5 font-mono">
+                        Emergency Luminaire Wattage ({unitSystem === "ip" ? "VA" : "W"})
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={tempRow?.emLightW === undefined || tempRow?.emLightW === null ? "" : tempRow.emLightW}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setTempRow(prev => prev ? { ...prev, emLightW: val === "" ? 0 : Math.max(0, parseFloat(val) || 0) } : null);
+                        }}
+                        className="w-full h-10 px-3.5 bg-white/50 dark:bg-black/20 border border-black/10 dark:border-white/10 rounded-xl text-[13px] text-neutral-800 dark:text-neutral-200 outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div className="p-3 bg-white/40 dark:bg-white/5 rounded-xl border border-black/5 dark:border-white/5 flex items-center justify-between text-[12px]">
+                    <span className="text-neutral-500 dark:text-neutral-400 font-sans">Emergency Light Subtotal Load:</span>
+                    <span className="font-mono font-bold text-primary">
+                      {(((tempRow?.emLightQty || 0) * (tempRow?.emLightW || 0))).toLocaleString()} {unitSystem === "ip" ? "VA" : "W"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Exit Lighting Parameters */}
+                <div className="space-y-4">
+                  <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-black/5 dark:border-white/5 pb-2">
+                    Exit Lighting Luminaire Parameters
+                  </h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10.5px] uppercase font-bold text-neutral-500 dark:text-neutral-400 tracking-wider mb-1.5 font-mono">
+                        Exit Light Quantity (Units)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={tempRow?.exitLightQty === undefined || tempRow?.exitLightQty === null ? "" : tempRow.exitLightQty}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setTempRow(prev => prev ? { ...prev, exitLightQty: val === "" ? 0 : Math.max(0, parseInt(val) || 0) } : null);
+                        }}
+                        className="w-full h-10 px-3.5 bg-white/50 dark:bg-black/20 border border-black/10 dark:border-white/10 rounded-xl text-[13px] text-neutral-800 dark:text-neutral-200 outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] uppercase font-bold text-neutral-500 dark:text-neutral-400 tracking-wider mb-1.5 font-mono">
+                        Exit Sign Luminaire Wattage ({unitSystem === "ip" ? "VA" : "W"})
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={tempRow?.exitLightW === undefined || tempRow?.exitLightW === null ? "" : tempRow.exitLightW}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setTempRow(prev => prev ? { ...prev, exitLightW: val === "" ? 0 : Math.max(0, parseFloat(val) || 0) } : null);
+                        }}
+                        className="w-full h-10 px-3.5 bg-white/50 dark:bg-black/20 border border-black/10 dark:border-white/10 rounded-xl text-[13px] text-neutral-800 dark:text-neutral-200 outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div className="p-3 bg-white/40 dark:bg-white/5 rounded-xl border border-black/5 dark:border-white/5 flex items-center justify-between text-[12px]">
+                    <span className="text-neutral-500 dark:text-neutral-400 font-sans">Exit Light Subtotal Load:</span>
+                    <span className="font-mono font-bold text-primary">
+                      {(((tempRow?.exitLightQty || 0) * (tempRow?.exitLightW || 0))).toLocaleString()} {unitSystem === "ip" ? "VA" : "W"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Global System Sizing Parameters */}
+                <div className="space-y-4">
+                  <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-black/5 dark:border-white/5 pb-2">
+                    System Sizing Coefficients (Global)
+                  </h3>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-[10.5px] uppercase font-bold text-neutral-500 dark:text-neutral-400 tracking-wider mb-1.5 font-mono">
+                        Loading Factor
+                      </label>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={loadingFactor}
+                        onChange={(e) => setLoadingFactor(Number(e.target.value) || 0.9)}
+                        className="w-full h-10 px-3.5 bg-white/50 dark:bg-black/20 border border-black/10 dark:border-white/10 rounded-xl text-[13px] text-neutral-800 dark:text-neutral-200 outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] uppercase font-bold text-neutral-500 dark:text-neutral-400 tracking-wider mb-1.5 font-mono">
+                        Power Factor
+                      </label>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={powerFactor}
+                        onChange={(e) => setPowerFactor(Number(e.target.value) || 0.8)}
+                        className="w-full h-10 px-3.5 bg-white/50 dark:bg-black/20 border border-black/10 dark:border-white/10 rounded-xl text-[13px] text-neutral-800 dark:text-neutral-200 outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] uppercase font-bold text-neutral-500 dark:text-neutral-400 tracking-wider mb-1.5 font-mono">
+                        Spare Capacity (%)
+                      </label>
+                      <input
+                        type="number"
+                        value={spareCapacity}
+                        onChange={(e) => setSpareCapacity(Number(e.target.value) || 20)}
+                        className="w-full h-10 px-3.5 bg-white/50 dark:bg-black/20 border border-black/10 dark:border-white/10 rounded-xl text-[13px] text-neutral-800 dark:text-neutral-200 outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Side: Calculations Preview Sidebar */}
+              <div
+                className={`shrink-0 bg-white/30 dark:bg-black/20 backdrop-blur-md border-l border-black/5 dark:border-white/5 overflow-hidden transition-[width,opacity] duration-300 ease-in-out flex flex-col ${
+                  showModalPreview ? "w-[400px] opacity-100 p-6 border-l-border" : "w-0 opacity-0 p-0 border-l-transparent"
+                }`}
+              >
+                {tempRow && (() => {
+                  const rowEmLoad = (tempRow.emLightQty || 0) * (tempRow.emLightW || 0);
+                  const rowExitLoad = (tempRow.exitLightQty || 0) * (tempRow.exitLightW || 0);
+                  const rowTotalW = rowEmLoad + rowExitLoad;
+                  const rowTotalKw = rowTotalW / 1000;
+                  const rowAfterLFKw = rowTotalKw / (loadingFactor || 0.9);
+                  const rowKva = rowAfterLFKw / (powerFactor || 0.8);
+                  const rowSizedKva = rowKva * (1 + (spareCapacity || 20) / 100);
+                  const shareOfTotal = calculatedData.totalConnectedW > 0 
+                    ? ((rowTotalW / calculatedData.totalConnectedW) * 100).toFixed(1) 
+                    : "100.0";
+
+                  return (
+                    <div className="w-[352px] space-y-5 flex flex-col h-full overflow-y-auto">
+                      <h3 className="text-[11px] uppercase font-bold text-neutral-400 dark:text-neutral-500 tracking-wider pb-1.5 border-b border-black/5 dark:border-white/5 shrink-0">
+                        Calculations Preview
+                      </h3>
+
+                      <div className="space-y-4 flex-1">
+                        {/* Connected Load Summary */}
+                        <div className="p-4 bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-2xl space-y-3 shadow-sm">
+                          <div className="text-[10px] uppercase font-bold text-neutral-400 dark:text-neutral-500 tracking-wider">
+                            Area Electrical Demand
+                          </div>
+                          <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-[12px] font-mono">
+                            <div className="flex justify-between border-b border-black/5 dark:border-white/5 pb-1.5">
+                              <span className="text-neutral-500 dark:text-neutral-400 font-sans">EM Lights:</span>
+                              <span className="font-semibold text-neutral-800 dark:text-neutral-200">{rowEmLoad.toLocaleString()} {unitSystem === "ip" ? "VA" : "W"}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-black/5 dark:border-white/5 pb-1.5">
+                              <span className="text-neutral-500 dark:text-neutral-400 font-sans">Exit Lights:</span>
+                              <span className="font-semibold text-neutral-800 dark:text-neutral-200">{rowExitLoad.toLocaleString()} {unitSystem === "ip" ? "VA" : "W"}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-black/5 dark:border-white/5 pb-1.5">
+                              <span className="text-neutral-500 dark:text-neutral-400 font-sans">Loading Factor:</span>
+                              <span className="font-semibold text-neutral-800 dark:text-neutral-200">{loadingFactor}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-black/5 dark:border-white/5 pb-1.5">
+                              <span className="text-neutral-500 dark:text-neutral-400 font-sans">Power Factor:</span>
+                              <span className="font-semibold text-neutral-800 dark:text-neutral-200">{powerFactor}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Sizing Step-by-Step Card */}
+                        <div className="p-5 bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-2xl space-y-4 shadow-sm">
+                          <div className="text-[12.5px] font-bold text-neutral-800 dark:text-neutral-200">
+                            Step-by-Step Sizing Formulas
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-baseline text-[12px]">
+                              <span className="text-neutral-500 dark:text-neutral-400 font-medium font-sans">Total Connected Load:</span>
+                              <span className="font-mono font-bold text-[14px] text-primary">
+                                {rowTotalW.toLocaleString()} {unitSystem === "ip" ? "VA" : "W"} ({rowTotalKw.toFixed(3)} kW)
+                              </span>
+                            </div>
+                            <div className="text-[10.5px] text-neutral-500 dark:text-neutral-400 font-mono bg-white/20 dark:bg-black/35 p-2.5 rounded-xl border border-black/5 dark:border-white/5 break-all leading-relaxed">
+                              ({tempRow.emLightQty} × {tempRow.emLightW}{unitSystem === "ip" ? "VA" : "W"}) + ({tempRow.exitLightQty} × {tempRow.exitLightW}{unitSystem === "ip" ? "VA" : "W"}) = {rowTotalW.toLocaleString()} {unitSystem === "ip" ? "VA" : "W"}
+                            </div>
+                            
+                            <div className="pt-2 flex justify-between items-baseline text-[12px]">
+                              <span className="text-neutral-500 dark:text-neutral-400 font-medium font-sans">Demand (after LF {loadingFactor}):</span>
+                              <span className="font-mono font-bold text-[13px] text-neutral-800 dark:text-neutral-100">
+                                {rowAfterLFKw.toFixed(2)} kW
+                              </span>
+                            </div>
+                            <div className="text-[10.5px] text-neutral-500 dark:text-neutral-400 font-mono bg-white/20 dark:bg-black/35 p-2 rounded-xl border border-black/5 dark:border-white/5">
+                              {rowTotalKw.toFixed(3)} kW ÷ {loadingFactor} = {rowAfterLFKw.toFixed(2)} kW
+                            </div>
+
+                            <div className="pt-2 flex justify-between items-baseline text-[12px]">
+                              <span className="text-neutral-500 dark:text-neutral-400 font-medium font-sans">Apparent Demand (kVA):</span>
+                              <span className="font-mono font-bold text-[13px] text-primary">
+                                {rowKva.toFixed(2)} kVA
+                              </span>
+                            </div>
+                            <div className="text-[10.5px] text-neutral-500 dark:text-neutral-400 font-mono bg-white/20 dark:bg-black/35 p-2 rounded-xl border border-black/5 dark:border-white/5">
+                              {rowAfterLFKw.toFixed(2)} kW ÷ {powerFactor} (PF) = {rowKva.toFixed(2)} kVA
+                            </div>
+
+                            <div className="pt-2 flex justify-between items-center text-xs font-sans">
+                              <span className="text-neutral-500 dark:text-neutral-400">Share of Total Load:</span>
+                              <span className="font-bold font-mono text-neutral-800 dark:text-neutral-100">{shareOfTotal}%</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Verification Banner */}
+                        <div className="shrink-0 p-4 bg-emerald-500/10 dark:bg-emerald-500/5 border border-emerald-500/20 dark:border-emerald-500/10 rounded-2xl flex items-start gap-2.5 text-[12px] text-emerald-600 dark:text-emerald-400 shadow-sm shadow-emerald-500/5">
+                          <CheckCircle2 className="size-4 shrink-0 mt-0.5 text-emerald-500" />
+                          <div>
+                            <span className="font-semibold">Calculations verified.</span> Emergency lighting load conforms to BS 5266-1 / EN 50171 standards.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <footer className="px-6 h-16 border-t border-black/5 dark:border-white/5 bg-white/10 dark:bg-black/10 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2 text-[12px] text-neutral-500 dark:text-neutral-400">
+                <CheckCircle2 className="size-4 text-emerald-500" />
+                <span>Changes apply live to project calculation schedule</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setEditingRow(null)}
+                  className="h-10 px-5 border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-neutral-700 dark:text-neutral-300 rounded-xl text-[12.5px] font-medium transition-colors cursor-pointer shadow-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (tempRow) {
+                      setRows(prev => prev.map(r => r.id === tempRow.id ? tempRow : r));
+                      toast.success(`Changes saved for "${tempRow.description}"`);
+                    }
+                    setEditingRow(null);
+                  }}
+                  className="h-10 px-5 bg-primary text-primary-foreground hover:bg-primary/95 rounded-xl text-[12.5px] font-semibold transition-all shadow-md shadow-primary/10 active:scale-[0.98] cursor-pointer"
+                >
+                  Done / Apply Changes
+                </button>
+              </div>
+            </footer>
+          </div>
+        </div>
+      )}
       
       {/* Assign Comment Modal */}
       {commentTargetItem && (

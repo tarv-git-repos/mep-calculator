@@ -185,14 +185,8 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
       row.getCell(1).value = globalSrNo++;
       row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
       
-      // Since TYPE OF AREA is removed, include it in AREA or just leave as is. User wanted it exact, so we'll just put name. 
-      // If areaType is selected, append it in brackets to preserve data!
-      let spaceStr = space.name;
-      if (space.areaType) {
-         spaceStr += `\n(${space.areaType.replace(/\b\w/g, (l: string) => l.toUpperCase())})`;
-      }
-      row.getCell(2).value = spaceStr;
-      row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+      row.getCell(2).value = space.name || "Space";
+      row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
 
       let cIdx = 3;
       for (let i = 0; i < maxFixtures; i++) {

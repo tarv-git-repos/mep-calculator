@@ -15,7 +15,7 @@ import {
   type HeatingPresetConfig,
 } from "@/lib/calc-heating-load";
 
-import { CalculationReviewBar, CalculationStatusBanner, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass } from "@/components/workspace/CalculationReviewBar";
+import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { useAuth } from "@/contexts/AuthContext";
@@ -796,13 +796,6 @@ function HeatingLoadPage() {
               <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
             </div>
           </div>
-
-          {/* Review / Approval Status Banner */}
-          <CalculationStatusBanner
-            projectId={activeProjectId || project?.id || "default"}
-            calculatorPath="/heating-load"
-            calculatorTitle="Winter Heating Load"
-          />
 
           {/* White / Dark Card container for Parameters & Results Grid */}
           <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${
@@ -1615,8 +1608,8 @@ function HeatingLoadPage() {
               <div className="p-3.5 rounded-xl bg-muted/20 border border-border/70 space-y-1.5">
                 <div className="font-bold text-foreground">2. Infiltration & Fresh Air Sensible Loss</div>
                 <div className="font-mono font-bold text-primary text-xs bg-background p-2 rounded-lg border border-border/60">
-                  Q_air = 1.08 × CFM × (T_in - T_out) &nbsp;&nbsp;[IP]<br/>
-                  Q_air = 1.20 × L/s × (T_in - T_out) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[SI, Watts]
+                  Q_infil = 1.08 × CFM × (T_in - T_out) &nbsp;&nbsp;[IP]<br/>
+                  Q_infil = 1.20 × L/s × (T_in - T_out) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;[SI, Watts]
                 </div>
               </div>
               <div className="p-3.5 rounded-xl bg-muted/20 border border-border/70 space-y-1.5">
