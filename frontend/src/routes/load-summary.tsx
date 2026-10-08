@@ -35,6 +35,8 @@ import {
   hasActive3dSpaces,
   extractFloorName,
   sortLoadRowsFloorWise,
+  cleanSpaceName,
+  cleanRemarks,
 } from "@/lib/calc-load-summary";
 import { getFloorRank } from "@/lib/bimViewerSpaceExtractor";
 import { toast } from "sonner";
@@ -168,7 +170,12 @@ function LoadSummaryPage() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map(computeRowOutputs);
+          return parsed.map((r: any) => {
+            const floor = r.floor || extractFloorName(r);
+            const description = cleanSpaceName(r.description || "");
+            const remarks = cleanRemarks(r.remarks);
+            return computeRowOutputs({ ...r, floor, description, remarks });
+          });
         }
       }
     } catch {}
@@ -183,7 +190,12 @@ function LoadSummaryPage() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          setRows(parsed.map(computeRowOutputs));
+          setRows(parsed.map((r: any) => {
+            const floor = r.floor || extractFloorName(r);
+            const description = cleanSpaceName(r.description || "");
+            const remarks = cleanRemarks(r.remarks);
+            return computeRowOutputs({ ...r, floor, description, remarks });
+          }));
         }
       }
     } catch {}
@@ -501,10 +513,10 @@ function LoadSummaryPage() {
 
   const loadDummyData = () => {
     const dummy: LoadRow[] = [
-      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "First Floor Office", qty: 1, area: 150, lighting: 1.5, power: 3.0, hvac: 15.0, other: 0, totalLoad: 0, remarks: "", flagged: false },
-      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "Second Floor Meeting Rooms", qty: 2, area: 40, lighting: 0.5, power: 1.0, hvac: 4.0, other: 0, totalLoad: 0, remarks: "Dimmable", flagged: false },
-      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "Server Room", qty: 1, area: 20, lighting: 0.2, power: 20.0, hvac: 25.0, other: 0, totalLoad: 0, remarks: "Critical load", flagged: true },
-      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, description: "Pantry", qty: 1, area: 15, lighting: 0.15, power: 5.0, hvac: 1.5, other: 0, totalLoad: 0, remarks: "", flagged: false }
+      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, floor: "FIRST FLOOR", description: "Office", qty: 1, area: 150, lighting: 1.5, power: 3.0, hvac: 15.0, other: 0, totalLoad: 0, remarks: "", flagged: false },
+      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, floor: "SECOND FLOOR", description: "Meeting Rooms", qty: 2, area: 40, lighting: 0.5, power: 1.0, hvac: 4.0, other: 0, totalLoad: 0, remarks: "Dimmable", flagged: false },
+      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, floor: "GROUND FLOOR", description: "Server Room", qty: 1, area: 20, lighting: 0.2, power: 20.0, hvac: 25.0, other: 0, totalLoad: 0, remarks: "Critical load", flagged: true },
+      { id: `ls_${Math.random().toString(36).slice(2, 9)}`, floor: "GROUND FLOOR", description: "Pantry", qty: 1, area: 15, lighting: 0.15, power: 5.0, hvac: 1.5, other: 0, totalLoad: 0, remarks: "", flagged: false }
     ];
     
     pushToHistory(rows, history, setHistory, setRedoStack);
@@ -520,7 +532,7 @@ function LoadSummaryPage() {
       return;
     }
     pushToHistory(rows, history, setHistory, setRedoStack);
-    setRows(result.rows);
+    setRows(result.rows.map(r => ({ ...r, remarks: cleanRemarks(r.remarks) })));
     toast.success(`✨ Synced ${result.rows.length} spaces (${result.spacesUpdated} updated, ${result.newSpacesAdded} added)!`, {
       description: `Lighting: ${result.lightingTotalKw} kW · HVAC: ${result.hvacTotalKw} kW aggregated from 3D & other calculators.`,
     });
@@ -535,7 +547,7 @@ function LoadSummaryPage() {
       const pId = activeProjectId || project?.id || "default";
       const newRows = await importIfcFileToLoadSummary(file, pId);
       pushToHistory(rows, history, setHistory, setRedoStack);
-      setRows(newRows);
+      setRows(newRows.map(r => ({ ...r, remarks: cleanRemarks(r.remarks) })));
       setSyncModalOpen(false);
       toast.success(`✨ Extracted ${newRows.length} spaces from ${file.name}!`, {
         description: "Rooms, floor areas, and ASHRAE/NEC electrical & HVAC loads calculated.",
@@ -552,7 +564,7 @@ function LoadSummaryPage() {
   const handleLoadBenchmarkSpaces = () => {
     const benchmarkRows = getCommercialBenchmarkLoads();
     pushToHistory(rows, history, setHistory, setRedoStack);
-    setRows(benchmarkRows);
+    setRows(benchmarkRows.map(r => ({ ...r, remarks: cleanRemarks(r.remarks) })));
     setSyncModalOpen(false);
     toast.success(`🏢 Loaded 10 standard commercial spaces!`, {
       description: "Includes Reception, Open Office, Boardroom, Meeting Rooms, Server Room, AHU Plant Room, and Electrical Room.",
@@ -743,7 +755,7 @@ function LoadSummaryPage() {
             const pasted = parsed.map((item, i) => ({
               ...item,
               id: `ls_paste_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 9)}`,
-              description: `${item.description} (Copy)`
+              description: `${cleanSpaceName(item.description)} (Copy)`
             }));
             pushToHistory(rows, history, setHistory, setRedoStack);
             setRows(prev => [...prev, ...pasted]);
@@ -785,9 +797,12 @@ function LoadSummaryPage() {
     const rowsToProcess = relevantRows.length > 0 ? relevantRows : mappedRows;
 
     const newRows: LoadRow[] = rowsToProcess.map((mr, idx) => {
+      const rawDesc = mr.description || mr.space || mr.name || `Imported Load ${idx + 1}`;
+      const floor = mr.floor || extractFloorName({ description: rawDesc });
       const row: LoadRow = {
         id: `ls_import_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 7)}`,
-        description: mr.description || mr.space || mr.name || `Imported Load ${idx + 1}`,
+        floor,
+        description: cleanSpaceName(rawDesc),
         qty: mr.qty !== undefined && mr.qty !== null && !isNaN(Number(mr.qty)) ? Number(mr.qty) : 1,
         area: Number(mr.area) || 0,
         lighting: Number(mr.lighting) || 0,
@@ -876,7 +891,7 @@ function LoadSummaryPage() {
       // 2. Main Data Rows
       const dataRows = rows.map((r, i) => [
         { content: String(i + 1), styles: { halign: "center" as const } },
-        { content: r.description || "", styles: { halign: "left" as const } },
+        { content: cleanSpaceName(r.description || ""), styles: { halign: "left" as const } },
         { content: String(r.qty ?? 0), styles: { halign: "center" as const } },
         { content: String(r.area ?? 0), styles: { halign: "center" as const } },
         { content: String(r.lighting ?? 0), styles: { halign: "center" as const } },
@@ -1060,24 +1075,6 @@ function LoadSummaryPage() {
 
   const columns: Column<LoadRow>[] = useMemo(() => [
     {
-      key: "id",
-      header: "S.NO",
-      width: 50,
-      align: "center",
-      mono: true,
-      render: (row) => {
-        const index = filteredRows.findIndex(r => r.id === row.id) + 1;
-        return (
-          <span
-            onDoubleClick={() => setPreviewRow(row)}
-            className="text-muted-foreground font-mono text-[12px] cursor-default"
-          >
-            {index}
-          </span>
-        );
-      }
-    },
-    {
       key: "description",
       header: "SPACE NAME",
       width: 240,
@@ -1095,9 +1092,9 @@ function LoadSummaryPage() {
           <div className="w-full h-full flex items-center gap-1 px-1 group">
             <InlineInput
               disabled={isEffectiveReadOnly}
-              value={row.description}
-              placeholder="e.g. Ground Floor Main Office"
-              onCommit={(val) => updateRow(row.id, { description: val })}
+              value={cleanSpaceName(row.description)}
+              placeholder="e.g. Bathroom"
+              onCommit={(val) => updateRow(row.id, { description: cleanSpaceName(val) })}
               onDoubleClick={() => setPreviewRow(row)}
               className="text-[12.5px] font-medium min-w-0 flex-1"
             />
@@ -1106,7 +1103,7 @@ function LoadSummaryPage() {
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleOpenComment(row.id, row.description || `Load ${index}`);
+                  handleOpenComment(row.id, cleanSpaceName(row.description) || `Load ${index}`);
                 }}
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-[10.5px] font-bold shrink-0 cursor-pointer transition-colors"
                 title={`${rowComments.length} comment(s) / task(s). Click to view or reply.`}
@@ -1119,7 +1116,7 @@ function LoadSummaryPage() {
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleOpenComment(row.id, row.description || `Load ${index}`);
+                  handleOpenComment(row.id, cleanSpaceName(row.description) || `Load ${index}`);
                 }}
                 className="opacity-0 group-hover:opacity-100 hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity p-0.5 cursor-pointer shrink-0"
                 title="Add Comment / Assign Task"

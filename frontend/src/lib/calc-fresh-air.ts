@@ -90,6 +90,7 @@ export const calculateFreshAirCoolingLoad = (
   // Condensate removal rate in kg/h (or L/h)
   const condensateKgH = mDot * Math.max(0, (wInKg - wOutKg)) * 3600;
   const condensateGph = condensateKgH * 0.264172;
+  const condensateGpm = condensateGph / 60;
 
   const sensLoad = ip ? sensKw * 3412.14 : sensKw;
   const latLoad = ip ? latKw * 3412.14 : latKw;
@@ -113,6 +114,7 @@ export const calculateFreshAirCoolingLoad = (
     shr,
     condensateKgH,
     condensateGph,
+    condensateGpm,
     mDot,
   };
 };

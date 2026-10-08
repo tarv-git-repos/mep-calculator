@@ -22,6 +22,8 @@ interface ViewerState {
   
   // Selected space info
   selectedSpaceInfo: string;
+  draggedEquipmentId: string | null;
+  setDraggedEquipmentId: (id: string | null) => void;
   
   // Actions
   setViewMode: (mode: '3d' | '2d') => void;
@@ -51,6 +53,8 @@ export const useViewerStore = create<ViewerState>((set) => ({
   levels: [],
   selectedLevel: '',
   selectedSpaceInfo: 'Click on a space in 3D view to select it.',
+  draggedEquipmentId: null,
+  setDraggedEquipmentId: (id) => set({ draggedEquipmentId: id }),
   
   setViewMode: (mode) => set({ viewMode: mode }),
   setCameraMode: (mode) => set({ cameraMode: mode }),

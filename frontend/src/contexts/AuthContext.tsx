@@ -438,7 +438,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       subscription_status: 'ACTIVE',
       isAccountVerified: userData.isAccountVerified,
       features: userData.features || {},
-      subscription_expires: userData.subscription_expires || '2026-10-01T00:00:00.000Z',
+      subscription_expires: userData.subscription_expires,
       company: userData.company || '',
       designation: effectiveDesignation,
       profile_photo: userData.profile_photo || '',

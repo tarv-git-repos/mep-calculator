@@ -33,7 +33,7 @@ export function SharedAssignmentModal({
   initialShowAddEquip,
   onClose,
 }: SharedAssignmentModalProps) {
-  const { spaces, zones, equipment, setWorkspaceState } = useWorkspace();
+  const { spaces, zones, equipment, setWorkspaceState, addEquipment } = useWorkspace();
 
   const [selectedEquipId, setSelectedEquipId] = useState<string | null>(null);
   // Multi-equipment staging state: equipmentId -> Set of instance keys ("${zoneId}_${instanceIndex}")
@@ -285,15 +285,15 @@ export function SharedAssignmentModal({
 
   const handleAddEquipment = () => {
     if (!newTag.trim()) {
-      alert("Please enter an equipment tag!");
+      toast.error("Please enter an equipment tag!");
       return;
     }
     if (equipment.some((e) => e.tag.toLowerCase() === newTag.trim().toLowerCase())) {
-      alert("An equipment with this tag already exists!");
+      toast.error("An equipment with this tag already exists!");
       return;
     }
     const newEquip: Equipment = {
-      id: `equip-${Date.now()}`,
+      id: "equip-" + Date.now(),
       tag: newTag.trim(),
       type: newType === "EAHU" ? "Ecology" : newType,
       zones: 0,
@@ -307,23 +307,23 @@ export function SharedAssignmentModal({
       totalFA: 0,
       totalEA: 0,
     };
-    const balanced = calculateVentilation(spaces, zones, [...equipment, newEquip]);
-    setWorkspaceState({
-      spaces: balanced.spaces,
-      zones: balanced.zones,
-      equipment: balanced.equipment,
-    });
-    setSelectedEquipId(newEquip.id);
-    setStagedAssignments((prev) => ({
-      ...prev,
-      [newEquip.id]: new Set(),
-    }));
-    setShowAddEquip(false);
-    setNewTag("");
-    setNewCapacity(2500);
+    try {
+      addEquipment(newEquip);
+      setSelectedEquipId(newEquip.id);
+      setStagedAssignments((prev) => ({
+        ...prev,
+        [newEquip.id]: new Set(),
+      }));
+      setShowAddEquip(false);
+      setNewTag("");
+      setNewCapacity(2500);
+      toast.success("Equipment added successfully!");
+    } catch (err: any) {
+      toast.error("Failed to add equipment: " + err.message);
+      console.error(err);
+    }
   };
-
-  // Apply all staged changes across all equipment to workspace
+// Apply all staged changes across all equipment to workspace
   const handleApplyAll = (closeModal: boolean = false) => {
     const hasTargetZone = !!initialZoneId || (!!initialZoneIds && initialZoneIds.length > 0);
     const targetIds = initialZoneIds && initialZoneIds.length > 0 ? Array.from(initialZoneIds) : initialZoneId ? [initialZoneId] : [];
@@ -610,17 +610,12 @@ export function SharedAssignmentModal({
                       )}
                     </div>
                     <div className="flex items-center justify-end gap-2 text-[11px] pt-1">
-                      <button
-                        onClick={() => {
-                          setNewTag("");
-                          setShowAddEquip(false);
-                        }}
+                      <button type="button" onClick={() => { setNewTag(""); setShowAddEquip(false); }}
                         className="px-4 py-1.5 border border-border/80 hover:bg-surface-2 rounded-lg text-muted-foreground hover:text-foreground text-[11.5px] font-semibold transition-all duration-150 cursor-pointer"
                       >
                         Cancel
                       </button>
-                      <button
-                        onClick={handleAddEquipment}
+                      <button type="button" onClick={handleAddEquipment}
                         className="px-5 py-1.5 bg-primary text-primary-foreground font-bold rounded-lg hover:bg-primary/95 text-[11.5px] transition-all duration-150 cursor-pointer shadow-md shadow-primary/10"
                       >
                         Add

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { calculateVentilation, setGlobalRoundOffPreset, sanitizeSpaceRecord, type Space, type Zone, type Equipment, type ZoneInstanceAssignment } from "./ventilation-calc";
 export type { ZoneInstanceAssignment };
 import { predictOccupancyCategory, predictSpacePressure } from "./ai-occupancy";
@@ -130,7 +131,18 @@ export let isInitializing = true;
 const listeners = new Set<() => void>();
 
 function notify() {
-  listeners.forEach((l) => l());
+  console.log('[MEP-DND] notify started. Subscriber count:', listeners.size);
+  let idx = 0;
+  listeners.forEach((l) => {
+    idx++;
+    console.log(`[MEP-DND] notify subscriber ${idx}`);
+    try {
+      l();
+      console.log(`[MEP-DND] notify subscriber ${idx} completed`);
+    } catch (err) {
+      console.error(`[MEP-DND] notify subscriber ${idx} ERROR:`, err);
+    }
+  });
 }
 
 let undoStack: string[] = [];
@@ -471,8 +483,8 @@ export const workspaceStore = {
     });
     currentWorkspaceState = {
       spaces: processedSpaces,
-      zones: newState.zones,
-      equipment: newState.equipment,
+      zones: newState.zones || currentWorkspaceState.zones || [],
+      equipment: newState.equipment || currentWorkspaceState.equipment || [],
       roundOffPreset: currentWorkspaceState.roundOffPreset,
       isReadOnly: newState.isReadOnly ?? currentWorkspaceState.isReadOnly,
     };
@@ -658,7 +670,7 @@ export const workspaceStore = {
     }
     pushHistory();
     const spaceMap = new Map(updatedSpaces.map((s) => [s.id, s]));
-    const nextSpaces = currentWorkspaceState.spaces.map((s) => {
+    const nextSpaces = (currentWorkspaceState?.spaces || []).map((s) => {
       const updated = spaceMap.get(s.id);
       if (updated) {
         const wasMissing = checkIfSpaceMissingData(s);
@@ -692,7 +704,7 @@ export const workspaceStore = {
     }
     pushHistory();
     const zoneMap = new Map(updatedZones.map((z) => [z.id, z]));
-    const nextZones = currentWorkspaceState.zones.map((z) => {
+    const nextZones = (currentWorkspaceState?.zones || []).map((z) => {
       const updated = zoneMap.get(z.id);
       if (updated) {
         const mult = updated.multiplier ?? 1;
@@ -723,14 +735,17 @@ export const workspaceStore = {
       return;
     }
     pushHistory();
+    console.log('[MEP-DND] before updateEquipment. count:', updatedEquip?.length);
     const balanced = calculateVentilation(
       currentWorkspaceState.spaces,
       currentWorkspaceState.zones,
       updatedEquip
     );
     currentWorkspaceState = balanced;
+    console.log('[MEP-DND] after equipment mutation. balanced equipment count:', balanced.equipment?.length);
     saveState();
     logCalculatorUpdate('Ventilation', 'Updated equipment in Ventilation');
+    console.log('[MEP-DND] final workspace equipment:', currentWorkspaceState.equipment.map(e => ({ id: e.id, tag: e.tag, spaceId: e.locationSpaceId, pos: [e.positionX, e.positionY, e.positionZ] })));
     notify();
   },
 
@@ -741,7 +756,7 @@ export const workspaceStore = {
     }
     pushHistory();
     if (targetType === 'space') {
-      const nextSpaces = currentWorkspaceState.spaces.map(s => {
+      const nextSpaces = (currentWorkspaceState?.spaces || []).map(s => {
         if (s.id === targetId) {
           const comments = [...(s.comments || []), comment];
           return { ...s, comments };
@@ -750,7 +765,7 @@ export const workspaceStore = {
       });
       currentWorkspaceState = { ...currentWorkspaceState, spaces: nextSpaces };
     } else if (targetType === 'zone') {
-      const nextZones = currentWorkspaceState.zones.map(z => {
+      const nextZones = (currentWorkspaceState?.zones || []).map(z => {
         if (z.id === targetId) {
           const comments = [...(z.comments || []), comment];
           return { ...z, comments };
@@ -759,7 +774,7 @@ export const workspaceStore = {
       });
       currentWorkspaceState = { ...currentWorkspaceState, zones: nextZones };
     } else if (targetType === 'equipment') {
-      const nextEquip = currentWorkspaceState.equipment.map(e => {
+      const nextEquip = (currentWorkspaceState?.equipment || []).map(e => {
         if (e.id === targetId) {
           const comments = [...(e.comments || []), comment];
           return { ...e, comments };
@@ -778,7 +793,7 @@ export const workspaceStore = {
     } else if (targetType === 'zone') {
       targetName = currentWorkspaceState.zones.find(z => z.id === targetId)?.name || targetId;
     } else if (targetType === 'equipment') {
-      targetName = currentWorkspaceState.equipment.find(e => e.id === targetId)?.name || targetId;
+      targetName = (currentWorkspaceState?.equipment || []).find(e => e.id === targetId)?.name || targetId;
     }
 
     notifyCommentAssigned({
@@ -824,7 +839,7 @@ export const workspaceStore = {
       ...currentWorkspaceState,
       spaces: removeMatchingComments(currentWorkspaceState.spaces),
       zones: removeMatchingComments(currentWorkspaceState.zones),
-      equipment: removeMatchingComments(currentWorkspaceState.equipment),
+      equipment: removeMatchingComments((currentWorkspaceState?.equipment || [])),
     };
     saveState(true);
     notify();
@@ -861,7 +876,7 @@ export const workspaceStore = {
       ...currentWorkspaceState,
       spaces: markMatchingComments(currentWorkspaceState.spaces),
       zones: markMatchingComments(currentWorkspaceState.zones),
-      equipment: markMatchingComments(currentWorkspaceState.equipment),
+      equipment: markMatchingComments((currentWorkspaceState?.equipment || [])),
     };
     saveState(true);
     notify();
@@ -898,7 +913,7 @@ export const workspaceStore = {
       ...currentWorkspaceState,
       spaces: markMatchingComments(currentWorkspaceState.spaces),
       zones: markMatchingComments(currentWorkspaceState.zones),
-      equipment: markMatchingComments(currentWorkspaceState.equipment),
+      equipment: markMatchingComments((currentWorkspaceState?.equipment || [])),
     };
     saveState(true);
     notify();
@@ -919,7 +934,7 @@ export const workspaceStore = {
       ...currentWorkspaceState,
       spaces: clearComments(currentWorkspaceState.spaces),
       zones: clearComments(currentWorkspaceState.zones),
-      equipment: clearComments(currentWorkspaceState.equipment),
+      equipment: clearComments((currentWorkspaceState?.equipment || [])),
     };
     saveState(true);
     notify();
@@ -983,10 +998,10 @@ export const workspaceStore = {
     }
     pushHistory();
     const existingZoneNames = new Set(
-      currentWorkspaceState.zones.map((z) => z.name.toLowerCase())
+      (currentWorkspaceState?.zones || []).map((z) => z.name.toLowerCase())
     );
     const existingZoneIds = new Set(
-      currentWorkspaceState.zones.map((z) => z.id.toLowerCase())
+      (currentWorkspaceState?.zones || []).map((z) => z.id.toLowerCase())
     );
 
     const zonesToAdd: Zone[] = [];
@@ -1084,7 +1099,7 @@ export const workspaceStore = {
       return;
     }
     pushHistory();
-    const nextSpaces = currentWorkspaceState.spaces.map((s) => {
+    const nextSpaces = (currentWorkspaceState?.spaces || []).map((s) => {
       if (ids.includes(s.id)) {
         const next = { ...s, ...updates };
 
@@ -1272,7 +1287,7 @@ export const workspaceStore = {
 
     const nextZones = currentWorkspaceState.zones.filter((z) => z.id !== zoneId && (!targetName || z.name.trim().toLowerCase() !== targetName));
     // Dissolve zone: set all spaces in this zone to have zone = ""
-    const nextSpaces = currentWorkspaceState.spaces.map((s) =>
+    const nextSpaces = (currentWorkspaceState?.spaces || []).map((s) =>
       s.zone === zoneId || (targetName && s.zone.trim().toLowerCase() === targetName)
         ? { ...s, zone: "" }
         : s
@@ -1336,7 +1351,7 @@ export const workspaceStore = {
 
   assignZoneToEquipment(zoneId: string, equipId: string, stream: "FA" | "EA", quantity?: number) {
     pushHistory();
-    const nextZones = currentWorkspaceState.zones.map((g) => {
+    const nextZones = (currentWorkspaceState?.zones || []).map((g) => {
       if (g.id === zoneId) {
         const qty = quantity ?? 1;
 
@@ -1391,7 +1406,7 @@ export const workspaceStore = {
 
   removeZoneFromEquipment(zoneId: string, equipId: string, stream: "FA" | "EA") {
     pushHistory();
-    const nextZones = currentWorkspaceState.zones.map((g) => {
+    const nextZones = (currentWorkspaceState?.zones || []).map((g) => {
       if (g.id === zoneId) {
         if (stream === "FA") {
           const currentFA = { ...(g.faAssignments || {}) };
@@ -1437,7 +1452,7 @@ export const workspaceStore = {
   // Instance-based allocation — each multiplier slot is one independent instance
   updateZoneInstances(zoneId: string, instances: ZoneInstanceAssignment[]) {
     pushHistory();
-    const nextZones = currentWorkspaceState.zones.map((g) => {
+    const nextZones = (currentWorkspaceState?.zones || []).map((g) => {
       if (g.id !== zoneId) return g;
 
       // Derive backward-compat dicts: count instances served per equipment
@@ -1472,21 +1487,24 @@ export const workspaceStore = {
 
   addEquipment(newEquip: Equipment) {
     pushHistory();
-    const nextEquip = [...currentWorkspaceState.equipment, newEquip];
+    const currentEquip = currentWorkspaceState?.equipment || [];
+    const currentSpaces = currentWorkspaceState?.spaces || [];
+    const currentZones = currentWorkspaceState?.zones || [];
+    const nextEquip = [...currentEquip, newEquip];
     const balanced = calculateVentilation(
-      currentWorkspaceState.spaces,
-      currentWorkspaceState.zones,
+      currentSpaces,
+      currentZones,
       nextEquip
     );
-    currentWorkspaceState = balanced;
+    currentWorkspaceState = { ...currentWorkspaceState, ...balanced };
     saveState();
     notify();
   },
 
   deleteEquipment(equipId: string) {
     pushHistory();
-    const nextEquip = currentWorkspaceState.equipment.filter((e) => e.id !== equipId);
-    const nextZones = currentWorkspaceState.zones.map((g) => {
+    const nextEquip = (currentWorkspaceState?.equipment || []).filter((e) => e.id !== equipId);
+    const nextZones = (currentWorkspaceState?.zones || []).map((g) => {
       const currentFA = { ...(g.faAssignments || {}) };
       delete currentFA[equipId];
       const faKeys = Object.keys(currentFA);
@@ -1579,10 +1597,10 @@ export const workspaceStore = {
 
     // Auto-create zones if they don't exist
     const existingZoneNames = new Set(
-      currentWorkspaceState.zones.map((z) => z.name.toLowerCase())
+      (currentWorkspaceState?.zones || []).map((z) => z.name.toLowerCase())
     );
     const existingZoneIds = new Set(
-      currentWorkspaceState.zones.map((z) => z.id.toLowerCase())
+      (currentWorkspaceState?.zones || []).map((z) => z.id.toLowerCase())
     );
     const zonesToAdd: Zone[] = [];
 

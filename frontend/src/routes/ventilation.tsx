@@ -3832,22 +3832,13 @@ function SpacesView() {
                                     title={rec.aiDetected ? "Automatically identified" : undefined}
                                     className={`size-1.5 rounded-full shrink-0 ${rec.aiDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
                                   />
-                                  <select
+                                  <CategorySelect
                                     value={rec.category && rec.category.endsWith(" (Custom)") ? "Other" : rec.category || ""}
-                                    onChange={(e) => {
-                                      const newVal = e.target.value;
+                                    onChange={(newVal) => {
                                       setPendingRecords(prev => prev.map(p => p.id === rec.id ? { ...p, category: newVal, aiDetected: false } : p));
                                     }}
-                                    className="w-full bg-transparent border-0 hover:bg-surface-2 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[11px] cursor-pointer truncate"
-                                  >
-                                    <option value="" className="text-muted-foreground italic">Select Category...</option>
-                                    <option value="Other" className="bg-background text-foreground">Other</option>
-                                    {getOccupancyCategories().map((c) => (
-                                      <option key={c} value={c} className="bg-background text-foreground">
-                                        {c}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    triggerClassName="text-[11px] py-0.5"
+                                  />
                                 </span>
                               </td>
                               <td className="p-2 font-mono" onClick={(e) => e.stopPropagation()}>

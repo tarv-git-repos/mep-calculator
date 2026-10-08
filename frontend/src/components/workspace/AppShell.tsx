@@ -172,7 +172,8 @@ const EXCLUDED_PERSIST_PATHS = [
   "/psychrometric",
   "/plumbing-fm200",
   "/plumbing-fire-water-demand",
-  "/plumbing-sewage-pump"
+  "/plumbing-sewage-pump",
+  "/lpd-calculation"
 ];
 
 const NON_VERSION_PATHS = [
@@ -489,7 +490,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const des = String(activeProfile.designation || "").toLowerCase().trim();
 
   // Dynamic Review & Approval Authority (Single Source of Truth: Company Hierarchy)
-  const currentUserAuthority = useMemo<"APPROVE_REJECT" | "REVIEW" | "NONE">(() => {
+  const currentUserAuthority = useMemo<"APPROVE_REJECT" | "REVIEW" | "NONE" | "SUBMIT_TASK">(() => {
     let ap: any = profile || userData || {};
     if ((!ap.role && !ap.designation) && typeof window !== "undefined") {
       try {

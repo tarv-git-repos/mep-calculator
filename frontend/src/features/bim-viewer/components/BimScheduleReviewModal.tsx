@@ -1,4 +1,5 @@
 import { X, Sparkles, Table, Sun, Zap, Lightbulb, Layers } from "lucide-react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { workspaceStore } from "@/lib/workspace-store";
 import { predictSpacePressure } from "@/lib/ai-occupancy";
@@ -7,6 +8,7 @@ import { convertBimSpaceToLuxRow } from "@/lib/calc-lighting-lux";
 import { convertBimSpacesToCbsRows } from "@/lib/calc-central-battery";
 import { convertBimSpacesToLpdGroupsSplit, defaultProject, type LpdProject } from "@/lib/calc-lpd-calculation";
 import { convertBimSpacesToLoadRows } from "@/lib/calc-load-summary";
+import { CategorySelect } from "@/components/workspace/CategorySelect";
 
 interface BimScheduleReviewModalProps {
   isOpen: boolean;
@@ -324,20 +326,12 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
               onChange={(e) => setBulkValues({ ...bulkValues, zone: e.target.value })}
               className="bg-[#18181b] border border-[#3f3f46] rounded px-2.5 py-1 w-28 text-white outline-none focus:border-blue-500"
             />
-            <select
+            <CategorySelect
               value={bulkValues.category}
-              onChange={(e) => setBulkValues({ ...bulkValues, category: e.target.value })}
-              className="bg-[#18181b] border border-[#3f3f46] rounded px-2.5 py-1 w-44 text-white outline-none cursor-pointer focus:border-blue-500"
-            >
-              <option value="">-- ASHRAE Category --</option>
-              <option value="General Office / Space">General Office / Space</option>
-              <option value="Conference / Meeting Room">Conference / Meeting Room</option>
-              <option value="Corridor / Circulation">Corridor / Circulation</option>
-              <option value="Rest Room / Changing Room">Rest Room / Changing Room</option>
-              <option value="Electrical / Switch Room">Electrical / Switch Room</option>
-              <option value="Mechanical Plant / AHU Room">Mechanical Plant / AHU Room</option>
-              <option value="Storage / Warehouse">Storage / Warehouse</option>
-            </select>
+              onChange={(val) => setBulkValues({ ...bulkValues, category: val })}
+              className="w-44"
+              triggerClassName="bg-[#18181b] border border-[#3f3f46] rounded px-2.5 py-1 text-white outline-none cursor-pointer focus:border-blue-500 h-[30px] text-xs"
+            />
             <select
               value={bulkValues.pressure}
               onChange={(e) => setBulkValues({ ...bulkValues, pressure: e.target.value })}
@@ -410,10 +404,9 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
                       <td className="p-2.5" onClick={(e) => e.stopPropagation()}>
                         <span className="inline-flex items-center gap-1.5 w-full">
                           {rec.aiDetected && <Sparkles className="size-3.5 text-blue-400 shrink-0" />}
-                          <select
-                            value={rec.category || "Select Category..."}
-                            onChange={(e) => {
-                              const cat = e.target.value;
+                          <CategorySelect
+                            value={rec.category || ""}
+                            onChange={(cat) => {
                               const pred = predictSpacePressure(cat);
                               setRecords((prev) =>
                                 prev.map((item) =>
@@ -428,17 +421,9 @@ export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimS
                                 )
                               );
                             }}
-                            className="bg-[#202023] border border-[#3f3f46] rounded px-2 py-1 text-xs text-white outline-none w-full cursor-pointer"
-                          >
-                            <option value="Select Category...">Select Category...</option>
-                            <option value="General Office / Space">General Office / Space</option>
-                            <option value="Conference / Meeting Room">Conference / Meeting Room</option>
-                            <option value="Corridor / Circulation">Corridor / Circulation</option>
-                            <option value="Rest Room / Changing Room">Rest Room / Changing Room</option>
-                            <option value="Electrical / Switch Room">Electrical / Switch Room</option>
-                            <option value="Mechanical Plant / AHU Room">Mechanical Plant / AHU Room</option>
-                            <option value="Storage / Warehouse">Storage / Warehouse</option>
-                          </select>
+                            className="w-full"
+                            triggerClassName="bg-[#202023] border border-[#3f3f46] rounded px-2 py-1 text-xs text-white outline-none w-full cursor-pointer h-7"
+                          />
                         </span>
                       </td>
                       <td className="p-2.5" onClick={(e) => e.stopPropagation()}>

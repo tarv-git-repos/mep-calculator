@@ -33,7 +33,7 @@ function readActivityLogs() {
 }
 
 function writeActivityLogs(logs) {
-  try { fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf8'); } catch (e) {}
+  try { fs.writeFileSync(ACTIVITY_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf8'); } catch (e) { }
 }
 
 const ORG_SETTINGS_FILE = path.join(DATA_DIR, 'org_settings.json');
@@ -47,27 +47,27 @@ function readLocalUsers() {
 }
 
 function saveLocalUsers(users) {
-  try { fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8'); } catch (e) {}
+  try { fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf8'); } catch (e) { }
 }
 
 const ORGS_FILE = path.join(DATA_DIR, 'organizations.json');
-try { if (!fs.existsSync(ORGS_FILE)) fs.writeFileSync(ORGS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+try { if (!fs.existsSync(ORGS_FILE)) fs.writeFileSync(ORGS_FILE, JSON.stringify([]), 'utf8'); } catch (e) { }
 
 const ORG_HIERARCHIES_FILE = path.join(DATA_DIR, 'org_hierarchies.json');
-try { if (!fs.existsSync(ORG_HIERARCHIES_FILE)) fs.writeFileSync(ORG_HIERARCHIES_FILE, JSON.stringify({}), 'utf8'); } catch (e) {}
+try { if (!fs.existsSync(ORG_HIERARCHIES_FILE)) fs.writeFileSync(ORG_HIERARCHIES_FILE, JSON.stringify({}), 'utf8'); } catch (e) { }
 
 function readOrgHierarchies() {
   try { return JSON.parse(fs.readFileSync(ORG_HIERARCHIES_FILE, 'utf8') || '{}'); } catch (e) { return {}; }
 }
 function saveOrgHierarchies(data) {
-  try { fs.writeFileSync(ORG_HIERARCHIES_FILE, JSON.stringify(data, null, 2), 'utf8'); } catch (e) {}
+  try { fs.writeFileSync(ORG_HIERARCHIES_FILE, JSON.stringify(data, null, 2), 'utf8'); } catch (e) { }
 }
 
 const LICENSES_FILE = path.join(DATA_DIR, 'licenses.json');
-try { if (!fs.existsSync(LICENSES_FILE)) fs.writeFileSync(LICENSES_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+try { if (!fs.existsSync(LICENSES_FILE)) fs.writeFileSync(LICENSES_FILE, JSON.stringify([]), 'utf8'); } catch (e) { }
 
 const TRIALS_FILE = path.join(DATA_DIR, 'hardware_trials.json');
-try { if (!fs.existsSync(TRIALS_FILE)) fs.writeFileSync(TRIALS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+try { if (!fs.existsSync(TRIALS_FILE)) fs.writeFileSync(TRIALS_FILE, JSON.stringify([]), 'utf8'); } catch (e) { }
 
 const VERSIONS_FILE = path.join(DATA_DIR, 'project_versions.json');
 const NOTIFICATIONS_FILE = path.join(DATA_DIR, 'notifications.json');
@@ -76,22 +76,22 @@ function readNotificationsData() {
     if (fs.existsSync(NOTIFICATIONS_FILE)) {
       return JSON.parse(fs.readFileSync(NOTIFICATIONS_FILE, 'utf8'));
     }
-  } catch(e) {}
+  } catch (e) { }
   return [];
 }
 function writeNotificationsData(data) {
   try {
     fs.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(data, null, 2), 'utf8');
-  } catch(e) {}
+  } catch (e) { }
 }
-try { if (!fs.existsSync(VERSIONS_FILE)) fs.writeFileSync(VERSIONS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+try { if (!fs.existsSync(VERSIONS_FILE)) fs.writeFileSync(VERSIONS_FILE, JSON.stringify([]), 'utf8'); } catch (e) { }
 
 function readVersionsData() {
   try { return JSON.parse(fs.readFileSync(VERSIONS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
 }
 
 function writeVersionsData(versions) {
-  try { fs.writeFileSync(VERSIONS_FILE, JSON.stringify(versions, null, 2), 'utf8'); } catch (e) {}
+  try { fs.writeFileSync(VERSIONS_FILE, JSON.stringify(versions, null, 2), 'utf8'); } catch (e) { }
 }
 
 function readLocalOrgs() {
@@ -99,21 +99,21 @@ function readLocalOrgs() {
 }
 
 function saveLocalOrgs(orgs) {
-  try { fs.writeFileSync(ORGS_FILE, JSON.stringify(orgs, null, 2), 'utf8'); } catch (e) {}
+  try { fs.writeFileSync(ORGS_FILE, JSON.stringify(orgs, null, 2), 'utf8'); } catch (e) { }
 }
 
 const TEAMS_FILE = path.join(DATA_DIR, 'teams.json');
-try { if (!fs.existsSync(TEAMS_FILE)) fs.writeFileSync(TEAMS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+try { if (!fs.existsSync(TEAMS_FILE)) fs.writeFileSync(TEAMS_FILE, JSON.stringify([]), 'utf8'); } catch (e) { }
 
 const TEAM_MEMBERS_FILE = path.join(DATA_DIR, 'team_members.json');
-try { if (!fs.existsSync(TEAM_MEMBERS_FILE)) fs.writeFileSync(TEAM_MEMBERS_FILE, JSON.stringify([]), 'utf8'); } catch (e) {}
+try { if (!fs.existsSync(TEAM_MEMBERS_FILE)) fs.writeFileSync(TEAM_MEMBERS_FILE, JSON.stringify([]), 'utf8'); } catch (e) { }
 
 function readLocalTeams() {
   try { return JSON.parse(fs.readFileSync(TEAMS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
 }
 
 function saveLocalTeams(teams) {
-  try { fs.writeFileSync(TEAMS_FILE, JSON.stringify(teams, null, 2), 'utf8'); } catch (e) {}
+  try { fs.writeFileSync(TEAMS_FILE, JSON.stringify(teams, null, 2), 'utf8'); } catch (e) { }
 }
 
 function readLocalTeamMembers() {
@@ -121,7 +121,7 @@ function readLocalTeamMembers() {
 }
 
 function saveLocalTeamMembers(members) {
-  try { fs.writeFileSync(TEAM_MEMBERS_FILE, JSON.stringify(members, null, 2), 'utf8'); } catch (e) {}
+  try { fs.writeFileSync(TEAM_MEMBERS_FILE, JSON.stringify(members, null, 2), 'utf8'); } catch (e) { }
 }
 
 const orgLicenseSessions = new Map();
@@ -165,7 +165,7 @@ function readOrgSettings() {
 }
 
 function writeOrgSettings(settings) {
-  try { fs.writeFileSync(ORG_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8'); } catch (e) {}
+  try { fs.writeFileSync(ORG_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8'); } catch (e) { }
 }
 
 function parseOrgStatus(statusStr) {
@@ -179,7 +179,7 @@ function parseOrgStatus(statusStr) {
         license_key: parsed.license_key || undefined
       };
     }
-  } catch (e) {}
+  } catch (e) { }
   return { state: typeof statusStr === 'string' ? statusStr : 'active' };
 }
 
@@ -206,7 +206,7 @@ function logActivity(user, action_type, details) {
   const orgId = user.organization_id || (typeof details === 'object' ? (details.organization_id || details.org_id) : '');
 
   logs.unshift({
-    id: `log_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+    id: `log_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
     created_at: new Date().toISOString(),
     user_id: user.id || 'system',
     email: user.email || 'system',
@@ -246,11 +246,11 @@ if (!supabaseUrl || !supabaseKey) {
 
 if (typeof globalThis.WebSocket === 'undefined') {
   class DummyWebSocket {
-    constructor() {}
-    addEventListener() {}
-    removeEventListener() {}
-    send() {}
-    close() {}
+    constructor() { }
+    addEventListener() { }
+    removeEventListener() { }
+    send() { }
+    close() { }
   }
   globalThis.WebSocket = DummyWebSocket;
 }
@@ -306,10 +306,10 @@ async function readUsers(forceRefresh = false) {
         const effRole = (loc.role && loc.role !== 'USER')
           ? loc.role
           : ((loc.features && loc.features.role && loc.features.role !== 'USER')
-              ? loc.features.role
-              : ((u.features && u.features.role && u.features.role !== 'USER')
-                  ? u.features.role
-                  : ((u.role && u.role !== 'USER') ? u.role : ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'))));
+            ? loc.features.role
+            : ((u.features && u.features.role && u.features.role !== 'USER')
+              ? u.features.role
+              : ((u.role && u.role !== 'USER') ? u.role : ((loc.email && loc.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer'))));
 
         let expDate = null;
         if (loc.subscription_expires !== undefined) {
@@ -326,8 +326,8 @@ async function readUsers(forceRefresh = false) {
         const orgId = (loc.organization_id !== undefined && loc.organization_id !== null && loc.organization_id !== '')
           ? loc.organization_id
           : ((loc.features && loc.features.organization_id !== undefined && loc.features.organization_id !== null && loc.features.organization_id !== '')
-              ? loc.features.organization_id
-              : (u.organization_id || u.features?.organization_id || (effRole !== 'SUPER_ADMIN' ? defaultOrgId : null)));
+            ? loc.features.organization_id
+            : (u.organization_id || u.features?.organization_id || (effRole !== 'SUPER_ADMIN' ? defaultOrgId : null)));
 
         const comp = loc.company || loc.organization || loc.features?.company || loc.features?.organization || u.company || u.organization || u.features?.company || u.features?.organization || '';
         const userPlan = loc.plan || loc.subscription_status || loc.features?.plan || loc.features?.subscription_status || u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
@@ -399,11 +399,11 @@ async function readUsers(forceRefresh = false) {
         }
       });
       users = users.filter(u => u.email !== 'parassadafuule05@gmail.com');
-      
+
       const nowTs = Date.now();
-      const staleUnverified = users.filter(u => 
-        u.isAccountVerified === false && 
-        u.verifyOtpExpireAt && 
+      const staleUnverified = users.filter(u =>
+        u.isAccountVerified === false &&
+        u.verifyOtpExpireAt &&
         u.verifyOtpExpireAt < nowTs
       );
 
@@ -414,7 +414,7 @@ async function readUsers(forceRefresh = false) {
         saveLocalUsers(localUsersClean);
         try {
           await supabase.from('custom_users').delete().in('id', Array.from(staleIds));
-        } catch (e) {}
+        } catch (e) { }
       }
 
       usersCache = users;
@@ -424,7 +424,7 @@ async function readUsers(forceRefresh = false) {
     } else {
       users = localUsers;
     }
-    
+
     const adminEmail = 'admin@tarv.ai';
     let adminUser = users.find(u => u.email === adminEmail);
     if (!adminUser) {
@@ -448,7 +448,7 @@ async function readUsers(forceRefresh = false) {
       };
       users.push(adminUser);
       saveLocalUsers(users);
-      try { await supabase.from('custom_users').insert([adminUser]); } catch (e) {}
+      try { await supabase.from('custom_users').insert([adminUser]); } catch (e) { }
     }
     return users;
   } catch (e) {
@@ -592,7 +592,7 @@ async function formatUser(user, allUsers = null) {
     const list = allUsers || (await readUsers());
     const validUsers = (list || []).filter(u => u && u.id);
     const nonAdminUsers = validUsers.filter(u => u.role !== 'SUPER_ADMIN');
-    
+
     const sorted = [...nonAdminUsers].sort((a, b) => {
       const idxA = nonAdminUsers.indexOf(a);
       const idxB = nonAdminUsers.indexOf(b);
@@ -607,7 +607,7 @@ async function formatUser(user, allUsers = null) {
     } else {
       const userEmailLower = user.email ? user.email.toLowerCase() : '';
       const idx = sorted.findIndex(u => u.id === user.id || (u.email && u.email.toLowerCase() === userEmailLower));
-      
+
       if (idx !== -1 && idx < 50) {
         is_founding_pioneer = true;
         pioneer_number = idx + 1;
@@ -703,7 +703,7 @@ async function getUserFromReq(req) {
       await writeUsers(users);
       try {
         await supabase.from('custom_users').update({ status: 'active', isAccountVerified: true }).eq('id', user.id);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (user.organization_id) {
@@ -715,7 +715,7 @@ async function getUserFromReq(req) {
           user.company = orgObj.name;
           user.organization = orgObj.name;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     return user;
@@ -791,7 +791,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         return res.end(content);
       }
-    } catch (e) {}
+    } catch (e) { }
     return sendJSON(res, 200, {
       version: "0.0.4",
       pub_date: new Date().toISOString(),
@@ -973,16 +973,16 @@ const server = http.createServer(async (req, res) => {
       await writeUsers(users);
       try {
         await supabase.from('custom_users').update({ status: 'active', isAccountVerified: true }).eq('id', user.id);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const isLocalHost = req.headers.host && (req.headers.host.includes('localhost') || req.headers.host.includes('127.0.0.1') || req.headers.host.includes('192.168.'));
     if (hwid && user.active_hwid && user.active_hwid !== hwid && !force && !isLocalHost) {
       if (user.role !== 'SUPER_ADMIN') {
-        return sendJSON(res, 200, { 
-          success: false, 
-          requireForceLogout: true, 
-          message: 'This email is already logged in on another device. Do you want to remove it from that device?' 
+        return sendJSON(res, 200, {
+          success: false,
+          requireForceLogout: true,
+          message: 'This email is already logged in on another device. Do you want to remove it from that device?'
         });
       }
     }
@@ -998,7 +998,7 @@ const server = http.createServer(async (req, res) => {
           active_hwid: hwid,
           features: { ...(user.features || {}), active_hwid: hwid }
         }).or(`id.eq.${user.id},email.eq.${user.email}`);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
@@ -1248,7 +1248,7 @@ const server = http.createServer(async (req, res) => {
       const hasCapital = /[A-Z]/.test(newPassword);
       const hasSmall = /[a-z]/.test(newPassword);
       const isLongEnough = newPassword.length >= 8;
-      
+
       if (!hasSpecial || !hasNumber || !hasCapital || !hasSmall || !isLongEnough) {
         return sendJSON(res, 200, { success: false, message: 'New password does not meet complexity requirements.' });
       }
@@ -1264,7 +1264,7 @@ const server = http.createServer(async (req, res) => {
       const dbPayload = toSupabaseUserPayload(dbUser);
       if (dbUser.id) await supabase.from('custom_users').update(dbPayload).eq('id', dbUser.id);
       if (dbUser.email) await supabase.from('custom_users').update(dbPayload).ilike('email', dbUser.email);
-    } catch (e) {}
+    } catch (e) { }
 
     logActivity(dbUser, 'UPDATE_PROFILE', 'User updated profile details/settings');
 
@@ -1459,10 +1459,10 @@ const server = http.createServer(async (req, res) => {
       const effRole = (u.role && u.role !== 'USER') ? u.role : (u.features?.role || 'Jr. Design Engineer');
       const effDesignation = u.designation || u.features?.designation || effRole || '';
       const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
-      return { 
-        id: u.id, 
-        name: u.name, 
-        email: u.email, 
+      return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
         role: effRole,
         designation: effDesignation,
         features: u.features,
@@ -1487,7 +1487,7 @@ const server = http.createServer(async (req, res) => {
     }
     const { name } = await getRequestBody(req);
     if (!name || !name.trim()) return sendJSON(res, 400, { success: false, message: 'Team name required' });
-    
+
     const teamId = `team_${Date.now()}`;
     const orgId = user.organization_id || user.company || user.organization || null;
     const newTeam = {
@@ -1513,7 +1513,7 @@ const server = http.createServer(async (req, res) => {
         delete payload.organization_id;
         await supabase.from('teams').insert(payload);
       }
-    } catch (e) {}
+    } catch (e) { }
 
     logActivity(user, 'CREATE_TEAM', { teamId, name: name.trim() });
     return sendJSON(res, 200, { success: true, message: 'Team created', team: newTeam });
@@ -1523,7 +1523,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url === '/api/teams/list') {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
-    
+
     let dbTeams = [];
     try {
       let teamQuery = supabase.from('teams').select('id, name, created_by, organization_id, team_members(user_id)');
@@ -1534,7 +1534,7 @@ const server = http.createServer(async (req, res) => {
       if (!error && Array.isArray(rawTeams)) {
         dbTeams = rawTeams;
       }
-    } catch (e) {}
+    } catch (e) { }
 
     const localTeams = readLocalTeams();
     const localMembers = readLocalTeamMembers();
@@ -1598,7 +1598,7 @@ const server = http.createServer(async (req, res) => {
 
     try {
       await supabase.from('team_members').upsert({ team_id, user_id });
-    } catch (e) {}
+    } catch (e) { }
 
     return sendJSON(res, 200, { success: true, message: 'User added to team' });
   }
@@ -1608,14 +1608,14 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
     const { team_id, user_id } = await getRequestBody(req);
-    
+
     let localMembers = readLocalTeamMembers();
     localMembers = localMembers.filter(m => !(String(m.team_id) === String(team_id) && String(m.user_id) === String(user_id)));
     saveLocalTeamMembers(localMembers);
 
     try {
       await supabase.from('team_members').delete().match({ team_id, user_id });
-    } catch (e) {}
+    } catch (e) { }
 
     return sendJSON(res, 200, { success: true, message: 'User removed from team' });
   }
@@ -1625,7 +1625,7 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) return sendJSON(res, 403, { success: false, message: 'Only Admins can manage teams' });
     const { team_id } = await getRequestBody(req);
-    
+
     let localTeams = readLocalTeams();
     localTeams = localTeams.filter(t => String(t.id) !== String(team_id));
     saveLocalTeams(localTeams);
@@ -1637,7 +1637,7 @@ const server = http.createServer(async (req, res) => {
     try {
       await supabase.from('team_members').delete().eq('team_id', team_id);
       await supabase.from('teams').delete().eq('id', team_id);
-    } catch (e) {}
+    } catch (e) { }
 
     return sendJSON(res, 200, { success: true, message: 'Team deleted' });
   }
@@ -1647,11 +1647,11 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
     const { projectData, assigned_users = [], assigned_teams = [] } = await getRequestBody(req);
-    
+
     if (!projectData || !projectData.name || !projectData.code) {
       return sendJSON(res, 400, { success: false, message: 'Name and Code required' });
     }
-    
+
     const projectId = `proj_${Date.now()}`;
     const nowIso = new Date().toISOString();
     const dbProject = {
@@ -1681,8 +1681,8 @@ const server = http.createServer(async (req, res) => {
     const resolveUserId = (input) => {
       if (!input) return null;
       const str = String(input).trim();
-      const match = allDbUsers.find(u => 
-        (u.id && String(u.id).toLowerCase() === str.toLowerCase()) || 
+      const match = allDbUsers.find(u =>
+        (u.id && String(u.id).toLowerCase() === str.toLowerCase()) ||
         (u.email && String(u.email).toLowerCase() === str.toLowerCase())
       );
       return match ? match.id : str;
@@ -1697,7 +1697,7 @@ const server = http.createServer(async (req, res) => {
       const { error: puErr } = await supabase.from('project_users').upsert(puPayload, { onConflict: 'project_id,user_id', ignoreDuplicates: true });
       if (puErr) {
         for (const uid of cleanUserIds) {
-          try { await supabase.from('project_users').upsert({ project_id: projectId, user_id: uid }); } catch (e) {}
+          try { await supabase.from('project_users').upsert({ project_id: projectId, user_id: uid }); } catch (e) { }
         }
       }
     }
@@ -1707,7 +1707,7 @@ const server = http.createServer(async (req, res) => {
       const { error: ptErr } = await supabase.from('project_teams').upsert(ptPayload, { onConflict: 'project_id,team_id', ignoreDuplicates: true });
       if (ptErr) {
         for (const tid of cleanTeamIds) {
-          try { await supabase.from('project_teams').upsert({ project_id: projectId, team_id: tid }); } catch (e) {}
+          try { await supabase.from('project_teams').upsert({ project_id: projectId, team_id: tid }); } catch (e) { }
         }
       }
     }
@@ -1715,15 +1715,15 @@ const server = http.createServer(async (req, res) => {
     const projectUsers = cleanUserIds.map(uid => ({ project_id: projectId, user_id: uid }));
     const projectTeams = cleanTeamIds.map(tid => ({ project_id: projectId, team_id: tid }));
 
-    return sendJSON(res, 200, { 
-      success: true, 
-      project: { 
-        ...dbProject, 
+    return sendJSON(res, 200, {
+      success: true,
+      project: {
+        ...dbProject,
         project_users: projectUsers,
         project_teams: projectTeams,
-        createdDate: nowIso, 
-        lastModified: nowIso 
-      } 
+        createdDate: nowIso,
+        lastModified: nowIso
+      }
     });
   }
 
@@ -1737,13 +1737,13 @@ const server = http.createServer(async (req, res) => {
       let query = supabase
         .from('projects')
         .select('id, name, code, client, location, description, notes, created_at, created_by, organization_id, status, project_users(user_id), project_teams(team_id)');
-      
+
       if (user.role !== 'SUPER_ADMIN' && user.organization_id) {
         query = query.or(`organization_id.eq.${user.organization_id},created_by.eq.${user.id}`);
       }
 
       let { data, error } = await query;
-      
+
       if (error || !Array.isArray(data)) {
         const retry = await supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, organization_id, status');
         data = retry.data || [];
@@ -1755,7 +1755,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const { data: simpleData } = await supabase.from('projects').select('id, name, code, client, location, description, notes, created_at, created_by, organization_id, status');
         if (Array.isArray(simpleData)) projects = simpleData;
-      } catch (err) {}
+      } catch (err) { }
     }
 
     // Direct User & Team Membership Filtering:
@@ -1770,7 +1770,7 @@ const server = http.createServer(async (req, res) => {
         if (Array.isArray(userTeams)) {
           myTeamIds = userTeams.map(t => String(t.team_id).toLowerCase());
         }
-      } catch (e) {}
+      } catch (e) { }
 
       projects = projects.filter(p => {
         // 1. Created by this user
@@ -1867,7 +1867,7 @@ const server = http.createServer(async (req, res) => {
     const { project_id, workspace_data } = await getRequestBody(req);
 
     const nowIso = new Date().toISOString();
-    
+
     // Server-side Future-Proofing: Sanitize workspace spaces before saving to DB
     if (workspace_data && Array.isArray(workspace_data.spaces)) {
       workspace_data.spaces = workspace_data.spaces.map((s, idx) => {
@@ -1884,11 +1884,11 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    const { error } = await supabase.from('projects').update({ 
-      workspace_data, 
-      last_modified: nowIso 
+    const { error } = await supabase.from('projects').update({
+      workspace_data,
+      last_modified: nowIso
     }).eq('id', project_id);
-    
+
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
 
     // Auto-log activity on server whenever ANY team member saves workspace
@@ -1915,8 +1915,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const fileSettings = readOrgSettings();
       const orgId = user.organization_id;
-      const targetDir = (orgId && fileSettings[orgId]?.local_backup_path) 
-        ? fileSettings[orgId].local_backup_path 
+      const targetDir = (orgId && fileSettings[orgId]?.local_backup_path)
+        ? fileSettings[orgId].local_backup_path
         : path.join(DATA_DIR, 'autosaves');
 
       if (!fs.existsSync(targetDir)) {
@@ -1989,8 +1989,8 @@ const server = http.createServer(async (req, res) => {
     const allDbUsers = await readUsers();
     const resolvedUid = (() => {
       const str = String(user_id).trim();
-      const match = allDbUsers.find(u => 
-        (u.id && String(u.id).toLowerCase() === str.toLowerCase()) || 
+      const match = allDbUsers.find(u =>
+        (u.id && String(u.id).toLowerCase() === str.toLowerCase()) ||
         (u.email && String(u.email).toLowerCase() === str.toLowerCase())
       );
       return match ? match.id : str;
@@ -2052,7 +2052,7 @@ const server = http.createServer(async (req, res) => {
       // Local storage fallback deletion
       return sendJSON(res, 200, { success: true, message: 'Project removed' });
     }
-    
+
     // Only creator or Super Admin has authority to delete
     if (proj.created_by !== user.id && user.role !== 'SUPER_ADMIN') {
       return sendJSON(res, 403, { success: false, message: 'Forbidden: Only the project creator has authority to delete this project.' });
@@ -2066,7 +2066,7 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   // ADMIN USER MANAGEMENT
   // ==========================================
-  
+
   if (req.method === 'POST' && url === '/api/admin/toggle-role') {
     const adminUser = await getUserFromReq(req);
     if (!adminUser || !isAuthorizedAdmin(adminUser)) {
@@ -2074,12 +2074,12 @@ const server = http.createServer(async (req, res) => {
     }
     const { profileId, newRole } = await getRequestBody(req);
     if (!profileId || !newRole) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
-    
+
     let users = await readUsers(true);
     const pidLower = String(profileId).toLowerCase().trim();
     const targetUserIndex = users.findIndex(u => String(u.id).toLowerCase().trim() === pidLower || (u.email && u.email.toLowerCase().trim() === pidLower));
     if (targetUserIndex === -1) return sendJSON(res, 404, { success: false, message: 'User not found' });
-    
+
     users[targetUserIndex].role = newRole;
     users[targetUserIndex].designation = newRole;
     if (!users[targetUserIndex].features) users[targetUserIndex].features = {};
@@ -2112,12 +2112,12 @@ const server = http.createServer(async (req, res) => {
     if (adminUser.id === profileId || adminUser.email.toLowerCase() === profileId.toLowerCase()) {
       return sendJSON(res, 400, { success: false, message: 'Cannot delete your own account' });
     }
-    
+
     let users = readLocalUsers();
     if (users.length === 0) users = await readUsers();
 
     const targetUser = users.find(u => u.id === profileId || u.email.toLowerCase() === profileId.toLowerCase());
-    
+
     const updatedUsers = users.filter(u => u.id !== profileId && u.email.toLowerCase() !== profileId.toLowerCase());
     saveLocalUsers(updatedUsers);
 
@@ -2132,7 +2132,7 @@ const server = http.createServer(async (req, res) => {
       try {
         await supabase.from('custom_users').delete().eq('id', profileId);
         await supabase.from('custom_users').delete().eq('email', profileId);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (targetUser && targetUser.organization_id) {
@@ -2141,7 +2141,7 @@ const server = http.createServer(async (req, res) => {
         if (orgData && orgData.used_users > 0) {
           await supabase.from('organizations').update({ used_users: orgData.used_users - 1 }).eq('id', targetUser.organization_id);
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     logActivity(adminUser, 'ADMIN_DELETE_USER', { targetUser: profileId });
@@ -2235,7 +2235,7 @@ const server = http.createServer(async (req, res) => {
       try {
         await supabase.from('custom_users').delete().eq('id', stale.id).eq('isAccountVerified', false);
         count++;
-      } catch (e) {}
+      } catch (e) { }
     }
     const remainingUsers = users.filter(u => u.isAccountVerified !== false);
     saveLocalUsers(remainingUsers);
@@ -2250,17 +2250,17 @@ const server = http.createServer(async (req, res) => {
     }
     const { profileId, updates } = await getRequestBody(req);
     if (!profileId || !updates) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
-    
+
     let users = await readUsers(true);
     const pidLower = String(profileId).toLowerCase().trim();
     const updateEmailLower = String(updates.email || '').toLowerCase().trim();
-    const targetUserIndex = users.findIndex(u => 
-      String(u.id).toLowerCase().trim() === pidLower || 
+    const targetUserIndex = users.findIndex(u =>
+      String(u.id).toLowerCase().trim() === pidLower ||
       (u.email && u.email.toLowerCase().trim() === pidLower) ||
       (updateEmailLower && u.email && u.email.toLowerCase().trim() === updateEmailLower) ||
       (updateEmailLower && String(u.id).toLowerCase().trim() === updateEmailLower)
     );
-    
+
     if (targetUserIndex !== -1) {
       const existing = users[targetUserIndex];
 
@@ -2279,11 +2279,11 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      const newExp = updates.subscription_expires !== undefined 
-        ? updates.subscription_expires 
-        : (existing.subscription_expires !== undefined 
-            ? existing.subscription_expires 
-            : (existing.features?.subscription_expires || null));
+      const newExp = updates.subscription_expires !== undefined
+        ? updates.subscription_expires
+        : (existing.subscription_expires !== undefined
+          ? existing.subscription_expires
+          : (existing.features?.subscription_expires || null));
       const newOrgId = updates.organization_id !== undefined ? (updates.organization_id || null) : (existing.organization_id || existing.features?.organization_id || null);
       const newComp = updates.company || updates.organization || existing.company || existing.organization || existing.features?.company || existing.features?.organization || '';
       const newRole = updates.role || existing.role || existing.features?.role || 'Jr. Design Engineer';
@@ -2329,10 +2329,10 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         console.error("Error updating Supabase user profile:", e);
       }
-      
+
       invalidateUserCache();
     }
-    
+
     logActivity(adminUser, 'ADMIN_UPDATE_PROFILE', { targetUser: profileId, updates });
     return sendJSON(res, 200, { success: true, message: 'Profile updated successfully' });
   }
@@ -2340,21 +2340,21 @@ const server = http.createServer(async (req, res) => {
   // ==========================================
   // HARDWARE FINGERPRINTED TRIAL & UNIQUE LICENSING
   // ==========================================
-  
+
   // POST log activity
   if (req.method === 'POST' && url === '/api/activity/log') {
     const user = await getUserFromReq(req);
     const { action_type, details } = await getRequestBody(req);
 
     const dObj = (typeof details === 'object' && details !== null) ? details : {};
-    
+
     // Look up user from database cache
     const allUsers = await readUsers();
     const targetEmail = (user?.email || dObj.user_email || dObj.email || '').toLowerCase().trim();
     const targetUserId = user?.id || dObj.user_id || '';
 
-    const dbUser = allUsers.find(u => 
-      (targetUserId && String(u.id).toLowerCase() === String(targetUserId).toLowerCase()) || 
+    const dbUser = allUsers.find(u =>
+      (targetUserId && String(u.id).toLowerCase() === String(targetUserId).toLowerCase()) ||
       (targetEmail && u.email && String(u.email).toLowerCase().trim() === targetEmail)
     );
 
@@ -2366,7 +2366,7 @@ const server = http.createServer(async (req, res) => {
 
     const logs = readActivityLogs();
     logs.unshift({
-      id: `log_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+      id: `log_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       created_at: new Date().toISOString(),
       user_id: userId,
       email: userEmail,
@@ -2379,7 +2379,7 @@ const server = http.createServer(async (req, res) => {
     // Keep only last 2000 logs to prevent file bloat
     if (logs.length > 2000) logs.length = 2000;
     writeActivityLogs(logs);
-    
+
     return sendJSON(res, 200, { success: true });
   }
 
@@ -2396,7 +2396,7 @@ const server = http.createServer(async (req, res) => {
     if (error) return sendJSON(res, 500, { success: false, message: error.message });
     return sendJSON(res, 200, { success: true, message: 'Team deleted successfully' });
   }
-  
+
   // GET admin activity logs
   if (req.method === 'GET' && url === '/api/admin/activity-logs') {
     const adminUser = await getUserFromReq(req);
@@ -2413,7 +2413,7 @@ const server = http.createServer(async (req, res) => {
     if (!user || (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN')) {
       return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     }
-    
+
     const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
     let targetOrgId = user.organization_id || defaultOrgId;
     if (user.role === 'SUPER_ADMIN') {
@@ -2448,7 +2448,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && (url === '/api/org/hierarchy' || req.url.startsWith('/api/org/hierarchy'))) {
     const user = await getUserFromReq(req);
     const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
-    
+
     const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const qOrgId = parsedUrl.searchParams.get('org_id') || parsedUrl.searchParams.get('orgId') || '';
     const targetOrgId = qOrgId || user?.organization_id || user?.features?.organization_id || user?.company || defaultOrgId;
@@ -2487,20 +2487,20 @@ const server = http.createServer(async (req, res) => {
     try { return JSON.parse(fs.readFileSync(LICENSES_FILE, 'utf8') || '[]'); } catch (e) { return []; }
   }
   function writeLicenses(lics) {
-    try { fs.writeFileSync(LICENSES_FILE, JSON.stringify(lics, null, 2), 'utf8'); } catch (e) {}
+    try { fs.writeFileSync(LICENSES_FILE, JSON.stringify(lics, null, 2), 'utf8'); } catch (e) { }
   }
   function readTrials() {
     try { return JSON.parse(fs.readFileSync(TRIALS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
   }
   function writeTrials(trials) {
-    try { fs.writeFileSync(TRIALS_FILE, JSON.stringify(trials, null, 2), 'utf8'); } catch (e) {}
+    try { fs.writeFileSync(TRIALS_FILE, JSON.stringify(trials, null, 2), 'utf8'); } catch (e) { }
   }
 
   function generateUniqueLicenseKey(tier = 'PRO') {
     const licenses = readLicenses();
     const existingKeys = new Set(licenses.map(l => l.key));
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    
+
     let attempts = 0;
     while (attempts < 1000) {
       let key = `MEP-${tier.toUpperCase()}`;
@@ -2543,8 +2543,8 @@ const server = http.createServer(async (req, res) => {
 
       // Attempt Supabase log (safe fallback if table not created)
       try {
-        supabase.from('hardware_trials').upsert({ hwid, email: trial.email, expires_at: new Date(expiresAt).toISOString() }).catch(() => {});
-      } catch (e) {}
+        supabase.from('hardware_trials').upsert({ hwid, email: trial.email, expires_at: new Date(expiresAt).toISOString() }).catch(() => { });
+      } catch (e) { }
     }
 
     const isExpired = Date.now() > trial.expiresAt;
@@ -2622,7 +2622,7 @@ const server = http.createServer(async (req, res) => {
           const expDate = new Date(dbUser.subscription_expires).getTime();
           const isExpired = Date.now() > expDate;
           const remainingDays = Math.ceil(Math.max(0, expDate - Date.now()) / (1000 * 60 * 60 * 24));
-          
+
           if (!isExpired) {
             return sendJSON(res, 200, {
               success: true,
@@ -2698,7 +2698,7 @@ const server = http.createServer(async (req, res) => {
         expires_at: new Date(expiresAt).toISOString(),
         status: 'ACTIVE'
       });
-    } catch (e) {}
+    } catch (e) { }
 
     // Update user profile subscription_status if user exists
     const users = await readUsers();
@@ -2728,7 +2728,7 @@ const server = http.createServer(async (req, res) => {
     const formattedKey = rawKey.toUpperCase();
     const cleanKey = formattedKey.replace(/[\s-]/g, '');
     const cleanEmail = email ? email.trim().toLowerCase() : '';
-    
+
     let authUser = await getUserFromReq(req);
     const targetEmail = (authUser?.email || cleanEmail).toLowerCase();
 
@@ -2745,10 +2745,10 @@ const server = http.createServer(async (req, res) => {
       const normOrgLic = String(orgLic).toUpperCase().replace(/[\s-]/g, '');
       const normSettings = String(settingsKey).toUpperCase().replace(/[\s-]/g, '');
 
-      if ((normOrgLic && normOrgLic === cleanKey) || 
-          (normSettings && normSettings === cleanKey) ||
-          (orgLic && String(orgLic).toUpperCase() === formattedKey) ||
-          (settingsKey && String(settingsKey).toUpperCase() === formattedKey)) {
+      if ((normOrgLic && normOrgLic === cleanKey) ||
+        (normSettings && normSettings === cleanKey) ||
+        (orgLic && String(orgLic).toUpperCase() === formattedKey) ||
+        (settingsKey && String(settingsKey).toUpperCase() === formattedKey)) {
         targetOrg = org;
         break;
       }
@@ -2766,9 +2766,9 @@ const server = http.createServer(async (req, res) => {
             const normOrgLic = String(orgLic).toUpperCase().replace(/[\s-]/g, '');
             const normSettings = String(settingsKey).toUpperCase().replace(/[\s-]/g, '');
 
-            if ((normOrgLic && normOrgLic === cleanKey) || 
-                (normSettings && normSettings === cleanKey) ||
-                (orgLic && String(orgLic).toUpperCase() === formattedKey)) {
+            if ((normOrgLic && normOrgLic === cleanKey) ||
+              (normSettings && normSettings === cleanKey) ||
+              (orgLic && String(orgLic).toUpperCase() === formattedKey)) {
               targetOrg = {
                 id: org.id,
                 name: org.name,
@@ -2796,7 +2796,7 @@ const server = http.createServer(async (req, res) => {
             writeOrgSettings(fileSettings);
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     // 3. Fallback to localOrgs first item if key starts with MEP-
@@ -2816,13 +2816,13 @@ const server = http.createServer(async (req, res) => {
       const localUsers = readLocalUsers();
 
       if (targetEmail) {
-        const isAlreadyMember = localUsers.some(u => 
+        const isAlreadyMember = localUsers.some(u =>
           u.email && u.email.toLowerCase() === targetEmail.toLowerCase() &&
           (u.organization_id === targetOrg.id || u.features?.organization_id === targetOrg.id)
         );
 
         if (!isAlreadyMember) {
-          const currentMembersCount = localUsers.filter(u => 
+          const currentMembersCount = localUsers.filter(u =>
             u.organization_id === targetOrg.id || u.features?.organization_id === targetOrg.id
           ).length;
 
@@ -2881,7 +2881,7 @@ const server = http.createServer(async (req, res) => {
                 subscription_expires: oneYearFromNow
               }
             }).or(`email.eq.${targetEmail},id.eq.${targetEmail}`);
-          } catch (e2) {}
+          } catch (e2) { }
         }
 
         if (authUser) {
@@ -2941,7 +2941,7 @@ const server = http.createServer(async (req, res) => {
               subscription_expires: expiresIso,
               features: { plan: 'PRO', subscription_expires: expiresIso }
             }).or(`email.eq.${targetEmail},id.eq.${targetEmail}`);
-          } catch (e) {}
+          } catch (e) { }
         }
 
         return sendJSON(res, 200, {
@@ -3020,7 +3020,7 @@ const server = http.createServer(async (req, res) => {
           updateObj.company = licOrgName;
         }
         await supabase.from('custom_users').update(updateObj).or(`email.eq.${targetEmail},id.eq.${targetEmail}`);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     return sendJSON(res, 200, {
@@ -3096,7 +3096,7 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { success: true, message: `License ${key} revoked` });
   }
 
-  
+
   // ================= MULTI-TENANT ORG ENDPOINTS ================= //
 
   if (req.method === 'GET' && url === '/api/admin/organizations') {
@@ -3106,19 +3106,19 @@ const server = http.createServer(async (req, res) => {
     try {
       const { data } = await supabase.from('organizations').select('*');
       if (data && data.length > 0) orgs = data;
-    } catch (e) {}
-    
+    } catch (e) { }
+
     const localOrgs = readLocalOrgs();
     const fileSettings = readOrgSettings();
     const map = new Map();
-    
+
     localOrgs.forEach(o => map.set(o.id, { ...o }));
-    
+
     orgs.forEach(o => {
       const existingLocal = map.get(o.id) || {};
       const fileSetting = fileSettings[o.id] || {};
       const parsedStatus = parseOrgStatus(o.status);
-      
+
       const maxConcurrent = existingLocal.max_concurrent_users !== undefined && existingLocal.max_concurrent_users !== null
         ? parseInt(existingLocal.max_concurrent_users)
         : (fileSetting.max_concurrent_users !== undefined && fileSetting.max_concurrent_users !== null
@@ -3139,7 +3139,7 @@ const server = http.createServer(async (req, res) => {
         max_concurrent_users: maxConcurrent
       });
     });
-    
+
     return sendJSON(res, 200, { success: true, organizations: Array.from(map.values()) });
   }
 
@@ -3196,17 +3196,17 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user || user.role !== 'SUPER_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     const { orgId, name, subscription_plan, max_users, license_key, max_concurrent_users } = await getRequestBody(req);
-    
+
     if (!orgId) return sendJSON(res, 400, { success: false, message: 'Organization ID required' });
 
     let localOrgs = readLocalOrgs();
     let orgIndex = localOrgs.findIndex(o => o.id === orgId);
-    
+
     let existingSupabaseOrg = null;
     try {
       const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
       if (data) existingSupabaseOrg = data;
-    } catch (e) {}
+    } catch (e) { }
 
     if (orgIndex === -1) {
       const newOrg = existingSupabaseOrg ? { ...existingSupabaseOrg } : {
@@ -3250,7 +3250,7 @@ const server = http.createServer(async (req, res) => {
       if (name !== undefined) dbPayload.name = name;
       if (subscription_plan !== undefined) dbPayload.subscription_plan = subscription_plan;
       if (max_users !== undefined) dbPayload.max_users = parseInt(max_users);
-      
+
       const { error: sbErr } = await supabase.from('organizations').update(dbPayload).eq('id', targetId);
       if (sbErr) {
         console.warn('Supabase org update warning:', sbErr);
@@ -3277,7 +3277,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const { data } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
       if (data) orgObj = data;
-    } catch(e) {}
+    } catch (e) { }
 
     if (!orgObj) {
       const localOrgs = readLocalOrgs();
@@ -3445,7 +3445,7 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user || user.role !== 'SUPER_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     const { orgId } = await getRequestBody(req);
-    
+
     // Remove locally
     const localOrgs = readLocalOrgs();
     const updated = localOrgs.filter(o => o.id !== orgId);
@@ -3469,7 +3469,7 @@ const server = http.createServer(async (req, res) => {
     try {
       await supabase.from('organizations').delete().eq('id', orgId);
       await supabase.from('custom_users').update({ organization_id: null, company: '', organization: '' }).eq('organization_id', orgId);
-    } catch (e) {}
+    } catch (e) { }
 
     logActivity(user, 'DELETE_ORGANIZATION', { orgId });
     return sendJSON(res, 200, { success: true });
@@ -3525,7 +3525,7 @@ const server = http.createServer(async (req, res) => {
           }
         });
         if (changed) await writeUsers(users);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     logActivity(user, 'UPDATE_ORG_HIERARCHY', { orgId: cleanOrgKey, memberCount: (hierarchy || []).length });
@@ -3535,7 +3535,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url === '/api/org/users') {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
-    
+
     // For SUPER_ADMIN, they might pass ?org_id=... to view a specific org's users
     let orgId = user.organization_id;
     let userCompany = user.company || user.organization;
@@ -3543,9 +3543,9 @@ const server = http.createServer(async (req, res) => {
       const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
       if (qOrgId) orgId = qOrgId;
     }
-    
+
     if (!orgId && !userCompany && user.role !== 'SUPER_ADMIN') return sendJSON(res, 400, { success: false, message: 'Organization missing' });
-    
+
     const allUsers = await readUsers();
     // Filter users strictly by matching organization_id OR company / organization name
     const orgUsers = allUsers.filter(u => {
@@ -3567,7 +3567,7 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user || user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     if (!user.organization_id) return sendJSON(res, 400, { success: false, message: 'Admin does not belong to an organization' });
-    
+
     const { data: orgData } = await supabase.from('organizations').select('*').eq('id', user.organization_id).single();
     if (!orgData) return sendJSON(res, 404, { success: false, message: 'Organization not found' });
     if (orgData.used_users >= orgData.max_users) return sendJSON(res, 400, { success: false, message: 'Maximum seat limit reached for organization. Please upgrade your subscription.' });
@@ -3584,7 +3584,7 @@ const server = http.createServer(async (req, res) => {
     const tempPassword = Math.random().toString(36).slice(-8);
     const hashedPassword = bcrypt.hashSync(tempPassword, 10);
     const userId = 'usr_' + Date.now();
-    
+
     const newUser = {
       id: userId,
       name: name.trim(),
@@ -3598,7 +3598,7 @@ const server = http.createServer(async (req, res) => {
       verifyOtpExpireAt: Date.now() + 24 * 60 * 60 * 1000,
       createdAt: new Date().toISOString()
     };
-    
+
     users.push(newUser);
     await writeUsers(users);
 
@@ -3612,7 +3612,7 @@ const server = http.createServer(async (req, res) => {
     };
     transporter.sendMail(inviteMailOptions).catch(console.error);
 
-      logActivity(user, 'INVITE_USER', { invitedEmail: cleanEmail, role });
+    logActivity(user, 'INVITE_USER', { invitedEmail: cleanEmail, role });
     return sendJSON(res, 200, { success: true, message: 'User invited successfully', user: await formatUser(newUser) });
   }
 
@@ -3640,7 +3640,7 @@ const server = http.createServer(async (req, res) => {
           serverPath = data.server_backup_path || '';
           versionsPath = data.versions_path || '';
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const fileSettings = readOrgSettings();
@@ -3683,7 +3683,7 @@ const server = http.createServer(async (req, res) => {
           server_backup_path: server_backup_path || '',
           versions_path: versions_path || ''
         }).eq('id', targetOrgId);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const fileSettings = readOrgSettings();
@@ -3701,8 +3701,8 @@ const server = http.createServer(async (req, res) => {
 
     return sendJSON(res, 200, {
       success: true,
-      message: targetOrgId === 'GLOBAL' 
-        ? 'Global default backup settings saved successfully to backend!' 
+      message: targetOrgId === 'GLOBAL'
+        ? 'Global default backup settings saved successfully to backend!'
         : 'Organization backup settings saved successfully to backend!',
       local_backup_path,
       server_backup_path,
@@ -3764,19 +3764,19 @@ const server = http.createServer(async (req, res) => {
 
       if (Array.isArray(users) && users.length > 0) {
         saveLocalUsers(users);
-        try { await supabase.from('custom_users').upsert(users); } catch (e) {}
+        try { await supabase.from('custom_users').upsert(users); } catch (e) { }
       }
       if (Array.isArray(teams)) {
         saveLocalTeams(teams);
-        try { await supabase.from('teams').upsert(teams); } catch (e) {}
+        try { await supabase.from('teams').upsert(teams); } catch (e) { }
       }
       if (Array.isArray(teamMembers)) {
         saveLocalTeamMembers(teamMembers);
-        try { await supabase.from('team_members').upsert(teamMembers); } catch (e) {}
+        try { await supabase.from('team_members').upsert(teamMembers); } catch (e) { }
       }
       if (Array.isArray(projects)) {
         saveLocalProjects(projects);
-        try { await supabase.from('projects').upsert(projects); } catch (e) {}
+        try { await supabase.from('projects').upsert(projects); } catch (e) { }
       }
 
       invalidateUserCache();
@@ -3788,12 +3788,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   // --- ANNOUNCEMENTS ROUTES ---
-  
+
   // GET /api/announcements (Public/Authenticated)
   if (req.method === 'GET' && url === '/api/announcements') {
     try {
       const user = await getUserFromReq(req);
-      
+
       let query = supabase
         .from('announcements')
         .select('*')
@@ -3809,9 +3809,9 @@ const server = http.createServer(async (req, res) => {
         // Unauthenticated users ONLY see global broadcasts
         query = query.is('organization_id', null);
       }
-      
+
       const { data, error } = await query;
-      
+
       if (error) {
         return sendJSON(res, 200, { success: true, announcements: [] });
       }
@@ -3944,7 +3944,7 @@ const server = http.createServer(async (req, res) => {
 
       try {
         await supabase.from('notifications').insert([notifItem]);
-      } catch (err) {}
+      } catch (err) { }
 
       return sendJSON(res, 200, { success: true, notification: notifItem });
     } catch (err) {
@@ -3981,7 +3981,7 @@ const server = http.createServer(async (req, res) => {
               await supabase.from('notifications').delete().eq('metadata->>commentId', tId);
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
       return sendJSON(res, 200, { success: true });
     } catch (err) {
@@ -4006,7 +4006,7 @@ const server = http.createServer(async (req, res) => {
         writeNotificationsData(updated);
         try {
           await supabase.from('notifications').update({ read: true }).in('id', Array.from(targetIds));
-        } catch (e) {}
+        } catch (e) { }
       }
       return sendJSON(res, 200, { success: true });
     } catch (err) {
@@ -4031,7 +4031,7 @@ const server = http.createServer(async (req, res) => {
         writeNotificationsData(updated);
         try {
           await supabase.from('notifications').update({ completed: true, read: true }).in('id', Array.from(targetIds));
-        } catch (e) {}
+        } catch (e) { }
       }
       return sendJSON(res, 200, { success: true });
     } catch (err) {
@@ -4128,7 +4128,7 @@ const server = http.createServer(async (req, res) => {
               }
             });
           }
-        } catch(e) {}
+        } catch (e) { }
       }
       return sendJSON(res, 200, { success: true, notifications: notifs });
     } catch (err) {
@@ -4144,21 +4144,21 @@ const server = http.createServer(async (req, res) => {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
 
-    const { projectName, calculatorName, version, description, data, versionsPath } = await getRequestBody(req);
+    const { projectName, calculatorName, version, description, data, versionsPath, discipline, actionSuffix } = await getRequestBody(req);
     if (!projectName || !calculatorName) return sendJSON(res, 400, { success: false, message: 'Missing parameters' });
 
     const versions = readVersionsData();
     const safeProjectName = String(projectName).trim();
     const safeCalculatorName = String(calculatorName).trim();
-    
-    const existingIndex = versions.findIndex(v => 
-      v.projectName.toLowerCase() === safeProjectName.toLowerCase() && 
+
+    const existingIndex = versions.findIndex(v =>
+      v.projectName.toLowerCase() === safeProjectName.toLowerCase() &&
       v.calculatorName.toLowerCase() === safeCalculatorName.toLowerCase() &&
       v.version.toUpperCase() === String(version || '').toUpperCase()
     );
 
-    const existingForCalc = versions.filter(v => 
-      v.projectName.toLowerCase() === safeProjectName.toLowerCase() && 
+    const existingForCalc = versions.filter(v =>
+      v.projectName.toLowerCase() === safeProjectName.toLowerCase() &&
       v.calculatorName.toLowerCase() === safeCalculatorName.toLowerCase()
     );
 
@@ -4169,7 +4169,7 @@ const server = http.createServer(async (req, res) => {
       // Update existing version entry - NEVER overwrite original creator (createdBy / user)
       const currentItem = versions[existingIndex];
       const editorName = user.name || user.email || 'System User';
-      
+
       if (description && description.trim() && !description.startsWith('Updated calculation state')) {
         currentItem.description = description.trim();
       }
@@ -4180,7 +4180,7 @@ const server = http.createServer(async (req, res) => {
       currentItem.lastEditedAt = timestamp;
       currentItem.timestamp = currentItem.createdAt || currentItem.timestamp || timestamp;
       currentItem.data = data;
-      
+
       writeVersionsData(versions);
 
       try {
@@ -4192,22 +4192,31 @@ const server = http.createServer(async (req, res) => {
             payload: data
           })
           .eq('id', currentItem.id);
-      } catch (e) {}
+      } catch (e) { }
 
       logActivity(user, 'UPDATE_VERSION', { projectName: safeProjectName, calculatorName: safeCalculatorName, version: versionNumber });
-      
+
       if (versionsPath) {
         try {
           const safeBasePath = String(versionsPath).replace(/['"]/g, '');
           const safeProj = safeProjectName.replace(/[<>:"/\\|?*]/g, '_');
           const safeCalc = safeCalculatorName.replace(/[<>:"/\\|?*]/g, '_');
-          const projectDir = path.join(safeBasePath, safeProj, safeCalc);
+          const projectBase = path.join(safeBasePath, safeProj);
+          if (!fs.existsSync(projectBase)) {
+            fs.mkdirSync(projectBase, { recursive: true });
+          }
+          for (const d of ["HVAC", "Electrical", "Plumbing", "Fire Fighting"]) {
+            const dPath = path.join(projectBase, d);
+            if (!fs.existsSync(dPath)) fs.mkdirSync(dPath, { recursive: true });
+          }
+
+          const projectDir = path.join(projectBase, discipline || 'MEP', safeCalc);
           if (!fs.existsSync(projectDir)) {
             fs.mkdirSync(projectDir, { recursive: true });
           }
-          const finalFileName = `${versionNumber.toLowerCase()}.json`;
+          const finalFileName = `${versionNumber.toLowerCase()}${actionSuffix || ''}.js`;
           const filePath = path.join(projectDir, finalFileName);
-          
+
           const payloadToWrite = {
             _versionMetadata: {
               version: versionNumber,
@@ -4221,17 +4230,18 @@ const server = http.createServer(async (req, res) => {
             },
             data: data
           };
-          
-          fs.writeFileSync(filePath, JSON.stringify(payloadToWrite, null, 2), 'utf8');
-        } catch(e) {
+
+          const fileContentJs = `export default ${JSON.stringify(payloadToWrite, null, 2)};`;
+          fs.writeFileSync(filePath, fileContentJs, 'utf8');
+        } catch (e) {
           console.error("Failed to write updated version to versionsPath:", e);
         }
       }
-      
+
       return sendJSON(res, 200, { success: true, message: `Version ${versionNumber} updated on server`, version: currentItem });
     }
 
-    const id = `ver_${Date.now()}_${Math.floor(Math.random()*1000)}`;
+    const id = `ver_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
     const newVersionItem = {
       id,
@@ -4270,20 +4280,29 @@ const server = http.createServer(async (req, res) => {
         payload: data,
         created_at: timestamp
       }]);
-    } catch (e) {}
+    } catch (e) { }
 
     if (versionsPath) {
       try {
         const safeBasePath = String(versionsPath).replace(/['"]/g, '');
         const safeProj = safeProjectName.replace(/[<>:"/\\|?*]/g, '_');
         const safeCalc = safeCalculatorName.replace(/[<>:"/\\|?*]/g, '_');
-        const projectDir = path.join(safeBasePath, safeProj, safeCalc);
+        const projectBase = path.join(safeBasePath, safeProj);
+        if (!fs.existsSync(projectBase)) {
+          fs.mkdirSync(projectBase, { recursive: true });
+        }
+        for (const d of ["HVAC", "Electrical", "Plumbing", "Fire Fighting"]) {
+          const dPath = path.join(projectBase, d);
+          if (!fs.existsSync(dPath)) fs.mkdirSync(dPath, { recursive: true });
+        }
+
+        const projectDir = path.join(projectBase, discipline || 'MEP', safeCalc);
         if (!fs.existsSync(projectDir)) {
           fs.mkdirSync(projectDir, { recursive: true });
         }
-        const finalFileName = `${versionNumber.toLowerCase()}.json`;
+        const finalFileName = `${versionNumber.toLowerCase()}${actionSuffix || ''}.js`;
         const filePath = path.join(projectDir, finalFileName);
-        
+
         const payloadToWrite = {
           _versionMetadata: {
             version: versionNumber,
@@ -4297,9 +4316,10 @@ const server = http.createServer(async (req, res) => {
           },
           data: data
         };
-        
-        fs.writeFileSync(filePath, JSON.stringify(payloadToWrite, null, 2), 'utf8');
-      } catch(e) {
+
+        const fileContentJs = `export default ${JSON.stringify(payloadToWrite, null, 2)};`;
+        fs.writeFileSync(filePath, fileContentJs, 'utf8');
+      } catch (e) {
         console.error("Failed to write new version to versionsPath:", e);
       }
     }
@@ -4343,7 +4363,7 @@ const server = http.createServer(async (req, res) => {
           timestamp: v.created_at,
           data: v.payload
         }));
-        
+
         // Merge Supabase versions with local file versions based on ID
         const existingIds = new Set(versions.map(v => v.id));
         sbMapped.forEach(v => {
@@ -4352,7 +4372,7 @@ const server = http.createServer(async (req, res) => {
           }
         });
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // Also scan disk backup folders on server for existing version files (e.g. Z:\Versions\{proj}\{calc} or org versions_path)
     const diskDirsToScan = [];
@@ -4366,9 +4386,9 @@ const server = http.createServer(async (req, res) => {
           const fileSettings = readOrgSettings();
           const targetKey = user.organization_id || 'GLOBAL';
           orgVersionsPath = fileSettings[targetKey]?.versions_path || fileSettings['GLOBAL']?.versions_path || '';
-        } catch (e) {}
+        } catch (e) { }
       }
-      
+
       const candidatePaths = [
         `Z:\\Versions\\${safeProj}\\${safeCalc}`,
         `Z:/Versions/${safeProj}/${safeCalc}`,
@@ -4377,11 +4397,11 @@ const server = http.createServer(async (req, res) => {
         path.join(process.cwd(), 'Versions', safeProj, safeCalc),
         path.join(__dirname, '..', 'Versions', safeProj, safeCalc)
       ].filter(Boolean);
-      
+
       candidatePaths.forEach(p => {
         try {
           if (fs.existsSync(p) && !diskDirsToScan.includes(p)) diskDirsToScan.push(p);
-        } catch (e) {}
+        } catch (e) { }
       });
     }
 
@@ -4395,12 +4415,12 @@ const server = http.createServer(async (req, res) => {
               const fileStat = fs.statSync(fullPath);
               const contentStr = fs.readFileSync(fullPath, 'utf8');
               const parsed = JSON.parse(contentStr);
-              
+
               const meta = parsed._versionMetadata || {};
               const vNum = meta.version || fileName.replace(/\.json$/i, '').toUpperCase();
               const vData = meta.version ? (parsed.data || parsed) : parsed;
-              
-              const existsInList = versions.some(v => 
+
+              const existsInList = versions.some(v =>
                 String(v.version).toUpperCase() === String(vNum).toUpperCase()
               );
 
@@ -4421,10 +4441,10 @@ const server = http.createServer(async (req, res) => {
                   data: vData
                 });
               }
-            } catch (e) {}
+            } catch (e) { }
           }
         });
-      } catch (e) {}
+      } catch (e) { }
     });
 
     if (proj) {
@@ -4464,7 +4484,7 @@ const server = http.createServer(async (req, res) => {
     import('child_process').then(({ exec }) => {
       import('os').then(({ default: os }) => {
         const tempFile = path.join(os.tmpdir(), `browse_${Date.now()}.ps1`);
-      const psScript = `
+        const psScript = `
 Add-Type -AssemblyName System.windows.forms
 $f = New-Object System.Windows.Forms.FolderBrowserDialog
 $f.ShowNewFolderButton = $true
@@ -4479,26 +4499,26 @@ if ($res -eq 'OK') {
   Write-Output $f.SelectedPath
 }
       `;
-      
-      fs.writeFileSync(tempFile, psScript, 'utf8');
-      
-      exec(`powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tempFile}"`, (error, stdout, stderr) => {
-        try { fs.unlinkSync(tempFile); } catch(e){}
-        const selected = stdout ? stdout.trim() : '';
-        if (selected) {
-          sendJSON(res, 200, { success: true, path: selected });
-        } else {
-          sendJSON(res, 200, { success: false });
-        }
+
+        fs.writeFileSync(tempFile, psScript, 'utf8');
+
+        exec(`powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tempFile}"`, (error, stdout, stderr) => {
+          try { fs.unlinkSync(tempFile); } catch (e) { }
+          const selected = stdout ? stdout.trim() : '';
+          if (selected) {
+            sendJSON(res, 200, { success: true, path: selected });
+          } else {
+            sendJSON(res, 200, { success: false });
+          }
+        });
+      }).catch(e => {
+        sendJSON(res, 500, { success: false });
       });
     }).catch(e => {
       sendJSON(res, 500, { success: false });
     });
-  }).catch(e => {
-    sendJSON(res, 500, { success: false });
-  });
-  return;
-}
+    return;
+  }
 
   // 404 Fallback
   return sendJSON(res, 404, { success: false, message: 'Endpoint not found' });

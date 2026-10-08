@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useState, useEffect, Suspense, lazy } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
-import BimViewerApp from "@/features/bim-viewer/App";
 import { Sparkles, RefreshCw } from "lucide-react";
+
+const BimViewerApp = lazy(() => import("@/features/bim-viewer/App"));
 
 export const Route = createFileRoute("/bim-viewer")({
   head: () => ({
@@ -36,7 +37,7 @@ function BimViewerErrorComponent({ error, reset }: { error: any; reset: () => vo
         <button
           onClick={() => {
             if (reset) reset();
-            window.location.reload();
+            if (typeof window !== "undefined") window.location.reload();
           }}
           className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-lg text-xs shadow-md flex items-center gap-2 cursor-pointer transition-all border border-blue-400/30"
         >
@@ -49,6 +50,12 @@ function BimViewerErrorComponent({ error, reset }: { error: any; reset: () => vo
 }
 
 function BimViewerRoute() {
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
   return (
     <AppShell
       title="3D Studio"
@@ -56,7 +63,7 @@ function BimViewerRoute() {
       actions={
         <button
           onClick={() => {
-            if ((window as any)._onGenerateSchedule) {
+            if (typeof window !== "undefined" && (window as any)._onGenerateSchedule) {
               (window as any)._onGenerateSchedule();
             }
           }}
@@ -68,7 +75,23 @@ function BimViewerRoute() {
       }
     >
       <div className="flex-1 w-full h-full min-h-0 relative overflow-hidden bg-[#242426]">
-        <BimViewerApp />
+        {isClient ? (
+          <Suspense
+            fallback={
+              <div className="flex-1 w-full h-full flex flex-col items-center justify-center bg-[#242426] text-white p-6 gap-3">
+                <RefreshCw className="size-6 text-sky-400 animate-spin" />
+                <div className="text-xs text-slate-400 font-medium">Initializing 3D Studio...</div>
+              </div>
+            }
+          >
+            <BimViewerApp />
+          </Suspense>
+        ) : (
+          <div className="flex-1 w-full h-full flex flex-col items-center justify-center bg-[#242426] text-white p-6 gap-3">
+            <RefreshCw className="size-6 text-sky-400 animate-spin" />
+            <div className="text-xs text-slate-400 font-medium">Initializing 3D Studio...</div>
+          </div>
+        )}
       </div>
     </AppShell>
   );

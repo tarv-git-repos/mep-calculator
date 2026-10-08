@@ -25,6 +25,31 @@ export interface LoadRow {
 }
 
 /**
+ * Cleans space name by removing redundant floor prefixes like [GROUND FLOOR], [FIRST FLOOR], [L01], etc.
+ */
+export function cleanSpaceName(name: string): string {
+  if (!name) return "";
+  return name.replace(/^\[.*?\]\s*/, "").trim();
+}
+
+/**
+ * Strips auto-generated calculation or BIM remarks so remarks remain clean for user entry
+ */
+export function cleanRemarks(remarks: string | undefined): string {
+  if (!remarks) return "";
+  const trimmed = remarks.trim();
+  if (
+    /^3D BIM/i.test(trimmed) ||
+    /^From LPD/i.test(trimmed) ||
+    /^Auto-Pulled/i.test(trimmed) ||
+    /^ASHRAE 90\.1 & NEC Benchmark/i.test(trimmed)
+  ) {
+    return "";
+  }
+  return remarks;
+}
+
+/**
  * Extracts normalized floor level name from LoadRow
  */
 export function extractFloorName(row: LoadRow): string {
@@ -231,7 +256,7 @@ export function convertBimSpacesToLoadRows(spaces: Extracted3DSpace[]): LoadRow[
     const row: LoadRow = {
       id: `ls_3d_${Date.now()}_${idx}`,
       floor,
-      description: s.name.trim(),
+      description: cleanSpaceName(s.name),
       qty,
       area: Number(area.toFixed(2)),
       lighting: lightingKw,
@@ -239,7 +264,7 @@ export function convertBimSpacesToLoadRows(spaces: Extracted3DSpace[]): LoadRow[
       hvac: hvacKw,
       other: otherKw,
       totalLoad: 0,
-      remarks: `3D BIM ${floor} · LPD: ${bench.lpd}W/m² · Power: ${bench.smallPower}W/m² · HVAC: ${bench.hvacElectric}We/m²`,
+      remarks: "",
     };
 
     return computeRowOutputs(row);
@@ -315,7 +340,7 @@ export function getCommercialBenchmarkLoads(): LoadRow[] {
       hvac: hvacKw,
       other: otherKw,
       totalLoad: 0,
-      remarks: `ASHRAE 90.1 & NEC Benchmark · LPD: ${bench.lpd}W/m² · Sockets: ${bench.smallPower}W/m²`,
+      remarks: "",
     };
     return computeRowOutputs(row);
   });
@@ -418,6 +443,7 @@ export function pullFromOtherCalculators(
           const freshKw = ventMatch.freshAir * 0.015;
           if (freshKw > row.hvac) row.hvac = Number(freshKw.toFixed(2));
         }
+        row.description = cleanSpaceName(row.description);
         return computeRowOutputs(row);
       });
 
@@ -451,7 +477,7 @@ export function pullFromOtherCalculators(
           allGroups.forEach((g: any) => {
             const floorName = (g.name || "GROUND FLOOR").toUpperCase().trim();
             (g.spaces || []).forEach((s: any) => {
-              const rawName = (s.name || "").trim();
+              const rawName = cleanSpaceName(s.name || "");
               if (!rawName || /^new\s*space\s*\d+$/i.test(rawName)) return;
               const area = Math.max(0.1, parseFloat(s.areaSqM) || 15);
               const bench = getSpaceTypeBenchmark(rawName, s.areaType);
@@ -476,7 +502,7 @@ export function pullFromOtherCalculators(
                 hvac: hvacKw,
                 other: bench.otherEquipment,
                 totalLoad: 0,
-                remarks: `From LPD [${floorName}] · LPD: ${bench.lpd}W/m² · Power: ${bench.smallPower}W/m² · HVAC: ${bench.hvacElectric}We/m²`,
+                remarks: "",
                 flagged: Boolean(s.flagged),
               };
               lpdSpacesList.push(computeRowOutputs(row));
@@ -515,7 +541,7 @@ export function pullFromOtherCalculators(
     let newSpacesAdded = 0;
 
     wsSpaces.forEach((sp: any, idx: number) => {
-      const rawName = (sp.name || `Space ${idx + 1}`).trim();
+      const rawName = cleanSpaceName(sp.name || `Space ${idx + 1}`);
       const floor = sp.floor ? sp.floor.toUpperCase().trim() : "GROUND FLOOR";
       const fullName = `[${floor}] ${rawName}`.toLowerCase();
       const bench = getSpaceTypeBenchmark(sp.name, sp.category);
@@ -559,7 +585,7 @@ export function pullFromOtherCalculators(
           hvac: hvacKw,
           other: otherKw,
           totalLoad: 0,
-          remarks: `Auto-Pulled [${floor}] · LUX: ${lightingKw}kW · HVAC: ${hvacKw}kW · Power: ${powerKw}kW`,
+          remarks: "",
         };
         rowMap.set(fullName, computeRowOutputs(newRow));
         newSpacesAdded++;
@@ -711,10 +737,10 @@ export const getCalculationPreview = (row: LoadRow, unitSystem: "si" | "ip", tot
 
   return {
     title: "Electrical Load Calculation Breakdown",
-    itemName: row.description || "Unnamed Load Area",
+    itemName: cleanSpaceName(row.description) || "Unnamed Load Area",
     standardReference: "IEC 60364-5-52 / ASHRAE 90.1 / NEC NFPA 70",
     inputs: [
-      { label: "Space Description", value: row.description || "—" },
+      { label: "Space Description", value: cleanSpaceName(row.description) || "—" },
       { label: "Quantity (Units)", value: qty },
       { label: "Floor Area", value: area > 0 ? area : "N/A", unit: area > 0 ? areaUnit : undefined },
       { label: "Lighting Load", value: lighting, unit: "kW" },

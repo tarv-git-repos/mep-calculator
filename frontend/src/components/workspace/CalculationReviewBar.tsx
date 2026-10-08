@@ -213,7 +213,7 @@ export function CalculationReviewBar({
   const currentUserEmail = userData?.email || profile?.email || "";
 
   // Dynamic Review & Approval Authority (Single Source of Truth: Company Hierarchy)
-  const userAuthority = useMemo<"APPROVE_REJECT" | "REVIEW" | "NONE">(() => {
+  const userAuthority = useMemo<"APPROVE_REJECT" | "REVIEW" | "NONE" | "SUBMIT_TASK">(() => {
     let activeProfile: any = profile || userData || {};
     
     // Check local storage caches
@@ -256,12 +256,12 @@ export function CalculationReviewBar({
               return pIds.includes(found.id);
             });
 
-            if (!hasSubordinates) {
-              return "NONE"; // Submitter role
-            }
-
             if (found.approvalAuthority && found.approvalAuthority !== "NONE") {
               return found.approvalAuthority;
+            }
+
+            if (!hasSubordinates) {
+              return "SUBMIT_TASK"; // Submitter role
             }
             
             // Middle manager without explicit authority
@@ -317,7 +317,8 @@ export function CalculationReviewBar({
   const userRole = useMemo<WorkflowRole>(() => {
     if (userAuthority === "APPROVE_REJECT") return "Discipline Coordinator";
     if (userAuthority === "REVIEW") return "Sr. Design Engineer";
-    return "Jr. / Design Engineer";
+    if (userAuthority === "SUBMIT_TASK") return "Jr. / Design Engineer";
+    return "Viewer";
   }, [userAuthority]);
 
   const storageKey = `mep_calc_review_${effectiveProjectId}_${calculatorPath || "ventilation"}`;

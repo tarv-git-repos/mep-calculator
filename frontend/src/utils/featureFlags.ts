@@ -191,7 +191,16 @@ export const isFeatureLocked = (path: string | undefined, profile?: Profile | nu
   // Subscription expiry check (non-SUPER_ADMIN)
   const expStr = profile?.subscription_expires || profile?.features?.subscription_expires;
   if (expStr && typeof expStr === 'string') {
-    const expDate = new Date(expStr);
+    let expDate = new Date(expStr);
+    
+    // Fix DD/MM/YYYY or DD-MM-YYYY formats parsing as MM/DD/YYYY
+    if (!isNaN(expDate.getTime()) && /^\d{2}[\/\-]\d{2}[\/\-]\d{4}/.test(expStr)) {
+      const parts = expStr.split(/[\/\-T ]/);
+      if (parts.length >= 3) {
+        expDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T00:00:00Z`);
+      }
+    }
+
     if (!isNaN(expDate.getTime()) && expDate.getTime() < Date.now()) {
       return true;
     }

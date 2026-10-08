@@ -111,9 +111,16 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       };
 
       // 1. Overwrite / sync to server database (and disk if web version)
-      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath') || 'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Versions';
+      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath') || 'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Project Data';
+      const nCalc = calculatorName.toLowerCase();
+      let discForApi = "MEP";
+      if (nCalc.includes("cooling") || nCalc.includes("ventilation") || nCalc.includes("duct") || nCalc.includes("chw") || nCalc.includes("heating") || nCalc.includes("smoke") || nCalc.includes("pressuri") || nCalc.includes("psychro") || nCalc.includes("refrigerant") || nCalc.includes("condensate") || nCalc.includes("diffuser")) discForApi = "HVAC";
+      else if (nCalc.includes("cable") || nCalc.includes("busbar") || nCalc.includes("conductor") || nCalc.includes("transformer") || nCalc.includes("generator") || nCalc.includes("ups") || nCalc.includes("capacitor") || nCalc.includes("breaker") || nCalc.includes("short-circuit") || nCalc.includes("tray") || nCalc.includes("lux") || nCalc.includes("lpd") || nCalc.includes("battery") || nCalc.includes("load-schedule")) discForApi = "Electrical";
+      else if (nCalc.includes("loading-unit") || nCalc.includes("fixture-unit") || nCalc.includes("water-demand") || nCalc.includes("supply-pipe") || nCalc.includes("pump-sizing") || nCalc.includes("pressure-vessel") || nCalc.includes("tank-sizing") || nCalc.includes("drainage") || nCalc.includes("sewage") || nCalc.includes("sump") || nCalc.includes("storm") || nCalc.includes("gas-tank")) discForApi = "Plumbing";
+      else if (nCalc.includes("fire") || nCalc.includes("sprinkler") || nCalc.includes("fm200") || nCalc.includes("hazen")) discForApi = "Fire Fighting";
+
       try {
-        await api.saveVersionToServer(projectName, calculatorName, payload, basePath);
+        await api.saveVersionToServer(projectName, calculatorName, payload, basePath, discForApi, '');
       } catch (e) {
         console.warn("Cloud version update warning:", e);
       }
@@ -125,14 +132,28 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
           const safeBasePath = basePath.replace(/['"]/g, '');
           const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
           const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
-          const projectDir = `${safeBasePath}\\${safeProjectName}\\${safeCalculatorName}`;
+          const n = calculatorName.toLowerCase();
+          let disc = "MEP";
+          if (n.includes("cooling") || n.includes("ventilation") || n.includes("duct") || n.includes("chw") || n.includes("heating") || n.includes("smoke") || n.includes("pressuri") || n.includes("psychro") || n.includes("refrigerant") || n.includes("condensate") || n.includes("diffuser")) disc = "HVAC";
+          else if (n.includes("cable") || n.includes("busbar") || n.includes("conductor") || n.includes("transformer") || n.includes("generator") || n.includes("ups") || n.includes("capacitor") || n.includes("breaker") || n.includes("short-circuit") || n.includes("tray") || n.includes("lux") || n.includes("lpd") || n.includes("battery") || n.includes("load-schedule")) disc = "Electrical";
+          else if (n.includes("loading-unit") || n.includes("fixture-unit") || n.includes("water-demand") || n.includes("supply-pipe") || n.includes("pump-sizing") || n.includes("pressure-vessel") || n.includes("tank-sizing") || n.includes("drainage") || n.includes("sewage") || n.includes("sump") || n.includes("storm") || n.includes("gas-tank")) disc = "Plumbing";
+          else if (n.includes("fire") || n.includes("sprinkler") || n.includes("fm200") || n.includes("hazen")) disc = "Fire Fighting";
+
+          const projectBase = `${safeBasePath}\\${safeProjectName}`;
+          if (!await exists(projectBase)) await mkdir(projectBase, { recursive: true });
+          for (const d of ["HVAC", "Electrical", "Plumbing", "Fire Fighting"]) {
+            const dPath = `${projectBase}\\${d}`;
+            if (!await exists(dPath)) await mkdir(dPath, { recursive: true });
+          }
+
+          const projectDir = `${projectBase}\\${disc}\\${safeCalculatorName}`;
           if (!await exists(projectDir)) {
             await mkdir(projectDir, { recursive: true });
           }
-          const filePath = `${projectDir}\\${verName.toLowerCase()}.json`;
+          const filePath = `${projectDir}\\${verName.toLowerCase()}.js`;
           await invoke('save_backup', { 
             path: filePath, 
-            content: JSON.stringify(payload, null, 2)
+            content: `export default ${JSON.stringify(payload, null, 2)};`
           });
         } catch (e) {
           console.warn("Local active version save warning:", e);
@@ -197,6 +218,19 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       const versionStr = `V${nextV}`;
       
       const finalDesc = typeof customDesc === 'string' ? customDesc : descriptionInput.trim();
+      let actionSuffix = "";
+      const descLower = finalDesc.toLowerCase();
+      if (descLower.includes("review")) actionSuffix = "-review";
+      else if (descLower.includes("approv")) actionSuffix = "-approve";
+      else if (descLower.includes("reject")) actionSuffix = "-reject";
+      else if (descLower.includes("submit")) actionSuffix = "-submit";
+      
+      const n = calculatorName.toLowerCase();
+      let discipline = "MEP";
+      if (n.includes("cooling") || n.includes("ventilation") || n.includes("duct") || n.includes("chw") || n.includes("heating") || n.includes("smoke") || n.includes("pressuri") || n.includes("psychro") || n.includes("refrigerant") || n.includes("condensate") || n.includes("diffuser")) discipline = "HVAC";
+      else if (n.includes("cable") || n.includes("busbar") || n.includes("conductor") || n.includes("transformer") || n.includes("generator") || n.includes("ups") || n.includes("capacitor") || n.includes("breaker") || n.includes("short-circuit") || n.includes("tray") || n.includes("lux") || n.includes("lpd") || n.includes("battery") || n.includes("load-schedule")) discipline = "Electrical";
+      else if (n.includes("loading-unit") || n.includes("fixture-unit") || n.includes("water-demand") || n.includes("supply-pipe") || n.includes("pump-sizing") || n.includes("pressure-vessel") || n.includes("tank-sizing") || n.includes("drainage") || n.includes("sewage") || n.includes("sump") || n.includes("storm") || n.includes("gas-tank")) discipline = "Plumbing";
+      else if (n.includes("fire") || n.includes("sprinkler") || n.includes("fm200") || n.includes("hazen")) discipline = "Fire Fighting";
 
       const payload = {
         _versionMetadata: {
@@ -230,9 +264,9 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       } catch (e) {}
 
       // 1. Sync to server database (and disk if web version) so ALL project members see the saved version
-      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath') || 'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Versions';
+      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath') || 'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Project Data';
       try {
-        await api.saveVersionToServer(projectName, calculatorName, payload, basePath);
+        await api.saveVersionToServer(projectName, calculatorName, payload, basePath, discipline, actionSuffix);
       } catch (e) {
         console.warn("Cloud version sync warning:", e);
       }
@@ -242,18 +276,25 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       if (isTauri && basePath) {
         try {
           const safeBasePath = basePath.replace(/['"]/g, '');
-          const projectDir = `${safeBasePath}\\${safeProjectName}\\${safeCalculatorName}`;
+          const projectBase = `${safeBasePath}\\${safeProjectName}`;
+          if (!await exists(projectBase)) await mkdir(projectBase, { recursive: true });
+          
+          for (const d of ["HVAC", "Electrical", "Plumbing", "Fire Fighting"]) {
+            const dPath = `${projectBase}\\${d}`;
+            if (!await exists(dPath)) await mkdir(dPath, { recursive: true });
+          }
 
+          const projectDir = `${projectBase}\\${discipline}\\${safeCalculatorName}`;
           const dirExists = await exists(projectDir);
           if (!dirExists) {
             await mkdir(projectDir, { recursive: true });
           }
 
-          const finalFileName = `${versionStr.toLowerCase()}.json`;
+          const finalFileName = `${versionStr.toLowerCase()}${actionSuffix}.js`;
           const filePath = `${projectDir}\\${finalFileName}`;
           await invoke('save_backup', { 
             path: filePath, 
-            content: JSON.stringify(payload, null, 2)
+            content: `export default ${JSON.stringify(payload, null, 2)};`
           });
         } catch (e) {
           console.warn("Local backup warning:", e);
@@ -469,7 +510,7 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       const candidateBasePaths = [
         localStorage.getItem('versionsPath'),
         localStorage.getItem('localBackupPath'),
-        'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Versions',
+        'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Project Data',
         'Z:\\Versions',
         'Z:/Versions'
       ].filter(Boolean).map(p => String(p).replace(/['"]/g, ''));
@@ -477,16 +518,29 @@ export function VersionManager({ projectName, calculatorName = 'Unknown' }: { pr
       for (const basePath of candidateBasePaths) {
         if (isTauri && basePath) {
           try {
-            const projectDir = `${basePath}\\${safeProjectName}\\${safeCalculatorName}`;
+            const n = safeCalculatorName.toLowerCase();
+            let disc = "MEP";
+            if (n.includes("cooling") || n.includes("ventilation") || n.includes("duct") || n.includes("chw") || n.includes("heating") || n.includes("smoke") || n.includes("pressuri") || n.includes("psychro") || n.includes("refrigerant") || n.includes("condensate") || n.includes("diffuser")) disc = "HVAC";
+            else if (n.includes("cable") || n.includes("busbar") || n.includes("conductor") || n.includes("transformer") || n.includes("generator") || n.includes("ups") || n.includes("capacitor") || n.includes("breaker") || n.includes("short-circuit") || n.includes("tray") || n.includes("lux") || n.includes("lpd") || n.includes("battery") || n.includes("load-schedule")) disc = "Electrical";
+            else if (n.includes("loading-unit") || n.includes("fixture-unit") || n.includes("water-demand") || n.includes("supply-pipe") || n.includes("pump-sizing") || n.includes("pressure-vessel") || n.includes("tank-sizing") || n.includes("drainage") || n.includes("sewage") || n.includes("sump") || n.includes("storm") || n.includes("gas-tank")) disc = "Plumbing";
+            else if (n.includes("fire") || n.includes("sprinkler") || n.includes("fm200") || n.includes("hazen")) disc = "Fire Fighting";
+
+            const projectDir = `${basePath}\\${safeProjectName}\\${disc}\\${safeCalculatorName}`;
             const dirExists = await exists(projectDir);
             if (dirExists) {
               const entries = await readDir(projectDir);
               for (const entry of entries) {
-                if (entry.isFile && entry.name.toLowerCase().endsWith('.json')) {
+                if (entry.isFile && (entry.name.toLowerCase().endsWith('.json') || entry.name.toLowerCase().endsWith('.js'))) {
                   try {
                     const filePath = `${projectDir}\\${entry.name}`;
                     const fileContent = await readTextFile(filePath);
-                    const parsed = JSON.parse(fileContent);
+                    let parsed;
+                    if (entry.name.toLowerCase().endsWith('.js')) {
+                      const cleanContent = fileContent.replace(/^export\s+default\s+/, '').replace(/;?\s*$/, '');
+                      parsed = JSON.parse(cleanContent);
+                    } else {
+                      parsed = JSON.parse(fileContent);
+                    }
                     const meta = parsed._versionMetadata || {};
                     const vNum = meta.version || entry.name.replace(/\.json$/i, '').toUpperCase();
                     const vData = meta.version ? (parsed.data || parsed) : parsed;

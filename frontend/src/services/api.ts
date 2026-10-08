@@ -942,7 +942,7 @@ export const api = {
   },
 
   // ================= PROJECT VERSIONS ENDPOINTS ================= //
-  async saveVersionToServer(projectName: string, calculatorName: string, payload: any, versionsPath?: string) {
+  async saveVersionToServer(projectName: string, calculatorName: string, payload: any, versionsPath?: string, discipline?: string, actionSuffix?: string) {
     try {
       const { data } = await axios.post(`${getBackendUrl()}/api/versions/save`, {
         projectName,
@@ -950,7 +950,9 @@ export const api = {
         version: payload._versionMetadata?.version,
         description: payload._versionMetadata?.description,
         data: payload.data || payload,
-        versionsPath
+        versionsPath,
+        discipline,
+        actionSuffix
       });
       return data;
     } catch (e: any) {

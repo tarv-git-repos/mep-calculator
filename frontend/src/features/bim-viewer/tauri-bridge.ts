@@ -29,7 +29,9 @@ export function cancelActiveIfcProcessing() {
     console.log("🛑 Cancelled background IFC worker conversion.");
   }
 }
-(window as any)._cancelIfcProcessing = cancelActiveIfcProcessing;
+if (typeof window !== 'undefined') {
+  (window as any)._cancelIfcProcessing = cancelActiveIfcProcessing;
+}
 
 async function convertIfcInBrowser(file: File): Promise<{ frag: string; json: string }> {
   const cacheKey = `${file.name}_${file.size}_${file.lastModified}`;

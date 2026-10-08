@@ -280,7 +280,7 @@ export function OrgAdminDashboard() {
     }
   }
 
-  const handleChangeApprovalAuthority = async (user: Profile, newAuthority: 'APPROVE_REJECT' | 'REVIEW' | 'NONE') => {
+  const handleChangeApprovalAuthority = async (user: Profile, newAuthority: 'APPROVE_REJECT' | 'REVIEW' | 'NONE' | 'SUBMIT_TASK') => {
     toast.info(`Updating review rights for ${user.name || user.email}...`)
     setUsers(prev => prev.map(u => u.id === user.id ? { 
       ...u, 
@@ -916,7 +916,7 @@ export function OrgAdminDashboard() {
                                       : (u.role === 'Sr. Design Engineer' ? 'REVIEW' : 'NONE')
                                   )
                                 }
-                                onChange={(e) => handleChangeApprovalAuthority(u, e.target.value as 'APPROVE_REJECT' | 'REVIEW' | 'NONE')}
+                                onChange={(e) => handleChangeApprovalAuthority(u, e.target.value as 'APPROVE_REJECT' | 'REVIEW' | 'NONE' | 'SUBMIT_TASK')}
                                 className={`text-xs px-2.5 py-1.5 rounded-lg border font-bold focus:outline-none focus:ring-1 focus:ring-slate-400 cursor-pointer shadow-2xs ${
                                   (u.approvalAuthority || (u.features as any)?.approvalAuthority) === 'APPROVE_REJECT' || (!u.approvalAuthority && (u.role === 'ORG_ADMIN' || u.role === 'SUPER_ADMIN' || u.role === 'Discipline Coordinator' || u.role === 'Team Leader'))
                                     ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
@@ -927,6 +927,7 @@ export function OrgAdminDashboard() {
                               >
                                 <option value="APPROVE_REJECT">Approve / Reject & Review</option>
                                 <option value="REVIEW">Reviewal Only</option>
+                                <option value="SUBMIT_TASK">Submit Task</option>
                                 <option value="NONE">No Reviewal Rights</option>
                               </select>
                             </td>

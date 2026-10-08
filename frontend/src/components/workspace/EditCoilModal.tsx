@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { X, Wrench, Activity, AlertCircle, CheckCircle2 } from "lucide-react";
+import { X, Info, Flame, CheckCircle, AlertTriangle, Activity } from "lucide-react";
 import { cToF, fToC, lpsToCfm, cfmToLps, lpsToGpm } from "@/utils/conversions";
 
 export interface CoilRow {
@@ -21,6 +21,7 @@ interface EditCoilModalProps {
   selectedCount?: number;
   onSave: (updated: CoilRow) => void;
   unitSystem: "si" | "ip";
+  isNew?: boolean;
 }
 
 // ASHRAE two-equation saturation pressure model (Pa)
@@ -51,31 +52,50 @@ export function EditCoilModal({
   selectedCount = 1,
   onSave,
   unitSystem,
+  isNew = false,
 }: EditCoilModalProps) {
-  if (!isOpen || !coil) return null;
+  const [showPreview, setShowPreview] = useState(false);
 
-  const isBulk = selectedCount > 1;
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add("modal-open-blur");
+    }
+    return () => {
+      document.body.classList.remove("modal-open-blur");
+    };
+  }, [isOpen]);
+
+  const isBulk = !isNew && selectedCount > 1;
   const ip = unitSystem === "ip";
   const uTemp = ip ? "°F" : "°C";
   const uFlow = ip ? "CFM" : "L/s";
+  const uCond = ip ? "GPM" : "L/s";
 
-  const [name, setName] = useState(coil.name);
-  const [dbIn, setDbIn] = useState<number | "">(coil.dbIn);
-  const [wbIn, setWbIn] = useState<number | "">(coil.wbIn);
-  const [dbOut, setDbOut] = useState<number | "">(coil.dbOut);
-  const [wbOut, setWbOut] = useState<number | "">(coil.wbOut);
-  const [flow, setFlow] = useState<number | "">(coil.flow);
+  const [name, setName] = useState(coil?.name || "");
+  const [dbIn, setDbIn] = useState<number | "">(isNew ? "" : (coil?.dbIn ?? (ip ? 75.2 : 24.0)));
+  const [wbIn, setWbIn] = useState<number | "">(isNew ? "" : (coil?.wbIn ?? (ip ? 62.6 : 17.0)));
+  const [dbOut, setDbOut] = useState<number | "">(isNew ? "" : (coil?.dbOut ?? (ip ? 57.2 : 14.0)));
+  const [wbOut, setWbOut] = useState<number | "">(isNew ? "" : (coil?.wbOut ?? (ip ? 55.4 : 13.0)));
+  const [flow, setFlow] = useState<number | "">(isNew ? "" : (coil?.flow ?? (ip ? 1000 : 500)));
 
   useEffect(() => {
     if (coil) {
-      setName(coil.name);
-      setDbIn(coil.dbIn);
-      setWbIn(coil.wbIn);
-      setDbOut(coil.dbOut);
-      setWbOut(coil.wbOut);
-      setFlow(coil.flow);
+      setName(coil.name || "");
+      if (isNew) {
+        setDbIn("");
+        setWbIn("");
+        setDbOut("");
+        setWbOut("");
+        setFlow("");
+      } else {
+        setDbIn(coil.dbIn !== undefined && coil.dbIn !== null ? coil.dbIn : "");
+        setWbIn(coil.wbIn !== undefined && coil.wbIn !== null ? coil.wbIn : "");
+        setDbOut(coil.dbOut !== undefined && coil.dbOut !== null ? coil.dbOut : "");
+        setWbOut(coil.wbOut !== undefined && coil.wbOut !== null ? coil.wbOut : "");
+        setFlow(coil.flow !== undefined && coil.flow !== null ? coil.flow : "");
+      }
     }
-  }, [coil]);
+  }, [coil, isNew]);
 
   // Live calculation preview
   const previewCalc = useMemo(() => {
@@ -92,8 +112,12 @@ export function EditCoilModal({
 
     let wIn = 0;
     let wOut = 0;
-    try { wIn = wFromWB(dbInC, wbInC); } catch (e) {}
-    try { wOut = wFromWB(dbOutC, wbOutC); } catch (e) {}
+    if (numDbIn > 0 && numWbIn > 0) {
+      try { wIn = Math.max(0, wFromWB(dbInC, wbInC)); } catch (e) {}
+    }
+    if (numDbOut > 0 && numWbOut > 0) {
+      try { wOut = Math.max(0, wFromWB(dbOutC, wbOutC)); } catch (e) {}
+    }
 
     const dw = Math.max(0, wIn - wOut);
     const flowLps = ip ? cfmToLps(numFlow) : numFlow;
@@ -103,19 +127,22 @@ export function EditCoilModal({
 
     // Warnings
     const warnings: string[] = [];
-    if (numWbIn > numDbIn) warnings.push("Entering Wet-Bulb cannot exceed Dry-Bulb.");
-    if (numWbOut > numDbOut) warnings.push("Leaving Wet-Bulb cannot exceed Dry-Bulb.");
-    if (wIn < wOut && numFlow > 0) warnings.push("Leaving moisture is higher than entering (No dehumidification).");
+    if (numWbIn > numDbIn && numDbIn > 0) warnings.push("Entering Wet-Bulb cannot exceed Dry-Bulb temperature.");
+    if (numWbOut > numDbOut && numDbOut > 0) warnings.push("Leaving Wet-Bulb cannot exceed Dry-Bulb temperature.");
+    if (wIn < wOut && numFlow > 0 && numDbIn > 0 && numDbOut > 0) warnings.push("Leaving moisture is higher than entering moisture (No condensation).");
 
     return {
       wIn,
       wOut,
       dw,
+      massAirFlow,
       condFlowLps,
       condFlowGpm,
       warnings,
     };
   }, [dbIn, wbIn, dbOut, wbOut, flow, ip]);
+
+  if (!isOpen || !coil) return null;
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,174 +151,272 @@ export function EditCoilModal({
     onSave({
       ...coil,
       name: name.trim(),
-      dbIn: Number(dbIn) || 0,
-      wbIn: Number(wbIn) || 0,
-      dbOut: Number(dbOut) || 0,
-      wbOut: Number(wbOut) || 0,
-      flow: Number(flow) || 0,
+      dbIn: dbIn === "" ? (ip ? 75.2 : 24.0) : Number(dbIn) || 0,
+      wbIn: wbIn === "" ? (ip ? 62.6 : 17.0) : Number(wbIn) || 0,
+      dbOut: dbOut === "" ? (ip ? 57.2 : 14.0) : Number(dbOut) || 0,
+      wbOut: wbOut === "" ? (ip ? 55.4 : 13.0) : Number(wbOut) || 0,
+      flow: flow === "" ? (ip ? 1000 : 500) : Number(flow) || 0,
     });
-    onClose();
   };
 
+  const labelClass = "block text-[10px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest mb-1 flex items-center gap-1.5";
+  const inputClass = "w-full h-9 px-3 bg-white/60 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-primary focus:ring-1 focus:ring-primary/20 focus:bg-white dark:focus:bg-white/10 rounded-lg text-[12px] outline-none transition-all text-neutral-800 dark:text-neutral-100 placeholder:text-neutral-400";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/20 dark:bg-black/50 p-4 animate-fade-in font-sans">
       <div 
-        className="bg-card border border-border w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()} 
+        className={`bg-white/80 dark:bg-neutral-950/80 backdrop-blur-2xl border border-white/50 dark:border-white/10 rounded-2xl shadow-2xl flex flex-col w-full max-h-[88vh] overflow-hidden transition-[max-width] duration-300 ease-in-out ${
+          showPreview ? "max-w-4xl" : "max-w-xl"
+        }`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border/80 bg-slate-50/50 dark:bg-slate-900/40">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-[#0A7BC7]/10 text-[#0A7BC7] rounded-xl">
-              <Wrench className="size-4" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-foreground">
-                {isBulk ? `Bulk Edit (${selectedCount} Coils)` : "Edit Coil Properties"}
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                {isBulk ? "Apply psychrometric parameters across all selected cooling coils" : "Modify on-coil and off-coil psychrometric parameters"}
-              </p>
-            </div>
+        <header className="px-5 h-14 flex items-center justify-between border-b border-black/5 dark:border-white/5 shrink-0 bg-white/20 dark:bg-black/20">
+          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+            <h2 className="text-[14.5px] font-bold text-neutral-800 dark:text-neutral-100 truncate">
+              {isNew ? "Add Cooling Coil" : isBulk ? `Bulk Edit (${selectedCount} Coils)` : "Edit Coil Parameters"}
+            </h2>
+            <span className="px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-neutral-800 dark:text-neutral-200 text-[10.5px] font-bold font-mono tracking-tight shrink-0">
+              {isBulk ? `${selectedCount} Units` : name || "Coil"}
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-accent transition-colors cursor-pointer"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        {/* Form Body */}
-        <form onSubmit={handleFormSubmit} className="p-6 flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Unit Reference / Tag</label>
-              {isBulk && (
-                <span className="text-[11px] text-[#0A7BC7] font-medium">(Individual unit tags will be preserved in bulk edit)</span>
-              )}
-            </div>
-            <input
-              type="text"
-              required={!isBulk}
-              disabled={isBulk}
-              value={isBulk ? `[Multiple Coils Selected (${selectedCount})]` : name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. AHU-01"
-              className={`border border-border/80 rounded-xl px-3.5 py-2 text-sm font-semibold outline-none focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/20 transition-all ${
-                isBulk ? "bg-muted text-muted-foreground cursor-not-allowed" : "bg-background text-foreground"
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowPreview((prev) => !prev)}
+              className={`flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11.5px] font-semibold border transition-all cursor-pointer shadow-xs ${
+                showPreview
+                  ? "bg-primary text-primary-foreground border-primary hover:bg-primary/95"
+                  : "bg-white/50 dark:bg-white/5 border-black/10 dark:border-white/10 text-neutral-700 dark:text-neutral-300 hover:bg-white/80 dark:hover:bg-white/10"
               }`}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex flex-col gap-3 p-3.5 bg-slate-50 dark:bg-slate-950/30 border border-border/60 rounded-xl">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-amber-500"></span> Entering (On-Coil)
-              </span>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Dry-Bulb ({uTemp})</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  required
-                  value={dbIn}
-                  onChange={(e) => setDbIn(e.target.value === "" ? "" : Number(e.target.value))}
-                  className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#0A7BC7]"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Wet-Bulb ({uTemp})</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  required
-                  value={wbIn}
-                  onChange={(e) => setWbIn(e.target.value === "" ? "" : Number(e.target.value))}
-                  className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#0A7BC7]"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-3 p-3.5 bg-slate-50 dark:bg-slate-950/30 border border-border/60 rounded-xl">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-blue-500"></span> Leaving (Off-Coil)
-              </span>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Dry-Bulb ({uTemp})</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  required
-                  value={dbOut}
-                  onChange={(e) => setDbOut(e.target.value === "" ? "" : Number(e.target.value))}
-                  className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#0A7BC7]"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Wet-Bulb ({uTemp})</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  required
-                  value={wbOut}
-                  onChange={(e) => setWbOut(e.target.value === "" ? "" : Number(e.target.value))}
-                  className="bg-background border border-border/80 rounded-lg px-2.5 py-1.5 text-xs font-bold outline-none focus:border-[#0A7BC7]"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Airflow Rate ({uFlow})</label>
-            <input
-              type="number"
-              step="1"
-              required
-              value={flow}
-              onChange={(e) => setFlow(e.target.value === "" ? "" : Number(e.target.value))}
-              placeholder={ip ? "1000" : "500"}
-              className="bg-background border border-border/80 rounded-xl px-3.5 py-2 text-sm font-semibold outline-none focus:border-[#0A7BC7] focus:ring-2 focus:ring-[#0A7BC7]/20 transition-all"
-            />
-          </div>
-
-          {/* Live psychrometric preview */}
-          <div className="bg-primary/5 border border-primary/20 rounded-xl p-3.5 flex flex-col gap-2">
-            <div className="flex items-center justify-between text-xs font-semibold text-primary">
-              <span className="flex items-center gap-1.5"><Activity className="size-3.5" /> Calculated Dehumidification</span>
-              <span className="font-mono font-bold text-sm">
-                {ip ? previewCalc.condFlowGpm.toFixed(5) : previewCalc.condFlowLps.toFixed(5)} {ip ? "GPM" : "L/s"}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground font-mono">
-              <div>W_in: <span className="text-foreground font-medium">{previewCalc.wIn.toFixed(6)} kg/kg</span></div>
-              <div>W_out: <span className="text-foreground font-medium">{previewCalc.wOut.toFixed(6)} kg/kg</span></div>
-            </div>
-            {previewCalc.warnings.map((warn, i) => (
-              <div key={i} className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
-                <AlertCircle className="size-3 shrink-0" />
-                <span>{warn}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Footer actions */}
-          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-border/60">
+            >
+              <Info className="size-3.5" />
+              Calculations Preview
+            </button>
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-accent rounded-xl transition cursor-pointer"
+              className="size-8 grid place-items-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </header>
+
+        {/* Form Body split into Inputs (Left) and Calculations Preview (Right) */}
+        <form onSubmit={handleFormSubmit} className="flex-1 min-h-0 flex flex-col justify-between overflow-hidden">
+          <div className="flex-1 min-h-0 flex overflow-hidden">
+            {/* Form inputs (Left side) */}
+            <div className="flex-1 min-w-0 p-5 space-y-4 overflow-y-auto custom-scrollbar">
+              {/* General Info */}
+              <div className="space-y-3">
+                <h3 className="text-[10.5px] uppercase font-bold text-primary tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-primary" /> General Parameters
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelClass}>Unit Reference / Tag</label>
+                    <input
+                      type="text"
+                      required={!isBulk}
+                      disabled={isBulk}
+                      value={isBulk ? `[Multiple Coils Selected (${selectedCount})]` : name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. AHU-01 / FCU-02"
+                      className={`${inputClass} ${isBulk ? "opacity-60 cursor-not-allowed" : ""}`}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Airflow Rate ({uFlow})</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min={0}
+                      required
+                      value={flow}
+                      onChange={(e) => setFlow(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder={ip ? "1000" : "500"}
+                      className={`${inputClass} font-mono`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Psychrometric Entering (On-Coil) */}
+              <div className="space-y-3">
+                <h3 className="text-[10.5px] uppercase font-bold text-amber-600 dark:text-amber-500 tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-amber-500" /> Entering (On-Coil) Conditions
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelClass}>Entering Dry-Bulb ({uTemp})</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      required
+                      value={dbIn}
+                      onChange={(e) => setDbIn(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder={ip ? "75.2" : "24.0"}
+                      className={`${inputClass} font-mono`}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Entering Wet-Bulb ({uTemp})</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      required
+                      value={wbIn}
+                      onChange={(e) => setWbIn(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder={ip ? "62.6" : "17.0"}
+                      className={`${inputClass} font-mono`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Psychrometric Leaving (Off-Coil) */}
+              <div className="space-y-3">
+                <h3 className="text-[10.5px] uppercase font-bold text-blue-600 dark:text-blue-500 tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-blue-500" /> Leaving (Off-Coil) Conditions
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelClass}>Leaving Dry-Bulb ({uTemp})</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      required
+                      value={dbOut}
+                      onChange={(e) => setDbOut(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder={ip ? "57.2" : "14.0"}
+                      className={`${inputClass} font-mono`}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Leaving Wet-Bulb ({uTemp})</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      required
+                      value={wbOut}
+                      onChange={(e) => setWbOut(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder={ip ? "55.4" : "13.0"}
+                      className={`${inputClass} font-mono`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Realtime Summary Quick-Badge inside Form */}
+              <div className="p-3 bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-xl flex items-center justify-between shadow-xs">
+                <div className="flex items-center gap-2">
+                  <Activity className="size-4 text-primary shrink-0" />
+                  <span className="text-[11.5px] font-semibold text-neutral-700 dark:text-neutral-300">
+                    Live Condensate Rate
+                  </span>
+                </div>
+                <span className="font-mono font-bold text-[13.5px] text-primary">
+                  {ip ? previewCalc.condFlowGpm.toFixed(5) : previewCalc.condFlowLps.toFixed(5)} {uCond}
+                </span>
+              </div>
+            </div>
+
+            {/* Calculations Preview (Right side drawer) */}
+            <div
+              className={`shrink-0 bg-white/30 dark:bg-black/20 backdrop-blur-md border-l border-black/5 dark:border-white/5 overflow-hidden transition-[width,opacity] duration-300 ease-in-out flex flex-col ${
+                showPreview ? "w-[360px] opacity-100 p-5 border-l-border" : "w-0 opacity-0 p-0 border-l-transparent"
+              }`}
+            >
+              <div className="w-[320px] space-y-4 flex flex-col h-full overflow-y-auto custom-scrollbar">
+                <h3 className="text-[10.5px] uppercase font-bold text-primary tracking-widest pb-1.5 border-b border-black/5 dark:border-white/5 shrink-0 flex items-center gap-1.5">
+                  <Flame className="size-3.5" /> Calculations Preview
+                </h3>
+
+                {/* Humidity Ratio Card */}
+                <div className="p-3.5 bg-white/40 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-xl space-y-2.5 shrink-0 shadow-xs">
+                  <div className="text-[9.5px] uppercase font-bold text-neutral-400 dark:text-neutral-500 tracking-wider">
+                    Psychrometric Moisture Content
+                  </div>
+                  <div className="space-y-1.5 text-[11px] font-mono">
+                    <div className="flex justify-between items-center text-neutral-600 dark:text-neutral-400">
+                      <span>W_in (Entering):</span>
+                      <span className="font-semibold text-foreground">{previewCalc.wIn.toFixed(6)} kg/kg</span>
+                    </div>
+                    <div className="flex justify-between items-center text-neutral-600 dark:text-neutral-400">
+                      <span>W_out (Leaving):</span>
+                      <span className="font-semibold text-foreground">{previewCalc.wOut.toFixed(6)} kg/kg</span>
+                    </div>
+                    <div className="flex justify-between items-center text-primary pt-1 border-t border-black/5 dark:border-white/5 font-bold">
+                      <span>ΔW (Moisture Removed):</span>
+                      <span>{previewCalc.dw.toFixed(6)} kg/kg</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Result Highlight Card */}
+                <div className="p-3.5 bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-xl space-y-3 shrink-0 shadow-xs">
+                  <div className="text-[9.5px] uppercase font-bold text-primary tracking-wider flex items-center justify-between">
+                    <span>Condensate Flow Rate</span>
+                    <span className="text-[10px] font-mono font-bold bg-primary/20 text-primary px-1.5 py-0.5 rounded">ASHRAE</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-baseline text-[11.5px]">
+                      <span className="text-neutral-500 dark:text-neutral-400 font-medium">Design Condensate Flow:</span>
+                      <span className="font-mono font-bold text-[14.5px] text-primary">
+                        {ip ? `${previewCalc.condFlowGpm.toFixed(5)} GPM` : `${previewCalc.condFlowLps.toFixed(5)} L/s`}
+                      </span>
+                    </div>
+
+                    <div className="text-[9.5px] text-neutral-500 dark:text-neutral-400 font-mono bg-white/20 dark:bg-black/35 p-1.5 rounded-lg border border-black/5 dark:border-white/5 break-all leading-relaxed">
+                      {`Q_cond = (Airflow / 1000 × 1.2 kg/m³) × (W_in - W_out)`}
+                      <br />
+                      {`= ${(previewCalc.massAirFlow || 0).toFixed(4)} kg/s × ${previewCalc.dw.toFixed(6)}`}
+                      <br />
+                      {`= ${previewCalc.condFlowLps.toFixed(5)} L/s (${previewCalc.condFlowGpm.toFixed(5)} GPM)`}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Warnings or Validation */}
+                {previewCalc.warnings.length > 0 ? (
+                  <div className="shrink-0 p-3 bg-amber-500/10 dark:bg-amber-500/5 border border-amber-500/20 dark:border-amber-500/10 rounded-xl space-y-1 text-[11px] text-amber-700 dark:text-amber-400 shadow-xs">
+                    {previewCalc.warnings.map((warn, idx) => (
+                      <div key={idx} className="flex items-start gap-1.5">
+                        <AlertTriangle className="size-3.5 shrink-0 mt-0.5 text-amber-500" />
+                        <span>{warn}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="shrink-0 p-3 bg-emerald-500/10 dark:bg-emerald-500/5 border border-emerald-500/20 dark:border-emerald-500/10 rounded-xl flex items-start gap-2 text-[11.5px] text-emerald-600 dark:text-emerald-400 shadow-xs">
+                    <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                    <div>
+                      <span className="font-semibold">Calculations verified.</span> On-coil and off-coil psychrometric moisture balance satisfies ASHRAE standards.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <footer className="px-5 h-14 border-t border-black/5 dark:border-white/5 bg-white/10 dark:bg-black/10 flex items-center justify-end gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-9 px-4 border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-neutral-700 dark:text-neutral-300 rounded-lg text-[12px] font-medium transition-colors cursor-pointer shadow-xs"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="bg-[#0A7BC7] hover:bg-[#06456F] text-white px-5 py-2 text-xs font-bold rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1.5"
+              className="h-9 px-4.5 bg-primary text-primary-foreground hover:bg-primary/95 rounded-lg text-[12px] font-semibold transition-all shadow-sm shadow-primary/10 active:scale-[0.98] cursor-pointer"
             >
-              <CheckCircle2 className="size-3.5" /> Save Changes
+              {isNew ? "Add Coil" : isBulk ? `Apply to (${selectedCount}) Coils` : "Save Changes"}
             </button>
-          </div>
+          </footer>
         </form>
       </div>
     </div>

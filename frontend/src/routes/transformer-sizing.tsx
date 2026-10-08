@@ -5,7 +5,7 @@ import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
@@ -90,7 +90,6 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
       onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
       className={`bg-transparent w-full border border-transparent hover:border-slate-200 focus:border-blue-500 px-1 py-1 outline-none transition-colors cursor-text ${className}`}
     />
   );
@@ -196,8 +195,7 @@ function TransformerSizingPage() {
   // Global inputs matching the screenshot
   const [designParams, setDesignParams] = useState({
     spareCapacity: 20,
-    deratingFactor1: 1,
-    deratingFactor2: 1,
+    deratingFactor: 1,
     powerFactor: 0.8,
   });
 
@@ -349,8 +347,7 @@ function TransformerSizingPage() {
         { label: "Lighting / Heating Load", value: L, unit },
         { label: "Inductive / Motor Load", value: I, unit },
         { label: "Diversity Factor", value: div },
-        { label: "Demand Factor", value: dem }
-      ],
+              ],
       steps: [
         {
           stepNumber: 1,
@@ -400,8 +397,7 @@ function TransformerSizingPage() {
       setLoadRows([]);
       setDesignParams({
         spareCapacity: 20,
-        deratingFactor1: 1,
-        deratingFactor2: 1,
+        deratingFactor: 1,
         powerFactor: 0.8,
       });
     }
@@ -415,6 +411,66 @@ function TransformerSizingPage() {
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+  };
+
+  const handlePullFromLoadSummary = async () => {
+    if (!await confirm({ title: "Pull from Load Summary", body: "This will replace your current transformer loads with the building loads from Load Summary. Do you want to continue?" })) return;
+    
+    try {
+      const pId = activeProjectId || project?.id || "default";
+      const saved = localStorage.getItem(`mep_load_summary_rows_${pId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const floorGroups: Record<string, { lightingHeatingKw: number, inductiveMotorKw: number }> = {};
+          
+          parsed.forEach((r: any) => {
+            const floorName = r.floor || "General";
+            const qty = Number(r.qty) || 1;
+            const lightingKw = Number(r.lighting) || 0;
+            const powerKw = Number(r.power) || 0;
+            const hvacKw = Number(r.hvac) || 0;
+            const otherKw = Number(r.other) || 0;
+
+            if (!floorGroups[floorName]) {
+              floorGroups[floorName] = {
+                lightingHeatingKw: 0,
+                inductiveMotorKw: 0,
+              };
+            }
+            floorGroups[floorName].lightingHeatingKw += (lightingKw + powerKw) * qty;
+            floorGroups[floorName].inductiveMotorKw += (hvacKw + otherKw) * qty;
+          });
+
+          const newRows = Object.keys(floorGroups).map((floor, idx) => {
+            const lh = floorGroups[floor].lightingHeatingKw;
+            const im = floorGroups[floor].inductiveMotorKw;
+            const total = lh + im;
+            
+            // Weighted ADDC Diversity Factor (0.4 for Lighting/Retail/Other, 0.8 for AC/Motors)
+            const weightedDiv = total > 0 ? ((lh * 0.4) + (im * 0.8)) / total : 0.8;
+
+            return {
+              id: `tr_load_${Date.now()}_${idx}`,
+              description: floor,
+              lightingHeatingKw: Number(lh.toFixed(2)),
+              inductiveMotorKw: Number(im.toFixed(2)),
+              diversityFactor: Number(weightedDiv.toFixed(2)), 
+                            selected: false,
+              remarks: "ADDC Weighted Div",
+            };
+          });
+          setLoadRows(newRows);
+        } else {
+          alert("No load summary rows found for this project.");
+        }
+      } else {
+        alert("No load summary saved for this project. Go to Load Summary to calculate and save first.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error parsing load summary.");
+    }
   };
 
   const handleImportJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -456,8 +512,7 @@ function TransformerSizingPage() {
     sheet.getCell("A3").font = { name: "Calibri", size: 13, bold: true };
     sheet.addRow(["Spare Capacity (%)", designParams.spareCapacity]);
     sheet.addRow(["Power Factor", designParams.powerFactor]);
-    sheet.addRow(["Derating Factor 1", designParams.deratingFactor1]);
-    sheet.addRow(["Derating Factor 2", designParams.deratingFactor2]);
+    sheet.addRow(["Derating Factor", designParams.deratingFactor]);
 
     sheet.addRow([]);
     sheet.addRow(["Results Summary"]);
@@ -502,7 +557,7 @@ function TransformerSizingPage() {
     doc.setFont("helvetica", "bold");
     doc.text("Design Criteria:", 14, currentY + 5);
     doc.setFont("helvetica", "normal");
-    doc.text(`Spare Capacity: ${designParams.spareCapacity}%   |   Power Factor: ${designParams.powerFactor}   |   Derating Factor 1: ${designParams.deratingFactor1}   |   Derating Factor 2: ${designParams.deratingFactor2}`, 38, currentY + 5);
+    doc.text(`Spare Capacity: ${designParams.spareCapacity}%   |   Power Factor: ${designParams.powerFactor}   |   Derating Factor: ${designParams.deratingFactor}`, 38, currentY + 5);
 
     // Colors
     const primaryFill = [217, 217, 217] as [number, number, number];
@@ -630,7 +685,6 @@ function TransformerSizingPage() {
   };
 
   const columns: Column<any>[] = [
-    { key: "index", header: "SR. NO.", width: 60, align: "center", render: (r) => <span className="font-mono text-slate-400">{loadRows.findIndex(row => row.id === r.id) + 1}</span> },
     { key: "description", header: "DESCRIPTION", width: 180, editable: true, render: (r) => {
         const itemComments = getMergedItemComments(r.id, r.description, (r as any).comments, "/transformer-sizing", project?.id);
         return (
@@ -694,16 +748,7 @@ function TransformerSizingPage() {
           className="text-slate-900 dark:text-slate-100 tabular text-right min-w-0 flex-1"
         />
     )},
-    { key: "demandFactor", header: "DEMAND FACTOR", width: 150, align: "right", editable: true, render: (r) => (
-        <InlineInput 
-          type="number" step="0.01"
-          value={r.demandFactor} 
-          onCommit={(val) => handleUpdateRow(r.id, "demandFactor", val === "" ? "" : Number(val))}
-          onFocus={() => handleRowFocus(r.id)}
-          placeholder="eg: 0.85"
-          className="text-slate-900 dark:text-slate-100 tabular text-right min-w-0 flex-1"
-        />
-    )},
+
     { key: "maxDemand", header: `MAXIMUM DEMAND (${unitSystem === "ip" ? "HP" : "kW"})`, width: 180, align: "right", mono: true, render: (r) => (
         <div className="font-bold text-blue-700 dark:text-blue-400 bg-slate-100/50 dark:bg-slate-800/30 w-full h-full flex items-center justify-end px-3">
           {r.maxDemand.toFixed(2)}
@@ -789,6 +834,9 @@ function TransformerSizingPage() {
 
 
                 <div className="ml-auto flex items-center gap-2">
+                  <TBtn onClick={handlePullFromLoadSummary} className="bg-amber-100 text-amber-700 hover:bg-amber-200 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800">
+                    <Zap className="size-3.5" /> Pull from Load Summary
+                  </TBtn>
 
                   <label className="relative flex items-center justify-center h-7 px-3 rounded-md border border-slate-200 dark:border-slate-700 text-[12px] font-medium bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-all duration-150 shadow-sm gap-1.5 group select-none outline-none">
                     <Download className="size-3.5 text-muted-foreground group-hover:text-foreground transition-colors" /> Import
@@ -826,21 +874,11 @@ function TransformerSizingPage() {
                   </div>
                   
                   <div className="flex items-center gap-2 ml-4">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">DERATING FACTOR 1:</span>
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">DERATING FACTOR:</span>
                     <input 
                       type="number" step="0.01"
-                      value={designParams.deratingFactor1}
-                      onChange={(e) => setDesignParams({...designParams, deratingFactor1: Number(e.target.value)})}
-                      className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">DERATING FACTOR 2:</span>
-                    <input 
-                      type="number" step="0.01"
-                      value={designParams.deratingFactor2}
-                      onChange={(e) => setDesignParams({...designParams, deratingFactor2: Number(e.target.value)})}
+                      value={designParams.deratingFactor}
+                      onChange={(e) => setDesignParams({...designParams, deratingFactor: Number(e.target.value)})}
                       className="w-16 h-7 text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 rounded px-2 font-semibold text-center outline-none focus:border-blue-500"
                     />
                   </div>
@@ -892,7 +930,7 @@ function TransformerSizingPage() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto py-6">
+          <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto py-6 flex-1 min-h-0 overflow-y-auto pr-4">
             <div className="flex items-center justify-end gap-3 no-print border-b border-border/80 pb-4">
               <TBtn onClick={handlePrintPDF} primary><Printer className="size-3.5" /> Print PDF</TBtn>
             </div>
@@ -913,8 +951,7 @@ function TransformerSizingPage() {
                 <div className="grid grid-cols-2 gap-4 text-xs">
                   <div><span className="text-slate-500 block">Spare Capacity:</span><span className="font-semibold">{designParams.spareCapacity}%</span></div>
                   <div><span className="text-slate-500 block">Power Factor:</span><span className="font-semibold">{designParams.powerFactor}</span></div>
-                  <div><span className="text-slate-500 block">Derating Factor 1:</span><span className="font-semibold">{designParams.deratingFactor1}</span></div>
-                  <div><span className="text-slate-500 block">Derating Factor 2:</span><span className="font-semibold">{designParams.deratingFactor2}</span></div>
+                  <div><span className="text-slate-500 block">Derating Factor:</span><span className="font-semibold">{designParams.deratingFactor}</span></div>
                 </div>
               </div>
 
@@ -929,8 +966,7 @@ function TransformerSizingPage() {
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Ind/M {unitSystem === "ip" ? "HP" : "kW"}</th>
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Total {unitSystem === "ip" ? "HP" : "kW"}</th>
                         <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Div F.</th>
-                        <th className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">Dem F.</th>
-                        <th className="p-2 text-right">Max {unitSystem === "ip" ? "HP" : "kW"}</th>
+                                                <th className="p-2 text-right">Max {unitSystem === "ip" ? "HP" : "kW"}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-slate-700 font-mono">
@@ -941,8 +977,7 @@ function TransformerSizingPage() {
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">{r.inductiveMotorKw}</td>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">{r.connectedLoad.toFixed(2)}</td>
                           <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">{r.diversityFactor}</td>
-                          <td className="p-2 border-r border-slate-200 dark:border-slate-700 text-right">{r.demandFactor}</td>
-                          <td className="p-2 text-right font-bold">{r.maxDemand.toFixed(2)}</td>
+                                                    <td className="p-2 text-right font-bold">{r.maxDemand.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -956,7 +991,13 @@ function TransformerSizingPage() {
                   <div className="bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900 rounded-xl p-4 shadow-sm relative overflow-hidden">
                     <div className="absolute right-3 top-3 text-blue-500/20"><Sparkles className="size-8" /></div>
                     <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1">Recommended Rating</span>
-                    <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{calculatedData.recommendedKva} <span className="text-sm text-slate-500 font-sans">kVA</span></strong>
+                    <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">
+                      {calculatedData.recommendedFeeder ? (
+                        <span className="text-[18px] tracking-tight">{calculatedData.recommendedFeeder}</span>
+                      ) : (
+                        <>{calculatedData.recommendedKva} <span className="text-sm text-slate-500 font-sans">kVA</span></>
+                      )}
+                    </strong>
                     <span className="text-[11px] text-slate-500 mt-2 block">Min. sizing required: {calculatedData.requiredKva.toFixed(1)} kVA</span>
                   </div>
                   <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
@@ -1182,4 +1223,17 @@ function TransformerIntelligenceDrawer({
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 

@@ -5,7 +5,7 @@ import {
   useCalculationReviewState,
 } from "@/components/workspace/CalculationReviewBar";
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
 import {
@@ -34,6 +34,7 @@ import {
   ArrowUpDown,
   FileText,
   Calculator,
+  Save,
 } from "lucide-react";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
@@ -73,6 +74,7 @@ import {
   CalculationPreviewModal,
   type CalculationPreviewData,
 } from "@/components/calculator-framework/CalculationPreviewModal";
+import { LpdCategorySelect } from "@/components/workspace/LpdCategorySelect";
 
 export const Route = createFileRoute("/lpd-calculation")({
   head: () => ({
@@ -84,12 +86,86 @@ export const Route = createFileRoute("/lpd-calculation")({
   component: LPDCalculationPage,
 });
 
+export function migrateLpdProjects(rawProjects: any[]): LpdProject[] {
+  if (!Array.isArray(rawProjects) || rawProjects.length === 0) {
+    return [defaultProject()];
+  }
+
+  const sanitizeGroups = (groups: any[]) =>
+    groups.forEach((g: any) => {
+      if (g.spaces) {
+        g.spaces.forEach((s: any) => {
+          if (s.flagged === undefined) s.flagged = false;
+          if (!Array.isArray(s.comments)) s.comments = [];
+          if (!Array.isArray(s.fixtures) || s.fixtures.length === 0) s.fixtures = [defaultFixture()];
+          if (typeof s.remarks === "string" && s.remarks.startsWith("BIM extract:")) {
+            s.remarks = "";
+          }
+        });
+      }
+    });
+
+  return rawProjects.map((p: any) => {
+    if (p.groups) {
+      p.internalGroups = p.groups;
+      p.externalGroups = [defaultGroup("EXTERNAL AREA")];
+      delete p.groups;
+    }
+    if (!p.internalGroups) p.internalGroups = [defaultGroup("INTERNAL AREA")];
+    if (!p.externalGroups) p.externalGroups = [defaultGroup("EXTERNAL AREA")];
+
+    sanitizeGroups(p.internalGroups);
+    sanitizeGroups(p.externalGroups);
+    return p;
+  });
+}
+
 function LPDCalculationPage() {
-  const { project, activeProjectId } = useWorkspace();
-  const calcReviewState = useCalculationReviewState("/lpd-calculation", activeProjectId || project?.id);
-  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/lpd-calculation", activeProjectId || project?.id);
-  const [projects, setProjects] = useState<LpdProject[]>([defaultProject()]);
-  const [currentProjectId, setCurrentProjectId] = useState<string>(projects[0].id);
+  const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
+  const effectiveProjectId = activeProjectId || project?.id || "default";
+
+  const calcReviewState = useCalculationReviewState("/lpd-calculation", effectiveProjectId);
+  const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/lpd-calculation", effectiveProjectId);
+
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const isLoadedRef = useRef(false);
+
+  // Lazy initialization from local storage to prevent mount-time state wipe
+  const [projects, setProjects] = useState<LpdProject[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const pId = localStorage.getItem("mep_active_project_id") || "default";
+        const saved =
+          localStorage.getItem(`mep_lpd_calc_${pId}`) ||
+          localStorage.getItem("mep-lpd-calc-v2");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.projects && parsed.projects.length > 0) {
+            return migrateLpdProjects(parsed.projects);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to parse initial LPD projects:", e);
+      }
+    }
+    return [defaultProject()];
+  });
+
+  const [currentProjectId, setCurrentProjectId] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const pId = localStorage.getItem("mep_active_project_id") || "default";
+        const saved =
+          localStorage.getItem(`mep_lpd_calc_${pId}`) ||
+          localStorage.getItem("mep-lpd-calc-v2");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.currentProjectId) return parsed.currentProjectId;
+        }
+      } catch (e) {}
+    }
+    return projects[0]?.id || "proj-default";
+  });
   const [authorityMapping, setAuthorityMapping] = useState<Record<string, number>>(DEFAULT_AUTHORITY_MAPPING_SQM);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">(() => {
     if (typeof window !== "undefined") {
@@ -229,40 +305,16 @@ function LPDCalculationPage() {
     };
   }, []);
 
-  // Load from local storage
+  // Load from local storage when active project changes
   useEffect(() => {
-    const saved = localStorage.getItem("mep-lpd-calc-v2");
-    if (saved) {
-      try {
+    const pId = effectiveProjectId;
+    try {
+      const pKey = `mep_lpd_calc_${pId}`;
+      const saved = localStorage.getItem(pKey) || localStorage.getItem("mep-lpd-calc-v2");
+      if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.projects && parsed.projects.length > 0) {
-          const migratedProjects = parsed.projects.map((p: any) => {
-            if (p.groups) {
-              p.internalGroups = p.groups;
-              p.externalGroups = [defaultGroup("EXTERNAL AREA")];
-              delete p.groups;
-            }
-            if (!p.internalGroups) p.internalGroups = [defaultGroup("INTERNAL AREA")];
-            if (!p.externalGroups) p.externalGroups = [defaultGroup("EXTERNAL AREA")];
-
-            const sanitizeGroups = (groups: any[]) =>
-              groups.forEach((g: any) => {
-                if (g.spaces) {
-                  g.spaces.forEach((s: any) => {
-                    if (s.flagged === undefined) s.flagged = false;
-                    if (!Array.isArray(s.comments)) s.comments = [];
-                    if (!Array.isArray(s.fixtures) || s.fixtures.length === 0) s.fixtures = [defaultFixture()];
-                    if (typeof s.remarks === "string" && s.remarks.startsWith("BIM extract:")) {
-                      s.remarks = "";
-                    }
-                  });
-                }
-              });
-
-            sanitizeGroups(p.internalGroups);
-            sanitizeGroups(p.externalGroups);
-            return p;
-          });
+          const migratedProjects = migrateLpdProjects(parsed.projects);
           setProjects(migratedProjects);
           const validCurrentId =
             parsed.currentProjectId && migratedProjects.some((p: any) => p.id === parsed.currentProjectId)
@@ -270,7 +322,9 @@ function LPDCalculationPage() {
               : migratedProjects[0].id;
           setCurrentProjectId(validCurrentId);
         }
-      } catch (e) {}
+      }
+    } catch (e) {
+      console.error("Failed to load LPD calculation:", e);
     }
 
     const savedMapping = localStorage.getItem("mep-lpd-custom-mapping-sqm");
@@ -280,14 +334,98 @@ function LPDCalculationPage() {
         setAuthorityMapping((prev) => ({ ...prev, ...parsed }));
       } catch (e) {}
     }
-  }, []);
 
-  // Save to local storage
+    setLoadedProjectId(pId);
+    isLoadedRef.current = true;
+    setTimeout(() => dirtyStore.set(false), 50);
+  }, [effectiveProjectId]);
+
+  // Auto-save to local storage (strictly guarded by isLoadedRef to prevent overwriting with initial state!)
   useEffect(() => {
-    localStorage.setItem("mep-lpd-calc-v2", JSON.stringify({ projects, currentProjectId }));
-    localStorage.setItem("mep-lpd-custom-mapping-sqm", JSON.stringify(authorityMapping));
-    dirtyStore.set(true);
-  }, [projects, currentProjectId, authorityMapping]);
+    const pId = effectiveProjectId;
+    if (!isLoadedRef.current || loadedProjectId !== pId) return;
+
+    try {
+      const dataToSave = {
+        projects,
+        currentProjectId,
+        updatedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(`mep_lpd_calc_${pId}`, JSON.stringify(dataToSave));
+      localStorage.setItem("mep-lpd-calc-v2", JSON.stringify({ projects, currentProjectId }));
+      localStorage.setItem("mep-lpd-custom-mapping-sqm", JSON.stringify(authorityMapping));
+      dirtyStore.set(true);
+    } catch (e) {
+      console.error("Failed to auto-save LPD calculation:", e);
+    }
+  }, [projects, currentProjectId, authorityMapping, effectiveProjectId, loadedProjectId]);
+
+  // Explicit Save Handler (Called by TopBar Save button / Ctrl + S / Toolbar)
+  const handleSaveLpd = useCallback(() => {
+    const pId = effectiveProjectId;
+    try {
+      const dataToSave = {
+        projects,
+        currentProjectId,
+        updatedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(`mep_lpd_calc_${pId}`, JSON.stringify(dataToSave));
+      localStorage.setItem("mep-lpd-calc-v2", JSON.stringify({ projects, currentProjectId }));
+      localStorage.setItem("mep-lpd-custom-mapping-sqm", JSON.stringify(authorityMapping));
+      dirtyStore.set(false);
+      if (forceSaveToCloud) forceSaveToCloud();
+      toast.success("Lighting Power Density calculation saved successfully!", { id: "lpd-saved" });
+    } catch (e) {
+      console.error("Failed to save LPD calculation:", e);
+      toast.error("Failed to save calculation.");
+    }
+  }, [projects, currentProjectId, authorityMapping, effectiveProjectId, forceSaveToCloud]);
+
+  // Listen to Global Save (TopBar Save button / Ctrl + S)
+  useEffect(() => {
+    const handleTriggerSave = (e: any) => {
+      if (e?.detail) e.detail.handled = true;
+      handleSaveLpd();
+    };
+    window.addEventListener("mep-trigger-save", handleTriggerSave);
+    return () => window.removeEventListener("mep-trigger-save", handleTriggerSave);
+  }, [handleSaveLpd]);
+
+  // Version History Restore Listener
+  useEffect(() => {
+    const handleVersionRestored = (e: any) => {
+      const pId = effectiveProjectId;
+      const pKey = `mep_lpd_calc_${pId}`;
+      const lsCache = e?.detail?.localStorageCache;
+      let restoredData: any = null;
+      if (lsCache && lsCache[pKey]) {
+        try {
+          restoredData = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
+        } catch (err) {}
+      }
+      if (!restoredData && lsCache && lsCache["mep-lpd-calc-v2"]) {
+        try {
+          restoredData = typeof lsCache["mep-lpd-calc-v2"] === "string" ? JSON.parse(lsCache["mep-lpd-calc-v2"]) : lsCache["mep-lpd-calc-v2"];
+        } catch (err) {}
+      }
+      if (!restoredData) {
+        const stored = localStorage.getItem(pKey) || localStorage.getItem("mep-lpd-calc-v2");
+        if (stored) {
+          try {
+            restoredData = JSON.parse(stored);
+          } catch (err) {}
+        }
+      }
+      if (restoredData && restoredData.projects && Array.isArray(restoredData.projects)) {
+        const migrated = migrateLpdProjects(restoredData.projects);
+        setProjects(migrated);
+        if (restoredData.currentProjectId) setCurrentProjectId(restoredData.currentProjectId);
+        toast.success("LPD calculation restored from selected version!");
+      }
+    };
+    window.addEventListener("mep_version_restored", handleVersionRestored as any);
+    return () => window.removeEventListener("mep_version_restored", handleVersionRestored as any);
+  }, [effectiveProjectId]);
 
   const currentProject = projects.find((p) => p.id === currentProjectId) || projects[0];
 
@@ -1617,6 +1755,16 @@ function LPDCalculationPage() {
 
                 <button
                   type="button"
+                  onClick={handleSaveLpd}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-border bg-background hover:bg-surface-2 text-foreground transition-all cursor-pointer shadow-2xs"
+                  title="Save Calculation (Ctrl+S)"
+                >
+                  <Save className="size-3.5 text-muted-foreground" />
+                  <span>Save</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={handleAddNewSpace}
                   className="inline-flex items-center gap-1.5 px-3.5 py-1 text-xs font-semibold rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-all cursor-pointer shadow-xs active:scale-95"
                 >
@@ -2025,63 +2173,44 @@ function LPDCalculationPage() {
 
                                         {/* Category / Type of Area */}
                                         <td
-                                          className="p-0 border-r border-border/40"
+                                          className="p-1 border-r border-border/40"
                                           rowSpan={space.fixtures.length}
                                           onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             handleOpenCalculationPreview(space, group.name);
                                           }}
                                         >
-                                          <div className="flex items-center gap-2 px-2.5 w-full h-full">
+                                          <div className="flex items-center gap-1.5 px-1.5 w-full h-full">
                                             <span
                                               className={`size-2 rounded-full shrink-0 ${
                                                 space.areaType ? "bg-primary" : "bg-muted-foreground/30"
                                               }`}
+                                              title={space.areaType ? "Space category assigned" : "No category selected"}
                                             />
-                                            <select
-                                              className="w-full h-full min-h-[34px] bg-transparent outline-none cursor-pointer font-medium text-[12.5px] text-foreground transition-colors"
+                                            <LpdCategorySelect
                                               value={space.areaType || ""}
-                                              onDoubleClick={(e) => {
-                                                e.stopPropagation();
-                                                handleOpenCalculationPreview(space, group.name);
+                                              authorityMapping={authorityMapping}
+                                              unitSystem={unitSystem}
+                                              getBaselineLpd={(type) => getBaselineLpdForType(type, unitSystem)}
+                                              onChange={(val) => updateSpace(group.id, space.id, "areaType", val)}
+                                              onAddCustom={() => {
+                                                const currentBaseline = parseFloat(space.baselineLpd);
+                                                setCustomAreaTarget({
+                                                  groupId: group.id,
+                                                  spaceId: space.id,
+                                                });
+                                                setNewAreaName("");
+                                                setNewAreaBaselineLpd(
+                                                  !isNaN(currentBaseline) && currentBaseline > 0
+                                                    ? currentBaseline.toFixed(2)
+                                                    : unitSystem === "ip"
+                                                    ? "0.60"
+                                                    : "6.50"
+                                                );
+                                                setCustomAreaModalOpen(true);
                                               }}
-                                              title="Double-click to view calculation preview"
-                                              onChange={(e) => {
-                                                const val = e.target.value;
-                                                if (val === "ADD_NEW") {
-                                                  const currentBaseline = parseFloat(space.baselineLpd);
-                                                  setCustomAreaTarget({
-                                                    groupId: group.id,
-                                                    spaceId: space.id,
-                                                  });
-                                                  setNewAreaName("");
-                                                  setNewAreaBaselineLpd(
-                                                    !isNaN(currentBaseline) && currentBaseline > 0
-                                                      ? currentBaseline.toFixed(2)
-                                                      : unitSystem === "ip"
-                                                      ? "0.60"
-                                                      : "6.50"
-                                                  );
-                                                  setCustomAreaModalOpen(true);
-                                                  return;
-                                                }
-                                                updateSpace(group.id, space.id, "areaType", val);
-                                              }}
-                                            >
-                                              <option value="">Select Category / Type...</option>
-                                              {space.areaType && authorityMapping[space.areaType] === undefined && (
-                                                <option value={space.areaType}>{space.areaType}</option>
-                                              )}
-                                              {Object.keys(authorityMapping)
-                                                .sort()
-                                                .map((k) => (
-                                                  <option key={k} value={k}>
-                                                    {k.replace(/\b\w/g, (l) => l.toUpperCase())}
-                                                  </option>
-                                                ))}
-                                              <option disabled>──────────</option>
-                                              <option value="ADD_NEW">+ Add Custom Area Type...</option>
-                                            </select>
+                                              disabled={isEffectiveReadOnly}
+                                            />
                                           </div>
                                         </td>
                                       </>
@@ -2400,24 +2529,6 @@ function LPDCalculationPage() {
                             );
                           })}
 
-                        {/* Add Row Button at bottom of group */}
-                        {group.isExpanded && (
-                          <tr>
-                            <td colSpan={13} className="p-2 bg-background/50 border-t border-border/40">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  addSpace(group.id);
-                                }}
-                                className="w-full flex items-center justify-center py-2.5 border-2 border-dashed border-border/60 hover:border-primary/60 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/5 transition-all font-medium text-[12.5px] cursor-pointer"
-                              >
-                                <Plus className="size-3.5 mr-1.5" /> Add Space to {group.name}
-                              </button>
-                            </td>
-                          </tr>
-                        )}
                       </React.Fragment>
                     );
                   })}

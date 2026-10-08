@@ -190,6 +190,10 @@ export function Viewport3D() {
         let activeSpace2dFillMeshes: THREE.Mesh[] = [];
         let activeSpace2dOutlineMeshes: (THREE.LineLoop | THREE.LineSegments)[] = [];
         let activeSpace2dPickMeshes: THREE.Mesh[] = [];
+        let activeSpaceBoundsMap = new Map<number, { box: THREE.Box3, center: THREE.Vector3, space: any, storeyExpressId: number }>();
+        let activeSpaceWorldPolygons = new Map<number, { worldXZ: { x: number, z: number }[], space: any, storeyExpressId: number }>();
+        let placedEquipment3DMeshes: THREE.Group[] = [];
+        let unsubEquipmentStore: (() => void) | null = null;
         let activeSelectHighlightHandler: any = null;
         let activeSelectClearHandler: any = null;
         let viewportAbortController: AbortController | null = null;
@@ -269,6 +273,10 @@ export function Viewport3D() {
             disposeMeshList(activeSpace2dFillMeshes);
             disposeMeshList(activeSpace2dOutlineMeshes);
             disposeMeshList(activeSpace2dPickMeshes);
+            disposeMeshList(placedEquipment3DMeshes);
+            activeSpaceBoundsMap.clear();
+            activeSpaceWorldPolygons.clear();
+            if (unsubEquipmentStore) { unsubEquipmentStore(); unsubEquipmentStore = null; }
 
             // 5. Remove clip plane
             try {
@@ -481,7 +489,8 @@ export function Viewport3D() {
                 const space2dFillMeshes: THREE.Mesh[] = [];
                 const space2dOutlineMeshes: (THREE.LineLoop | THREE.LineSegments)[] = [];
                 const space2dPickMeshes: THREE.Mesh[] = [];
-                const spaceWorldPolygons: Map<number, { worldXZ: { x: number, z: number }[], space: any, storeyExpressId: number }> = new Map();
+                const spaceWorldPolygons = activeSpaceWorldPolygons;
+                const spaceBoundsMap = activeSpaceBoundsMap;
 
                 activeSpaceMeshes = spaceMeshes;
                 activeSpaceLineMeshes = spaceLineMeshes;
@@ -490,18 +499,39 @@ export function Viewport3D() {
                 activeSpace2dOutlineMeshes = space2dOutlineMeshes;
                 activeSpace2dPickMeshes = space2dPickMeshes;
 
-                const raycastSpaceUnderCursor = (e: MouseEvent): { space: any; expressId: number } | null => {
-                    if (!ui.btn2d.classList.contains('active')) return null;
+                const raycastSpaceUnderCursor = (e: MouseEvent): { space: any; expressId: number; storeyExpressId: number; point: THREE.Vector3 } | null => {
+                    const is2DActive = ui.btn2d.classList.contains('active') || store().viewMode === '2d';
+                    if (!is2DActive) return null;
 
                     const rect = ui.viewport.getBoundingClientRect();
                     const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
                     const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-                    const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
-                    const clickX = worldPos.x;
-                    const clickZ = worldPos.z;
+                    // Use Three.js Raycaster from the active 2D orthographic camera
+                    const raycaster = new THREE.Raycaster();
+                    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), world.camera.three);
 
                     const activeLevelId = ui.selectLevel.value;
+                    const currentLevel = useViewerStore.getState().levels.find((l: any) => String(l.expressId) === String(activeLevelId));
+                    const floorElevation = currentLevel ? (currentLevel.elevation ?? 0) : 0;
+
+                    // Intersect horizontal floor plane at floorElevation
+                    const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -floorElevation);
+                    const planeHit = new THREE.Vector3();
+                    const hasPlaneHit = raycaster.ray.intersectPlane(floorPlane, planeHit);
+                    const worldPoint = hasPlaneHit ? planeHit : new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
+                    const clickX = worldPoint.x;
+                    const clickZ = worldPoint.z;
+
+                    const isDndEvent = (e as any).type === 'dragover' || (e as any).type === 'drop';
+                    if (isDndEvent || (window as any)._enableMepDndDebug) {
+                        console.log('[MEP-DND] client:', { clientX: e.clientX, clientY: e.clientY });
+                        console.log('[MEP-DND] viewport rect:', { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) });
+                        console.log('[MEP-DND] NDC:', { ndcX: Number(ndcX.toFixed(3)), ndcY: Number(ndcY.toFixed(3)) });
+                        console.log('[MEP-DND] world:', { clickX: Number(clickX.toFixed(2)), clickZ: Number(clickZ.toFixed(2)), floorElevation });
+                        console.log('[MEP-DND] selected level:', activeLevelId || '(all)');
+                        console.log('[MEP-DND] polygons available:', spaceWorldPolygons.size, '| bounds available:', spaceBoundsMap.size);
+                    }
 
                     const pointInPoly = (px: number, pz: number, poly: { x: number, z: number }[]): boolean => {
                         let inside = false;
@@ -515,16 +545,91 @@ export function Viewport3D() {
                         return inside;
                     };
 
-                    for (const [expressId, data] of spaceWorldPolygons) {
-                        if (activeLevelId && String(data.storeyExpressId) !== String(activeLevelId)) continue;
-                        if (pointInPoly(clickX, clickZ, data.worldXZ)) {
-                            return { space: data.space, expressId };
+                    // PASS 1: Test against 2D polygon footprints (exact polygon match if available)
+                    if (spaceWorldPolygons.size > 0) {
+                        for (const [expressId, data] of spaceWorldPolygons) {
+                            if (activeLevelId && String(data.storeyExpressId) !== String(activeLevelId)) continue;
+                            if (pointInPoly(clickX, clickZ, data.worldXZ)) {
+                                if (isDndEvent) {
+                                    console.log('[MEP-DND] candidate spaces: [Polygon Match]', data.space?.longName || data.space?.name || expressId);
+                                    console.log('[MEP-DND] hitSpace:', data.space?.longName || data.space?.name || expressId);
+                                }
+                                return { space: data.space, expressId, storeyExpressId: data.storeyExpressId, point: new THREE.Vector3(clickX, floorElevation, clickZ) };
+                            }
                         }
                     }
 
+                    // PASS 2: Test 3D World Bounding Box & Center Proximity (Forgiving, hits anywhere in the room)
+                    if (spaceBoundsMap.size > 0) {
+                        const candidateHits: { expressId: number; data: any; distSq: number }[] = [];
+                        const margin = 0.5; // 0.5m boundary tolerance for edge placement
+
+                        // First check spaces on active level
+                        for (const [expressId, data] of spaceBoundsMap) {
+                            if (activeLevelId && String(data.storeyExpressId) !== String(activeLevelId)) continue;
+                            const b = data.box;
+                            if (clickX >= b.min.x - margin && clickX <= b.max.x + margin &&
+                                clickZ >= b.min.z - margin && clickZ <= b.max.z + margin) {
+                                const dx = clickX - data.center.x;
+                                const dz = clickZ - data.center.z;
+                                candidateHits.push({ expressId, data, distSq: dx * dx + dz * dz });
+                            }
+                        }
+
+                        // If active level is set but no candidate hit, search all storeys as fallback
+                        if (candidateHits.length === 0 && activeLevelId) {
+                            for (const [expressId, data] of spaceBoundsMap) {
+                                const b = data.box;
+                                if (clickX >= b.min.x - margin && clickX <= b.max.x + margin &&
+                                    clickZ >= b.min.z - margin && clickZ <= b.max.z + margin) {
+                                    const dx = clickX - data.center.x;
+                                    const dz = clickZ - data.center.z;
+                                    candidateHits.push({ expressId, data, distSq: dx * dx + dz * dz });
+                                }
+                            }
+                        }
+
+                        if (isDndEvent) {
+                            console.log('[MEP-DND] candidate spaces:', candidateHits.map(c => `${c.data.space?.longName || c.data.space?.name || c.expressId} (dist=${Math.sqrt(c.distSq).toFixed(1)}m, storey=${c.data.storeyExpressId})`));
+                        }
+
+                        if (candidateHits.length > 0) {
+                            // Sort by proximity to room center (closest center wins)
+                            candidateHits.sort((a, b) => a.distSq - b.distSq);
+                            const best = candidateHits[0];
+                            if (isDndEvent) {
+                                console.log('[MEP-DND] hitSpace:', best.data.space?.longName || best.data.space?.name || best.expressId);
+                            }
+                            return {
+                                space: best.data.space,
+                                expressId: best.expressId,
+                                storeyExpressId: best.data.storeyExpressId,
+                                point: new THREE.Vector3(clickX, floorElevation, clickZ)
+                            };
+                        }
+                    }
+
+                    // PASS 3: Fallback polygon test across all levels
+                    if (spaceWorldPolygons.size > 0) {
+                        for (const [expressId, data] of spaceWorldPolygons) {
+                            if (pointInPoly(clickX, clickZ, data.worldXZ)) {
+                                if (isDndEvent) {
+                                    console.log('[MEP-DND] candidate spaces: [Polygon Fallback]', data.space?.longName || data.space?.name || expressId);
+                                    console.log('[MEP-DND] hitSpace:', data.space?.longName || data.space?.name || expressId);
+                                }
+                                return { space: data.space, expressId, storeyExpressId: data.storeyExpressId, point: new THREE.Vector3(clickX, floorElevation, clickZ) };
+                            }
+                        }
+                    }
+
+                    if (isDndEvent) {
+                        console.log('[MEP-DND] candidate spaces: []');
+                        console.log('[MEP-DND] hitSpace: null');
+                    }
                     return null;
                 };
 
+                (window as any)._raycastSpaceUnderCursor = raycastSpaceUnderCursor;
                 const setSelectedSpaceHighlight = (expressId: number | null, isHover: boolean = false) => {
                     if (!isHover) {
                         (window as any)._currentlySelectedExpressId = expressId;
@@ -656,6 +761,30 @@ export function Viewport3D() {
                         }
                     }
                 }, { signal });
+
+                const checkEquipmentHit = (ndcX: number, ndcY: number) => {
+                    const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
+                    const clickX = worldPos.x;
+                    const clickZ = worldPos.z;
+                    for (const group of placedEquipment3DMeshes) {
+                        if (!group.userData?.isEquipmentGroup) continue;
+                        const localClick = new THREE.Vector3(clickX, group.position.y, clickZ);
+                        group.worldToLocal(localClick);
+                        let hit = false;
+                        group.traverse((c: any) => {
+                            if (c.geometry && c.geometry.type === 'BoxGeometry') {
+                                if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+                                const bbox = c.geometry.boundingBox;
+                                if (bbox && localClick.x >= bbox.min.x && localClick.x <= bbox.max.x &&
+                                    localClick.z >= bbox.min.z && localClick.z <= bbox.max.z) {
+                                    hit = true;
+                                }
+                            }
+                        });
+                        if (hit) return group;
+                    }
+                    return null;
+                };
 
                 let clickStartX = 0;
                 let clickStartY = 0;
@@ -861,7 +990,16 @@ export function Viewport3D() {
                                         instanceBox.getCenter(center);
 
                                         const isOriginValid = origin.lengthSq() > 0.001 && origin.distanceTo(center) < Math.max(instanceBox.max.x - instanceBox.min.x, instanceBox.max.z - instanceBox.min.z);
-                                        spaceCenters.set(expressId, isOriginValid ? origin : center);
+                                        const finalCenter = isOriginValid ? origin : center;
+                                        spaceCenters.set(expressId, finalCenter);
+
+                                        const fullSpace = Object.values(jsonData.elements || {}).find((e: any) => e.type === 'IFCSPACE' && e.expressId === expressId) || (parentStorey ? parentStorey.spaces.find(sp => sp.expressId === expressId) : null);
+                                        activeSpaceBoundsMap.set(expressId, {
+                                            box: instanceBox,
+                                            center: finalCenter,
+                                            space: fullSpace,
+                                            storeyExpressId: storeyId
+                                        });
 
                                         let pt1, pt2, pt3, pt4;
                                         if (verticalAxis === 'y') {
@@ -1624,65 +1762,55 @@ export function Viewport3D() {
             }
         };
 
+        let activeGhostMesh: THREE.Group | null = null;
         const handleDragOver = (e: DragEvent) => e.preventDefault();
         const handleDrop = (e: DragEvent) => {
             e.preventDefault();
+            if (activeGhostMesh) {
+                world.scene.three.remove(activeGhostMesh);
+                activeGhostMesh = null;
+            }
+            useViewerStore.getState().setDraggedEquipmentId(null);
             
             try {
                 if (e.dataTransfer?.getData('text/plain')) {
-                    const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                    const raw = e.dataTransfer.getData('text/plain');
+                    console.log('[MEP-DND] handleDrop fired. raw dataTransfer:', raw, '| 2D active:', ui.btn2d.classList.contains('active'));
+                    const data = JSON.parse(raw);
                     if (data.type === 'equipment' && ui.btn2d.classList.contains('active')) {
-                        const rect = ui.viewport.getBoundingClientRect();
-                        const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-                        const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-                        
-                        const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
-                        const clickX = worldPos.x;
-                        const clickZ = worldPos.z;
-
-                        const activeLevelId = ui.selectLevel.value;
-                        
-                        const pointInPoly = (px: number, pz: number, poly: { x: number, z: number }[]): boolean => {
-                            let inside = false;
-                            for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-                                const xi = poly[i].x, zi = poly[i].z;
-                                const xj = poly[j].x, zj = poly[j].z;
-                                if (((zi > pz) !== (zj > pz)) && (px < (xj - xi) * (pz - zi) / (zj - zi) + xi)) {
-                                    inside = !inside;
-                                }
-                            }
-                            return inside;
-                        };
-
-                        let hitSpace = null;
-                        for (const [expressId, spData] of spaceWorldPolygons) {
-                            if (activeLevelId && String(spData.storeyExpressId) !== String(activeLevelId)) continue;
-                            if (pointInPoly(clickX, clickZ, spData.worldXZ)) {
-                                hitSpace = { space: spData.space, expressId: Number(expressId) };
-                                break;
-                            }
-                        }
+                        const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(e) : null;
+                        const hitSpace = hit ? { space: hit.space, expressId: hit.expressId, storeyExpressId: hit.storeyExpressId } : null;
+                        const clickX = hit ? hit.point.x : (new THREE.Vector3(((e.clientX - ui.viewport.getBoundingClientRect().left) / ui.viewport.getBoundingClientRect().width) * 2 - 1, -((e.clientY - ui.viewport.getBoundingClientRect().top) / ui.viewport.getBoundingClientRect().height) * 2 + 1, 0).unproject(world.camera.three).x);
+                        const clickZ = hit ? hit.point.z : (new THREE.Vector3(((e.clientX - ui.viewport.getBoundingClientRect().left) / ui.viewport.getBoundingClientRect().width) * 2 - 1, -((e.clientY - ui.viewport.getBoundingClientRect().top) / ui.viewport.getBoundingClientRect().height) * 2 + 1, 0).unproject(world.camera.three).z);
+                        console.log('[MEP-DND] handleDrop hitSpace:', hitSpace ? `${hitSpace.space?.longName || hitSpace.space?.name} (id=${hitSpace.expressId})` : 'NULL — drop outside any valid space');
 
                         if (hitSpace) {
+                            const level = useViewerStore.getState().levels.find((l: any) => String(l.expressId) === String(hitSpace!.storeyExpressId));
+                            const floorElevation = level ? (level.elevation ?? 0) : 0;
+                            console.log('[MEP-DND] floor:', level?.name, '| elevation:', floorElevation);
                             const state = workspaceStore.getState();
                             const equipIdx = state.equipment.findIndex(eq => eq.id === data.id);
+                            console.log('[MEP-DND] equipIdx:', equipIdx, '| equipId:', data.id);
                             if (equipIdx !== -1) {
                                 const newEquipment = [...state.equipment];
                                 newEquipment[equipIdx] = {
                                     ...newEquipment[equipIdx],
                                     locationSpaceId: String(hitSpace.expressId),
                                     locationSpaceName: hitSpace.space.longName || hitSpace.space.name || `Space ${hitSpace.expressId}`,
+                                    locationFloor: level ? level.name : 'Unknown Floor',
                                     positionX: clickX,
-                                    positionY: 0,
+                                    positionY: floorElevation,
                                     positionZ: clickZ
                                 };
-                                workspaceStore.setState({ equipment: newEquipment });
+                                console.log('[MEP-DND] calling updateEquipment with:', { locationSpaceId: String(hitSpace.expressId), positionX: clickX, positionY: floorElevation, positionZ: clickZ });
+                                workspaceStore.updateEquipment(newEquipment);
+                                console.log('[MEP-DND] updateEquipment done. New locationSpaceId:', workspaceStore.getState().equipment[equipIdx]?.locationSpaceId);
                             }
                         }
                         return;
                     }
                 }
-            } catch(err) {}
+            } catch(err) { console.error('[MEP-DND] handleDrop error:', err); }
 
             const file = e.dataTransfer?.files[0];
             if (file && (window as any).loadIfcFile) {
@@ -1750,6 +1878,85 @@ export function Viewport3D() {
         document.addEventListener('drop', handleDrop);
         window.addEventListener('mep-focus-equipment', handleFocusEquipment);
         
+        
+        const renderEquipmentMeshes = () => {
+            console.log('[MEP-EQUIPMENT-RENDER] renderEquipmentMeshes called');
+            const state = workspaceStore.getState();
+            disposeMeshList(placedEquipment3DMeshes);
+            placedEquipment3DMeshes = [];
+
+            state.equipment.forEach((equip) => {
+                if (equip.locationSpaceId) {
+                    console.log('[MEP-EQUIPMENT-RENDER] Rendering equipment:', {
+                        id: equip.id,
+                        tag: equip.tag,
+                        locationSpaceId: equip.locationSpaceId,
+                        locationSpaceName: equip.locationSpaceName,
+                        locationFloor: equip.locationFloor,
+                        dimL: equip.dimensions?.length,
+                        dimW: equip.dimensions?.width,
+                        dimH: equip.dimensions?.height,
+                        posX: equip.positionX,
+                        posY: equip.positionY,
+                        posZ: equip.positionZ,
+                        rotY: equip.rotationY
+                    });
+                    
+                    let worldY = equip.positionY || 0;
+                    if (equip.locationSpaceId && activeSpaceBoundsMap.has(Number(equip.locationSpaceId))) {
+                        const spaceData = activeSpaceBoundsMap.get(Number(equip.locationSpaceId));
+                        if (spaceData) {
+                            worldY = spaceData.box.min.y; // Correct physical world height of the space
+                        }
+                    }
+
+                    const group = new THREE.Group();
+                    group.position.set(equip.positionX || 0, worldY, equip.positionZ || 0);
+                    if (equip.rotationY) group.rotation.y = equip.rotationY;
+                    group.userData = { equipmentId: equip.id, isEquipmentGroup: true };
+
+                    const L = (equip.dimensions?.length || 1500) / 1000;
+                    const W = (equip.dimensions?.width || 1000) / 1000;
+                    const H = (equip.dimensions?.height || 1000) / 1000;
+                    const geometry = new THREE.BoxGeometry(L, H, W);
+                    const material = new THREE.MeshBasicMaterial({ color: 0x3b82f6 });
+                    const mesh = new THREE.Mesh(geometry, material);
+                    mesh.position.y = H / 2;
+                    group.add(mesh);
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 256; canvas.height = 64;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        ctx.fillStyle = '#1d4ed8';
+                        ctx.fillRect(0, 0, 256, 64);
+                        ctx.font = 'bold 32px sans-serif';
+                        ctx.fillStyle = 'white';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(equip.tag || 'EQUIP', 128, 32);
+                    }
+                    const tex = new THREE.CanvasTexture(canvas);
+                    const spriteMat = new THREE.SpriteMaterial({ map: tex });
+                    const sprite = new THREE.Sprite(spriteMat);
+                    sprite.scale.set(2.0, 0.5, 1);
+                    sprite.position.y = 1.2;
+                    group.add(sprite);
+
+                    world.scene.three.add(group);
+                    placedEquipment3DMeshes.push(group);
+                }
+            });
+            console.log('[MEP-EQUIPMENT-RENDER] placedEquipment3DMeshes count:', placedEquipment3DMeshes.length);
+            console.log('[MEP-EQUIPMENT-RENDER] scene equipment group count:', world.scene.three.children.filter(c => c.userData?.isEquipmentGroup).length);
+        };
+
+        if (unsubEquipmentStore) unsubEquipmentStore();
+        unsubEquipmentStore = workspaceStore.subscribe(() => {
+            renderEquipmentMeshes();
+        });
+        renderEquipmentMeshes();
+
         transformControl = new TransformControls(world.camera.three, ui.viewport);
         transformControl.addEventListener('dragging-changed', (event: any) => {
             world.camera.controls.enabled = !event.value;
@@ -1773,6 +1980,7 @@ export function Viewport3D() {
         world.scene.three.add(transformControl);
 
         ui.viewport.addEventListener('pointerup', (e: PointerEvent) => {
+            if (ui.btn2d.classList.contains('active')) { if (transformControl) transformControl.detach(); return; }
             
             const rect = ui.viewport.getBoundingClientRect();
             const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1843,23 +2051,210 @@ export function Viewport3D() {
         ui.btnOrbit.onclick = () => { document.exitPointerLock(); ui.btnOrbit.classList.add('active'); ui.btnWalk.classList.remove('active'); };
         ui.btnWalk.onclick = () => { ui.btnWalk.classList.add('active'); ui.btnOrbit.classList.remove('active'); };
 
-        let draggedMep = '';
-        document.querySelectorAll('.mep-item').forEach(el => el.addEventListener('dragstart', (e: any) => draggedMep = e.target.dataset.type));
-        ui.viewport.addEventListener('dragover', (e: DragEvent) => e.preventDefault());
-        ui.viewport.addEventListener('drop', (e: DragEvent) => {
-            e.preventDefault(); if (!draggedMep) return;
-            const rect = ui.viewport.getBoundingClientRect(), mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
-            const raycaster = new THREE.Raycaster(); raycaster.setFromCamera(mouse, world.camera.three);
-            const hits = raycaster.intersectObjects(world.scene.three.children, true);
-            if (hits.length) {
-                const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshStandardMaterial({ color: draggedMep === 'AHU' ? 0x4da6ff : draggedMep === 'Pump' ? 0x4dff88 : 0xff4d4d }));
-                mesh.position.copy(hits[0].point).add(hits[0].face?.normal?.clone().multiplyScalar(0.25) || new THREE.Vector3());
-                world.scene.three.add(mesh);
+                activeGhostMesh = null;
+        
+        ui.viewport.addEventListener('dragover', (e: DragEvent) => {
+            e.preventDefault();
+            const draggedId = useViewerStore.getState().draggedEquipmentId;
+            if (!draggedId) {
+                if (activeGhostMesh) {
+                    world.scene.three.remove(activeGhostMesh);
+                    activeGhostMesh = null;
+                }
+                return;
             }
-            draggedMep = '';
+            
+            const equip = workspaceStore.getState().equipment.find(eq => eq.id === draggedId);
+            if (!equip) return;
+            
+            const L = (equip.dimensions?.length || 1500) / 1000;
+            const W = (equip.dimensions?.width || 1000) / 1000;
+            const H = (equip.dimensions?.height || 1000) / 1000;
+
+            if (!activeGhostMesh) {
+                console.log('[MEP-DND] viewport dragover: creating ghost for', draggedId, { L, W, H });
+                activeGhostMesh = new THREE.Group();
+                const geom = new THREE.BoxGeometry(L, H, W);
+                const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 });
+                const mesh = new THREE.Mesh(geom, mat);
+                mesh.position.y = H / 2;
+                activeGhostMesh.add(mesh);
+                world.scene.three.add(activeGhostMesh);
+            }
+
+            const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(e) : null;
+            if (hit) {
+                (activeGhostMesh.children[0] as THREE.Mesh).material = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 });
+                const level = useViewerStore.getState().levels.find(l => String(l.expressId) === String(hit.storeyExpressId));
+                const floorElevation = level ? level.elevation : 0;
+                activeGhostMesh.position.set(hit.point.x, floorElevation, hit.point.z);
+            } else {
+                (activeGhostMesh.children[0] as THREE.Mesh).material = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5 });
+                const rect = ui.viewport.getBoundingClientRect();
+                const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
+                activeGhostMesh.position.set(worldPos.x, 0, worldPos.z);
+            }
+        });
+        
+        ui.viewport.addEventListener('dragleave', () => {
+            if (activeGhostMesh) {
+                world.scene.three.remove(activeGhostMesh);
+                activeGhostMesh = null;
+            }
+        });
+        
+        // Viewport drop listener handles ghost mesh and drag state cleanup.
+        // Equipment placement mutation is authoritatively handled by document-level handleDrop.
+        ui.viewport.addEventListener('drop', () => {
+            if (activeGhostMesh) {
+                world.scene.three.remove(activeGhostMesh);
+                activeGhostMesh = null;
+            }
+            useViewerStore.getState().setDraggedEquipmentId(null);
+        });
+        // --- 2D DIRECT EQUIPMENT DRAGGING ---
+        let selectedEquipmentId: string | null = null;
+        let activePlacedDragGroup: THREE.Group | null = null;
+        let pointerIsDraggingPlaced = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+
+        const updateEquipmentHighlights = () => {
+            placedEquipment3DMeshes.forEach(g => {
+                const isSelected = g.userData?.equipmentId === selectedEquipmentId;
+                g.traverse(c => {
+                    if (c instanceof THREE.Mesh) {
+                        (c.material as THREE.MeshBasicMaterial).color.setHex(isSelected ? 0xffa500 : 0x3b82f6);
+                    }
+                });
+            });
+        };
+
+        const checkPlacedEquipmentHit = (ndcX: number, ndcY: number) => {
+            if (!ui.btn2d.classList.contains('active')) return null;
+            const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
+            const clickX = worldPos.x;
+            const clickZ = worldPos.z;
+
+            for (const group of placedEquipment3DMeshes) {
+                if (!group.userData?.isEquipmentGroup) continue;
+                const localClick = new THREE.Vector3(clickX, group.position.y, clickZ);
+                group.worldToLocal(localClick);
+                let hit = false;
+                group.traverse((c: any) => {
+                    if (c.geometry && c.geometry.type === 'BoxGeometry') {
+                        if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+                        const bbox = c.geometry.boundingBox;
+                        if (bbox && localClick.x >= bbox.min.x && localClick.x <= bbox.max.x &&
+                            localClick.z >= bbox.min.z && localClick.z <= bbox.max.z) {
+                            hit = true;
+                        }
+                    }
+                });
+                if (hit) return group;
+            }
+            return null;
+        };
+
+        ui.viewport.addEventListener('pointerdown', (e: PointerEvent) => {
+            if (!ui.btn2d.classList.contains('active')) return;
+            const rect = ui.viewport.getBoundingClientRect();
+            const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            const hitGroup = checkPlacedEquipmentHit(ndcX, ndcY);
+            if (hitGroup) {
+                selectedEquipmentId = hitGroup.userData.equipmentId;
+                activePlacedDragGroup = hitGroup;
+                pointerIsDraggingPlaced = false;
+                dragStartX = e.clientX;
+                dragStartY = e.clientY;
+                
+                updateEquipmentHighlights();
+                
+                ui.viewport.setPointerCapture(e.pointerId);
+                if (world.camera?.controls) world.camera.controls.enabled = false;
+                e.stopImmediatePropagation();
+            } else {
+                selectedEquipmentId = null;
+                updateEquipmentHighlights();
+                activePlacedDragGroup = null;
+            }
         });
 
-        // Expose Toolbar callbacks to window so the React component can trigger them
+        ui.viewport.addEventListener('pointermove', (e: PointerEvent) => {
+            if (!ui.btn2d.classList.contains('active')) return;
+            if (activePlacedDragGroup && ui.viewport.hasPointerCapture(e.pointerId)) {
+                if (!pointerIsDraggingPlaced && (Math.abs(e.clientX - dragStartX) > 3 || Math.abs(e.clientY - dragStartY) > 3)) {
+                    pointerIsDraggingPlaced = true;
+                }
+                
+                if (pointerIsDraggingPlaced) {
+                    const rect = ui.viewport.getBoundingClientRect();
+                    const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                    const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                    const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
+                    
+                    const pseudoMouseEvent = new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY });
+                    const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(pseudoMouseEvent) : null;
+                    
+                    if (hit) {
+                        const level = useViewerStore.getState().levels.find((l: any) => String(l.expressId) === String(hit.storeyExpressId));
+                        const floorElevation = level ? level.elevation : 0;
+                        activePlacedDragGroup.position.set(hit.point.x, floorElevation, hit.point.z);
+                    } else {
+                        activePlacedDragGroup.position.set(worldPos.x, activePlacedDragGroup.position.y, worldPos.z);
+                    }
+                }
+                e.stopImmediatePropagation();
+            }
+        });
+
+        ui.viewport.addEventListener('pointerup', (e: PointerEvent) => {
+            if (activePlacedDragGroup && ui.viewport.hasPointerCapture(e.pointerId)) {
+                ui.viewport.releasePointerCapture(e.pointerId);
+                if (world.camera?.controls) world.camera.controls.enabled = true;
+                
+                if (pointerIsDraggingPlaced) {
+                    const equipId = activePlacedDragGroup.userData.equipmentId;
+                    const pseudoMouseEvent = new MouseEvent('mouseup', { clientX: e.clientX, clientY: e.clientY });
+                    const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(pseudoMouseEvent) : null;
+                    
+                    if (hit) {
+                        const updatedEquipment = workspaceStore.getState().equipment.map((eq: any) => {
+                            if (eq.id === equipId) {
+                                const level = useViewerStore.getState().levels.find((l: any) => String(l.expressId) === String(hit.storeyExpressId));
+                                const floorElevation = level ? level.elevation : 0;
+                                return {
+                                    ...eq,
+                                    locationSpaceId: String(hit.expressId),
+                                    locationSpaceName: hit.space?.name || hit.space?.longName || 'Unknown Space',
+                                    locationFloor: level ? level.name : 'Unknown Floor',
+                                    positionX: hit.point.x,
+                                    positionY: floorElevation,
+                                    positionZ: hit.point.z
+                                };
+                            }
+                            return eq;
+                        });
+                        workspaceStore.getState().updateEquipment(updatedEquipment);
+                    } else {
+                        // Invalid drop: revert to previous valid state
+                        const orig = workspaceStore.getState().equipment.find((eq: any) => eq.id === equipId);
+                        if (orig && activePlacedDragGroup) {
+                            activePlacedDragGroup.position.set(orig.positionX || 0, orig.positionY || 0, orig.positionZ || 0);
+                        }
+                    }
+                }
+                
+                activePlacedDragGroup = null;
+                pointerIsDraggingPlaced = false;
+                e.stopImmediatePropagation();
+            }
+        });
+// Expose Toolbar callbacks to window so the React component can trigger them
         (window as any)._toolbarCallbacks = {
             on3dToggle: () => ui.btn3d.onclick && ui.btn3d.onclick(),
             on2dToggle: () => ui.btn2d.onclick && ui.btn2d.onclick(),

@@ -615,26 +615,18 @@ export function DataGrid<T extends { id: string }>({
                           lastTapRef.current = { id: row.id, time: now };
 
                           if (isDoubleTap) {
-                            if (!selected.has(row.id)) {
-                              onToggle(row.id, false, false);
-                            }
                             onRowDoubleClick?.(row);
                             return;
                           }
 
-                          if (!isTextInputTarget) {
-                            blurActiveInput();
-                            onToggle(row.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                          } else {
-                            if (!selected.has(row.id)) {
-                              onToggle(row.id, false, false);
+                          if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                            if (!isTextInputTarget) {
+                              blurActiveInput();
                             }
+                            onToggle(row.id, e.shiftKey, e.ctrlKey || e.metaKey);
                           }
                         }}
                         onDoubleClick={() => {
-                          if (!selected.has(row.id)) {
-                            onToggle(row.id, false, false);
-                          }
                           onRowDoubleClick?.(row);
                         }}
                         onContextMenu={(e) => {
@@ -693,26 +685,18 @@ export function DataGrid<T extends { id: string }>({
                     lastTapRef.current = { id: row.id, time: now };
 
                     if (isDoubleTap && !isTextInputTarget) {
-                      if (!selected.has(row.id)) {
-                        onToggle(row.id, false, false);
-                      }
                       onRowDoubleClick?.(row);
                       return;
                     }
 
-                    if (!isTextInputTarget) {
-                      blurActiveInput();
-                      onToggle(row.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                    } else {
-                      if (!selected.has(row.id)) {
-                        onToggle(row.id, false, false);
+                    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                      if (!isTextInputTarget) {
+                        blurActiveInput();
                       }
+                      onToggle(row.id, e.shiftKey, e.ctrlKey || e.metaKey);
                     }
                   }}
                   onDoubleClick={() => {
-                    if (!selected.has(row.id)) {
-                      onToggle(row.id, false, false);
-                    }
                     onRowDoubleClick?.(row);
                   }}
                   className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-colors duration-150 ${

@@ -4,7 +4,7 @@ import { useWorkspace } from '@/lib/workspace-store';
 import { MapPin, Box, GripVertical, Crosshair } from 'lucide-react';
 
 export function Sidebar({ onFullscreenToggle }: { onFullscreenToggle?: () => void }) {
-  const { selectedSpaceInfo } = useViewerStore();
+  const { selectedSpaceInfo, setDraggedEquipmentId } = useViewerStore();
   const { equipment } = useWorkspace();
 
   const unplacedEquipment = useMemo(() => {
@@ -18,6 +18,8 @@ export function Sidebar({ onFullscreenToggle }: { onFullscreenToggle?: () => voi
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, equipId: string) => {
     e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'equipment', id: equipId }));
     e.dataTransfer.effectAllowed = 'copy';
+    setDraggedEquipmentId(equipId);
+    console.log('[MEP-DND] dragstart', equipId);
   };
 
   const handleFocus = (equip: any) => {
@@ -55,7 +57,7 @@ export function Sidebar({ onFullscreenToggle }: { onFullscreenToggle?: () => voi
                 <div
                   key={equip.id}
                   draggable
-                  onDragStart={(e) => handleDragStart(e, equip.id)}
+                  onDragStart={(e) => handleDragStart(e, equip.id)} onDragEnd={() => setDraggedEquipmentId(null)}
                   className="bg-[#2a2a2c] hover:bg-[#333336] border border-[#444] rounded p-2 text-white text-[12px] flex items-start gap-2 cursor-grab active:cursor-grabbing transition-colors"
                   title="Drag to place in 3D Viewer"
                 >

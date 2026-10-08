@@ -31,7 +31,7 @@ export const Route = createFileRoute("/company-hierarchy")({
   component: CompanyHierarchyPage,
 });
 
-export type ApprovalAuthority = "REVIEW" | "APPROVE_REJECT" | "NONE";
+export type ApprovalAuthority = "REVIEW" | "APPROVE_REJECT" | "NONE" | "SUBMIT_TASK";
 
 export type HierarchyRole = 
   | "SUPER_ADMIN" 
@@ -1868,6 +1868,7 @@ function CompanyHierarchyPage() {
                     <option value="NONE">None</option>
                     <option value="REVIEW">Review</option>
                     <option value="APPROVE_REJECT">Approve / Reject</option>
+                    <option value="SUBMIT_TASK">Submit Task</option>
                   </select>
                 </div>
               </div>
