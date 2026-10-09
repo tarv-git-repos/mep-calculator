@@ -10,7 +10,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
-import { Plus, Download, Trash, Copy, X, Database, Filter, ArrowUpDown, Sparkles, FileText, MessageSquare, Flag, Zap, Activity, Layers, UploadCloud, Building2, ExternalLink, Loader2, RefreshCw, Box } from "lucide-react";
+import { Plus, Download, Trash, Copy, X, Database, Filter, ArrowUpDown, Sparkles, FileText, MessageSquare, Flag, Zap, Activity, Layers, UploadCloud, Building2, ExternalLink, Loader2, RefreshCw, Box, Snowflake, Wind, ChevronDown } from "lucide-react";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
@@ -37,6 +37,10 @@ import {
   sortLoadRowsFloorWise,
   cleanSpaceName,
   cleanRemarks,
+  getPreliminaryCoolingLoadSpaces,
+  importFromPreliminaryCoolingLoad,
+  getVentilationSpaces,
+  importFromVentilationCalc,
 } from "@/lib/calc-load-summary";
 import { getFloorRank } from "@/lib/bimViewerSpaceExtractor";
 import { toast } from "sonner";
@@ -535,6 +539,62 @@ function LoadSummaryPage() {
     setRows(result.rows.map(r => ({ ...r, remarks: cleanRemarks(r.remarks) })));
     toast.success(`✨ Synced ${result.rows.length} spaces (${result.spacesUpdated} updated, ${result.newSpacesAdded} added)!`, {
       description: `Lighting: ${result.lightingTotalKw} kW · HVAC: ${result.hvacTotalKw} kW aggregated from 3D & other calculators.`,
+    });
+  };
+
+  const pclSpacesCount = useMemo(() => {
+    const pId = activeProjectId || project?.id || "default";
+    return getPreliminaryCoolingLoadSpaces(pId).length;
+  }, [activeProjectId, project?.id, syncModalOpen]);
+
+  const ventSpacesCount = useMemo(() => {
+    const pId = activeProjectId || project?.id || "default";
+    return getVentilationSpaces(pId).length;
+  }, [activeProjectId, project?.id, syncModalOpen]);
+
+  const handleImportPreliminaryCooling = () => {
+    const pId = activeProjectId || project?.id || "default";
+    const newRows = importFromPreliminaryCoolingLoad(pId);
+    if (newRows.length === 0) {
+      toast.error("No spaces found in Preliminary Cooling Load yet.", {
+        description: "Please calculate or add spaces in Preliminary Cooling Load (/preliminary-cooling-load) first.",
+        action: {
+          label: "Open Preliminary Cooling",
+          onClick: () => {
+            window.location.href = "/preliminary-cooling-load";
+          },
+        },
+      });
+      return;
+    }
+    pushToHistory(rows, history, setHistory, setRedoStack);
+    setRows(newRows);
+    setSyncModalOpen(false);
+    toast.success(`❄️ Imported ${newRows.length} spaces from Preliminary Cooling Load!`, {
+      description: "Room areas, cooling kW loads, lighting, and small power calculated floor-wise.",
+    });
+  };
+
+  const handleImportVentilation = () => {
+    const pId = activeProjectId || project?.id || "default";
+    const newRows = importFromVentilationCalc(pId);
+    if (newRows.length === 0) {
+      toast.error("No spaces found in Ventilation schedule yet.", {
+        description: "Please add spaces in Ventilation Calculation (/ventilation) first.",
+        action: {
+          label: "Open Ventilation",
+          onClick: () => {
+            window.location.href = "/ventilation";
+          },
+        },
+      });
+      return;
+    }
+    pushToHistory(rows, history, setHistory, setRedoStack);
+    setRows(newRows);
+    setSyncModalOpen(false);
+    toast.success(`💨 Imported ${newRows.length} spaces from Ventilation schedule!`, {
+      description: "Room areas, fresh air CFM, and electrical loads calculated floor-wise.",
     });
   };
 
@@ -1503,13 +1563,104 @@ function LoadSummaryPage() {
 
             {/* Right side buttons */}
             <div className="ml-auto flex items-center gap-1.5">
-              <TBtn
-                onClick={handlePullFromCalculators}
-                className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/20"
-                title="Pull room areas, Lighting kW from Lux/LPD, and HVAC kW from 3D Ventilation"
-              >
-                <Sparkles className="size-3.5 text-indigo-500" /> Pull from 3D / Calculators
-              </TBtn>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 transition-colors cursor-pointer"
+                    title="Import spaces from Preliminary Cooling Load, Ventilation, or 3D Model"
+                  >
+                    <Sparkles className="size-3.5 text-indigo-500" />
+                    <span>Pull / Import Spaces</span>
+                    <ChevronDown className="size-3 text-indigo-500/70" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80 p-2 bg-popover border border-border rounded-xl shadow-xl font-sans flex flex-col gap-1 z-50">
+                  <div className="px-2 py-1.5 border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
+                    <span>Import Spaces & Loads</span>
+                    <span className="text-[10px] lowercase font-normal">early stage & 3D</span>
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={handleImportPreliminaryCooling}
+                    className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg text-[12px] hover:bg-surface-2 transition-colors text-left cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="size-7 rounded-md bg-sky-500/10 flex items-center justify-center text-sky-500 group-hover:scale-105 transition-transform">
+                        <Snowflake className="size-3.5" />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">Preliminary Cooling Load</div>
+                        <div className="text-[10.5px] text-muted-foreground">Cooling kW & room areas</div>
+                      </div>
+                    </div>
+                    {pclSpacesCount > 0 ? (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                        {pclSpacesCount} spaces
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">0 spaces</span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleImportVentilation}
+                    className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg text-[12px] hover:bg-surface-2 transition-colors text-left cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="size-7 rounded-md bg-teal-500/10 flex items-center justify-center text-teal-500 group-hover:scale-105 transition-transform">
+                        <Wind className="size-3.5" />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">Ventilation Calculation</div>
+                        <div className="text-[10.5px] text-muted-foreground">Fresh air CFM & room areas</div>
+                      </div>
+                    </div>
+                    {ventSpacesCount > 0 ? (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-400">
+                        {ventSpacesCount} spaces
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">0 spaces</span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handlePullFromCalculators}
+                    className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg text-[12px] hover:bg-surface-2 transition-colors text-left cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="size-7 rounded-md bg-indigo-500/10 flex items-center justify-center text-indigo-500 group-hover:scale-105 transition-transform">
+                        <Box className="size-3.5" />
+                      </div>
+                      <div>
+                        <div className="font-semibold text-foreground">3D BIM / Auto Sync</div>
+                        <div className="text-[10.5px] text-muted-foreground">Pull from active 3D model</div>
+                      </div>
+                    </div>
+                  </button>
+
+                  <div className="pt-1 mt-1 border-t border-border flex items-center justify-between px-1">
+                    <button
+                      type="button"
+                      onClick={() => setSyncModalOpen(true)}
+                      className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                    >
+                      More Options & IFC Upload...
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleLoadBenchmarkSpaces}
+                      className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      10 Benchmarks
+                    </button>
+                  </div>
+                </PopoverContent>
+              </Popover>
 
               <ImportExcelBtn
                 columnMapping={importColumnMapping}
@@ -1876,19 +2027,129 @@ function LoadSummaryPage() {
             {/* Modal Body */}
             <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
               {/* Notice Banner */}
-              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[12px] text-amber-900 dark:text-amber-200 flex items-start gap-3">
-                <Sparkles className="size-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-[12px] text-indigo-950 dark:text-indigo-200 flex items-start gap-3">
+                <Sparkles className="size-4 text-indigo-500 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-amber-900 dark:text-amber-100">
-                    No 3D Model Spaces Cached in Current Browser Session
+                  <p className="font-semibold text-foreground">
+                    Connect Spaces from Early-Stage Calcs or 3D Model
                   </p>
-                  <p className="text-[11.5px] text-muted-foreground dark:text-amber-200/80 mt-1">
-                    Load Summary aggregates room areas, lighting (LUX/LPD), and HVAC loads directly from your 3D BIM models (<code className="font-mono text-foreground font-semibold">.ifc</code>). Choose an option below to populate real spaces:
+                  <p className="text-[11.5px] text-muted-foreground mt-0.5 leading-relaxed">
+                    At early concept/schematic stages without a 3D model, you can instantly pull room areas, cooling kW, and ventilation CFM from your existing calculations below:
                   </p>
                 </div>
               </div>
 
-              {/* Action Option 1: Direct IFC Upload */}
+              {/* Option 1: Import from Preliminary Cooling Load */}
+              <div className="p-4 rounded-xl border border-border bg-surface-1 hover:border-sky-500/40 transition-colors">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="size-9 rounded-lg bg-sky-500/10 flex items-center justify-center text-sky-500 shrink-0 mt-0.5">
+                      <Snowflake className="size-4.5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-[13px] font-semibold text-foreground">
+                          Option 1: Import from Preliminary Cooling Load
+                        </h4>
+                        {pclSpacesCount > 0 ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                            {pclSpacesCount} spaces ready
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                            No spaces yet
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11.5px] text-muted-foreground mt-0.5">
+                        Instantly populates room names, floor areas, and exact cooling kW loads calculated in Preliminary Cooling Load (<code className="font-mono text-foreground font-semibold">/preliminary-cooling-load</code>). Automatically converts thermal cooling into electrical compressor/fan kW.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3.5 pt-3 border-t border-border/50 flex items-center justify-between">
+                  {pclSpacesCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleImportPreliminaryCooling}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-sky-600 hover:bg-sky-700 text-white transition-colors cursor-pointer shadow-xs"
+                    >
+                      <Snowflake className="size-3.5" />
+                      Import {pclSpacesCount} Spaces from Preliminary Cooling
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { window.location.href = "/preliminary-cooling-load"; }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-medium bg-surface-2 hover:bg-surface-3 text-foreground border border-border transition-colors cursor-pointer"
+                    >
+                      <ExternalLink className="size-3.5" />
+                      Open Preliminary Cooling Load
+                    </button>
+                  )}
+                  <span className="text-[11px] text-muted-foreground">
+                    HVAC kW &bull; Floor Areas &bull; Room Types
+                  </span>
+                </div>
+              </div>
+
+              {/* Option 2: Import from Ventilation Calculation */}
+              <div className="p-4 rounded-xl border border-border bg-surface-1 hover:border-teal-500/40 transition-colors">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="size-9 rounded-lg bg-teal-500/10 flex items-center justify-center text-teal-500 shrink-0 mt-0.5">
+                      <Wind className="size-4.5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-[13px] font-semibold text-foreground">
+                          Option 2: Import from Ventilation Schedule
+                        </h4>
+                        {ventSpacesCount > 0 ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
+                            {ventSpacesCount} spaces ready
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                            No spaces yet
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11.5px] text-muted-foreground mt-0.5">
+                        Imports architectural rooms, floor areas, and fresh air ventilation flow rates (CFM) from the Ventilation Schedule (<code className="font-mono text-foreground font-semibold">/ventilation</code>). Automatically calculates outdoor air cooling and electrical sub-loads.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3.5 pt-3 border-t border-border/50 flex items-center justify-between">
+                  {ventSpacesCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleImportVentilation}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-teal-600 hover:bg-teal-700 text-white transition-colors cursor-pointer shadow-xs"
+                    >
+                      <Wind className="size-3.5" />
+                      Import {ventSpacesCount} Spaces from Ventilation
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { window.location.href = "/ventilation"; }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-medium bg-surface-2 hover:bg-surface-3 text-foreground border border-border transition-colors cursor-pointer"
+                    >
+                      <ExternalLink className="size-3.5" />
+                      Open Ventilation Calculation
+                    </button>
+                  )}
+                  <span className="text-[11px] text-muted-foreground">
+                    Fresh Air CFM &bull; Floor Areas &bull; Levels
+                  </span>
+                </div>
+              </div>
+
+              {/* Option 3: Direct IFC Upload */}
               <div className="p-4 rounded-xl border border-border bg-surface-1 hover:border-indigo-500/40 transition-colors">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
@@ -1897,7 +2158,7 @@ function LoadSummaryPage() {
                     </div>
                     <div>
                       <h4 className="text-[13px] font-semibold text-foreground">
-                        Option 1: Upload .IFC Model File Directly
+                        Option 3: Upload .IFC Model File Directly
                       </h4>
                       <p className="text-[11.5px] text-muted-foreground mt-0.5">
                         Instantly extracts all architectural spaces, floor areas, and levels with Web-IFC, automatically calculating ASHRAE & NEC load densities.
@@ -1937,7 +2198,37 @@ function LoadSummaryPage() {
                 </div>
               </div>
 
-              {/* Action Option 2: Open 3D Studio */}
+              {/* Option 4: Load Benchmark Template */}
+              <div className="p-4 rounded-xl border border-border bg-surface-1 hover:border-emerald-500/40 transition-colors">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="size-9 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">
+                      <Building2 className="size-4.5" />
+                    </div>
+                    <div>
+                      <h4 className="text-[13px] font-semibold text-foreground">
+                        Option 4: Load Standard Benchmark Project (10 Spaces)
+                      </h4>
+                      <p className="text-[11.5px] text-muted-foreground mt-0.5">
+                        Populate 10 standard commercial spaces (Reception, Open Office, Boardroom, Server Room, AHU Plant Room, Electrical Room, etc.) with realistic ASHRAE 90.1 lighting LPD, NEC power, and HVAC loads.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3.5 pt-3 border-t border-border/50">
+                  <button
+                    type="button"
+                    onClick={handleLoadBenchmarkSpaces}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="size-3.5" />
+                    Load 10 Standard Commercial Spaces
+                  </button>
+                </div>
+              </div>
+
+              {/* Option 5: Open 3D Studio */}
               <div className="p-4 rounded-xl border border-border bg-surface-1 hover:border-border-strong transition-colors">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
@@ -1946,7 +2237,7 @@ function LoadSummaryPage() {
                     </div>
                     <div>
                       <h4 className="text-[13px] font-semibold text-foreground">
-                        Option 2: Open 3D BIM Studio
+                        Option 5: Open 3D BIM Studio
                       </h4>
                       <p className="text-[11.5px] text-muted-foreground mt-0.5">
                         Load and inspect your full 3D building geometry in the interactive BIM viewer, then click <strong className="text-foreground">"Sync to Load Summary"</strong> in the Schedule Review modal.
@@ -1965,36 +2256,6 @@ function LoadSummaryPage() {
                   >
                     <ExternalLink className="size-3.5" />
                     Open 3D Studio Viewer
-                  </button>
-                </div>
-              </div>
-
-              {/* Action Option 3: Load Benchmark Template */}
-              <div className="p-4 rounded-xl border border-border bg-surface-1 hover:border-emerald-500/40 transition-colors">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-3">
-                    <div className="size-9 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">
-                      <Building2 className="size-4.5" />
-                    </div>
-                    <div>
-                      <h4 className="text-[13px] font-semibold text-foreground">
-                        Option 3: Load Standard Benchmark Project (10 Spaces)
-                      </h4>
-                      <p className="text-[11.5px] text-muted-foreground mt-0.5">
-                        Populate 10 standard commercial spaces (Reception, Open Office, Boardroom, Server Room, AHU Plant Room, Electrical Room, etc.) with realistic ASHRAE 90.1 lighting LPD, NEC power, and HVAC loads.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3.5 pt-3 border-t border-border/50">
-                  <button
-                    type="button"
-                    onClick={handleLoadBenchmarkSpaces}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 transition-colors cursor-pointer"
-                  >
-                    <Sparkles className="size-3.5" />
-                    Load 10 Standard Commercial Spaces
                   </button>
                 </div>
               </div>

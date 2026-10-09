@@ -154,30 +154,44 @@ export function resolveBestSpaceName(
  */
 export function getFloorRank(levelName: string): number {
   if (!levelName) return 999;
-  const l = levelName.trim().toUpperCase();
+  const raw = levelName.trim().toUpperCase();
+  // Normalize hyphens, underscores, dots, multiple spaces:
+  // "BASEMENT-2 FLOOR" -> "BASEMENT 2 FLOOR", "RS - LEVEL 01" -> "RS LEVEL 01"
+  const l = raw.replace(/[-_.]/g, " ").replace(/\s+/g, " ");
 
-  if (l.includes("BASEMENT 3") || l.includes("B3")) return -30;
-  if (l.includes("BASEMENT 2") || l.includes("B2")) return -20;
-  if (l.includes("BASEMENT 1") || l.includes("B1") || l.includes("BASEMENT")) return -10;
+  if (l.includes("BASEMENT 5") || l.includes("B 5") || l.includes("B5")) return -50;
+  if (l.includes("BASEMENT 4") || l.includes("B 4") || l.includes("B4")) return -40;
+  if (l.includes("BASEMENT 3") || l.includes("B 3") || l.includes("B3")) return -30;
+  if (l.includes("BASEMENT 2") || l.includes("B 2") || l.includes("B2")) return -20;
+  if (l.includes("BASEMENT 1") || l.includes("B 1") || l.includes("B1") || l.includes("BASEMENT")) return -10;
+  if (l.includes("LOWER GROUND") || l.includes("LG")) return -5;
 
-  if (l.includes("GROUND") || l.includes("GF") || l === "L0" || l === "LEVEL 0" || l.includes("PLINTH")) return 0;
+  if (l.includes("GROUND") || l.includes("GF") || l === "L0" || l.includes("LEVEL 0") || l.includes("PLINTH")) return 0;
   if (l.includes("MEZZANINE") || l.includes("MEZZ")) return 5;
+  if (l.includes("PODIUM")) return 7;
 
-  if (l.includes("FIRST") || l.includes("1ST") || l.includes("FF") || l === "L1" || l === "LEVEL 1") return 10;
-  if (l.includes("SECOND") || l.includes("2ND") || l.includes("SF") || l === "L2" || l === "LEVEL 2") return 20;
-  if (l.includes("THIRD") || l.includes("3RD") || l.includes("TF") || l === "L3" || l === "LEVEL 3") return 30;
-  if (l.includes("FOURTH") || l.includes("4TH") || l === "L4" || l === "LEVEL 4") return 40;
-  if (l.includes("FIFTH") || l.includes("5TH") || l === "L5" || l === "LEVEL 5") return 50;
-  if (l.includes("SIXTH") || l.includes("6TH") || l === "L6" || l === "LEVEL 6") return 60;
-  if (l.includes("SEVENTH") || l.includes("7TH") || l === "L7" || l === "LEVEL 7") return 70;
-  if (l.includes("EIGHTH") || l.includes("8TH") || l === "L8" || l === "LEVEL 8") return 80;
+  if (l.includes("FIRST") || l.includes("1ST") || l.includes("FF") || l.includes("LEVEL 1") || l.includes("LEVEL 01")) return 10;
+  if (l.includes("SECOND") || l.includes("2ND") || l.includes("SF") || l.includes("LEVEL 2") || l.includes("LEVEL 02")) return 20;
+  if (l.includes("THIRD") || l.includes("3RD") || l.includes("TF") || l.includes("LEVEL 3") || l.includes("LEVEL 03")) return 30;
+  if (l.includes("FOURTH") || l.includes("4TH") || l.includes("LEVEL 4") || l.includes("LEVEL 04")) return 40;
+  if (l.includes("FIFTH") || l.includes("5TH") || l.includes("LEVEL 5") || l.includes("LEVEL 05")) return 50;
+  if (l.includes("SIXTH") || l.includes("6TH") || l.includes("LEVEL 6") || l.includes("LEVEL 06")) return 60;
+  if (l.includes("SEVENTH") || l.includes("7TH") || l.includes("LEVEL 7") || l.includes("LEVEL 07")) return 70;
+  if (l.includes("EIGHTH") || l.includes("8TH") || l.includes("LEVEL 8") || l.includes("LEVEL 08")) return 80;
 
-  const numMatch = l.match(/(?:LEVEL|L|FLOOR)\s*(\d+)/i);
+  const numMatch = l.match(/(?:LEVEL|FLOOR|FLR|STORY|STORIES|L)\s*(\d+)/i);
   if (numMatch && numMatch[1]) {
     return parseInt(numMatch[1], 10) * 10;
   }
 
+  const pureNum = parseInt(l, 10);
+  if (!isNaN(pureNum)) {
+    return pureNum * 10;
+  }
+
   if (l.includes("ROOF") || l.includes("TERRACE") || l.includes("PENTHOUSE")) return 900;
+  if (l.includes("UPPER ROOF") || l.includes("TOP ROOF")) return 950;
+  if (l.includes("EXTERNAL") || l.includes("OUTDOOR")) return 1000;
 
   return 500;
 }

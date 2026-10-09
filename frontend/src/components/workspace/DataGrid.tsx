@@ -34,6 +34,7 @@ export function DataGrid<T extends { id: string }>({
   stickyHeaderTop,
   gridId,
   isReadOnly: isReadOnlyProp,
+  onCommentClick,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -52,6 +53,7 @@ export function DataGrid<T extends { id: string }>({
   stickyHeaderTop?: number | string;
   gridId?: string;
   isReadOnly?: boolean;
+  onCommentClick?: (row: T) => void;
 }) {
   const [isClientReadOnly, setIsClientReadOnly] = useState(false);
   useEffect(() => {
@@ -379,21 +381,21 @@ export function DataGrid<T extends { id: string }>({
           className="grid h-10 items-center text-[11.5px] font-semibold uppercase tracking-wider text-muted-foreground w-full"
           style={{ gridTemplateColumns: gridTemplate, minWidth: "100%" }}
         >
-          <div className="px-2 grid place-items-center h-full border-r border-border/60">
-            <input
-              type="checkbox"
-              checked={allSelected && !isReadOnly}
-              disabled={isReadOnly}
-              onChange={() => {
-                if (isReadOnly) {
-                  toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
-                  return;
-                }
-                onToggleAll();
-              }}
-              className="size-3 accent-primary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            />
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (isReadOnly) {
+                toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                return;
+              }
+              onToggleAll();
+            }}
+            disabled={isReadOnly}
+            title={allSelected ? "Deselect all rows" : "Select all rows"}
+            className="h-full w-full flex items-center justify-center border-r border-border/60 text-[11px] font-mono font-bold text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none disabled:opacity-40 disabled:cursor-not-allowed group/head-idx"
+          >
+            <span className={allSelected ? "text-primary font-bold" : ""}>#</span>
+          </button>
           {columns.map((c, colIdx) => {
             const k = String(c.key);
             const isLast = colIdx === columns.length - 1;
@@ -539,40 +541,64 @@ export function DataGrid<T extends { id: string }>({
               const renderRowContent = () => (
                 <>
                   <div
-                    className="px-2 grid place-items-center h-full border-r border-border/40"
+                    className={`px-1 flex items-center justify-center h-full border-r border-border/40 relative group/row-cell select-none cursor-pointer transition-colors duration-150 ${
+                      sel
+                        ? "bg-primary/15 text-primary font-bold shadow-inner"
+                        : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
+                    }`}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (isReadOnly) {
                         toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
                         return;
                       }
-                      if (e.target === e.currentTarget) {
-                        blurActiveInput();
-                        onToggle(row.id, e.shiftKey, true);
-                      }
+                      blurActiveInput();
+                      onToggle(row.id, e.shiftKey, true);
                     }}
+                    title={sel ? `Row ${rowIndex + 1} selected. Click to deselect.` : `Click to select row ${rowIndex + 1}.`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={sel && !isReadOnly}
-                      disabled={isReadOnly}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (isReadOnly) {
-                          toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
-                        }
-                      }}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        if (isReadOnly) {
-                          toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
-                          return;
-                        }
-                        blurActiveInput();
-                        onToggle(row.id, (e.nativeEvent as any)?.shiftKey || e.shiftKey, true);
-                      }}
-                      className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                    />
+                    {/* Modern Bespoke Curved Corner Comment Indicator */}
+                    {Array.isArray((row as any).comments) && (row as any).comments.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onCommentClick) {
+                            onCommentClick(row);
+                          } else {
+                            window.dispatchEvent(
+                              new CustomEvent("open-mep-row-comment", {
+                                detail: {
+                                  id: row.id,
+                                  name: (row as any).name || (row as any).tag || (row as any).code,
+                                  type: (row as any).tag ? "equipment" : (row as any).zone && !(row as any).area ? "zone" : "space"
+                                }
+                              })
+                            );
+                          }
+                        }}
+                        title={`${(row as any).comments.length} comment(s)/task(s) assigned. Click to view.`}
+                        className="absolute top-0 right-0 p-0 cursor-pointer z-10 hover:scale-120 active:scale-95 transition-all duration-150 focus:outline-none group/comment-mark"
+                      >
+                        <svg width="10" height="10" viewBox="0 0 10 10" className="overflow-visible drop-shadow-[0_1px_2px_rgba(99,102,241,0.35)]">
+                          <defs>
+                            <linearGradient id={`commentGrad-${row.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                              <stop offset="0%" stopColor="#6366f1" />
+                              <stop offset="50%" stopColor="#8b5cf6" />
+                              <stop offset="100%" stopColor="#a855f7" />
+                            </linearGradient>
+                          </defs>
+                          <path
+                            d="M 0 0 H 10 V 10 C 10 5.5 5.5 0 0 0 Z"
+                            fill={`url(#commentGrad-${row.id})`}
+                            className="group-hover/comment-mark:opacity-90 transition-opacity"
+                          />
+                        </svg>
+                      </button>
+                    )}
+                    <span className="text-[11px] font-mono leading-none tracking-tight">
+                      {rowIndex + 1}
+                    </span>
                   </div>
                   {columns.map((c, colIdx) => {
                     const isEditable = c.editable;
@@ -602,8 +628,31 @@ export function DataGrid<T extends { id: string }>({
                         data-row-id={row.id}
                         data-item-id={row.id}
                         data-sprinkler-id={row.id}
+                        onMouseDownCapture={(e) => {
+                          if (isReadOnly) return;
+                          const target = e.target as HTMLElement;
+                          if (target.closest('.group\\/row-cell') || target.closest('button[title*="comment"]')) {
+                            return;
+                          }
+                          const isInputTarget = (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "checkbox" && (target as HTMLInputElement).type !== "radio") ||
+                            target.tagName === "TEXTAREA" ||
+                            target.tagName === "SELECT" ||
+                            target.isContentEditable ||
+                            target.getAttribute("contenteditable") === "true";
+
+                          if (!sel) {
+                            if (isInputTarget) {
+                              e.preventDefault();
+                            }
+                            blurActiveInput();
+                            onToggle(row.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                          }
+                        }}
                         onClick={(e) => {
                           const target = e.target as HTMLElement;
+                          if (target.closest('.group\\/row-cell') || target.closest('button[title*="comment"]')) {
+                            return;
+                          }
                           const isTextInputTarget = (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "checkbox" && (target as HTMLInputElement).type !== "radio") ||
                             target.tagName === "TEXTAREA" ||
                             target.tagName === "SELECT" ||
@@ -614,7 +663,7 @@ export function DataGrid<T extends { id: string }>({
                           const isDoubleTap = lastTapRef.current.id === row.id && (now - lastTapRef.current.time) < 350;
                           lastTapRef.current = { id: row.id, time: now };
 
-                          if (isDoubleTap) {
+                          if (isDoubleTap && !isTextInputTarget) {
                             onRowDoubleClick?.(row);
                             return;
                           }
@@ -672,8 +721,31 @@ export function DataGrid<T extends { id: string }>({
                   data-item-id={row.id}
                   data-sprinkler-id={row.id}
                   key={row.id}
+                  onMouseDownCapture={(e) => {
+                    if (isReadOnly) return;
+                    const target = e.target as HTMLElement;
+                    if (target.closest('.group\\/row-cell') || target.closest('button[title*="comment"]')) {
+                      return;
+                    }
+                    const isInputTarget = (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "checkbox" && (target as HTMLInputElement).type !== "radio") ||
+                      target.tagName === "TEXTAREA" ||
+                      target.tagName === "SELECT" ||
+                      target.isContentEditable ||
+                      target.getAttribute("contenteditable") === "true";
+
+                    if (!sel) {
+                      if (isInputTarget) {
+                        e.preventDefault();
+                      }
+                      blurActiveInput();
+                      onToggle(row.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                    }
+                  }}
                   onClick={(e) => {
                     const target = e.target as HTMLElement;
+                    if (target.closest('.group\\/row-cell') || target.closest('button[title*="comment"]')) {
+                      return;
+                    }
                     const isTextInputTarget = (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "checkbox" && (target as HTMLInputElement).type !== "radio") ||
                       target.tagName === "TEXTAREA" ||
                       target.tagName === "SELECT" ||

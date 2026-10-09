@@ -1149,15 +1149,6 @@ export function CondensateDrainPage() {
                 calculatorPath="/condensate-drain"
                 calculatorTitle="Condensate Drain Sizing"
               />
-              {commentsList.length > 0 && (
-                <div 
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-semibold border border-blue-500/20 shadow-2xs"
-                  title={`${commentsList.length} active comment(s)/task(s) in Condensate Drain calculation`}
-                >
-                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Active Task{commentsList.length === 1 ? "" : "s"} / Comment{commentsList.length === 1 ? "" : "s"}</span>
-                </div>
-              )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <UnitToggle

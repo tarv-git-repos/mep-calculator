@@ -306,6 +306,211 @@ export async function importIfcFileToLoadSummary(file: File, projectId: string =
 }
 
 /**
+ * Retrieves spaces from Preliminary Cooling Load calculator (/preliminary-cooling-load)
+ */
+export function getPreliminaryCoolingLoadSpaces(projectId: string = "default"): any[] {
+  if (typeof localStorage === "undefined") return [];
+  const keys = [
+    `mep_pcl_rows_${projectId}`,
+    `mep_pcl_rows_default`,
+    "pcl_rows",
+  ];
+  for (const k of keys) {
+    try {
+      const saved = localStorage.getItem(k);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const valid = parsed.filter((r) => r.name && String(r.name).trim() !== "");
+          if (valid.length > 0) return valid;
+        }
+      }
+    } catch {}
+  }
+  return [];
+}
+
+/**
+ * Imports spaces directly from Preliminary Cooling Load calculation (/preliminary-cooling-load)
+ * into unified LoadRow records.
+ */
+export function importFromPreliminaryCoolingLoad(projectId: string = "default"): LoadRow[] {
+  const spaces = getPreliminaryCoolingLoadSpaces(projectId);
+  if (spaces.length === 0) return [];
+
+  // Fetch Lighting Lux schedule if available in workspace
+  const luxSpaces = new Map<string, number>();
+  if (typeof localStorage !== "undefined") {
+    try {
+      const luxRaw = localStorage.getItem(`mep_lux_calc_${projectId}`) || localStorage.getItem("mep_lux_calc_default");
+      if (luxRaw) {
+        const parsed = JSON.parse(luxRaw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((lr: any) => {
+            const name = (lr.spaceName || lr.name || "").trim().toLowerCase();
+            const kw = lr.calculatedWatts
+              ? lr.calculatedWatts / 1000
+              : ((lr.luminaireQty || 0) * (lr.luminaireWatts || 36)) / 1000;
+            if (name && kw > 0) luxSpaces.set(name, Number(kw.toFixed(2)));
+          });
+        }
+      }
+    } catch {}
+  }
+
+  const rows: LoadRow[] = spaces.map((r, idx) => {
+    const rawName = cleanSpaceName(r.name || `Space ${idx + 1}`);
+    const floor = (r.floor || extractFloorName({ description: r.name }) || "GROUND FLOOR").toUpperCase().trim();
+    const area = Math.max(0.1, Number(r.area) || 10);
+    const bench = getSpaceTypeBenchmark(rawName, r.type);
+
+    // 1. Lighting Load (kW)
+    const luxKw = luxSpaces.get(rawName.toLowerCase());
+    const lightingKw = luxKw !== undefined ? luxKw : Number(((area * bench.lpd) / 1000).toFixed(2));
+
+    // 2. Small Power Sockets (kW)
+    const powerKw = Number(((area * bench.smallPower) / 1000).toFixed(2));
+
+    // 3. HVAC Electrical Load (kW):
+    // From PCL, r.kw is the thermal cooling load. In electrical load estimation,
+    // compressor/fan electrical input is thermal kW / COP (approx COP 3.0).
+    let hvacKw = 0;
+    if (r.kw && Number(r.kw) > 0) {
+      hvacKw = Number((Number(r.kw) / 3.0).toFixed(2));
+    } else if (r.tr && Number(r.tr) > 0) {
+      hvacKw = Number((Number(r.tr) * 1.2).toFixed(2));
+    } else {
+      hvacKw = Number(((area * bench.hvacElectric) / 1000).toFixed(2));
+    }
+
+    // 4. Other dedicated equipment (kW)
+    const otherKw = bench.otherEquipment;
+
+    const row: LoadRow = {
+      id: `ls_pcl_${Date.now()}_${idx}`,
+      floor,
+      description: rawName,
+      qty: 1,
+      area: Number(area.toFixed(2)),
+      lighting: lightingKw,
+      power: powerKw,
+      hvac: hvacKw,
+      other: otherKw,
+      totalLoad: 0,
+      remarks: "",
+      flagged: Boolean(r.flagged),
+    };
+
+    return computeRowOutputs(row);
+  });
+
+  return sortLoadRowsFloorWise(rows);
+}
+
+/**
+ * Retrieves spaces from Ventilation calculation (/ventilation)
+ */
+export function getVentilationSpaces(projectId: string = "default"): any[] {
+  const wsSpaces = (workspaceStore.getState().spaces || []).filter(
+    (s) => s.name && !/^new\s*space\s*\d+$/i.test(s.name.trim())
+  );
+  if (wsSpaces.length > 0) return wsSpaces;
+
+  if (typeof localStorage !== "undefined") {
+    const keys = [
+      `mep_spaces_${projectId}`,
+      `spaces_${projectId}`,
+      "mep_spaces",
+      "spaces",
+    ];
+    for (const k of keys) {
+      try {
+        const saved = localStorage.getItem(k);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const filtered = parsed.filter((s: any) => s.name && !/^new\s*space\s*\d+$/i.test(s.name.trim()));
+            if (filtered.length > 0) return filtered;
+          }
+        }
+      } catch {}
+    }
+  }
+  return [];
+}
+
+/**
+ * Imports spaces directly from Ventilation calculation (/ventilation)
+ * into unified LoadRow records.
+ */
+export function importFromVentilationCalc(projectId: string = "default"): LoadRow[] {
+  const spaces = getVentilationSpaces(projectId);
+  if (spaces.length === 0) return [];
+
+  // Fetch Lighting Lux if available
+  const luxSpaces = new Map<string, number>();
+  if (typeof localStorage !== "undefined") {
+    try {
+      const luxRaw = localStorage.getItem(`mep_lux_calc_${projectId}`) || localStorage.getItem("mep_lux_calc_default");
+      if (luxRaw) {
+        const parsed = JSON.parse(luxRaw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((lr: any) => {
+            const name = (lr.spaceName || lr.name || "").trim().toLowerCase();
+            const kw = lr.calculatedWatts
+              ? lr.calculatedWatts / 1000
+              : ((lr.luminaireQty || 0) * (lr.luminaireWatts || 36)) / 1000;
+            if (name && kw > 0) luxSpaces.set(name, Number(kw.toFixed(2)));
+          });
+        }
+      }
+    } catch {}
+  }
+
+  const rows: LoadRow[] = spaces.map((sp, idx) => {
+    const rawName = cleanSpaceName(sp.name || `Space ${idx + 1}`);
+    const floor = (sp.floor || sp.level || extractFloorName({ description: sp.name }) || "GROUND FLOOR").toUpperCase().trim();
+    const area = Math.max(0.1, Number(sp.area) || 15);
+    const qty = sp.multiplier && sp.multiplier > 0 ? sp.multiplier : 1;
+    const bench = getSpaceTypeBenchmark(sp.name, sp.category);
+
+    const luxKw = luxSpaces.get(rawName.toLowerCase());
+    const lightingKw = luxKw !== undefined ? luxKw : Number(((area * bench.lpd) / 1000).toFixed(2));
+    const powerKw = Number(((area * bench.smallPower) / 1000).toFixed(2));
+
+    let hvacKw = 0;
+    if (sp.freshAir && sp.freshAir > 0) {
+      const freshKw = sp.freshAir * 0.015;
+      const spaceCoolingKw = (area * bench.hvacElectric) / 1000;
+      hvacKw = Number(Math.max(freshKw, spaceCoolingKw).toFixed(2));
+    } else {
+      hvacKw = Number(((area * bench.hvacElectric) / 1000).toFixed(2));
+    }
+
+    const otherKw = bench.otherEquipment;
+
+    const row: LoadRow = {
+      id: `ls_vent_${Date.now()}_${idx}`,
+      floor,
+      description: rawName,
+      qty,
+      area: Number(area.toFixed(2)),
+      lighting: lightingKw,
+      power: powerKw,
+      hvac: hvacKw,
+      other: otherKw,
+      totalLoad: 0,
+      remarks: "",
+      flagged: false,
+    };
+
+    return computeRowOutputs(row);
+  });
+
+  return sortLoadRowsFloorWise(rows);
+}
+
+/**
  * Creates realistic multi-room benchmark commercial office loads grouped by floor
  */
 export function getCommercialBenchmarkLoads(): LoadRow[] {
@@ -460,6 +665,36 @@ export function pullFromOtherCalculators(
         sourceType: "3d-bim",
       };
     }
+  }
+
+  // CASE A.2: Check Preliminary Cooling Load spaces (/preliminary-cooling-load)
+  const pclRows = importFromPreliminaryCoolingLoad(pId);
+  if (pclRows.length > 0) {
+    const lightingTotalKw = pclRows.reduce((sum, r) => sum + (r.lighting || 0) * (r.qty || 1), 0);
+    const hvacTotalKw = pclRows.reduce((sum, r) => sum + (r.hvac || 0) * (r.qty || 1), 0);
+    return {
+      rows: pclRows,
+      spacesUpdated: isOnlyDummyRows ? 0 : existingRows.length,
+      newSpacesAdded: pclRows.length,
+      lightingTotalKw: Number(lightingTotalKw.toFixed(2)),
+      hvacTotalKw: Number(hvacTotalKw.toFixed(2)),
+      sourceType: "calculators",
+    };
+  }
+
+  // CASE A.3: Check Ventilation Calculation spaces (/ventilation)
+  const ventRows = importFromVentilationCalc(pId);
+  if (ventRows.length > 0) {
+    const lightingTotalKw = ventRows.reduce((sum, r) => sum + (r.lighting || 0) * (r.qty || 1), 0);
+    const hvacTotalKw = ventRows.reduce((sum, r) => sum + (r.hvac || 0) * (r.qty || 1), 0);
+    return {
+      rows: ventRows,
+      spacesUpdated: isOnlyDummyRows ? 0 : existingRows.length,
+      newSpacesAdded: ventRows.length,
+      lightingTotalKw: Number(lightingTotalKw.toFixed(2)),
+      hvacTotalKw: Number(hvacTotalKw.toFixed(2)),
+      sourceType: "workspace",
+    };
   }
 
   // CASE A.5: Check LPD Calculator (mep-lpd-calc-v2) where BIM spaces may be cached

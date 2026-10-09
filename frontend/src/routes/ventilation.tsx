@@ -2154,21 +2154,6 @@ function SpacesView() {
           : r.name;
         return (
           <div className="flex items-center gap-1.5 w-full">
-            {Array.isArray(r.comments) && r.comments.length > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCommentTarget({ id: r.id, name: r.name, type: 'space' });
-                  setAssignCommentOpen(true);
-                }}
-                title={`${r.comments.length} comment(s)/task(s) assigned to space "${r.name}"`}
-                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-              >
-                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                <span className="text-[10px] font-bold">{r.comments.length}</span>
-              </button>
-            )}
             <InlineInput disabled={isEffectiveReadOnly}
               value={displayName}
               onCommit={(val) => {
@@ -3221,6 +3206,10 @@ function SpacesView() {
             onToggleGroup={handleToggleGroup}
             onRowDoubleClick={(r) => {
               setEditingSpace(r);
+            }}
+            onCommentClick={(r) => {
+              setCommentTarget({ id: r.id, name: r.name, type: 'space' });
+              setAssignCommentOpen(true);
             }}
             activeRowId={editingSpace?.id}
             rowClassName={(r) => spaceRowClasses[r.id] || ""}
@@ -4971,21 +4960,6 @@ function ZonesView() {
       editable: true,
       render: (z) => (
         <div className="flex items-center gap-1.5 font-sans font-medium w-full">
-          {Array.isArray(z.comments) && z.comments.length > 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setCommentTarget({ id: z.id, name: z.name, type: 'zone' });
-                setAssignCommentOpen(true);
-              }}
-              title={`${z.comments.length} comment(s)/task(s) assigned to zone "${z.name}"`}
-              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-            >
-              <MessageSquare className="size-3.5 fill-blue-500/20" />
-              <span className="text-[10px] font-bold">{z.comments.length}</span>
-            </button>
-          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -5387,6 +5361,10 @@ function ZonesView() {
             setSelectedZones(new Set([z.id]));
             setAllocZoneId(z.id);
             setZoneAllocOpen(true);
+          }}
+          onCommentClick={(z) => {
+            setCommentTarget({ id: z.id, name: z.name, type: 'zone' });
+            setAssignCommentOpen(true);
           }}
           rowClassName={(row, index) => index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80" : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"}
         />
@@ -6329,24 +6307,7 @@ function EquipmentView() {
   const columns: Column<Equipment>[] = [
     {
       key: "tag", header: "Equipment", width: 220, render: (r) => (
-        <div className="flex items-center gap-1.5">
-          {Array.isArray(r.comments) && r.comments.length > 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setCommentTarget({ id: r.id, name: r.tag || r.type, type: 'equipment' });
-                setAssignCommentOpen(true);
-              }}
-              title={`${r.comments.length} comment(s)/task(s) assigned to equipment "${r.tag}"`}
-              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-            >
-              <MessageSquare className="size-3.5 fill-blue-500/20" />
-              <span className="text-[10px] font-bold">{r.comments.length}</span>
-            </button>
-          )}
-          <span className="font-semibold text-foreground text-[13px]">{r.tag}</span>
-        </div>
+        <span className="font-semibold text-foreground text-[13px]">{r.tag}</span>
       )
     },
     {
@@ -6703,6 +6664,10 @@ function EquipmentView() {
           onToggleAll={toggleAllEquipment}
           renderContextMenu={renderEquipmentContextMenu}
           onRowDoubleClick={handleEquipmentDoubleClicked}
+          onCommentClick={(eq) => {
+            setCommentTarget({ id: eq.id, name: eq.tag || eq.type, type: 'equipment' });
+            setAssignCommentOpen(true);
+          }}
           rowClassName={(row, index) => index % 2 === 0 ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80" : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"}
         />
       </div>

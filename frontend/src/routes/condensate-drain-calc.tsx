@@ -42,6 +42,7 @@ import {
   Gauge,
   Activity,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Scissors,
   Clipboard,
@@ -80,6 +81,17 @@ import { EditCoilModal, type CoilRow } from "@/components/workspace/EditCoilModa
 import { ImportCoilModal } from "@/components/workspace/ImportCoilModal";
 import { exportCondensatePDF } from "@/lib/exportCondensatePDF";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+
+// IPC Pipe Sizing Matrix Table Data (IPC Section 307 / ASHRAE standard)
+const IPC_PIPE_TABLE = [
+  { sizeInch: '3/4"', dn: "DN20", maxGpm: 0.05, maxLps: 0.00315, tonnage: "< 20 Tons" },
+  { sizeInch: '1"', dn: "DN25", maxGpm: 0.20, maxLps: 0.0126, tonnage: "20 – 40 Tons" },
+  { sizeInch: '1-1/4"', dn: "DN32", maxGpm: 0.50, maxLps: 0.0315, tonnage: "40 – 90 Tons" },
+  { sizeInch: '1-1/2"', dn: "DN40", maxGpm: 1.20, maxLps: 0.0757, tonnage: "90 – 125 Tons" },
+  { sizeInch: '2"', dn: "DN50", maxGpm: 3.00, maxLps: 0.1893, tonnage: "125 – 250 Tons" },
+  { sizeInch: '2-1/2"', dn: "DN65", maxGpm: 6.00, maxLps: 0.3785, tonnage: "250 – 450 Tons" },
+  { sizeInch: '3"', dn: "DN80", maxGpm: 12.00, maxLps: 0.7571, tonnage: "> 450 Tons" },
+];
 
 export const Route = createFileRoute("/condensate-drain-calc")({
   head: () => ({
@@ -233,7 +245,7 @@ function CondensateDrainCalcPage() {
   const [editingCoil, setEditingCoil] = useState<CoilRow | null>(null);
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [intelOpen, setIntelOpen] = useState(false);
-  const [tab, setTab] = useState<"coils" | "summary" | "report">("coils");
+  const [tab, setTab] = useState<"coils" | "report">("coils");
   const [query, setQuery] = useState("");
   const [filterFlaggedOnly, setFilterFlaggedOnly] = useState(false);
   const [sortBy, setSortBy] = useState<string>("default");
@@ -1307,17 +1319,6 @@ function CondensateDrainCalcPage() {
     return { sizeMm: "80 mm", sizeInch: '3"', metricDn: "DN80", capacityGpm: ">6.00 GPM" };
   }, [totalGpm]);
 
-  // IPC Pipe Sizing Matrix Table Data
-  const ipcPipeTable = [
-    { sizeInch: '3/4"', dn: "DN20", maxGpm: 0.05, maxLps: 0.00315, tonnage: "< 20 Tons" },
-    { sizeInch: '1"', dn: "DN25", maxGpm: 0.20, maxLps: 0.0126, tonnage: "20 – 40 Tons" },
-    { sizeInch: '1-1/4"', dn: "DN32", maxGpm: 0.50, maxLps: 0.0315, tonnage: "40 – 90 Tons" },
-    { sizeInch: '1-1/2"', dn: "DN40", maxGpm: 1.20, maxLps: 0.0757, tonnage: "90 – 125 Tons" },
-    { sizeInch: '2"', dn: "DN50", maxGpm: 3.00, maxLps: 0.1893, tonnage: "125 – 250 Tons" },
-    { sizeInch: '2-1/2"', dn: "DN65", maxGpm: 6.00, maxLps: 0.3785, tonnage: "250 – 450 Tons" },
-    { sizeInch: '3"', dn: "DN80", maxGpm: 12.00, maxLps: 0.7571, tonnage: "> 450 Tons" },
-  ];
-
   // Top contributing coils
   const rankedCoils = useMemo(() => {
     return [...calculatedRows]
@@ -1350,18 +1351,13 @@ function CondensateDrainCalcPage() {
                 onClick={() => setIntelOpen((v) => !v)}
                 className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
                   intelOpen
-                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                    ? "bg-primary text-primary-foreground border-primary"
                     : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
                 }`}
                 title="Toggle Coil Condensate Intelligence & Psychrometric Audit"
               >
                 <Sparkles className="size-3.5" />
                 Intelligence
-                {calculatedRows.filter(r => r.isEffectivelyFlagged).length > 0 && (
-                  <span className="flex items-center justify-center bg-amber-500 text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm ml-0.5 animate-pulse">
-                    {calculatedRows.filter(r => r.isEffectivelyFlagged).length}
-                  </span>
-                )}
               </button>
 
               <CalculationReviewBar
@@ -1369,20 +1365,6 @@ function CondensateDrainCalcPage() {
                 calculatorPath="/condensate-drain-calc"
                 calculatorTitle="Coil Condensate Calculator"
               />
-
-              {totalCommentsCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (firstCommentedCoil) handleOpenComment(firstCommentedCoil);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-950/70 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 font-bold text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 transition cursor-pointer"
-                  title={`${totalCommentsCount} total active comment(s)/task(s)`}
-                >
-                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{totalCommentsCount} Active {totalCommentsCount === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
-                </button>
-              )}
             </div>
 
             {/* Unit System Toggle in Header inline with Approve / Reject */}
@@ -1421,17 +1403,6 @@ function CondensateDrainCalcPage() {
                     }`}
                   >
                     Coils
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTab("summary")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "summary"
-                        ? "bg-background text-foreground shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Summary &amp; Totals
                   </button>
                   <button
                     type="button"
@@ -1643,11 +1614,6 @@ function CondensateDrainCalcPage() {
                         <Download className="size-3.5" /> Import
                       </TBtn>
                       <TBtn
-                        onClick={handleExportPDF}
-                      >
-                        <FileText className="size-3.5" /> Export
-                      </TBtn>
-                      <TBtn
                         primary
                         disabled={isLocked}
                         onClick={handleNewCoil}
@@ -1778,241 +1744,7 @@ function CondensateDrainCalcPage() {
                 </div>
               )}
 
-              {tab === "summary" && (
-                <div className="p-6 flex flex-col gap-6 overflow-y-auto">
-                  <div className="flex items-center justify-between pb-3 border-b border-border/60">
-                    <div className="flex items-center gap-2">
-                      <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-foreground font-sans">Condensate Summary &amp; Analytics</h3>
-                    </div>
-                    <span className="text-xs text-muted-foreground">Aggregated psychrometrics &amp; IPC / ASHRAE drainage guidance</span>
-                  </div>
 
-                  {/* Top KPI Cards Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
-                    {/* 1. Active Coils */}
-                    <div className="bg-card border border-border rounded-2xl p-4 flex flex-col justify-between shadow-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Active Coils</span>
-                        <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-muted-foreground">
-                          <Layers className="size-4" />
-                        </div>
-                      </div>
-                      <div className="flex items-baseline gap-1 mt-2">
-                        <span className="text-2xl font-bold font-mono text-foreground">{rows.length}</span>
-                        <span className="text-xs text-muted-foreground font-sans">{rows.length === 1 ? "unit" : "units"}</span>
-                      </div>
-                    </div>
-
-                    {/* 2. Total Airflow */}
-                    <div className="bg-card border border-border rounded-2xl p-4 flex flex-col justify-between shadow-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Total Airflow</span>
-                        <div className="p-2 rounded-xl bg-blue-500/10 text-[#0A7BC7]">
-                          <Wind className="size-4" />
-                        </div>
-                      </div>
-                      <div className="flex items-baseline gap-1 mt-2">
-                        <span className="text-2xl font-bold font-mono text-foreground">{totals.totalFlow.toLocaleString()}</span>
-                        <span className="text-xs font-bold text-muted-foreground">{uFlow}</span>
-                      </div>
-                    </div>
-
-                    {/* 3. Aggregate Condensate Flow */}
-                    <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 flex flex-col justify-between shadow-xs col-span-1 sm:col-span-2 lg:col-span-1 xl:col-span-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-primary">Total Condensate Flow</span>
-                        <div className="p-2 rounded-xl bg-primary/10 text-primary">
-                          <Droplets className="size-4" />
-                        </div>
-                      </div>
-                      <div className="flex items-baseline gap-2 mt-2">
-                        <span className="text-2xl font-extrabold font-mono text-primary">
-                          {ip ? lpsToGpm(totals.totalCond).toFixed(4) : totals.totalCond.toFixed(4)}
-                        </span>
-                        <span className="text-xs font-bold text-primary">{ip ? "GPM" : "L/s"}</span>
-                        <span className="text-[11px] text-muted-foreground font-mono ml-auto">
-                          ({totalLhr.toFixed(2)} L/hr)
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* 4. Recommended Drain Main */}
-                    <div className="bg-card border border-border rounded-2xl p-4 flex flex-col justify-between shadow-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Drain Header Pipe</span>
-                        <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                          <Gauge className="size-4" />
-                        </div>
-                      </div>
-                      <div className="flex items-baseline gap-1 mt-2">
-                        <span className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
-                          {ip ? recommendedPipe.sizeInch : recommendedPipe.metricDn}
-                        </span>
-                        <span className="text-xs text-muted-foreground">({ip ? recommendedPipe.metricDn : recommendedPipe.sizeInch})</span>
-                      </div>
-                    </div>
-
-                    {/* 5. Trap Seal Depth */}
-                    <div className="bg-card border border-border rounded-2xl p-4 flex flex-col justify-between shadow-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">Min Trap Depth</span>
-                        <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                          <Droplet className="size-4" />
-                        </div>
-                      </div>
-                      <div className="flex items-baseline gap-1 mt-2">
-                        <span className="text-xl font-bold font-mono text-foreground">
-                          {ip ? "3.0 in" : "75 mm"}
-                        </span>
-                        <span className="text-xs text-muted-foreground">P-Trap</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Two Column Analytical Cards */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Left: Ranked Coil Condensate Contributors */}
-                    <div className="border border-border rounded-2xl p-5 bg-card flex flex-col gap-4 shadow-xs">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-[13px] font-bold text-foreground flex items-center gap-2">
-                          <TrendingUp className="size-4 text-primary" />
-                          Coil Condensate Contribution Breakdown
-                        </h4>
-                        <span className="text-[11px] text-muted-foreground font-mono">
-                          Total: {ip ? `${totalGpm.toFixed(4)} GPM` : `${totals.totalCond.toFixed(4)} L/s`}
-                        </span>
-                      </div>
-
-                      {rankedCoils.length === 0 ? (
-                        <div className="text-center py-8 text-xs text-muted-foreground">
-                          No active moisture extraction detected in coils.
-                        </div>
-                      ) : (
-                        <div className="flex flex-col gap-3">
-                          {rankedCoils.map((c, idx) => {
-                            const pct = totals.totalCond > 0 ? ((c.condFlow || 0) / totals.totalCond) * 100 : 0;
-                            return (
-                              <div key={c.id} className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-surface-2/40 border border-border/50">
-                                <div className="flex items-center justify-between text-xs">
-                                  <div className="flex items-center gap-2 font-medium text-foreground">
-                                    <span className="size-5 rounded-full bg-primary/10 text-primary font-mono text-[10.5px] font-bold flex items-center justify-center">
-                                      {idx + 1}
-                                    </span>
-                                    <span className="font-semibold">{c.name}</span>
-                                    <span className="text-muted-foreground font-mono text-[11px]">({c.flow.toLocaleString()} {uFlow})</span>
-                                  </div>
-                                  <div className="flex items-center gap-2 font-mono">
-                                    <span className="font-bold text-primary">
-                                      {ip ? lpsToGpm(c.condFlow).toFixed(4) : (c.condFlow || 0).toFixed(4)} {uCond}
-                                    </span>
-                                    <span className="text-muted-foreground text-[11px]">({pct.toFixed(1)}%)</span>
-                                  </div>
-                                </div>
-                                <div className="h-1.5 w-full bg-border/60 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full bg-[#0A7BC7] rounded-full transition-all duration-300"
-                                    style={{ width: `${Math.max(4, Math.min(100, pct))}%` }}
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Right: IPC Condensate Drain Sizing Table */}
-                    <div className="border border-border rounded-2xl p-5 bg-card flex flex-col gap-4 shadow-xs">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-[13px] font-bold text-foreground flex items-center gap-2">
-                          <Gauge className="size-4 text-emerald-600 dark:text-emerald-400" />
-                          IPC &amp; ASHRAE Condensate Drain Sizing Table
-                        </h4>
-                        <span className="text-[11px] text-muted-foreground font-medium">IPC Section 307</span>
-                      </div>
-
-                      <div className="overflow-x-auto border border-border rounded-xl">
-                        <table className="w-full text-left text-xs border-collapse">
-                          <thead>
-                            <tr className="bg-surface-2 text-muted-foreground font-semibold border-b border-border">
-                              <th className="py-2 px-3">Nominal Pipe Size</th>
-                              <th className="py-2 px-3 text-right">Max Flow ({uCond})</th>
-                              <th className="py-2 px-3 text-right">Cooling Capacity</th>
-                              <th className="py-2 px-2 text-center">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border font-mono">
-                            {ipcPipeTable.map((pipe) => {
-                              const isSelectedPipe = (ip ? pipe.sizeInch : pipe.dn) === (ip ? recommendedPipe.sizeInch : recommendedPipe.metricDn);
-                              return (
-                                <tr
-                                  key={pipe.sizeInch}
-                                  className={`transition-colors ${
-                                    isSelectedPipe
-                                      ? "bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold text-foreground"
-                                      : "hover:bg-surface-2/50 text-muted-foreground"
-                                  }`}
-                                >
-                                  <td className="py-2 px-3">
-                                    <span className="font-sans font-semibold text-foreground">{pipe.sizeInch}</span> ({pipe.dn})
-                                  </td>
-                                  <td className="py-2 px-3 text-right">
-                                    {ip ? `${pipe.maxGpm.toFixed(2)} GPM` : `${pipe.maxLps.toFixed(4)} L/s`}
-                                  </td>
-                                  <td className="py-2 px-3 text-right font-sans text-[11px]">
-                                    {pipe.tonnage}
-                                  </td>
-                                  <td className="py-2 px-2 text-center">
-                                    {isSelectedPipe ? (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
-                                        <Check className="size-3" /> Recommended
-                                      </span>
-                                    ) : (
-                                      <span className="text-muted-foreground/50">-</span>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground leading-normal">
-                        Pipe sizes based on gravity drainage slope of 1% (1/8 in/ft). Secondary emergency drains require equal or larger diameter.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Trap Seal Guidance & Engineering Principles */}
-                  <div className="border border-border rounded-2xl p-5 bg-card flex flex-col gap-3 shadow-xs">
-                    <h4 className="text-[13px] font-bold text-foreground flex items-center gap-2">
-                      <Droplets className="size-4 text-primary" />
-                      Condensate Trap Seal Depth &amp; Hydraulic Installation Rules
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-muted-foreground mt-1">
-                      <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/60 flex flex-col gap-1.5">
-                        <strong className="text-foreground font-semibold">1. Draw-Through Trap Sizing</strong>
-                        <p className="leading-relaxed text-[11.5px]">
-                          Fan creates negative static pressure in drain pan. Trap total height H must exceed fan static pressure + 1.0 inch (25 mm) to prevent air rushing into pan and holding back water.
-                        </p>
-                      </div>
-                      <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/60 flex flex-col gap-1.5">
-                        <strong className="text-foreground font-semibold">2. Blow-Through Trap Sizing</strong>
-                        <p className="leading-relaxed text-[11.5px]">
-                          Fan creates positive static pressure. Trap seal depth must exceed positive static pressure + 0.5 inch (13 mm) to avoid blowing conditioned air through the drain piping.
-                        </p>
-                      </div>
-                      <div className="p-3.5 rounded-xl bg-surface-2/40 border border-border/60 flex flex-col gap-1.5">
-                        <strong className="text-foreground font-semibold">3. Air Gap / Indirect Waste</strong>
-                        <p className="leading-relaxed text-[11.5px]">
-                          Condensate lines must terminate with a minimum 1.0 inch (25 mm) physical air gap above the rim of the floor drain or receptor to eliminate sewer gas back-siphonage.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Printable Report Tab View matching Preliminary exact standard layout */}
               {tab === "report" && (
@@ -2229,7 +1961,7 @@ function CondensateDrainCalcPage() {
                         <table className="w-full border-collapse">
                           <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
                             <tr className="divide-x divide-border">
-                              <th className="p-2.5 w-28 text-center">Designation</th>
+                              <th className="p-2.5 w-28 text-center"></th>
                               <th className="p-2.5 text-center w-1/3">Originator</th>
                               <th className="p-2.5 text-center w-1/3">Reviewer</th>
                               <th className="p-2.5 text-center w-1/3">Approver</th>
@@ -2239,37 +1971,25 @@ function CondensateDrainCalcPage() {
                             <tr className="divide-x divide-border">
                               <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
                               <td className="p-2.5 text-center font-medium">
-                                {sigDetails?.originator?.name || sigDetails?.originatedName || currentUserName || "-"}
+                                {sigDetails?.originatedName || currentUserName || "-"}
                               </td>
                               <td className="p-2.5 text-center font-medium">
-                                {sigDetails?.reviewer?.name || sigDetails?.reviewerName || ""}
+                                {sigDetails?.reviewerName || ""}
                               </td>
                               <td className="p-2.5 text-center font-medium">
-                                {sigDetails?.approver?.name || sigDetails?.approverName || ""}
+                                {sigDetails?.approverName || ""}
                               </td>
                             </tr>
                             <tr className="divide-x divide-border">
                               <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
                               <td className="p-2.5 text-center font-mono">
-                                {sigDetails?.originator?.date || sigDetails?.originatedDate || formatDateStr(new Date().toISOString())}
+                                {sigDetails?.originatedDate || formatDateStr(new Date().toISOString())}
                               </td>
                               <td className="p-2.5 text-center font-mono">
-                                {sigDetails?.reviewer?.date || sigDetails?.reviewerDate || ""}
+                                {sigDetails?.reviewerDate || ""}
                               </td>
                               <td className="p-2.5 text-center font-mono">
-                                {sigDetails?.approver?.date || sigDetails?.approverDate || ""}
-                              </td>
-                            </tr>
-                            <tr className="divide-x divide-border">
-                              <td className="p-2.5 font-bold text-center bg-muted/10">Signature:</td>
-                              <td className="p-2.5 text-center font-medium">
-                                {sigDetails?.originator?.status || (sigDetails?.originatedName ? "Signed" : "-")}
-                              </td>
-                              <td className="p-2.5 text-center font-medium">
-                                {sigDetails?.reviewer?.status || (sigDetails?.reviewerName ? "Reviewed" : "-")}
-                              </td>
-                              <td className="p-2.5 text-center font-medium">
-                                {sigDetails?.approver?.status || (sigDetails?.approverName ? "Approved" : "-")}
+                                {sigDetails?.approverDate || ""}
                               </td>
                             </tr>
                           </tbody>
@@ -2407,6 +2127,7 @@ function CoilCondensateIntelligenceDrawer({
 
   // Fan ESP state for interactive trap seal calculator
   const [fanEsp, setFanEsp] = useState<number>(ip ? 1.5 : 375); // in. w.g. or Pa
+  const [showIpcTable, setShowIpcTable] = useState(false);
 
   const totalCoils = calculatedRows.length;
   const flaggedCoils = calculatedRows.filter(r => r.isEffectivelyFlagged);
@@ -2532,6 +2253,60 @@ function CoilCondensateIntelligenceDrawer({
             <span className="text-[10.5px] text-muted-foreground mt-0.5 leading-snug">
               Adequate for gravity drain sloped at minimum 1.0% (1/8 in/ft) to floor drain or waste receptor.
             </span>
+
+            <button
+              type="button"
+              onClick={() => setShowIpcTable((v) => !v)}
+              className="flex items-center justify-between text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline pt-1.5 border-t border-emerald-500/20 cursor-pointer"
+            >
+              <span>{showIpcTable ? "Hide IPC Section 307 Table" : "View IPC Section 307 Table"}</span>
+              {showIpcTable ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            </button>
+
+            {showIpcTable && (
+              <div className="overflow-x-auto border border-emerald-500/20 rounded-xl mt-1 bg-card/60">
+                <table className="w-full text-left text-[11px] border-collapse">
+                  <thead>
+                    <tr className="bg-surface-2/80 text-muted-foreground font-semibold border-b border-border">
+                      <th className="py-1.5 px-2">Size</th>
+                      <th className="py-1.5 px-2 text-right">Max ({uCond})</th>
+                      <th className="py-1.5 px-1.5 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60 font-mono text-[10.5px]">
+                    {IPC_PIPE_TABLE.map((pipe) => {
+                      const isSelectedPipe = (ip ? pipe.sizeInch : pipe.dn) === (ip ? recommendedPipe.sizeInch : recommendedPipe.metricDn);
+                      return (
+                        <tr
+                          key={pipe.sizeInch}
+                          className={`transition-colors ${
+                            isSelectedPipe
+                              ? "bg-emerald-500/20 font-bold text-foreground"
+                              : "hover:bg-surface-2/50 text-muted-foreground"
+                          }`}
+                        >
+                          <td className="py-1.5 px-2">
+                            <span className="font-sans font-semibold text-foreground">{pipe.sizeInch}</span> ({pipe.dn})
+                          </td>
+                          <td className="py-1.5 px-2 text-right">
+                            {ip ? `${pipe.maxGpm.toFixed(2)}` : `${pipe.maxLps.toFixed(4)}`}
+                          </td>
+                          <td className="py-1.5 px-1.5 text-center">
+                            {isSelectedPipe ? (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                                <Check className="size-2.5" /> Rec
+                              </span>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
 

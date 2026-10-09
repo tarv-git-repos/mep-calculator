@@ -33,7 +33,7 @@ import { dirtyStore } from "@/lib/dirty-store";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
-import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+import { notifyCommentAssigned, dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
 import { formatDateStr, getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
 import jsPDF from "jspdf";
@@ -211,25 +211,179 @@ export function FreshAirCoolingLoadPage() {
     return () => window.removeEventListener("mep-trigger-save", handleTriggerSave);
   }, [handleSaveCalculation]);
 
-  // Load comments
+  // Load comments with full cross-module & notification queues aggregation
   const loadComments = useCallback(() => {
-    const pId = activeProjectId || project?.id || "default";
-    const storageKey = `mep_calc_comments_${pId}_/fresh-air-cooling-load`;
     try {
-      const stored = localStorage.getItem(storageKey) || localStorage.getItem(`mep_calc_comments_${pId}_fresh-air-cooling-load`);
-      if (stored) {
-        setCommentsList(JSON.parse(stored));
-      } else {
-        setCommentsList([]);
-      }
-    } catch {
-      setCommentsList([]);
-    }
-  }, [activeProjectId, project?.id]);
+      const pId = activeProjectId || project?.id || "default";
+      const map = new Map<string, any>();
 
+      const calcKeys = [
+        `mep_calc_comments_${pId}_/fresh-air-cooling-load`,
+        `mep_calc_comments_${pId}_fresh-air-cooling-load`,
+        `mep_calc_comments_default_/fresh-air-cooling-load`,
+        `mep_calc_comments_default_fresh-air-cooling-load`,
+      ];
+
+      calcKeys.forEach((key) => {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((c: any) => {
+                if (c && (c.id || c.text)) {
+                  const id = c.id || `${c.timestamp}_${c.text}`;
+                  map.set(id, c);
+                }
+              });
+            }
+          }
+        } catch {}
+      });
+
+      const uId = userData?.id || profile?.id || (project as any)?.userId;
+      const uName = currentUserName || userData?.name || profile?.name;
+      const notifKeys = [
+        "mep_persistent_user_notifs",
+        "mep_calc_coord_notifs",
+        ...(uId ? [`mep_persistent_user_notifs_${uId}`] : []),
+        ...(uName ? [`mep_persistent_user_notifs_${uName}`] : []),
+      ];
+
+      notifKeys.forEach((key) => {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((n: any) => {
+                if (
+                  n &&
+                  (n.calculatorPath === "/fresh-air-cooling-load" ||
+                    n.calculatorPath === "fresh-air-cooling-load" ||
+                    n.calculatorTitle?.toLowerCase().includes("fresh air") ||
+                    n.targetType?.toLowerCase().includes("fresh air"))
+                ) {
+                  const id = n.id || `${n.timestamp}_${n.text}`;
+                  if (!map.has(id)) {
+                    map.set(id, n);
+                  }
+                }
+              });
+            }
+          }
+        } catch {}
+      });
+
+      setCommentsList(Array.from(map.values()));
+    } catch (e) {
+      console.error("Failed to load fresh air comments:", e);
+    }
+  }, [activeProjectId, project?.id, userData?.id, profile?.id, currentUserName]);
+
+  // Real-time synchronization of comments across tabs/windows and notification center
   useEffect(() => {
     loadComments();
+    const handleCommentUpdate = () => loadComments();
+
+    window.addEventListener("mep_notification_received", handleCommentUpdate);
+    window.addEventListener("mep-notification-added", handleCommentUpdate);
+    window.addEventListener("mep-comment-updated", handleCommentUpdate);
+    window.addEventListener("mep_storage_changed", handleCommentUpdate);
+    window.addEventListener("storage", handleCommentUpdate);
+
+    return () => {
+      window.removeEventListener("mep_notification_received", handleCommentUpdate);
+      window.removeEventListener("mep-notification-added", handleCommentUpdate);
+      window.removeEventListener("mep-comment-updated", handleCommentUpdate);
+      window.removeEventListener("mep_storage_changed", handleCommentUpdate);
+      window.removeEventListener("storage", handleCommentUpdate);
+    };
   }, [loadComments]);
+
+  // Deep-link from comment notifications, URL query params and custom events
+  const highlightTimeoutRef = useRef<any>(null);
+  useEffect(() => {
+    const handleScrollToTarget = (e: any) => {
+      const targetId = e?.detail?.id || e?.detail?.targetItemId || e?.detail?.targetId;
+      const targetName = e?.detail?.name || e?.detail?.fieldName || e?.detail?.targetName;
+      if (!targetId && !targetName) return;
+
+      const cleanRaw = String(targetId || "").toLowerCase().trim();
+      const cleanId = cleanRaw.replace(/^(field-|card-|res-|metric-)/, "");
+      const cleanName = String(targetName || "").toLowerCase().trim();
+
+      setActiveTab("sizing");
+      setHighlightedTargetId(targetId || cleanRaw || cleanId || targetName || "");
+
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = setTimeout(() => {
+        setHighlightedTargetId(null);
+        highlightTimeoutRef.current = null;
+      }, 4500);
+
+      requestAnimationFrame(() => {
+        let el = document.getElementById(targetId || "") ||
+          document.getElementById(`field-${cleanRaw}`) ||
+          document.getElementById(`card-${cleanRaw}`) ||
+          document.getElementById(`field-card-${cleanRaw}`) ||
+          document.getElementById(`field-card-${cleanId}`) ||
+          document.getElementById(`card-${cleanId}`) ||
+          document.getElementById(cleanId) ||
+          document.getElementById(cleanRaw) ||
+          document.querySelector(`[data-comment-target="${cleanRaw}"]`) ||
+          document.querySelector(`[data-comment-target="${targetId}"]`) ||
+          document.querySelector(`[data-field-id="${cleanRaw}"]`) ||
+          document.querySelector(`[data-field-id="${cleanId}"]`);
+
+        if (!el && cleanName) {
+          const allFields = document.querySelectorAll("[data-comment-target]");
+          for (let i = 0; i < allFields.length; i++) {
+            const targetAttr = allFields[i].getAttribute("data-comment-target")?.toLowerCase() || "";
+            if (targetAttr.includes(cleanName) || cleanName.includes(targetAttr)) {
+              el = allFields[i] as HTMLElement;
+              break;
+            }
+          }
+        }
+
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
+    };
+
+    window.addEventListener("mep-scroll-to-item", handleScrollToTarget);
+    window.addEventListener("mep-data-grid-scroll", handleScrollToTarget);
+    window.addEventListener("mep_scroll_to_comment_target", handleScrollToTarget);
+    window.addEventListener("mep-comment-notification-clicked", handleScrollToTarget);
+    window.addEventListener("mep-highlight-item", handleScrollToTarget);
+
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollToTarget);
+      window.removeEventListener("mep-data-grid-scroll", handleScrollToTarget);
+      window.removeEventListener("mep_scroll_to_comment_target", handleScrollToTarget);
+      window.removeEventListener("mep-comment-notification-clicked", handleScrollToTarget);
+      window.removeEventListener("mep-highlight-item", handleScrollToTarget);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, []);
+
+  // Listen to URL parameters on route change
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetId = urlParams.get("commentTargetId") || urlParams.get("targetId");
+    const targetName = urlParams.get("commentTargetName") || urlParams.get("targetName");
+
+    if (targetId || targetName) {
+      window.dispatchEvent(
+        new CustomEvent("mep-scroll-to-item", {
+          detail: { id: targetId, name: targetName },
+        })
+      );
+    }
+  }, []);
 
   const saveComments = (newComments: any[]) => {
     setCommentsList(newComments);
@@ -237,6 +391,9 @@ export function FreshAirCoolingLoadPage() {
     const storageKey = `mep_calc_comments_${pId}_/fresh-air-cooling-load`;
     try {
       localStorage.setItem(storageKey, JSON.stringify(newComments));
+      localStorage.setItem(`mep_calc_comments_${pId}_fresh-air-cooling-load`, JSON.stringify(newComments));
+      localStorage.setItem(`mep_calc_comments_default_/fresh-air-cooling-load`, JSON.stringify(newComments));
+      localStorage.setItem(`mep_calc_comments_default_fresh-air-cooling-load`, JSON.stringify(newComments));
     } catch (e) {
       console.error(e);
     }
@@ -248,25 +405,42 @@ export function FreshAirCoolingLoadPage() {
   };
 
   const isFieldHighlighted = (id: string, name?: string) => {
-    if (!highlightedTargetId) return false;
-    const cleanHigh = highlightedTargetId.toLowerCase().trim();
-    const cleanId = id.toLowerCase().trim();
+    if (!highlightedTargetId) return "";
+    const cleanHigh = highlightedTargetId.toLowerCase().trim().replace(/^(field-|card-)/, "");
+    const cleanId = id.toLowerCase().trim().replace(/^(field-|card-)/, "");
     const cleanName = (name || "").toLowerCase().trim();
-    return cleanHigh === cleanId || cleanHigh === cleanName || cleanId.includes(cleanHigh) || cleanName.includes(cleanHigh);
+    const cleanHighFull = highlightedTargetId.toLowerCase().trim();
+
+    const isMatch =
+      cleanHigh === cleanId ||
+      cleanHighFull === id.toLowerCase().trim() ||
+      (cleanName && (cleanHighFull === cleanName || cleanHigh === cleanName));
+
+    if (isMatch) {
+      return "ring-2 ring-sky-500 dark:ring-sky-400 bg-sky-50/60 dark:bg-sky-950/30 rounded-xl shadow-xs";
+    }
+    return "";
   };
 
   const renderCommentBadge = (id: string, name: string) => {
-    const itemComments = getMergedItemComments(id, name, commentsList.filter(c => c.targetId === id || c.targetName === name || c.spaceId === id || c.itemId === id), "/fresh-air-cooling-load", project?.id);
-    if (itemComments.length === 0) return null;
+    const itemComments = getMergedItemComments(
+      id,
+      name,
+      commentsList,
+      "/fresh-air-cooling-load",
+      activeProjectId || project?.id || "default"
+    );
+    if (!itemComments || itemComments.length === 0) return null;
     return (
       <button
         type="button"
         onClick={(e) => {
+          e.preventDefault();
           e.stopPropagation();
           handleOpenComment(id, name);
         }}
-        title={`${itemComments.length} comment(s)/task(s) on ${name}`}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 ml-2 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 dark:hover:bg-blue-900 transition cursor-pointer shadow-xs select-none border border-blue-300/60 dark:border-blue-700/60 shrink-0"
+        title={`${itemComments.length} comment(s)/task(s) on ${name}. Click to view & reply.`}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 ml-2 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 dark:hover:bg-blue-900 transition cursor-pointer shadow-xs select-none border border-blue-300/60 dark:border-blue-700/60 shrink-0 animate-in fade-in"
       >
         <MessageSquare className="size-3.5 fill-blue-500/25 text-blue-600 dark:text-blue-400" />
         <span className="text-[10px] font-extrabold">{itemComments.length}</span>
@@ -797,11 +971,19 @@ export function FreshAirCoolingLoadPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) matching pump sizing */}
                   <div className="lg:col-span-5 space-y-5">
-                    <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
-                      <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-                        <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                          📥 Sizing Parameters
-                        </span>
+                    <div 
+                      id="card-sizing-params"
+                      data-field-id="card-sizing-params"
+                      data-comment-target="card-sizing-params"
+                      className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4 space-y-3 transition-all duration-200 ${isFieldHighlighted("card-sizing-params", "Sizing Parameters")}`}
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800">
+                        <div className="flex items-center">
+                          <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                            📥 Sizing Parameters
+                          </span>
+                          {renderCommentBadge("card-sizing-params", "Sizing Parameters")}
+                        </div>
                       </div>
 
                       {/* ENTERING AIR PARAMS */}
@@ -811,9 +993,9 @@ export function FreshAirCoolingLoadPage() {
                             id="field-card-entering-air" 
                             data-field-id="card-entering-air" 
                             data-comment-target="card-entering-air"
-                            className={`p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("card-entering-air", "Entering Coil Air")}`}
+                            className={`p-2.5 rounded-xl border border-slate-100/80 dark:border-zinc-800/80 bg-slate-50/40 dark:bg-zinc-800/20 transition-all duration-200 ${isFieldHighlighted("card-entering-air", "Entering Coil Air")}`}
                           >
-                            <div className="flex items-center justify-between mb-2.5">
+                            <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center">
                                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                                   Entering Coil Air (OA)
@@ -905,9 +1087,9 @@ export function FreshAirCoolingLoadPage() {
                             id="field-card-leaving-air" 
                             data-field-id="card-leaving-air" 
                             data-comment-target="card-leaving-air"
-                            className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("card-leaving-air", "Leaving Coil Air")}`}
+                            className={`p-2.5 rounded-xl border border-slate-100/80 dark:border-zinc-800/80 bg-slate-50/40 dark:bg-zinc-800/20 transition-all duration-200 ${isFieldHighlighted("card-leaving-air", "Leaving Coil Air")}`}
                           >
-                            <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center">
                                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                                   Leaving Coil Air (Off-Coil / SA)
@@ -996,14 +1178,14 @@ export function FreshAirCoolingLoadPage() {
                             id="field-card-airflow" 
                             data-field-id="card-airflow" 
                             data-comment-target="card-airflow"
-                            className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("card-airflow", "Airflow & Safety")}`}
+                            className={`p-2.5 rounded-xl border border-slate-100/80 dark:border-zinc-800/80 bg-slate-50/40 dark:bg-zinc-800/20 transition-all duration-200 ${isFieldHighlighted("card-airflow", "Airflow & Safety Margin")}`}
                           >
-                            <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center">
                                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                                   Airflow &amp; Safety Margin
                                 </span>
-                                {renderCommentBadge("card-airflow", "Airflow & Safety Factor")}
+                                {renderCommentBadge("card-airflow", "Airflow & Safety Margin")}
                               </div>
                               <span className="text-[10px] text-slate-500 font-semibold">
                                 Mass Flow: <strong className="text-foreground font-mono">{calc.mDot.toFixed(2)} kg/s</strong>
@@ -1044,7 +1226,7 @@ export function FreshAirCoolingLoadPage() {
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
                           <ContextMenuItem
-                            onClick={() => handleOpenComment("card-airflow", "Airflow & Safety Factor")}
+                            onClick={() => handleOpenComment("card-airflow", "Airflow & Safety Margin")}
                             className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                           >
                             <MessageSquare className="size-3.5" />
@@ -1116,7 +1298,7 @@ export function FreshAirCoolingLoadPage() {
                           id="card-hero-results" 
                           data-field-id="card-hero-results" 
                           data-comment-target="card-hero-results"
-                          className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6 transition-colors ${isFieldHighlighted("card-hero-results", "Sizing Results Summary")}`}
+                          className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6 transition-all duration-300 ${isFieldHighlighted("card-hero-results", "Sizing Results Summary")}`}
                         >
                           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                             <div className="flex items-center">
@@ -1232,7 +1414,7 @@ export function FreshAirCoolingLoadPage() {
                           id="field-card-psychrometric-table"
                           data-field-id="card-psychrometric-table"
                           data-comment-target="card-psychrometric-table"
-                          className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-3 transition-colors ${isFieldHighlighted("card-psychrometric-table", "Psychrometric State Matrix")}`}
+                          className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-3 transition-all duration-300 ${isFieldHighlighted("card-psychrometric-table", "Psychrometric State Matrix")}`}
                         >
                           <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800">
                             <div className="flex items-center">
@@ -1564,16 +1746,38 @@ export function FreshAirCoolingLoadPage() {
         targetId={commentTargetItem?.id || ""}
         targetName={commentTargetItem?.name || ""}
         onSave={(c) => {
-          const tId = commentTargetItem?.id || c?.targetId;
-          const tName = commentTargetItem?.name || c?.targetName;
-          const newC = { ...c, targetId: tId, targetName: tName, spaceId: tId, spaceName: tName, itemId: tId, targetType: "Fresh Air Cooling Load" };
-          const u = [newC, ...commentsList];
+          const tId = commentTargetItem?.id || c?.targetId || "card-entering-air";
+          const tName = commentTargetItem?.name || c?.targetName || "Entering Coil Air";
+          const newC = {
+            ...c,
+            id: c.id || `fa-comment-${Date.now()}`,
+            targetId: tId,
+            targetName: tName,
+            spaceId: tId,
+            spaceName: tName,
+            itemId: tId,
+            targetType: "Fresh Air Cooling Load",
+            calculatorTitle: "Fresh Air Cooling Load",
+            calculatorPath: "/fresh-air-cooling-load",
+            projectId: activeProjectId || project?.id || "default",
+            projectName: projectInfo.projectName || project?.name || "Commercial Fresh Air Treatment Plant",
+            authorName: currentUserName || "Design Engineer",
+            authorId: userData?.id || profile?.id || "user-1",
+            timestamp: new Date().toISOString(),
+          };
+          const u = [newC, ...commentsList.filter((x) => x.id !== newC.id)];
           saveComments(u);
-          notifyCommentAssigned({ ...newC, url: `/fresh-air-cooling-load?targetId=${tId}&targetName=${encodeURIComponent(tName)}` });
+
+          dispatchGlobalCommentNotification(newC, {
+            project: project || { id: activeProjectId || "default", name: projectInfo.projectName },
+            currentUserName: currentUserName || "Design Engineer",
+            currentUserId: userData?.id || profile?.id || "user-1",
+          });
+
           setCommentModalOpen(false);
-          toast.success("Comment assigned.");
+          toast.success("Comment assigned successfully.");
         }}
-        currentUserId={userData?.id || "user-1"}
+        currentUserId={userData?.id || profile?.id || "user-1"}
         currentUserName={currentUserName}
       />
 

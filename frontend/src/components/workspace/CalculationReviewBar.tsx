@@ -249,31 +249,9 @@ export function CalculationReviewBar({
                    (currentFirst && mFirst && (currentFirst === mFirst || currentFirst.includes(mFirst) || mFirst.includes(currentFirst)));
           });
 
-          if (found) {
-            // Leaf node check: if nobody reports to them, they are strictly a submitter
-            const hasSubordinates = members.some((m: any) => {
-              const pIds = Array.isArray(m.parentIds) ? m.parentIds : (m.parentId ? [m.parentId] : []);
-              return pIds.includes(found.id);
-            });
-
-            if (found.approvalAuthority && found.approvalAuthority !== "NONE") {
+          if (found && found.approvalAuthority) {
               return found.approvalAuthority;
             }
-
-            if (!hasSubordinates) {
-              return "SUBMIT_TASK"; // Submitter role
-            }
-            
-            // Middle manager without explicit authority
-            const roleStr = String(found.role || found.designation || "").toUpperCase();
-            if (roleStr.includes("SR") || roleStr.includes("SENIOR") || roleStr.includes("REVIEW")) {
-                return "REVIEW";
-            }
-            if (roleStr.includes("COORDINATOR") || roleStr.includes("MANAGER") || roleStr.includes("ADMIN")) {
-                return "APPROVE_REJECT";
-            }
-            return "REVIEW"; // Default for middle managers
-          }
         }
       } catch (e) {}
     }
@@ -1434,3 +1412,4 @@ export function CalculationReviewBar({
     </div>
   );
 }
+

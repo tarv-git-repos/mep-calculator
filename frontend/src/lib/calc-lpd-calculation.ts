@@ -185,6 +185,7 @@ export const LPD_AUTHORITY_MAPPING: Record<string, number> = {
   "Workshop (Building Method)": 0.86,
   "Atrium - <20 ft in height (Space Method)": 0.32,
   "20 ft and 40 ft in height (Space Method)": 0.41,
+  ">=20 ft and <=40 ft in height (Space Method)": 0.41,
   ">40 ft in height (Space Method)": 0.51,
   "Audience Seating Area - Auditorium (Space Method)": 0.57,
   "Gymnasium (Space Method)": 0.23,
@@ -221,7 +222,9 @@ export const LPD_AUTHORITY_MAPPING: Record<string, number> = {
   "Lounge/Breakroom - Mother’s/wellness room (Space Method)": 0.68,
   "All other lounges/breakrooms (Space Method)": 0.55,
   "Office - Office 150 ft2 (Space Method)": 0.73,
+  "Office - Office <=150 ft2 (Space Method)": 0.73,
   "Office >150 and 300 ft2 (Space Method)": 0.66,
+  "Office >150 and <=300 ft2 (Space Method)": 0.66,
   "Offices >300 ft2 (Space Method)": 0.56,
   "Parking Garage - Daylight transition zone (Space Method)": 1.06,
   "All other parking and drive areas (Space Method)": 0.11,
@@ -540,7 +543,7 @@ export interface BimLpdGroupsSplit {
 
 export function convertBimSpacesToLpdGroups(
   spaces: BimSpaceForLpd[],
-  options?: { isExternal?: boolean }
+  options?: { isExternal?: boolean; unitSystem?: "si" | "ip" }
 ): LpdGroup[] {
   if (!spaces || spaces.length === 0) return [];
 
@@ -583,7 +586,7 @@ export function convertBimSpacesToLpdGroups(
       const text = `${nameLower} ${catLower}`;
       const isExt = options?.isExternal || isBimSpaceExternal(s);
 
-      let areaType = "Office >150 and 300 ft2 (Space Method)";
+      let areaType = "Office >150 and <=300 ft2 (Space Method)";
       let fixtureType = "LED Panel 600x600";
       let watts = "36";
       let qty = "4";
@@ -669,12 +672,12 @@ export function convertBimSpacesToLpdGroups(
       } else {
         // General Office sizing
         if (s.area <= 14) {
-          areaType = "Office - Office 150 ft2 (Space Method)";
+          areaType = "Office - Office <=150 ft2 (Space Method)";
           fixtureType = "LED Panel 600x600 36W";
           watts = "36";
           qty = Math.max(1, Math.round(s.area / 6)).toString();
         } else if (s.area <= 28) {
-          areaType = "Office >150 and 300 ft2 (Space Method)";
+          areaType = "Office >150 and <=300 ft2 (Space Method)";
           fixtureType = "LED Panel 600x600 36W";
           watts = "36";
           qty = Math.max(2, Math.round(s.area / 6)).toString();
@@ -694,13 +697,20 @@ export function convertBimSpacesToLpdGroups(
         }
       }
 
-      const baselineVal = DEFAULT_AUTHORITY_MAPPING_SQM[areaType] || (isExt ? 0.54 : 7.1);
+      const isIp = options?.unitSystem === "ip";
+      const baselineVal = isIp
+        ? (LPD_AUTHORITY_MAPPING[areaType] || (isExt ? 0.05 : 0.65))
+        : (DEFAULT_AUTHORITY_MAPPING_SQM[areaType] || (isExt ? 0.54 : 7.1));
+
+      const areaStr = s.area > 0
+        ? (isIp ? (s.area * 10.76391).toFixed(1) : s.area.toFixed(2))
+        : (isIp ? "250.0" : "25.00");
 
       return {
         id: `lpd-sp-${Date.now()}-${idx}`,
         name: s.name,
         areaType,
-        areaSqM: s.area > 0 ? s.area.toFixed(2) : "25.00",
+        areaSqM: areaStr,
         baselineLpd: baselineVal.toFixed(2),
         remarks: "",
         flagged: false,
@@ -729,7 +739,10 @@ export function convertBimSpacesToLpdGroups(
 /**
  * Splits BIM spaces into Internal and External groups according to building envelope logic
  */
-export function convertBimSpacesToLpdGroupsSplit(spaces: BimSpaceForLpd[]): BimLpdGroupsSplit {
+export function convertBimSpacesToLpdGroupsSplit(
+  spaces: BimSpaceForLpd[],
+  options?: { unitSystem?: "si" | "ip" }
+): BimLpdGroupsSplit {
   const internalSpaces: BimSpaceForLpd[] = [];
   const externalSpaces: BimSpaceForLpd[] = [];
 
@@ -741,8 +754,8 @@ export function convertBimSpacesToLpdGroupsSplit(spaces: BimSpaceForLpd[]): BimL
     }
   }
 
-  const internalGroups = convertBimSpacesToLpdGroups(internalSpaces, { isExternal: false });
-  const externalGroups = convertBimSpacesToLpdGroups(externalSpaces, { isExternal: true });
+  const internalGroups = convertBimSpacesToLpdGroups(internalSpaces, { isExternal: false, unitSystem: options?.unitSystem });
+  const externalGroups = convertBimSpacesToLpdGroups(externalSpaces, { isExternal: true, unitSystem: options?.unitSystem });
 
   const internalSpacesCount = internalGroups.reduce((acc, g) => acc + (g.spaces?.length || 0), 0);
   const externalSpacesCount = externalGroups.reduce((acc, g) => acc + (g.spaces?.length || 0), 0);

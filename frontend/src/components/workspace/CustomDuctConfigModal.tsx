@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   X, Check, SlidersHorizontal, Wind, Gauge,
-  RotateCcw, Building2, Store, Hotel, Utensils, Factory, Info
+  RotateCcw, Building2, Store, Hotel, Utensils, Factory, Info, ChevronsUpDown
 } from "lucide-react";
 import { DUCT_PRESETS, type DuctPresetKey } from "./DuctPresetSelect";
 import { toast } from "sonner";
@@ -330,17 +330,20 @@ export function CustomDuctConfigModal({
                   <span>Aspect Ratio (W:H)</span>
                   <span className="text-[10px] font-mono text-primary font-bold">{aspectRatio.toFixed(1)}:1</span>
                 </label>
-                <select
-                  value={aspectRatio}
-                  onChange={(e) => setAspectRatio(Number(e.target.value))}
-                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-primary text-foreground"
-                >
-                  <option value="1.0">1:1 - Square Duct</option>
-                  <option value="1.5">1.5:1 - Low Profile (Standard)</option>
-                  <option value="2.0">2:1 - Medium Aspect</option>
-                  <option value="3.0">3:1 - Flat / Wide Space</option>
-                  <option value="4.0">4:1 - Maximum Recommended</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={aspectRatio}
+                    onChange={(e) => setAspectRatio(Number(e.target.value))}
+                    className="appearance-none w-full bg-background border border-border rounded-lg px-3 pr-8 py-2 text-xs font-semibold outline-none focus:border-primary text-foreground cursor-pointer"
+                  >
+                    <option value="1.0">1:1 - Square Duct</option>
+                    <option value="1.5">1.5:1 - Low Profile (Standard)</option>
+                    <option value="2.0">2:1 - Medium Aspect</option>
+                    <option value="3.0">3:1 - Flat / Wide Space</option>
+                    <option value="4.0">4:1 - Maximum Recommended</option>
+                  </select>
+                  <ChevronsUpDown className="absolute right-2.5 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none opacity-55" />
+                </div>
               </div>
             ) : (
               <div className="space-y-1.5 p-3 rounded-xl border border-border/60 bg-surface-2/40 opacity-50">

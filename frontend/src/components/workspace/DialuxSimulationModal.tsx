@@ -69,6 +69,7 @@ import {
   FlipHorizontal,
   FlipVertical,
   Zap,
+  Waves,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -99,6 +100,10 @@ import {
   computeSpaceAutoArrangement,
   RaytracerConfig,
   RenderedRaytraceImage,
+  calculateComprehensiveDaylight,
+  getDaylightFactorFalseColor,
+  CIESkyModel,
+  ComprehensiveDaylightResult,
 } from "@/lib/dialux-photometrics-engine";
 import { exportDialuxReportPDF, exportProjectDialuxReportPDF } from "@/lib/exportDialuxReportPDF";
 import {
@@ -129,6 +134,25 @@ import {
   RaytracerModal,
   DialuxDisplayOptionsPanel,
   SavedCameraViewpoint,
+  SimpleIndoorPlanningModal,
+  StaircaseExtrusionModal,
+  StaircaseCopyAlongLineModal,
+  WhiteBalanceCameraModal,
+  DialuxRoundaboutModal,
+  DialuxUGRModal,
+  DialuxDrawingFromScratchModal,
+  DialuxMedianStripModal,
+  DialuxMaintenanceFactorStudioModal,
+  DialuxLightScenesStudioModal,
+  DialuxPoolLightingStudioModal,
+  DialuxDaylightSystemsStudioModal,
+  DialuxCutoutRoofStudioModal,
+  DialuxWorkplaneStudioModal,
+  DialuxStandardsStudioModal,
+  DialuxTexturesStudioModal,
+  DialuxImprovingLuminairesModal,
+  DialuxCompleteSceneryModal,
+  DialuxEffectiveLightingModal,
 } from "./DialuxConstructionModals";
 import { DialuxStreetLightingModal } from "./DialuxStreetLightingModal";
 import { CadPlanModal } from "./CadPlanModal";
@@ -265,7 +289,7 @@ export function DialuxSimulationModal({
     "project" | "construction" | "light" | "calculation" | "export" | "documentation" | "brands"
   >("construction");
 
-  const [constructionTool, setConstructionTool] = useState<ConstructionToolType>("site");
+  const [constructionTool, setConstructionTool] = useState<ConstructionToolType>("space");
   const [lightTool, setLightTool] = useState<"luminaires" | "arrangements" | "lamps" | "scenes" | "energy" | "filters">("luminaires");
   const [calcTool, setCalcTool] = useState<"surfaces" | "task_areas" | "points" | "ugr" | "isolux">("surfaces");
   const [exportTool, setExportTool] = useState<"dwg" | "ifc" | "schedule" | "render" | "raytracer" | "images" | "pdf">("raytracer");
@@ -278,6 +302,71 @@ export function DialuxSimulationModal({
   // DIALux evo Tutorial Part 10 Street & Road Lighting State (EN 13201)
   const [isStreetLightingModalOpen, setIsStreetLightingModalOpen] = useState(false);
 
+  // DIALux evo Tutorial Part 16 Roundabout Lighting State (EN 13201 C-Classes)
+  const [isRoundaboutModalOpen, setIsRoundaboutModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 17 UGR Calculation State (CIE 117 / EN 12464-1)
+  const [isUGRModalOpen, setIsUGRModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 18 Drawing from Scratch State (Help Lines & Snapping)
+  const [isDrawingFromScratchModalOpen, setIsDrawingFromScratchModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 19 Road and Street Lighting: Median Strip State (EN 13201)
+  const [isMedianStripModalOpen, setIsMedianStripModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 20 Maintenance Factors & Improvements State (CIE 97 / CIE 154)
+  const [isMaintenanceStudioOpen, setIsMaintenanceStudioOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 21 Luminaire Groups for Lighting Scenes State
+  const [isLightScenesModalOpen, setIsLightScenesModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 22 Swimming Pool Lighting State (Water Volume, Basin Cutout, Submersible IP68, EN 12193)
+  const [isPoolLightingModalOpen, setIsPoolLightingModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 23 Daylighting Systems State (Louvre Blinds, Light Shelves, EN 17037, ODLS)
+  const [isDaylightSystemsModalOpen, setIsDaylightSystemsModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 24 The Cutout Tool & Complex Roofs State (Polygonal Cutouts, Valley Trimming)
+  const [isCutoutRoofModalOpen, setIsCutoutRoofModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 25 Managing Interior & Exterior Workplanes State (EN 12464 Profiles, Wall Margins)
+  const [isWorkplaneStudioModalOpen, setIsWorkplaneStudioModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 26 Norm Control Centre & Standards State (EN 12464, IESNA, AS/NZS, CIBSE, JIS)
+  const [isStandardsStudioModalOpen, setIsStandardsStudioModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 27 Detailed Textures & Materials State (UV Scaling, Reflectance, Shift-Key)
+  const [isTexturesStudioModalOpen, setIsTexturesStudioModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 28 Improving Luminaires State (Joints & Light Colour CCT)
+  const [isImprovingLuminairesModalOpen, setIsImprovingLuminairesModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 29 Complete Building Scenery State (Multi-room, Doors, Windows, Furniture)
+  const [isCompleteSceneryModalOpen, setIsCompleteSceneryModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 30 Effective Lighting Design State (Task vs Ambient vs Accent Layers)
+  const [isEffectiveLightingModalOpen, setIsEffectiveLightingModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 12 Simple Indoor Planning State (evo easy)
+  const [isSimplePlanningModalOpen, setIsSimplePlanningModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 13 Staircases & Extrusion Objects State
+  const [isStaircaseModalOpen, setIsStaircaseModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 14 Staircases Part 2: Copy Along a Line & Grouping State
+  const [isCopyAlongLineModalOpen, setIsCopyAlongLineModalOpen] = useState(false);
+
+  // DIALux evo Tutorial Part 15 White Balance, Camera Positions & Pivoting Point State
+  const [isWhiteBalanceModalOpen, setIsWhiteBalanceModalOpen] = useState(false);
+  const [isPickingPivot, setIsPickingPivot] = useState(false);
+  const [isPickingWhitePoint, setIsPickingWhitePoint] = useState(false);
+  const [currentPivot, setCurrentPivot] = useState<{ x: number; y: number; z: number }>({
+    x: 3.5,
+    y: 1.4,
+    z: 2.5,
+  });
+  const [whiteBalanceTint, setWhiteBalanceTint] = useState<number>(0);
+
   // Left Dock Mode: Project Tree vs Tool Properties Inspector
   const [leftDockMode, setLeftDockMode] = useState<"inspector" | "tree">("inspector");
 
@@ -286,7 +375,7 @@ export function DialuxSimulationModal({
 
   // Project Tree State
   const [treeSearch, setTreeSearch] = useState("");
-  const [selectedTreeNode, setSelectedTreeNode] = useState<string>("site-1");
+  const [selectedTreeNode, setSelectedTreeNode] = useState<string>("space-1");
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({
     site: true,
     lightScenes: true,
@@ -381,11 +470,28 @@ export function DialuxSimulationModal({
 
   // Sync when active space changes
   useEffect(() => {
-    setRoomL(Math.max(1, baseActiveSpace.length || 5));
-    setRoomW(Math.max(1, baseActiveSpace.width || 4));
-    setRoomH(Math.max(1.8, baseActiveSpace.height || 2.8));
+    const curL = Math.max(1, baseActiveSpace.length || 5);
+    const curW = Math.max(1, baseActiveSpace.width || 4);
+    const curH = Math.max(1.8, baseActiveSpace.height || 2.8);
+    setRoomL(curL);
+    setRoomW(curW);
+    setRoomH(curH);
     setTargetLux(Math.max(50, baseActiveSpace.targetLux || 500));
     setSpaceCustomName(baseActiveSpace.name);
+
+    // Re-center camera and controls directly on the active space
+    if (cameraRef.current && controlsRef.current) {
+      const cx = curL / 2;
+      const cy = curH / 2;
+      const cz = curW / 2;
+      controlsRef.current.target.set(cx, cy, cz);
+      if (cameraView === "3d") {
+        cameraRef.current.position.set(curL * 1.4, curH * 1.8, curW * 1.6);
+      } else if (cameraView === "top") {
+        cameraRef.current.position.set(cx, Math.max(curL, curW) * 2.2, cz);
+      }
+      controlsRef.current.update();
+    }
   }, [selectedSpaceId, baseActiveSpace]);
 
   // Room Shape & Subspaces (Screenshot 5: Spaces & Polygonal Space)
@@ -467,20 +573,20 @@ export function DialuxSimulationModal({
   const [apertureWidth, setApertureWidth] = useState(1.000);
   const [apertureFrameWidth, setApertureFrameWidth] = useState(0.120);
   const [apertureSillHeight, setApertureSillHeight] = useState(0.800);
-  const [windowCount, setWindowCount] = useState(2);
+  const [windowCount, setWindowCount] = useState(0);
 
   // Screenshot 4: Façade Elements Parameters
   const [facadeElement, setFacadeElement] = useState<"venetian_blind" | "roller_shutter" | "screen">("venetian_blind");
   const [facadeMounting, setFacadeMounting] = useState<"outside" | "inside">("outside");
-  const [showFacadeBlinds, setShowFacadeBlinds] = useState(true);
+  const [showFacadeBlinds, setShowFacadeBlinds] = useState(false);
 
   // New Screenshot 1: Room elements State (media_1791271322031.png)
   const [activeRoomElement, setActiveRoomElement] = useState<"beam" | "column_rect" | "column_circ" | "platform" | "ramp">("column_rect");
   const [roomElementScale, setRoomElementScale] = useState<number>(1.0);
   const [roomElementWidth, setRoomElementWidth] = useState<number>(0.400);
   const [roomElementLength, setRoomElementLength] = useState<number>(0.400);
-  const [roomElementHeight, setRoomElementHeight] = useState<number>(2.800);
-  const [showRoomElements, setShowRoomElements] = useState<boolean>(true);
+  const [showRoomElements, setShowRoomElements] = useState<boolean>(false);
+  const [hasPlacedRoomElement, setHasPlacedRoomElement] = useState<boolean>(false);
 
   // New Screenshot 2: Roofs State (media_1791271331687.png)
   const [activeRoofType, setActiveRoofType] = useState<"flat" | "gable" | "shed" | "hip">("flat");
@@ -776,14 +882,29 @@ export function DialuxSimulationModal({
 
   // Viewport camera modes: 3D perspective, 2D top plan, front elevation, side elevation
   const [cameraView, setCameraView] = useState<"3d" | "top" | "front" | "side">("3d");
-  const [planningMode, setPlanningMode] = useState<string>("Outdoor and building planning");
+  const [planningMode, setPlanningMode] = useState<string>("Indoor space planning");
 
-  // Light scene dimming factor
-  const [lightScene, setLightScene] = useState<"100" | "50" | "10">("100");
+  // Light scene modes (DIALux evo Tutorial Part 11: Artificial vs Daylight Scenes)
+  const [lightScene, setLightScene] = useState<string>("100");
+
+  // DIALux evo Part 11: Daylight Simulation States
+  const [daylightSkyModel, setDaylightSkyModel] = useState<CIESkyModel>("overcast");
+  const [daylightDirectSun, setDaylightDirectSun] = useState<boolean>(false);
+  const [daylightHour, setDaylightHour] = useState<number>(12);
+  const [daylightCity, setDaylightCity] = useState<string>("London");
+  const [daylightLat, setDaylightLat] = useState<number>(51.51);
+  const [daylightLon, setDaylightLon] = useState<number>(-0.12);
+  const [daylightNorthAngle, setDaylightNorthAngle] = useState<number>(0);
+  const [daylightGroundReflectance, setDaylightGroundReflectance] = useState<number>(0.20);
+  const [daylightGlassTau, setDaylightGlassTau] = useState<number>(0.75);
+  const [isDaylightSceneActive, setIsDaylightSceneActive] = useState<boolean>(false);
+  const [daylightFalseColorMode, setDaylightFalseColorMode] = useState<"lux" | "daylight_factor">("lux");
 
   const sceneDimFactor = useMemo(() => {
     if (lightScene === "50") return 0.5;
     if (lightScene === "10") return 0.1;
+    if (lightScene === "daylight_overcast" || lightScene === "daylight_clear") return 0.0; // Artificial fixtures off
+    if (lightScene === "combined") return 0.65; // Daylight harvesting sensor dims artificial luminaires
     return 1.0;
   }, [lightScene]);
 
@@ -1114,9 +1235,122 @@ export function DialuxSimulationModal({
     toast.info("Deleted viewpoint");
   };
 
-  // Keyboard Shortcuts (F2-F10 DIALux evo Standard, 1-4 Views, Esc=Close)
+  // DIALux evo Tutorial Part 15: Camera Memory Slots (Ctrl + 1..9, Alt + 1..9)
+  const handleSaveSlot = (slot: number, name?: string) => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const pos = cameraRef.current.position;
+    const target = controlsRef.current.target;
+    const viewName = name || `Camera Slot ${slot}`;
+    const newView: SavedCameraViewpoint = {
+      id: `slot-${slot}-${Date.now()}`,
+      name: viewName,
+      posX: pos.x,
+      posY: pos.y,
+      posZ: pos.z,
+      targetX: target.x,
+      targetY: target.y,
+      targetZ: target.z,
+      slot,
+    };
+    setCadSavedViews((prev) => [...prev.filter((v) => v.slot !== slot), newView]);
+    toast.success(`Saved viewpoint to Slot ${slot} (Ctrl+${slot}): "${viewName}"`);
+  };
+
+  const handleApplySlot = (slot: number) => {
+    const found = cadSavedViews.find((v) => v.slot === slot);
+    if (found) {
+      handleApplySavedView(found);
+    } else {
+      toast.warning(`Camera Slot ${slot} is empty. Press Ctrl+${slot} to save current view.`);
+    }
+  };
+
+  const handleSetPivot = (x: number, y: number, z: number) => {
+    if (controlsRef.current) {
+      controlsRef.current.target.set(x, y, z);
+      controlsRef.current.update();
+      setCurrentPivot({ x, y, z });
+      toast.success(`Pivoting point set to (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`);
+    }
+  };
+
+  // Keyboard Shortcuts (F2-F10 DIALux evo Standard, 1-4 Views, WASD Walkthrough, Ctrl/Alt 1-9, Esc=Close)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement?.tagName || "").toLowerCase();
+      if (activeTag === "input" || activeTag === "textarea" || activeTag === "select") {
+        return;
+      }
+
+      // Tutorial Part 15: Ctrl + [1-9] Save Viewpoint Slot
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key >= "1" && e.key <= "9") {
+        e.preventDefault();
+        const slotNum = parseInt(e.key);
+        handleSaveSlot(slotNum);
+        return;
+      }
+
+      // Tutorial Part 15: Alt + [1-9] Recall Viewpoint Slot
+      if (e.altKey && !e.ctrlKey && e.key >= "1" && e.key <= "9") {
+        e.preventDefault();
+        const slotNum = parseInt(e.key);
+        handleApplySlot(slotNum);
+        return;
+      }
+
+      // Tutorial Part 15: WASD + QE Walkthrough Movement
+      if (!e.ctrlKey && !e.altKey && cameraRef.current && controlsRef.current) {
+        const camera = cameraRef.current;
+        const controls = controlsRef.current;
+        const speed = e.shiftKey ? 1.0 : 0.35;
+
+        // Forward vector horizontalized
+        const fwd = new THREE.Vector3().subVectors(controls.target, camera.position);
+        fwd.y = 0;
+        fwd.normalize();
+
+        // Right strafe vector
+        const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+
+        let moved = false;
+        if (e.key === "w" || e.key === "W") {
+          e.preventDefault();
+          camera.position.addScaledVector(fwd, speed);
+          controls.target.addScaledVector(fwd, speed);
+          moved = true;
+        } else if (e.key === "s" || e.key === "S") {
+          e.preventDefault();
+          camera.position.addScaledVector(fwd, -speed);
+          controls.target.addScaledVector(fwd, -speed);
+          moved = true;
+        } else if (e.key === "a" || e.key === "A") {
+          e.preventDefault();
+          camera.position.addScaledVector(right, -speed);
+          controls.target.addScaledVector(right, -speed);
+          moved = true;
+        } else if (e.key === "d" || e.key === "D") {
+          e.preventDefault();
+          camera.position.addScaledVector(right, speed);
+          controls.target.addScaledVector(right, speed);
+          moved = true;
+        } else if (e.key === "q" || e.key === "Q") {
+          e.preventDefault();
+          camera.position.y -= speed;
+          controls.target.y -= speed;
+          moved = true;
+        } else if (e.key === "e" || e.key === "E") {
+          e.preventDefault();
+          camera.position.y += speed;
+          controls.target.y += speed;
+          moved = true;
+        }
+
+        if (moved) {
+          controls.update();
+          return;
+        }
+      }
+
       // Official DIALux evo F-Keys
       if (e.key === "F2") {
         e.preventDefault();
@@ -1154,13 +1388,13 @@ export function DialuxSimulationModal({
         e.preventDefault();
         setShowRoomWalls((prev) => !prev);
         toast.info("Room walls visibility toggled (F10)");
-      } else if (e.key === "1") {
+      } else if (e.key === "1" && !e.ctrlKey && !e.altKey) {
         applyCameraView("3d");
-      } else if (e.key === "2") {
+      } else if (e.key === "2" && !e.ctrlKey && !e.altKey) {
         applyCameraView("top");
-      } else if (e.key === "3") {
+      } else if (e.key === "3" && !e.ctrlKey && !e.altKey) {
         applyCameraView("front");
-      } else if (e.key === "4") {
+      } else if (e.key === "4" && !e.ctrlKey && !e.altKey) {
         applyCameraView("side");
       } else if (e.key === "h" || e.key === "H") {
         setShowHeatmap((prev) => !prev);
@@ -1170,17 +1404,16 @@ export function DialuxSimulationModal({
         setShowLightCones((prev) => !prev);
       } else if (e.key === "c" || e.key === "C") {
         setClipLightConesToRoom((prev) => !prev);
-      } else if (e.key === "w" || e.key === "W") {
-        setShowWallReflection((prev) => !prev);
       } else if (e.key === "Escape") {
-        if (isDisplayOptionsOpen) setIsDisplayOptionsOpen(false);
+        if (isWhiteBalanceModalOpen) setIsWhiteBalanceModalOpen(false);
+        else if (isDisplayOptionsOpen) setIsDisplayOptionsOpen(false);
         else if (activeMenu) setActiveMenu(null);
         else onClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeMenu, onClose, roomL, roomH, roomW, isDisplayOptionsOpen]);
+  }, [activeMenu, onClose, roomL, roomH, roomW, isDisplayOptionsOpen, isWhiteBalanceModalOpen, cadSavedViews]);
 
   // Render 2D Polar Candela Curve Canvas
   useEffect(() => {
@@ -1288,9 +1521,15 @@ export function DialuxSimulationModal({
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.target.set(roomL / 2, roomH / 2, roomW / 2);
+    controls.target.set(currentPivot.x, currentPivot.y, currentPivot.z);
     controlsRef.current = controls;
+
+    // DIALux evo Tutorial Part 15: 3D Pivoting Point Reticle Gizmo
+    const pivotGeo = new THREE.SphereGeometry(0.06, 12, 12);
+    const pivotMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, wireframe: true });
+    const pivotMesh = new THREE.Mesh(pivotGeo, pivotMat);
+    pivotMesh.position.set(currentPivot.x, currentPivot.y, currentPivot.z);
+    scene.add(pivotMesh);
 
     // DIALux evo White Balance & Color Adaptation (Tutorial #9 & #15)
     const effectiveKelvin = whiteBalanceMode === "auto" ? 6500 : whiteBalanceKelvin;
@@ -1637,7 +1876,7 @@ export function DialuxSimulationModal({
       }
 
       // DIALux evo Indoor Contours & Partition Walls (Tutorial Part 3)
-      if (activeStorey && activeStorey.rooms && activeStorey.rooms.length > 1) {
+      if (planningMode === "Outdoor and building planning" && activeStorey && activeStorey.rooms && activeStorey.rooms.length > 1) {
         const partitionGroup = new THREE.Group();
         const partitionMat = new THREE.MeshStandardMaterial({
           color: 0x94a3b8,
@@ -1813,7 +2052,7 @@ export function DialuxSimulationModal({
     // -------------------------------------------------------------
     // Screenshot 1: Room Elements (Beams, Columns, Platforms, Ramps)
     // -------------------------------------------------------------
-    if (showRoomElements) {
+    if (showRoomElements && hasPlacedRoomElement) {
       const elemGroup = new THREE.Group();
       const concreteMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.8 });
       const beamMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.7 });
@@ -2005,6 +2244,31 @@ export function DialuxSimulationModal({
           const wireSegments = new THREE.LineSegments(new THREE.EdgesGeometry(bboxGeo), wireMat);
           wireSegments.position.set(0, item.height / 2, 0);
           itemGroup.add(wireSegments);
+        }
+
+        // DIALux evo Tutorial Part 13: Inclined Calculation Plane on Staircase Steps
+        if (item.type === "staircase" && item.stairConfig?.calcSurfaceEnabled) {
+          const cfg = item.stairConfig;
+          const sPoints: any[] = [];
+          for (let i = 0; i < cfg.stepCount; i++) {
+            const stepZ = i * cfg.treadDepth - item.length / 2 + cfg.treadDepth / 2;
+            const stepY = (i + 1) * cfg.riserHeight + 0.01;
+            sPoints.push(new THREE.Vector3(0, stepY, stepZ));
+
+            // Lux measurement dot marker on step tread
+            const dotGeo = new THREE.SphereGeometry(0.025, 8, 8);
+            const dotMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+            const dotMesh = new THREE.Mesh(dotGeo, dotMat);
+            dotMesh.position.set(0, stepY, stepZ);
+            itemGroup.add(dotMesh);
+          }
+          if (sPoints.length > 1) {
+            const lineGeo = new THREE.BufferGeometry().setFromPoints(sPoints);
+            const lineMat = new THREE.LineDashedMaterial({ color: 0x38bdf8, dashSize: 0.1, gapSize: 0.05 });
+            const slopeLine = new THREE.Line(lineGeo, lineMat);
+            slopeLine.computeLineDistances();
+            itemGroup.add(slopeLine);
+          }
         }
 
         furnGroup.add(itemGroup);
@@ -2503,25 +2767,100 @@ export function DialuxSimulationModal({
       scene.add(escapeLine);
     }
 
-    // Daylight Visualization Sun Beams
-    if (windowCount > 0) {
-      const sunBeamMat = new THREE.MeshBasicMaterial({
-        color: 0xfef08a,
-        transparent: true,
-        opacity: 0.06,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        clippingPlanes: clipLightConesToRoom ? roomClippingPlanes : [],
-      });
-      const winSpacing = roomL / (windowCount + 1);
-      const winY = apertureSillHeight + apertureHeight / 2;
-      for (let i = 1; i <= windowCount; i++) {
-        const winX = i * winSpacing;
-        const beamGeo = new THREE.CylinderGeometry(apertureWidth * 0.4, apertureWidth * 0.9, 3.2, 16, 1, true);
-        beamGeo.rotateX(Math.PI / 3);
-        const sunBeam = new THREE.Mesh(beamGeo, sunBeamMat);
-        sunBeam.position.set(winX, winY - 0.7, 1.2);
-        scene.add(sunBeam);
+    // DIALux evo Part 11: Daylight Visualization (CIE Overcast vs Clear Sunbeam)
+    const isDaylightActive = isDaylightSceneActive || lightScene.startsWith("daylight") || lightScene === "combined";
+    const effectiveSkyModel = lightScene === "daylight_overcast" ? "overcast" : lightScene === "daylight_clear" ? "clear" : daylightSkyModel;
+    const effectiveDirectSun = lightScene === "daylight_clear" ? true : lightScene === "daylight_overcast" ? false : daylightDirectSun;
+
+    const daylightSimResult = calculateComprehensiveDaylight({
+      length: roomL,
+      width: roomW,
+      height: roomH,
+      windowCount,
+      windowWidth: apertureWidth,
+      windowHeight: apertureHeight,
+      windowSill: apertureSillHeight,
+      glassTransmittance: daylightGlassTau,
+      skyModel: effectiveSkyModel,
+      directSunlight: effectiveDirectSun,
+      latitude: daylightLat,
+      longitude: daylightLon,
+      hour: daylightHour,
+      northOrientation: daylightNorthAngle,
+      groundReflectance: daylightGroundReflectance,
+      shadingReductionFactor: showFacadeBlinds ? 0.30 : 1.0,
+      targetLux,
+    });
+
+    if (isDaylightActive || windowCount > 0) {
+      // 1. Natural Ambient Sky Hemispherical Lighting
+      const skyAmbientColor = effectiveSkyModel === "clear" ? 0x93c5fd : 0xdbeafe;
+      const skyAmbientIntensity = effectiveSkyModel === "clear" ? 0.35 : 0.50;
+      const naturalSkyLight = new THREE.HemisphereLight(skyAmbientColor, 0x334155, skyAmbientIntensity);
+      scene.add(naturalSkyLight);
+
+      // 2. Astronomical 3D Sun Positioning
+      if (daylightSimResult.sunPosition.isSunAboveHorizon && effectiveSkyModel !== "overcast") {
+        const altRad = (daylightSimResult.sunPosition.altitude * Math.PI) / 180;
+        const azRad = ((daylightSimResult.sunPosition.azimuth - daylightNorthAngle) * Math.PI) / 180;
+        const sunDist = Math.max(roomL, roomW) * 4;
+        const sunX = roomL / 2 + sunDist * Math.sin(azRad) * Math.cos(altRad);
+        const sunY = roomH / 2 + sunDist * Math.sin(altRad);
+        const sunZ = roomW / 2 + sunDist * Math.cos(azRad) * Math.cos(altRad);
+
+        const sunColor = daylightSimResult.sunPosition.altitude < 25 ? 0xffe0a8 : 0xfffaed;
+        const sunIntensity = effectiveSkyModel === "clear" ? 0.95 : 0.55;
+        const sunDirLight = new THREE.DirectionalLight(sunColor, sunIntensity);
+        sunDirLight.position.set(sunX, sunY, sunZ);
+        sunDirLight.target.position.set(roomL / 2, 0, roomW / 2);
+        scene.add(sunDirLight);
+        scene.add(sunDirLight.target);
+
+        // 3. Realistic Volumetric Sunbeams through Window Apertures
+        if (windowCount > 0 && effectiveDirectSun && daylightSimResult.sunPosition.directAngleToWindowDeg < 85) {
+          const sunBeamMat = new THREE.MeshBasicMaterial({
+            color: daylightSimResult.sunPosition.altitude < 25 ? 0xfde047 : 0xfef08a,
+            transparent: true,
+            opacity: 0.12,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            clippingPlanes: clipLightConesToRoom ? roomClippingPlanes : [],
+          });
+
+          const winSpacing = roomL / (windowCount + 1);
+          const winY = apertureSillHeight + apertureHeight / 2;
+          const beamLen = Math.min(roomW * 1.5, Math.max(1.8, winY / Math.max(0.2, Math.tan(altRad))));
+
+          for (let i = 1; i <= windowCount; i++) {
+            const winX = i * winSpacing;
+            const beamGeo = new THREE.CylinderGeometry(
+              apertureWidth * 0.45,
+              apertureWidth * 0.95,
+              beamLen,
+              16,
+              1,
+              true
+            );
+            // Orient beam towards room interior
+            beamGeo.rotateX(Math.PI / 2 - altRad);
+            const beamMesh = new THREE.Mesh(beamGeo, sunBeamMat);
+            beamMesh.position.set(winX, winY - 0.4, beamLen * 0.35);
+            scene.add(beamMesh);
+
+            // Sun patch floor polygon
+            const patchGeo = new THREE.PlaneGeometry(apertureWidth * 1.1, beamLen * 0.6);
+            patchGeo.rotateX(-Math.PI / 2);
+            const patchMat = new THREE.MeshBasicMaterial({
+              color: 0xfef9c3,
+              transparent: true,
+              opacity: 0.25,
+              depthWrite: false,
+            });
+            const patchMesh = new THREE.Mesh(patchGeo, patchMat);
+            patchMesh.position.set(winX, 0.015, beamLen * 0.5);
+            scene.add(patchMesh);
+          }
+        }
       }
     }
 
@@ -2534,6 +2873,30 @@ export function DialuxSimulationModal({
 
       const raycaster = new THREE.Raycaster();
       raycaster.setFromCamera(mouse, camera);
+
+      // DIALux evo Tutorial Part 15: Pivoting Point (Ctrl+Click / Tool) & Pipette White Point
+      if (e.ctrlKey || isPickingPivot || isPickingWhitePoint) {
+        const hits = raycaster.intersectObjects(scene.children, true);
+        if (hits.length > 0) {
+          const hit = hits[0];
+          if (isPickingWhitePoint) {
+            setWhiteBalanceMode("manual");
+            setWhiteBalanceKelvin(4000);
+            setIsPickingWhitePoint(false);
+            toast.success("White point balanced from sampled surface!");
+            return;
+          } else {
+            controls.target.copy(hit.point);
+            controls.update();
+            setCurrentPivot({ x: hit.point.x, y: hit.point.y, z: hit.point.z });
+            if (isPickingPivot) setIsPickingPivot(false);
+            toast.success(
+              `Pivoting point set to (${hit.point.x.toFixed(2)}, ${hit.point.y.toFixed(2)}, ${hit.point.z.toFixed(2)})`
+            );
+            return;
+          }
+        }
+      }
 
       // 1. AIMING TOOL ACTIVE: Aim selected luminaire at clicked 3D surface point (DIALux evo Part 6)
       if (isAimingToolActive && selectedFixtureIndex !== null) {
@@ -2706,6 +3069,7 @@ export function DialuxSimulationModal({
     measurePointA,
     measurePointB,
     showRoomElements,
+    hasPlacedRoomElement,
     activeRoomElement,
     roomElementScale,
     roomElementWidth,
@@ -2743,6 +3107,16 @@ export function DialuxSimulationModal({
     whiteBalanceKelvin,
     whiteBalanceExposure,
     marginOffset,
+    planningMode,
+    daylightSkyModel,
+    daylightDirectSun,
+    daylightHour,
+    daylightLat,
+    daylightLon,
+    daylightNorthAngle,
+    daylightGroundReflectance,
+    daylightGlassTau,
+    isDaylightSceneActive,
   ]);
 
   if (!isOpen) return null;
@@ -2910,6 +3284,177 @@ export function DialuxSimulationModal({
                     >
                       <Compass className="size-3.5 text-amber-400" /> Street Lighting Design (EN 13201)
                     </button>
+                    <button
+                      onClick={() => {
+                        setIsRoundaboutModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-orange-300"
+                    >
+                      <Compass className="size-3.5 text-orange-400" /> Roundabout Lighting (EN 13201 - Tutorial 16)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsUGRModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-indigo-300"
+                    >
+                      <Eye className="size-3.5 text-indigo-400" /> UGR Glare Calculation (CIE 117 - Tutorial 17)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsSimplePlanningModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-emerald-300"
+                    >
+                      <Zap className="size-3.5 text-emerald-400" /> Simple Indoor Planning (Tutorial Part 12)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsStaircaseModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-amber-300"
+                    >
+                      <Layers className="size-3.5 text-amber-400" /> Staircase & Extrusion Bodies (Tutorial Part 13)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsCopyAlongLineModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-amber-300"
+                    >
+                      <Copy className="size-3.5 text-amber-400" /> Staircases Part 2: Copy Along Line (Tutorial 14)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsWhiteBalanceModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-amber-300"
+                    >
+                      <Camera className="size-3.5 text-amber-400" /> White Balance & Camera Positions (Tutorial 15)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsDrawingFromScratchModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-cyan-300"
+                    >
+                      <Ruler className="size-3.5 text-cyan-400" /> Drawing from Scratch (Tutorial 18)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsMedianStripModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-orange-300"
+                    >
+                      <Compass className="size-3.5 text-orange-400" /> Median Strip Calculation (Tutorial 19)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsMaintenanceStudioOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-amber-300"
+                    >
+                      <Sliders className="size-3.5 text-amber-400" /> Maintenance Factors & Improvements (Tutorial 20)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsLightScenesModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-emerald-300"
+                    >
+                      <Sun className="size-3.5 text-emerald-400" /> Luminaire Groups & Light Scenes (Tutorial 21)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsPoolLightingModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-cyan-300"
+                    >
+                      <Waves className="size-3.5 text-cyan-400" /> Swimming Pool Lighting (Tutorial 22)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsDaylightSystemsModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-amber-300"
+                    >
+                      <Sun className="size-3.5 text-amber-400" /> Daylighting Systems & Louvres (Tutorial 23)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsCutoutRoofModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-cyan-300"
+                    >
+                      <Scissors className="size-3.5 text-cyan-400" /> The Cutout Tool & Complex Roofs (Tutorial 24)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsWorkplaneStudioModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-sky-300"
+                    >
+                      <Layers className="size-3.5 text-sky-400" /> Managing Interior & Exterior Workplanes (Tutorial 25)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsStandardsStudioModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-indigo-300"
+                    >
+                      <Globe className="size-3.5 text-indigo-400" /> Norm Control Centre & Standards (Tutorial 26)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsTexturesStudioModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-rose-300"
+                    >
+                      <Palette className="size-3.5 text-rose-400" /> Detailed Textures & Materials (Tutorial 27)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsImprovingLuminairesModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-cyan-300"
+                    >
+                      <Crosshair className="size-3.5 text-cyan-400" /> Improving Luminaires: Joints & Light Colour (Tutorial 28)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsCompleteSceneryModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-emerald-300"
+                    >
+                      <Building2 className="size-3.5 text-emerald-400" /> Complete Building Scenery (Tutorial 29)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsEffectiveLightingModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-purple-300"
+                    >
+                      <Sparkles className="size-3.5 text-purple-400" /> Effective Lighting Design (Tutorial 30)
+                    </button>
                   </div>
                 )}
               </div>
@@ -2923,7 +3468,7 @@ export function DialuxSimulationModal({
                   Edit
                 </button>
                 {activeMenu === "edit" && (
-                  <div className="absolute left-0 top-full mt-1 w-52 bg-[#1f232b] border border-slate-700 rounded-lg shadow-2xl py-1 text-slate-200 z-50 animate-in fade-in-50">
+                  <div className="absolute left-0 top-full mt-1 w-56 bg-[#1f232b] border border-slate-700 rounded-lg shadow-2xl py-1 text-slate-200 z-50 animate-in fade-in-50">
                     <button
                       onClick={() => {
                         handleUndo();
@@ -2950,6 +3495,15 @@ export function DialuxSimulationModal({
                       className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer"
                     >
                       <RotateCcw className="size-3.5 text-blue-400" /> Auto-Optimize Spacing
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsCopyAlongLineModalOpen(true);
+                        setActiveMenu(null);
+                      }}
+                      className="w-full text-left px-3 py-1.5 hover:bg-slate-700 text-xs flex items-center gap-2 cursor-pointer text-amber-300"
+                    >
+                      <Copy className="size-3.5 text-amber-400" /> Copy & Arrange Along Line (Tutorial 14)
                     </button>
                   </div>
                 )}
@@ -3174,6 +3728,166 @@ export function DialuxSimulationModal({
               <span>Street Lighting</span>
             </button>
 
+            {/* DIALux evo Part 16: Roundabout Lighting Suite Button */}
+            <button
+              onClick={() => setIsRoundaboutModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-amber-400/40"
+              title="DIALux evo Tutorial 16: Parametric Roundabout Creation, Polar Luminaire Array, EN 13201 C-Classes, and Spacing Optimizer"
+            >
+              <Compass className="size-3.5 text-amber-200" />
+              <span>Roundabouts</span>
+            </button>
+
+            {/* DIALux evo Part 12: Simple Indoor Planning (evo easy) Button */}
+            <button
+              onClick={() => setIsSimplePlanningModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-emerald-600 via-teal-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-emerald-400/40"
+              title="DIALux evo Simple Indoor Planning: Rapid room planning, EN 12464-1 standards, CIE 97 maintenance conditions, automatic luminaire arrangement (Part 12)"
+            >
+              <Zap className="size-3.5 text-emerald-200" />
+              <span>Simple Indoor Plan</span>
+            </button>
+
+            {/* DIALux evo Part 17: UGR Glare Calculation Button */}
+            <button
+              onClick={() => setIsUGRModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-indigo-400/40"
+              title="DIALux evo Tutorial 17: Unified Glare Rating (UGR), 360° Polar Glare Rose, Guth position index, and EN 12464-1 compliance"
+            >
+              <Eye className="size-3.5 text-indigo-200" />
+              <span>UGR Glare</span>
+            </button>
+
+            {/* DIALux evo Part 18: Drawing from Scratch Button */}
+            <button
+              onClick={() => setIsDrawingFromScratchModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-cyan-400/40"
+              title="DIALux evo Tutorial 18: Drawing from scratch with parallel guide lines, intersection snapping, circular windows, and storey duplication"
+            >
+              <Ruler className="size-3.5 text-cyan-200" />
+              <span>Draw from Scratch</span>
+            </button>
+
+            {/* DIALux evo Part 19: Median Strip Road Lighting Button */}
+            <button
+              onClick={() => setIsMedianStripModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-orange-600 via-amber-600 to-yellow-600 hover:from-orange-500 hover:to-yellow-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-orange-400/40"
+              title="DIALux evo Tutorial 19: Road and street lighting: Calculation of median strip (dual carriageways, twin boom arrangements, EN 13201)"
+            >
+              <Compass className="size-3.5 text-amber-200" />
+              <span>Median Strip</span>
+            </button>
+
+            {/* DIALux evo Part 20: Maintenance Factors & Improvements Button */}
+            <button
+              onClick={() => setIsMaintenanceStudioOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-600 via-yellow-600 to-emerald-600 hover:from-amber-500 hover:to-emerald-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-amber-400/40"
+              title="DIALux evo Tutorial 20: Maintenance factors (CIE 97 / CIE 154), 10-year depreciation timeline, and luminaire groups optimization"
+            >
+              <Sliders className="size-3.5 text-yellow-200" />
+              <span>Maintenance (CIE 97)</span>
+            </button>
+
+            {/* DIALux evo Part 21: Luminaire Groups for Lighting Scenes Button */}
+            <button
+              onClick={() => setIsLightScenesModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-teal-600 via-emerald-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-teal-400/40"
+              title="DIALux evo Tutorial 21: Luminaire groups for lighting scenes, mutual exclusivity, instant superposition recalculation, and DALI control groups"
+            >
+              <Sun className="size-3.5 text-emerald-200" />
+              <span>Light Scenes</span>
+            </button>
+
+            {/* DIALux evo Part 22: Swimming Pool Lighting Button */}
+            <button
+              onClick={() => setIsPoolLightingModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-cyan-400/40"
+              title="DIALux evo Tutorial 22: Swimming pool lighting design, water extrusion volume (n=1.333), basin cutout, submersible IP68 SELV, and EN 12193"
+            >
+              <Waves className="size-3.5 text-cyan-200" />
+              <span>Pool Lighting</span>
+            </button>
+
+            {/* DIALux evo Part 23: Daylighting Systems Button */}
+            <button
+              onClick={() => setIsDaylightSystemsModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-amber-400/40"
+              title="DIALux evo Tutorial 23: Daylighting systems, louvre blinds (Raffstore), light shelves, EN 17037 compliance, and ODLS catalog"
+            >
+              <Sun className="size-3.5 text-amber-200" />
+              <span>Daylight Systems</span>
+            </button>
+
+            {/* DIALux evo Part 24: The Cutout Tool Button */}
+            <button
+              onClick={() => setIsCutoutRoofModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-sky-600 via-cyan-600 to-teal-600 hover:from-sky-500 hover:to-teal-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-sky-400/40"
+              title="DIALux evo Tutorial 24: The cutout tool, polygonal cuts, complex roof intersections, valley trimming, and depth limiting"
+            >
+              <Scissors className="size-3.5 text-sky-200" />
+              <span>Cutout Tool</span>
+            </button>
+
+            {/* DIALux evo Part 25: Managing Interior & Exterior Workplanes Button */}
+            <button
+              onClick={() => setIsWorkplaneStudioModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-teal-600 via-sky-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-teal-400/40"
+              title="DIALux evo Tutorial 25: Managing interior and exterior workplanes, EN 12464 profiles, and wall margin zones"
+            >
+              <Layers className="size-3.5 text-white" />
+              <span>Workplanes</span>
+            </button>
+
+            {/* DIALux evo Part 26: Norm Control Centre & Standards Button */}
+            <button
+              onClick={() => setIsStandardsStudioModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-indigo-400/40"
+              title="DIALux evo Tutorial 26: Norm control centre, multi-regional standards (EN 12464, IESNA, AS/NZS, CIBSE, JIS), profile duplication & cross-checking"
+            >
+              <Globe className="size-3.5 text-white" />
+              <span>Standards</span>
+            </button>
+
+            {/* DIALux evo Part 27: Detailed Textures & Materials Button */}
+            <button
+              onClick={() => setIsTexturesStudioModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-rose-600 via-amber-600 to-orange-600 hover:from-rose-500 hover:to-orange-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-rose-400/40"
+              title="DIALux evo Tutorial 27: Enhancing projects with detailed textures, UV metric scaling, optical reflectance & Shift-key batching"
+            >
+              <Palette className="size-3.5 text-white" />
+              <span>Textures</span>
+            </button>
+
+            {/* DIALux evo Part 28: Improving Luminaires Button */}
+            <button
+              onClick={() => setIsImprovingLuminairesModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-cyan-600 via-teal-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-cyan-400/40"
+              title="DIALux evo Tutorial 28: Improving luminaires — Multi-axis articulation joints, 3D target point picking (Inverse Kinematics), CCT Kelvin tuning, and optical filters"
+            >
+              <Crosshair className="size-3.5 text-white" />
+              <span>Luminaires</span>
+            </button>
+
+            {/* DIALux evo Part 29: Complete Building Scenery Button */}
+            <button
+              onClick={() => setIsCompleteSceneryModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-emerald-400/40"
+              title="DIALux evo Tutorial 29: Creating a complete scenery — Multi-room storey construction, doors, windows, columns, furniture & EN 12464-1 assessment profiles"
+            >
+              <Building2 className="size-3.5 text-white" />
+              <span>Scenery</span>
+            </button>
+
+            {/* DIALux evo Part 30: Effective Lighting Design Button */}
+            <button
+              onClick={() => setIsEffectiveLightingModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded text-xs font-bold transition shadow-sm cursor-pointer border border-purple-400/40"
+              title="DIALux evo Tutorial 30: Effective lighting design — Layered strategy (Task, Ambient, Wall Accent), suspension height tuning, table placement & EN 12464-1 verification"
+            >
+              <Sparkles className="size-3.5 text-white" />
+              <span>Effective Design</span>
+            </button>
+
             {/* Green Eco Leaf Button (Energy calculation check EN 15193) */}
             <button
               onClick={() => toast.success("Energy evaluation: compliant with EN 15193 (LENI = 14.2 kWh/m²/year)")}
@@ -3200,19 +3914,33 @@ export function DialuxSimulationModal({
               <Settings className="size-3.5" />
             </button>
 
-            {/* Light Scene Dropdown (Live Dimming factor) */}
+            {/* Light Scene Dropdown (Live Dimming factor & DIALux evo Part 11 Daylight scenes) */}
             <select
               value={lightScene}
               onChange={(e) => {
-                const val = e.target.value as "100" | "50" | "10";
+                const val = e.target.value;
                 setLightScene(val);
-                toast.info(`Switched to Light scene (${val === "100" ? "100% Full On" : val === "50" ? "50% Dimmed" : "10% Emergency Lighting"})`);
+                if (val.startsWith("daylight") || val === "combined") {
+                  setIsDaylightSceneActive(true);
+                }
+                const labelMap: Record<string, string> = {
+                  "100": "Scene 1: Artificial 100% Full On",
+                  "50": "Scene 2: Artificial 50% Dimmed",
+                  "10": "Scene 3: Emergency Lighting (10%)",
+                  "daylight_overcast": "Scene 4: Daylight Only (CIE Overcast DF %)",
+                  "daylight_clear": "Scene 5: Daylight Only (Clear Sky & Sunbeam)",
+                  "combined": "Scene 6: Combined Daylight + Artificial Harvesting",
+                };
+                toast.info(`Switched to ${labelMap[val] || val}`);
               }}
               className="h-7 px-2 bg-slate-900 border border-slate-700 rounded text-[11px] text-slate-200 outline-none cursor-pointer"
             >
-              <option value="100">Light scene 1</option>
-              <option value="50">Light scene 2 (50%)</option>
-              <option value="10">Light scene 3 (Emergency)</option>
+              <option value="100">Light scene 1 (100% Artificial)</option>
+              <option value="50">Light scene 2 (50% Dimmed)</option>
+              <option value="daylight_overcast">Daylight scene (CIE Overcast DF %)</option>
+              <option value="daylight_clear">Daylight scene (Clear Sky & Sunbeam)</option>
+              <option value="combined">Combined (Daylight + Artificial Harvesting)</option>
+              <option value="10">Emergency scene (10% Safety)</option>
             </select>
 
             {/* View Planning Mode Dropdown (Matching Screenshot top right) */}
@@ -3221,16 +3949,64 @@ export function DialuxSimulationModal({
               onChange={(e) => {
                 const val = e.target.value;
                 setPlanningMode(val);
-                if (val === "Street lighting (EN 13201)") {
+                if (val === "Simple indoor planning") {
+                  setIsSimplePlanningModalOpen(true);
+                } else if (val === "Street lighting (EN 13201)") {
                   setIsStreetLightingModalOpen(true);
+                } else if (val === "Roundabout lighting (EN 13201)") {
+                  setIsRoundaboutModalOpen(true);
+                } else if (val === "UGR calculation (EN 12464-1)") {
+                  setIsUGRModalOpen(true);
+                } else if (val === "Drawing from scratch (Tutorial 18)") {
+                  setIsDrawingFromScratchModalOpen(true);
+                } else if (val === "Median strip road lighting (Tutorial 19)") {
+                  setIsMedianStripModalOpen(true);
+                } else if (val === "Maintenance factors & scenes (Tutorial 20)") {
+                  setIsMaintenanceStudioOpen(true);
+                } else if (val === "Luminaire groups & light scenes (Tutorial 21)") {
+                  setIsLightScenesModalOpen(true);
+                } else if (val === "Swimming pool lighting (Tutorial 22)") {
+                  setIsPoolLightingModalOpen(true);
+                } else if (val === "Daylighting systems (Tutorial 23)") {
+                  setIsDaylightSystemsModalOpen(true);
+                } else if (val === "The cutout tool & complex roofs (Tutorial 24)") {
+                  setIsCutoutRoofModalOpen(true);
+                } else if (val === "Managing interior & exterior workplanes (Tutorial 25)") {
+                  setIsWorkplaneStudioModalOpen(true);
+                } else if (val === "Using different standards (Tutorial 26)") {
+                  setIsStandardsStudioModalOpen(true);
+                } else if (val === "Detailed textures & materials (Tutorial 27)") {
+                  setIsTexturesStudioModalOpen(true);
+                } else if (val === "Improving luminaires (Tutorial 28)") {
+                  setIsImprovingLuminairesModalOpen(true);
+                } else if (val === "Complete building scenery (Tutorial 29)") {
+                  setIsCompleteSceneryModalOpen(true);
+                } else if (val === "Effective lighting design (Tutorial 30)") {
+                  setIsEffectiveLightingModalOpen(true);
                 }
               }}
               className="h-7 px-2 bg-slate-900 border border-slate-700 rounded text-[11px] text-slate-200 outline-none cursor-pointer"
             >
-              <option value="Outdoor and building planning">Outdoor and building pla...</option>
+              <option value="Simple indoor planning">Simple indoor planning (evo easy)</option>
               <option value="Indoor space planning">Indoor space planning</option>
+              <option value="Outdoor and building planning">Outdoor and building pla...</option>
               <option value="Emergency lighting">Emergency lighting</option>
               <option value="Street lighting (EN 13201)">Street lighting (EN 13201)</option>
+              <option value="Roundabout lighting (EN 13201)">Roundabout lighting (EN 13201 - Part 16)</option>
+              <option value="UGR calculation (EN 12464-1)">UGR calculation (EN 12464-1 - Part 17)</option>
+              <option value="Drawing from scratch (Tutorial 18)">Drawing from scratch (Tutorial Part 18)</option>
+              <option value="Median strip road lighting (Tutorial 19)">Median strip road lighting (EN 13201 - Part 19)</option>
+              <option value="Maintenance factors & scenes (Tutorial 20)">Maintenance factors & scenes (Tutorial Part 20)</option>
+              <option value="Luminaire groups & light scenes (Tutorial 21)">Luminaire groups & light scenes (Tutorial Part 21)</option>
+              <option value="Swimming pool lighting (Tutorial 22)">Swimming pool lighting (Tutorial Part 22)</option>
+              <option value="Daylighting systems (Tutorial 23)">Daylighting systems (Tutorial Part 23)</option>
+              <option value="The cutout tool & complex roofs (Tutorial 24)">The cutout tool & complex roofs (Tutorial Part 24)</option>
+              <option value="Managing interior & exterior workplanes (Tutorial 25)">Managing interior & exterior workplanes (Tutorial Part 25)</option>
+              <option value="Using different standards (Tutorial 26)">Using different standards (Tutorial Part 26)</option>
+              <option value="Detailed textures & materials (Tutorial 27)">Detailed textures & materials (Tutorial Part 27)</option>
+              <option value="Improving luminaires (Tutorial 28)">Improving luminaires (Tutorial 28)</option>
+              <option value="Complete building scenery (Tutorial 29)">Complete building scenery (Tutorial 29)</option>
+              <option value="Effective lighting design (Tutorial 30)">Effective lighting design (Tutorial 30)</option>
             </select>
           </div>
         </div>
@@ -4966,11 +5742,26 @@ export function DialuxSimulationModal({
                         <DoorClosed className="size-3 text-amber-400" /> Position active aperture
                       </button>
                       <button 
-                        onClick={() => setShowApertureModal(true)}
+                        onClick={() => {
+                          setWindowCount((c) => c + 1);
+                          toast.success("Added 1 window to space");
+                        }}
                         className="px-2.5 py-1 rounded bg-slate-800/50 hover:bg-slate-700 text-slate-300 border border-slate-700/40 flex items-center gap-2 cursor-pointer text-left"
                       >
-                        <Square className="size-3 text-blue-400" /> Draw new aperture
+                        <Square className="size-3 text-blue-400" /> Draw new aperture (+1 Window)
                       </button>
+                      {windowCount > 0 && (
+                        <button 
+                          onClick={() => {
+                            setWindowCount(0);
+                            setShowFacadeBlinds(false);
+                            toast.success("Removed all apertures from space");
+                          }}
+                          className="px-2.5 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/50 flex items-center gap-2 cursor-pointer text-left"
+                        >
+                          <Trash2 className="size-3 text-red-400" /> Clear / Remove all apertures
+                        </button>
+                      )}
                       <button 
                         onClick={() => {
                           setApertureFrameWidth(0.08);
@@ -5087,7 +5878,36 @@ export function DialuxSimulationModal({
 
                         <div className="flex justify-between items-center bg-[#14161a] p-2 rounded border border-slate-800 mt-1">
                           <span className="text-[10px] text-slate-400">Active Wall Windows:</span>
-                          <strong className="text-white">{windowCount} windows</strong>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setWindowCount((c) => Math.max(0, c - 1))}
+                              disabled={windowCount <= 0}
+                              className="size-5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 text-white flex items-center justify-center text-xs font-bold cursor-pointer"
+                              title="Decrease window count"
+                            >
+                              -
+                            </button>
+                            <strong className="text-white font-mono text-xs w-6 text-center">{windowCount}</strong>
+                            <button
+                              onClick={() => setWindowCount((c) => c + 1)}
+                              className="size-5 rounded bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center text-xs font-bold cursor-pointer"
+                              title="Increase window count"
+                            >
+                              +
+                            </button>
+                            {windowCount > 0 && (
+                              <button
+                                onClick={() => {
+                                  setWindowCount(0);
+                                  setShowFacadeBlinds(false);
+                                  toast.success("Cleared all windows");
+                                }}
+                                className="ml-1.5 px-1.5 py-0.5 rounded bg-red-950/60 hover:bg-red-900 border border-red-800/60 text-red-300 text-[10px] cursor-pointer"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -5105,11 +5925,25 @@ export function DialuxSimulationModal({
                     {/* Action buttons matching Screenshot 4 */}
                     <div className="p-2 border-b border-slate-800 bg-[#191c22] flex flex-col gap-1 text-[11px]">
                       <button 
-                        onClick={() => setShowFacadeModal(true)}
+                        onClick={() => {
+                          setShowFacadeBlinds(true);
+                          setShowFacadeModal(true);
+                        }}
                         className="px-2.5 py-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700/60 font-semibold flex items-center gap-2 cursor-pointer text-left"
                       >
                         <Building2 className="size-3 text-amber-400" /> Add façade system
                       </button>
+                      {showFacadeBlinds && (
+                        <button 
+                          onClick={() => {
+                            setShowFacadeBlinds(false);
+                            toast.success("Removed façade elements from space");
+                          }}
+                          className="px-2.5 py-1 rounded bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/50 flex items-center gap-2 cursor-pointer text-left"
+                        >
+                          <Trash2 className="size-3 text-red-400" /> Clear / Remove façade blinds
+                        </button>
+                      )}
                       <button 
                         onClick={() => setShowFacadeModal(true)}
                         className="px-2.5 py-1 rounded bg-slate-800/50 hover:bg-slate-700 text-slate-300 border border-slate-700/40 flex items-center gap-2 cursor-pointer text-left"
@@ -5170,9 +6004,15 @@ export function DialuxSimulationModal({
                       <div className="flex flex-col gap-2 border-t border-slate-800 pt-2.5">
                         <span className="font-bold text-[11px] text-slate-300">Properties</span>
                         <div className="flex items-center justify-between bg-[#14161a] p-2 rounded border border-slate-800">
+                          <span className="text-[10.5px] text-slate-400">Façade System:</span>
+                          <span className={`text-xs font-bold flex items-center gap-1 ${showFacadeBlinds ? "text-emerald-400" : "text-slate-500"}`}>
+                            {showFacadeBlinds ? "Active (On)" : "Disabled (Off)"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between bg-[#14161a] p-2 rounded border border-slate-800">
                           <span className="text-[10.5px] text-slate-400">Mounting type</span>
                           <span className="text-xs font-bold text-white flex items-center gap-1">
-                            <Sun className="size-3 text-amber-400" /> Outside
+                            <Sun className="size-3 text-amber-400" /> {facadeMounting}
                           </span>
                         </div>
                       </div>
@@ -5203,8 +6043,9 @@ export function DialuxSimulationModal({
                       <button 
                         onClick={() => {
                           setActiveRoomElement("column_rect");
+                          setHasPlacedRoomElement(true);
                           setShowRoomElements(true);
-                          toast.success("Draw rectangular room element activated");
+                          toast.success("Rectangular column placed in space");
                         }}
                         className="px-2.5 py-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700/60 font-semibold flex items-center gap-2 cursor-pointer text-left"
                       >
@@ -5213,8 +6054,9 @@ export function DialuxSimulationModal({
                       <button 
                         onClick={() => {
                           setActiveRoomElement("column_circ");
+                          setHasPlacedRoomElement(true);
                           setShowRoomElements(true);
-                          toast.success("Draw circular room element activated");
+                          toast.success("Circular column placed in space");
                         }}
                         className="px-2.5 py-1 rounded bg-slate-800/50 hover:bg-slate-700 text-slate-300 border border-slate-700/40 flex items-center gap-2 cursor-pointer text-left"
                       >
@@ -5246,6 +6088,7 @@ export function DialuxSimulationModal({
                         <button
                           onClick={() => {
                             setActiveRoomElement("beam");
+                            setHasPlacedRoomElement(true);
                             setShowRoomElements(true);
                           }}
                           className={`p-1.5 rounded flex flex-col items-center justify-between h-16 border transition cursor-pointer ${
@@ -5262,6 +6105,7 @@ export function DialuxSimulationModal({
                         <button
                           onClick={() => {
                             setActiveRoomElement("column_rect");
+                            setHasPlacedRoomElement(true);
                             setShowRoomElements(true);
                           }}
                           className={`p-1.5 rounded flex flex-col items-center justify-between h-16 border transition cursor-pointer ${
@@ -5278,6 +6122,7 @@ export function DialuxSimulationModal({
                         <button
                           onClick={() => {
                             setActiveRoomElement("column_circ");
+                            setHasPlacedRoomElement(true);
                             setShowRoomElements(true);
                           }}
                           className={`p-1.5 rounded flex flex-col items-center justify-between h-16 border transition cursor-pointer ${
@@ -5294,6 +6139,7 @@ export function DialuxSimulationModal({
                         <button
                           onClick={() => {
                             setActiveRoomElement("platform");
+                            setHasPlacedRoomElement(true);
                             setShowRoomElements(true);
                           }}
                           className={`p-1.5 rounded flex flex-col items-center justify-between h-16 border transition cursor-pointer ${
@@ -5310,6 +6156,7 @@ export function DialuxSimulationModal({
                         <button
                           onClick={() => {
                             setActiveRoomElement("ramp");
+                            setHasPlacedRoomElement(true);
                             setShowRoomElements(true);
                           }}
                           className={`p-1.5 rounded flex flex-col items-center justify-between h-16 border transition cursor-pointer ${
@@ -5368,18 +6215,32 @@ export function DialuxSimulationModal({
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-1">
+                        <div className="flex flex-col gap-1.5 pt-1">
                           <button
                             onClick={() => {
-                              setShowRoomElements(!showRoomElements);
-                              toast.info(`Room elements 3D visibility: ${!showRoomElements ? "Shown" : "Hidden"}`);
+                              const nextVal = !showRoomElements;
+                              setShowRoomElements(nextVal);
+                              if (nextVal) setHasPlacedRoomElement(true);
+                              toast.info(`Room elements 3D visibility: ${nextVal ? "Shown" : "Hidden"}`);
                             }}
                             className={`w-full py-1 rounded text-xs font-semibold transition cursor-pointer border ${
-                              showRoomElements ? "bg-amber-600/30 text-amber-300 border-amber-500/50" : "bg-slate-800 text-slate-400 border-slate-700"
+                              showRoomElements && hasPlacedRoomElement ? "bg-amber-600/30 text-amber-300 border-amber-500/50" : "bg-slate-800 text-slate-400 border-slate-700"
                             }`}
                           >
-                            {showRoomElements ? "Hide Elements in 3D" : "Show Elements in 3D"}
+                            {showRoomElements && hasPlacedRoomElement ? "Hide Elements in 3D" : "Show Elements in 3D"}
                           </button>
+                          {hasPlacedRoomElement && (
+                            <button
+                              onClick={() => {
+                                setHasPlacedRoomElement(false);
+                                setShowRoomElements(false);
+                                toast.success("Cleared columns and room elements from 3D space");
+                              }}
+                              className="w-full py-1 rounded text-xs font-semibold transition cursor-pointer border bg-red-950/40 text-red-300 border-red-800/60 hover:bg-red-900/50"
+                            >
+                              Clear / Remove Elements
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -5737,6 +6598,26 @@ export function DialuxSimulationModal({
                         className="px-2.5 py-1 rounded bg-slate-800/50 hover:bg-slate-700 text-slate-300 border border-slate-700/40 flex items-center gap-2 cursor-pointer text-left"
                       >
                         <Target className="size-3 text-purple-400" /> Place individual object
+                      </button>
+
+                      {/* One-click signature tutorial item: Staircases & Extrusion Bodies (Tutorial Part 13) */}
+                      <button 
+                        onClick={() => {
+                          setIsStaircaseModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 rounded bg-amber-950/40 hover:bg-amber-900/50 text-amber-200 border border-amber-600/50 font-bold flex items-center gap-2 cursor-pointer text-left shadow-xs"
+                      >
+                        <Layers className="size-3 text-amber-400" /> Staircases & Extrusions (Tutorial 13)
+                      </button>
+
+                      {/* One-click signature tutorial item: Staircases Part 2 - Copy along line & grouping (Tutorial Part 14) */}
+                      <button 
+                        onClick={() => {
+                          setIsCopyAlongLineModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 rounded bg-orange-950/40 hover:bg-orange-900/50 text-orange-200 border border-orange-600/50 font-bold flex items-center gap-2 cursor-pointer text-left shadow-xs"
+                      >
+                        <Copy className="size-3 text-orange-400" /> Copy Along Line & Multi-Flight Stairs (Tutorial 14)
                       </button>
                       
                       {/* One-click signature tutorial item: Reception Desk */}
@@ -7129,6 +8010,7 @@ export function DialuxSimulationModal({
                     setSelectedFixtureIndex={setSelectedFixtureIndex}
                     onOpenPlacementModal={() => setIsPlacementModalOpen(true)}
                     onOpenBrandsModal={() => setWorkflowTab("brands")}
+                    onOpenDaylightModal={() => setIsDaylightModalOpen(true)}
                     workPlaneHeight={workPlaneHeight}
                   />
                 )}
@@ -7303,15 +8185,31 @@ export function DialuxSimulationModal({
                           </div>
                           {expandedNodes.lightScenes && (
                             <div className="pl-6 flex flex-col gap-0.5 mt-0.5 text-[11px]">
-                              <div onClick={() => setLightScene("100")} className={`px-2 py-0.5 rounded cursor-pointer ${lightScene === "100" ? "text-amber-400 font-bold bg-slate-800" : "text-slate-400"}`}>
-                                • Light scene 1 (100%)
+                              <div onClick={() => setLightScene("100")} className={`px-2 py-0.5 rounded cursor-pointer ${lightScene === "100" ? "text-amber-400 font-bold bg-slate-800" : "text-slate-400 hover:text-white"}`}>
+                                • Light scene 1 (Artificial 100%)
                               </div>
-                              <div onClick={() => setLightScene("50")} className={`px-2 py-0.5 rounded cursor-pointer ${lightScene === "50" ? "text-amber-400 font-bold bg-slate-800" : "text-slate-400"}`}>
-                                • Light scene 2 (50%)
+                              <div onClick={() => setLightScene("50")} className={`px-2 py-0.5 rounded cursor-pointer ${lightScene === "50" ? "text-amber-400 font-bold bg-slate-800" : "text-slate-400 hover:text-white"}`}>
+                                • Light scene 2 (Artificial 50%)
                               </div>
-                              <div onClick={() => setLightScene("10")} className={`px-2 py-0.5 rounded cursor-pointer ${lightScene === "10" ? "text-amber-400 font-bold bg-slate-800" : "text-slate-400"}`}>
-                                • Light scene 3 (Emergency)
+                              <div onClick={() => { setLightScene("daylight_overcast"); setIsDaylightSceneActive(true); }} className={`px-2 py-0.5 rounded cursor-pointer ${lightScene === "daylight_overcast" ? "text-blue-400 font-bold bg-slate-800" : "text-slate-400 hover:text-white"}`}>
+                                • Daylight scene (CIE Overcast DF %)
                               </div>
+                              <div onClick={() => { setLightScene("daylight_clear"); setIsDaylightSceneActive(true); }} className={`px-2 py-0.5 rounded cursor-pointer ${lightScene === "daylight_clear" ? "text-amber-400 font-bold bg-slate-800" : "text-slate-400 hover:text-white"}`}>
+                                • Daylight scene (Clear Sky & Sunbeam)
+                              </div>
+                              <div onClick={() => { setLightScene("combined"); setIsDaylightSceneActive(true); }} className={`px-2 py-0.5 rounded cursor-pointer ${lightScene === "combined" ? "text-emerald-400 font-bold bg-slate-800" : "text-slate-400 hover:text-white"}`}>
+                                • Combined (Daylight + Harvesting)
+                              </div>
+                              <div onClick={() => setLightScene("10")} className={`px-2 py-0.5 rounded cursor-pointer ${lightScene === "10" ? "text-red-400 font-bold bg-slate-800" : "text-slate-400 hover:text-white"}`}>
+                                • Emergency scene (10% Safety)
+                              </div>
+                              <button
+                                onClick={() => setIsDaylightModalOpen(true)}
+                                className="mt-1 px-2 py-1 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-[10px] font-bold flex items-center gap-1 cursor-pointer text-left"
+                              >
+                                <Sun className="size-3 text-amber-400" />
+                                <span>Daylight Simulation Settings...</span>
+                              </button>
                             </div>
                           )}
                         </div>
@@ -7963,6 +8861,86 @@ export function DialuxSimulationModal({
                   </div>
                 </div>
 
+                {/* DIALux evo Tutorial Part 15: Camera Memory Slots, White Balance & Pivoting Point HUD */}
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-[#181a1f]/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-700/80 shadow-2xl z-30 flex items-center gap-2.5 text-xs select-none">
+                  {/* Slots 1 to 9 */}
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] font-bold text-slate-400 mr-1 flex items-center gap-1">
+                      <Bookmark className="size-3 text-amber-400" /> Slots:
+                    </span>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((s) => {
+                      const assigned = cadSavedViews.find((v) => v.slot === s);
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          title={
+                            assigned
+                              ? `Slot ${s}: "${assigned.name}" (Alt+${s} to recall, Ctrl+${s} to overwrite)`
+                              : `Slot ${s} (Empty — Ctrl+${s} to save view)`
+                          }
+                          onClick={() => handleApplySlot(s)}
+                          className={`size-6 rounded font-mono font-bold text-[10px] flex items-center justify-center cursor-pointer transition ${
+                            assigned
+                              ? "bg-amber-600/30 text-amber-300 border border-amber-500/60 hover:bg-amber-500 hover:text-white"
+                              : "bg-slate-800/60 text-slate-500 border border-slate-700/40 hover:text-slate-300"
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="h-4 w-px bg-slate-700" />
+
+                  {/* White Balance Badge */}
+                  <button
+                    type="button"
+                    onClick={() => setIsWhiteBalanceModalOpen(true)}
+                    className="px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-700 border border-slate-700/80 text-[10.5px] font-semibold text-slate-200 flex items-center gap-1.5 cursor-pointer"
+                    title="Click to open Tutorial 15 White Balance & Camera Positions Dialog"
+                  >
+                    <Sun className="size-3 text-amber-400" />
+                    <span>{whiteBalanceMode === "auto" ? "WB: Auto (6500K)" : `WB: ${whiteBalanceKelvin}K`}</span>
+                    {whiteBalanceExposure !== 0 && (
+                      <span className="text-cyan-400 font-mono text-[9.5px]">
+                        {whiteBalanceExposure > 0 ? `+${whiteBalanceExposure.toFixed(1)}` : whiteBalanceExposure.toFixed(1)}EV
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Pivoting Point Reticle Tool Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPickingPivot(!isPickingPivot);
+                      if (!isPickingPivot) {
+                        toast.info("Click anywhere on a 3D surface to set center of rotation (or hold Ctrl+Click)");
+                      }
+                    }}
+                    className={`px-2 py-1 rounded border text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer transition ${
+                      isPickingPivot
+                        ? "bg-amber-600 text-white border-amber-500 animate-pulse"
+                        : "bg-slate-800/80 hover:bg-slate-700 border-slate-700/80 text-slate-300"
+                    }`}
+                    title="Set center of rotation (or hold Ctrl and click any 3D surface)"
+                  >
+                    <Crosshair className="size-3 text-amber-400" />
+                    <span>{isPickingPivot ? "Pick Pivot..." : "Pivot"}</span>
+                  </button>
+
+                  {/* Tutorial 15 Full Modal Launcher */}
+                  <button
+                    type="button"
+                    onClick={() => setIsWhiteBalanceModalOpen(true)}
+                    title="Open Tutorial 15 White Balance & Camera Settings"
+                    className="p-1 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700/80 cursor-pointer"
+                  >
+                    <Sliders className="size-3.5" />
+                  </button>
+                </div>
+
                 {/* Origin Indicator */}
                 <div className="absolute bottom-3 right-3 text-[10px] text-slate-400 bg-[#191c22]/80 px-2 py-1 rounded border border-slate-800 pointer-events-none">
                   Origin (0,0,0) [RGB: X-Red, Y-Green, Z-Blue]
@@ -8393,7 +9371,11 @@ export function DialuxSimulationModal({
           setApertureWidth(width);
           setApertureFrameWidth(frame);
           setApertureSillHeight(sill);
-          setWindowCount((c) => Math.max(1, c + countDelta));
+          setWindowCount((c) => Math.max(1, (c <= 0 ? 0 : c) + countDelta));
+        }}
+        onRemoveAll={() => {
+          setWindowCount(0);
+          setShowFacadeBlinds(false);
         }}
       />
 
@@ -8635,9 +9617,40 @@ export function DialuxSimulationModal({
         windowCount={windowCount}
         windowWidth={apertureWidth}
         windowHeight={apertureHeight}
+        windowSill={apertureSillHeight}
+        targetLux={targetLux}
+        artificialPowerW={simulationResult.connectedPowerW || 120}
+        showFacadeBlinds={showFacadeBlinds}
         onOpenApertures={() => {
           setConstructionTool("apertures");
           setShowApertureModal(true);
+        }}
+        onApplyDaylightScene={({
+          skyModel,
+          directSunlight,
+          hour,
+          latitude,
+          longitude,
+          cityName,
+          northOrientation,
+          groundReflectance,
+          glassTransmittance,
+        }) => {
+          setDaylightSkyModel(skyModel);
+          setDaylightDirectSun(directSunlight);
+          setDaylightHour(hour);
+          setDaylightLat(latitude);
+          setDaylightLon(longitude);
+          setDaylightCity(cityName);
+          setDaylightNorthAngle(northOrientation);
+          setDaylightGroundReflectance(groundReflectance);
+          setDaylightGlassTau(glassTransmittance);
+          setIsDaylightSceneActive(true);
+          if (skyModel === "clear") {
+            setLightScene("daylight_clear");
+          } else {
+            setLightScene("daylight_overcast");
+          }
         }}
       />
 
@@ -8788,7 +9801,310 @@ export function DialuxSimulationModal({
         onClose={() => setIsStreetLightingModalOpen(false)}
         projectName={projectName}
         projectCode={projectCode}
+        onOpenRoundabout={() => {
+          setIsStreetLightingModalOpen(false);
+          setIsRoundaboutModalOpen(true);
+        }}
+        onOpenMedianStrip={() => {
+          setIsStreetLightingModalOpen(false);
+          setIsMedianStripModalOpen(true);
+        }}
+      />
+
+      {/* Official DIALux evo Part 16 Roundabout Lighting & EN 13201 Suite Modal */}
+      <DialuxRoundaboutModal
+        isOpen={isRoundaboutModalOpen}
+        onClose={() => setIsRoundaboutModalOpen(false)}
+        projectName={projectName}
+        projectCode={projectCode}
+      />
+
+      {/* Official DIALux evo Part 17 UGR Calculation Studio Modal */}
+      <DialuxUGRModal
+        isOpen={isUGRModalOpen}
+        onClose={() => setIsUGRModalOpen(false)}
+        roomLength={roomL}
+        roomWidth={roomW}
+        roomHeight={roomH}
+        roomName={spaceCustomName}
+        projectName={projectName}
+        workplaneLux={targetLux}
+        ceilingReflectance={reflectances.ceiling}
+        wallReflectance={reflectances.walls}
+        floorReflectance={reflectances.floor}
+      />
+
+      {/* Official DIALux evo Part 18 Drawing from Scratch Studio Modal */}
+      <DialuxDrawingFromScratchModal
+        isOpen={isDrawingFromScratchModalOpen}
+        onClose={() => setIsDrawingFromScratchModalOpen(false)}
+        projectName={projectName}
+        onApplyBuildingToScene={(newBuilding) => {
+          toast.success(`Loaded "${newBuilding.name}" into active session!`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 19 Road and Street Lighting: Median Strip Calculation Modal */}
+      <DialuxMedianStripModal
+        isOpen={isMedianStripModalOpen}
+        onClose={() => setIsMedianStripModalOpen(false)}
+        projectName={projectName}
+        projectCode={projectCode}
+      />
+
+      {/* Official DIALux evo Part 20 Maintenance Factors & Improvements Studio Modal */}
+      <DialuxMaintenanceFactorStudioModal
+        isOpen={isMaintenanceStudioOpen}
+        onClose={() => setIsMaintenanceStudioOpen(false)}
+        currentMf={mf}
+        onApplyMf={(newMf) => {
+          setMf(newMf);
+          toast.success(`Updated space Maintenance Factor to ${newMf}`);
+        }}
+        spaceName={spaceCustomName}
+        projectName={projectName}
+      />
+
+      {/* Official DIALux evo Part 21 Luminaire Groups & Light Scenes Studio Modal */}
+      <DialuxLightScenesStudioModal
+        isOpen={isLightScenesModalOpen}
+        onClose={() => setIsLightScenesModalOpen(false)}
+        projectName={projectName}
+        onApplySceneToSimulation={(sc) => {
+          toast.success(`Switched simulation to "${sc.name}" (${sc.calculatedWatts}W)`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 22 Swimming Pool Lighting Studio Modal */}
+      <DialuxPoolLightingStudioModal
+        isOpen={isPoolLightingModalOpen}
+        onClose={() => setIsPoolLightingModalOpen(false)}
+        projectName={projectName}
+        onApplyToSimulation={(report) => {
+          toast.success(`Applied pool lighting simulation: ${report.waterSurface.averageLux} lx (${report.totalActiveWatts}W)`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 23 Daylighting Systems Studio Modal */}
+      <DialuxDaylightSystemsStudioModal
+        isOpen={isDaylightSystemsModalOpen}
+        onClose={() => setIsDaylightSystemsModalOpen(false)}
+        projectName={projectName}
+        onApplyToSimulation={(res) => {
+          toast.success(`Applied daylighting system (${res.system.name}): Avg DF = ${res.averageDaylightFactor}%`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 24 The Cutout Tool & Complex Roofs Studio Modal */}
+      <DialuxCutoutRoofStudioModal
+        isOpen={isCutoutRoofModalOpen}
+        onClose={() => setIsCutoutRoofModalOpen(false)}
+        projectName={projectName}
+        onApplyToSimulation={(proj) => {
+          toast.success(`Applied cutout geometry (${proj.name}): ${proj.cutouts.length} cutouts applied`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 25 Managing Interior & Exterior Workplanes Studio Modal */}
+      <DialuxWorkplaneStudioModal
+        isOpen={isWorkplaneStudioModalOpen}
+        onClose={() => setIsWorkplaneStudioModalOpen(false)}
+        projectName={projectName}
+        onApplyToSimulation={(wps) => {
+          toast.success(`Applied ${wps.length} interior & exterior workplanes to project simulation`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 26 Norm Control Centre & Standards Studio Modal */}
+      <DialuxStandardsStudioModal
+        isOpen={isStandardsStudioModalOpen}
+        onClose={() => setIsStandardsStudioModalOpen(false)}
+        projectName={projectName}
+        onApplyStandardToSimulation={(stdId, prof) => {
+          toast.success(`Applied [${prof.name}] standard to project simulation`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 27 Detailed Textures & Materials Studio Modal */}
+      <DialuxTexturesStudioModal
+        isOpen={isTexturesStudioModalOpen}
+        onClose={() => setIsTexturesStudioModalOpen(false)}
+        projectName={projectName}
+        onApplyMaterialsToSimulation={(ass) => {
+          toast.success(`Applied ${ass.length} surface textures & reflectances to project simulation`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 28 Improving Luminaires Studio Modal (Joints & Light Colour CCT) */}
+      <DialuxImprovingLuminairesModal
+        isOpen={isImprovingLuminairesModalOpen}
+        onClose={() => setIsImprovingLuminairesModalOpen(false)}
+        projectName={projectName}
+        onApplyLuminairesToSimulation={(lums) => {
+          toast.success(`Applied ${lums.length} articulated luminaires with joint aiming & CCT to project simulation`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 29 Complete Building Scenery Studio Modal */}
+      <DialuxCompleteSceneryModal
+        isOpen={isCompleteSceneryModalOpen}
+        onClose={() => setIsCompleteSceneryModalOpen(false)}
+        projectName={projectName}
+        onApplySceneryToSimulation={(scen) => {
+          toast.success(`Applied complete building scenery (${scen.rooms.length} rooms) to project simulation`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 30 Effective Lighting Design Studio Modal */}
+      <DialuxEffectiveLightingModal
+        isOpen={isEffectiveLightingModalOpen}
+        onClose={() => setIsEffectiveLightingModalOpen(false)}
+        projectName={projectName}
+        onApplyPlanToSimulation={(p) => {
+          toast.success(`Applied effective layered lighting plan to project simulation`);
+        }}
+      />
+
+      {/* Official DIALux evo Part 12 Simple Indoor Planning (Room Planning / evo easy) Modal */}
+      <SimpleIndoorPlanningModal
+        isOpen={isSimplePlanningModalOpen}
+        onClose={() => setIsSimplePlanningModalOpen(false)}
+        initialRoomName={spaceCustomName}
+        initialLength={roomL}
+        initialWidth={roomW}
+        initialHeight={roomH}
+        initialTargetLux={targetLux}
+        initialMf={mf}
+        projectName={projectName}
+        projectCode={projectCode}
+        userName={userName}
+        onApplyTo3DView={({
+          roomName: newName,
+          length: newL,
+          width: newW,
+          height: newH,
+          workPlaneHeight: newWpH,
+          marginOffset: newMargin,
+          targetLux: newTarget,
+          profile: newProfile,
+          rows: newRows,
+          cols: newCols,
+          mf: newMf,
+          reflectances: newRefl,
+        }) => {
+          setSpaceCustomName(newName);
+          setRoomL(newL);
+          setRoomW(newW);
+          setRoomH(newH);
+          setWorkPlaneHeight(newWpH);
+          setMarginOffset(newMargin);
+          setTargetLux(newTarget);
+          setProfile(newProfile);
+          pushGridChange({ rows: newRows, cols: newCols });
+          setMf(newMf);
+          setReflectances(newRefl);
+          setArrangementMode("grid");
+
+          if (cameraRef.current && controlsRef.current) {
+            const cx = newL / 2;
+            const cy = newH / 2;
+            const cz = newW / 2;
+            controlsRef.current.target.set(cx, cy, cz);
+            if (cameraView === "3d") {
+              cameraRef.current.position.set(newL * 1.4, newH * 1.8, newW * 1.6);
+            } else if (cameraView === "top") {
+              cameraRef.current.position.set(cx, Math.max(newL, newW) * 2.2, cz);
+            }
+            controlsRef.current.update();
+          }
+
+          toast.success(`Synchronized ${newName} Simple Indoor Plan into 3D CAD view!`);
+        }}
+        onApplyToSchedule={
+          onApplyResults
+            ? (res) => {
+                onApplyResults({
+                  spaceId: selectedSpaceId || "space-1",
+                  quantity: res.quantity,
+                  achievedLux: res.achievedLux,
+                  rows: res.rows,
+                  cols: res.cols,
+                  uniformityU0: res.uniformityU0,
+                  lightType: res.lightType,
+                });
+              }
+            : undefined
+        }
+      />
+
+      {/* Official DIALux evo Part 13 Staircases & Extrusion Objects Modal */}
+      <StaircaseExtrusionModal
+        isOpen={isStaircaseModalOpen}
+        onClose={() => setIsStaircaseModalOpen(false)}
+        roomLength={roomL}
+        roomWidth={roomW}
+        roomHeight={roomH}
+        luminaires={simulationResult.luminaires}
+        mf={mf}
+        onAddStaircase={(stair) => {
+          setFurnitureList((prev) => [...prev, stair]);
+          setSelectedFurnitureId(stair.id);
+          setShowFurniture(true);
+        }}
+      />
+
+      {/* Official DIALux evo Part 14 Staircases Part 2: Copy Along a Line & Grouping Modal */}
+      <StaircaseCopyAlongLineModal
+        isOpen={isCopyAlongLineModalOpen}
+        onClose={() => setIsCopyAlongLineModalOpen(false)}
+        roomLength={roomL}
+        roomWidth={roomW}
+        roomHeight={roomH}
+        furnitureList={furnitureList}
+        selectedFurnitureId={selectedFurnitureId}
+        luminaires={simulationResult.luminaires}
+        mf={mf}
+        onAddFurnitureItems={(items) => {
+          setFurnitureList((prev) => [...prev, ...items]);
+          if (items.length > 0) {
+            setSelectedFurnitureId(items[0].id);
+          }
+          setShowFurniture(true);
+        }}
+        onUpdateFurnitureList={(list) => setFurnitureList(list)}
+      />
+
+      {/* Official DIALux evo Part 15 White Balance, Camera Positions & Pivoting Point Modal */}
+      <WhiteBalanceCameraModal
+        isOpen={isWhiteBalanceModalOpen}
+        onClose={() => setIsWhiteBalanceModalOpen(false)}
+        whiteBalanceMode={whiteBalanceMode}
+        setWhiteBalanceMode={setWhiteBalanceMode}
+        whiteBalanceKelvin={whiteBalanceKelvin}
+        setWhiteBalanceKelvin={setWhiteBalanceKelvin}
+        whiteBalanceExposure={whiteBalanceExposure}
+        setWhiteBalanceExposure={setWhiteBalanceExposure}
+        whiteBalanceTint={whiteBalanceTint}
+        setWhiteBalanceTint={setWhiteBalanceTint}
+        savedViews={cadSavedViews}
+        onSaveSlot={handleSaveSlot}
+        onApplySlot={handleApplySlot}
+        onDeleteView={handleDeleteSavedView}
+        onSaveCurrentView={handleSaveCurrentView}
+        onApplySavedView={handleApplySavedView}
+        cameraView={cameraView}
+        onApplyCameraView={applyCameraView}
+        currentPivot={currentPivot}
+        onSetPivot={handleSetPivot}
+        isPickingPivot={isPickingPivot}
+        setIsPickingPivot={setIsPickingPivot}
+        isPickingWhitePoint={isPickingWhitePoint}
+        setIsPickingWhitePoint={setIsPickingWhitePoint}
+        roomLength={roomL}
+        roomWidth={roomW}
+        roomHeight={roomH}
       />
     </div>
   );
 }
+

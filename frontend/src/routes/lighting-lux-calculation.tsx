@@ -29,6 +29,7 @@ import {
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile, type Extracted3DSpace } from "@/lib/bimViewerSpaceExtractor";
 import { getProjectIfcFile } from "@/lib/projectIfcStorage";
 import { DialuxSimulationModal, type ProjectSpaceItem } from "@/components/workspace/DialuxSimulationModal";
+import { SimpleIndoorPlanningModal } from "@/components/workspace/SimpleIndoorPlanningModal";
 import { CalculationPreviewModal, type CalculationPreviewData, type CalculationStep } from "@/components/calculator-framework/CalculationPreviewModal";
 import { toast } from "sonner";
 import ExcelJS from "exceljs";
@@ -123,6 +124,9 @@ function LightingLuxCalculationPage() {
 
   // DIALux evo 3D Simulation Modal State
   const [dialuxModalRow, setDialuxModalRow] = useState<LuxRow | null>(null);
+
+  // DIALux evo Part 12: Simple Indoor Planning (evo easy) Modal State
+  const [simplePlanningRow, setSimplePlanningRow] = useState<LuxRow | null>(null);
 
   // Active IFC Model File Name (from BIM Viewer session, local storage, or project metadata)
   const activeIfcFileName = useMemo(() => {
@@ -1677,6 +1681,39 @@ function LightingLuxCalculationPage() {
                 <span>DIALux 3D Sim</span>
               </button>
 
+              <button
+                onClick={() => {
+                  const targetRow = rows.find(r => selected.has(r.id)) || rows[0];
+                  if (targetRow) {
+                    setSimplePlanningRow(targetRow);
+                  } else {
+                    const defaultRow: LuxRow = {
+                      id: "lux_simple",
+                      location: "Garage / Workshop",
+                      lightType: "Vapour Proof IP65 Batten (100°)",
+                      ipRating: "IP65",
+                      length: 10,
+                      width: 6,
+                      height: 3.2,
+                      roomIndex: 1.5,
+                      area: 60,
+                      reqLux: 300,
+                      lumen: 4000,
+                      mf: 0.67,
+                      uf: 0.6,
+                      reqQty: 16,
+                      remarks: "EN 12464-1 Vehicle Repair Standard",
+                    };
+                    setSimplePlanningRow(defaultRow);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-all cursor-pointer shadow-2xs"
+                title="DIALux evo Simple Indoor Planning: Rapid room planning, EN 12464-1 standards, CIE 97 maintenance conditions, automatic luminaire arrangement (Part 12)"
+              >
+                <Zap className="size-3.5 text-emerald-400" />
+                <span>Simple Indoor Plan</span>
+              </button>
+
               <ImportExcelBtn
                 columnMapping={{
                   location: [
@@ -2046,6 +2083,50 @@ function LightingLuxCalculationPage() {
             });
           });
           toast.success(`✨ Successfully applied DIALux evo 3D results to all ${allResults.length} spaces!`);
+        }}
+      />
+
+      {/* DIALux evo Part 12: Simple Indoor Planning (Room Planning / evo easy) Modal */}
+      <SimpleIndoorPlanningModal
+        isOpen={Boolean(simplePlanningRow)}
+        onClose={() => setSimplePlanningRow(null)}
+        initialRoomName={simplePlanningRow?.location || "Garage / Workshop"}
+        initialLength={simplePlanningRow?.length || 10}
+        initialWidth={simplePlanningRow?.width || 6}
+        initialHeight={simplePlanningRow?.height || 3.2}
+        initialTargetLux={simplePlanningRow?.reqLux || 300}
+        initialMf={simplePlanningRow?.mf || 0.67}
+        projectName={project?.name || "MEP Lighting Project"}
+        projectCode={project?.code || "PRJ-001"}
+        userName={currentUserName}
+        onApplyToSchedule={(res) => {
+          if (simplePlanningRow?.id) {
+            updateRow(simplePlanningRow.id, {
+              reqQty: res.quantity,
+              lightType: res.lightType,
+              remarks: res.remarks,
+            });
+            setSimplePlanningRow(null);
+            toast.success("Applied Simple Indoor Planning results to schedule!");
+          }
+        }}
+        onApplyTo3DView={(settings) => {
+          if (simplePlanningRow) {
+            const updatedRow: LuxRow = {
+              ...simplePlanningRow,
+              location: settings.roomName,
+              length: settings.length,
+              width: settings.width,
+              height: settings.height,
+              reqLux: settings.targetLux,
+              lightType: settings.profile.name,
+              reqQty: settings.rows * settings.cols,
+              mf: settings.mf,
+              remarks: `DIALux Simple Plan: ${settings.rows * settings.cols} fixtures (${settings.rows}x${settings.cols}) - Target ${settings.targetLux} lx`,
+            };
+            setSimplePlanningRow(null);
+            setDialuxModalRow(updatedRow);
+          }
         }}
       />
 

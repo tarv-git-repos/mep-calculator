@@ -457,7 +457,7 @@ function TransformerSizingPage() {
               inductiveMotorKw: Number(im.toFixed(2)),
               diversityFactor: Number(weightedDiv.toFixed(2)), 
                             selected: false,
-              remarks: "ADDC Weighted Div",
+              remarks: "",
             };
           });
           setLoadRows(newRows);
@@ -569,7 +569,7 @@ function TransformerSizingPage() {
         { content: "Sr.\nNo.", rowSpan: 2, styles: { fillColor: primaryFill } },
         { content: "Load Details", rowSpan: 2, styles: { fillColor: primaryFill } },
         { content: "Connected Load", colSpan: 3, styles: { fillColor: primaryFill } },
-        { content: "Demand Parameters", colSpan: 3, styles: { fillColor: blueFill } },
+        { content: "Demand Parameters", colSpan: 2, styles: { fillColor: blueFill } },
         { content: "Remarks", rowSpan: 2, styles: { fillColor: primaryFill } }
       ],
       [
@@ -577,7 +577,6 @@ function TransformerSizingPage() {
         { content: "Induct/Motor\n(kW)" },
         { content: "Total\n(kW)" },
         { content: "Diversity\nFactor", styles: { fillColor: blueFill } },
-        { content: "Demand\nFactor", styles: { fillColor: blueFill } },
         { content: "Max Demand\n(kW)", styles: { fillColor: blueFill } }
       ]
     ];
@@ -589,7 +588,6 @@ function TransformerSizingPage() {
       r.inductiveMotorKw,
       r.connectedLoad.toFixed(2),
       r.diversityFactor,
-      r.demandFactor,
       r.maxDemand.toFixed(2),
       r.remarks || "-"
     ]);
@@ -600,7 +598,6 @@ function TransformerSizingPage() {
       { content: "-", styles: { halign: "center" } },
       { content: "-", styles: { halign: "center" } },
       { content: calculatedData.totalConnectedKw.toFixed(2), styles: { fontStyle: "bold", halign: "center" } },
-      { content: "-", styles: { halign: "center" } },
       { content: "-", styles: { halign: "center" } },
       { content: calculatedData.totalMaxDemandKw.toFixed(2), styles: { fontStyle: "bold", halign: "center", fillColor: blueFill } },
       { content: "-", styles: { halign: "center" } }
@@ -1223,6 +1220,8 @@ function TransformerIntelligenceDrawer({
     </div>
   );
 }
+
+
 
 
 

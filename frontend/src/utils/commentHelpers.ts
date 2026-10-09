@@ -31,6 +31,10 @@ export function getMergedItemComments(
       (cTargetId === cleanTargetId ||
         cTargetId === `field-${cleanTargetId}` ||
         cleanTargetId === `field-${cTargetId}` ||
+        cTargetId === `card-${cleanTargetId}` ||
+        cleanTargetId === `card-${cTargetId}` ||
+        cTargetId === `field-card-${cleanTargetId}` ||
+        cleanTargetId === `field-card-${cTargetId}` ||
         cTargetId === `res-${cleanTargetId}` ||
         cleanTargetId === `res-${cTargetId}` ||
         cTargetId === `step-${cleanTargetId}` ||

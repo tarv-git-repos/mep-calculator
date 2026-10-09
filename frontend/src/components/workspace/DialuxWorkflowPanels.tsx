@@ -671,8 +671,9 @@ interface LightInspectorsProps {
   simulationResult: DialuxSimulationResult;
   cct: number;
   setCct: (k: number) => void;
-  lightScene: "100" | "50" | "10";
-  setLightScene: (s: "100" | "50" | "10") => void;
+  lightScene: string;
+  setLightScene: (s: any) => void;
+  onOpenDaylightModal?: () => void;
   mountingType: "flush" | "surface" | "suspended" | "wall";
   setMountingType: (m: "flush" | "surface" | "suspended" | "wall") => void;
   suspensionLength: number;
@@ -713,6 +714,7 @@ export function LightInspectors({
   setCct,
   lightScene,
   setLightScene,
+  onOpenDaylightModal,
   mountingType,
   setMountingType,
   suspensionLength,
@@ -2486,9 +2488,12 @@ export function LightInspectors({
 
           <div className="p-3 flex flex-col gap-3">
             {[
-              { id: "100", label: "Scene 1: Standard General (100%)", desc: "Full illuminance for routine tasks" },
-              { id: "50", label: "Scene 2: Presentation Dimming (50%)", desc: "Energy saving comfort level" },
-              { id: "10", label: "Scene 3: Emergency Evacuation (10%)", desc: "EN 1838 compliant safety illumination" },
+              { id: "100", label: "Scene 1: Standard Working (100%)", desc: "Full artificial luminaire output", badge: "100%" },
+              { id: "50", label: "Scene 2: Presentation Dimming (50%)", desc: "Energy saving comfort level", badge: "50%" },
+              { id: "daylight_overcast", label: "Scene 3: Daylight CIE Overcast", desc: "EN 17037 Daylight Factor (D %)", badge: "CIE DF" },
+              { id: "daylight_clear", label: "Scene 4: Daylight Clear Sky & Sun", desc: "Direct sunlight penetration & solar angles", badge: "Sunbeam" },
+              { id: "combined", label: "Scene 5: Combined Daylight + Artificial", desc: "Daylight harvesting sensor with auto-dimming", badge: "Harvest" },
+              { id: "10", label: "Scene 6: Emergency Evacuation (10%)", desc: "EN 1838 compliant safety illumination", badge: "10%" },
             ].map((scene) => (
               <div
                 key={scene.id}
@@ -2504,7 +2509,7 @@ export function LightInspectors({
                     <Sun className={`size-3.5 ${lightScene === scene.id ? "text-amber-400" : "text-slate-400"}`} />
                     {scene.label}
                   </strong>
-                  <span className="font-mono text-xs text-amber-300 font-bold">{scene.id}%</span>
+                  <span className="font-mono text-xs text-amber-300 font-bold">{scene.badge}</span>
                 </div>
                 <p className="text-[10.5px] text-slate-400">{scene.desc}</p>
               </div>
@@ -2527,6 +2532,15 @@ export function LightInspectors({
                 Photocell dims luminaires near apertures to harvest natural daylight, reducing annual energy by up to
                 45%.
               </p>
+              {onOpenDaylightModal && (
+                <button
+                  onClick={onOpenDaylightModal}
+                  className="mt-1 px-2.5 py-1.5 rounded bg-blue-600/30 hover:bg-blue-600/40 text-blue-200 border border-blue-500/50 flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
+                >
+                  <Sun className="size-3.5 text-amber-400" />
+                  <span>Configure Daylight Simulation (EN 17037)</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -4827,7 +4841,7 @@ export function DocumentationViewer({
                     <td className="p-2 text-slate-600 border-r border-slate-300">{profile.manufacturer || "DIALux"}</td>
                     <td className="p-2 font-mono border-r border-slate-300">{profile.lumens} lm</td>
                     <td className="p-2 font-mono border-r border-slate-300">{profile.wattage} W</td>
-                    <td className="p-2 font-mono border-r border-slate-300">{(profile.lumens / Math.max(1, profile.wattage)).toFixed(1)} lm/W</td>
+                    <td className="p-2 font-mono border-r border-slate-300">{((profile.lumens || 0) / Math.max(1, profile.wattage || 1)).toFixed(1)} lm/W</td>
                     <td className="p-2 font-mono">{profile.cct || 4000} K / Ra {profile.cri || 80}</td>
                   </tr>
                 </tbody>

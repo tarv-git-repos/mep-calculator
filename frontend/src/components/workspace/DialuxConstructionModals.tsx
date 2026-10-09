@@ -11,6 +11,9 @@ import {
   DoorClosed,
   Sliders,
   Sun,
+  Cloud,
+  Calendar,
+  Clock,
   Grid,
   Trash2,
   Plus,
@@ -55,6 +58,10 @@ import {
   calculateDaylightFactor,
   calculateSunPosition,
   calculateEmergencyLighting,
+  calculateComprehensiveDaylight,
+  getDaylightFactorFalseColor,
+  CIESkyModel,
+  ComprehensiveDaylightResult,
   LuminairePhotometricProfile,
   LuminaireInstance,
   LineArrangementConfig,
@@ -753,6 +760,7 @@ export interface ApertureModalProps {
     sill: number;
     countDelta: number;
   }) => void;
+  onRemoveAll?: () => void;
 }
 
 export function ApertureModal({
@@ -764,6 +772,7 @@ export function ApertureModal({
   apertureFrameWidth: initialF,
   apertureSillHeight: initialS,
   onApply,
+  onRemoveAll,
 }: ApertureModalProps) {
   const [type, setType] = useState<"window" | "door" | "skylight">("window");
   const [height, setHeight] = useState(initialH);
@@ -871,7 +880,21 @@ export function ApertureModal({
         </div>
 
         <div className="px-5 py-3 bg-[#131519] border-t border-slate-800 flex items-center justify-between">
-          <span className="text-[11px] text-slate-400">Total in Space: <strong className="text-white">{windowCount}</strong></span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400">Total in Space: <strong className="text-white">{windowCount}</strong></span>
+            {windowCount > 0 && onRemoveAll && (
+              <button
+                onClick={() => {
+                  onRemoveAll();
+                  onClose();
+                  toast.success("Removed all apertures from space");
+                }}
+                className="px-2 py-0.5 rounded bg-red-950/60 hover:bg-red-900 border border-red-800/60 text-red-300 text-[11px] transition cursor-pointer"
+              >
+                Clear All
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button onClick={onClose} className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 transition text-xs cursor-pointer">
               Cancel
@@ -1004,21 +1027,37 @@ export function FacadeModal({
           </div>
         </div>
 
-        <div className="px-5 py-3 bg-[#131519] border-t border-slate-800 flex items-center justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 transition text-xs cursor-pointer">
-            Cancel
-          </button>
-          <button
-            onClick={() => {
-              onApply({ element, mounting, enabled: true, slatAngle });
-              onClose();
-              toast.success(`Configured ${element.replace("_", " ")} (${mounting}) with ${slatAngle}° tilt`);
-            }}
-            className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold transition text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-900/30"
-          >
-            <Check className="size-3.5" />
-            <span>Apply Façade</span>
-          </button>
+        <div className="px-5 py-3 bg-[#131519] border-t border-slate-800 flex items-center justify-between">
+          <div>
+            {enabled && (
+              <button
+                onClick={() => {
+                  onApply({ element, mounting, enabled: false, slatAngle });
+                  onClose();
+                  toast.success("Disabled façade shading blinds");
+                }}
+                className="px-2.5 py-1 rounded bg-red-950/60 hover:bg-red-900 border border-red-800/60 text-red-300 text-xs transition cursor-pointer"
+              >
+                Disable Blinds
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 transition text-xs cursor-pointer">
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                onApply({ element, mounting, enabled: true, slatAngle });
+                onClose();
+                toast.success(`Configured ${element.replace("_", " ")} (${mounting}) with ${slatAngle}° tilt`);
+              }}
+              className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold transition text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-900/30"
+            >
+              <Check className="size-3.5" />
+              <span>Apply Façade</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -2486,7 +2525,24 @@ export interface DaylightAnalysisModalProps {
   windowCount: number;
   windowWidth: number;
   windowHeight: number;
+  windowSill?: number;
+  targetLux?: number;
+  artificialPowerW?: number;
+  showFacadeBlinds?: boolean;
   onOpenApertures: () => void;
+  onApplyDaylightScene?: (settings: {
+    skyModel: CIESkyModel;
+    directSunlight: boolean;
+    hour: number;
+    latitude: number;
+    longitude: number;
+    cityName: string;
+    northOrientation: number;
+    sunAltitude: number;
+    sunAzimuth: number;
+    groundReflectance: number;
+    glassTransmittance: number;
+  }) => void;
 }
 
 export function DaylightAnalysisModal({
@@ -2498,161 +2554,547 @@ export function DaylightAnalysisModal({
   windowCount,
   windowWidth,
   windowHeight,
+  windowSill = 0.8,
+  targetLux = 500,
+  artificialPowerW = 120,
+  showFacadeBlinds = false,
   onOpenApertures,
+  onApplyDaylightScene,
 }: DaylightAnalysisModalProps) {
-  const [latitude, setLatitude] = useState(51.5);
-  const [longitude, setLongitude] = useState(0.0);
+  // DIALux evo Part 11: Sky Model selection (CIE 110-1994)
+  const [skyModel, setSkyModel] = useState<CIESkyModel>("overcast");
+  const [directSunlight, setDirectSunlight] = useState<boolean>(false);
+
+  // Geographic coordinates and location presets
   const [selectedCity, setSelectedCity] = useState("London");
+  const [latitude, setLatitude] = useState(51.51);
+  const [longitude, setLongitude] = useState(-0.12);
+
+  // Astronomical Solstices & Equinoxes presets
+  const [datePreset, setDatePreset] = useState<"summer" | "winter" | "equinox" | "today">("summer");
   const [hour, setHour] = useState(12);
+
+  // Site Orientation / North Alignment
+  const [northOrientation, setNorthOrientation] = useState(0);
+
+  // Ground Albedo & Glazing properties
+  const [groundReflectance, setGroundReflectance] = useState(0.20); // Grass
+  const [glassTransmittance, setGlassTransmittance] = useState(0.75); // Double clear
+
+  // Active Results Tab
+  const [activeTab, setActiveTab] = useState<"daylight_factor" | "illuminance" | "energy_savings">("daylight_factor");
 
   if (!isOpen) return null;
 
   const cities = [
     { name: "London", lat: 51.51, lon: -0.12 },
     { name: "Berlin / Lüdenscheid", lat: 51.22, lon: 7.63 },
+    { name: "Frankfurt", lat: 50.11, lon: 8.68 },
+    { name: "Paris", lat: 48.85, lon: 2.35 },
     { name: "New York", lat: 40.71, lon: -74.00 },
     { name: "Dubai", lat: 25.20, lon: 55.27 },
+    { name: "Riyadh", lat: 24.71, lon: 46.67 },
     { name: "Singapore", lat: 1.35, lon: 103.82 },
+    { name: "Tokyo", lat: 35.68, lon: 139.69 },
     { name: "Mumbai", lat: 19.07, lon: 72.87 },
+    { name: "Sydney", lat: -33.86, lon: 151.21 },
   ];
 
-  const sunDate = new Date();
-  sunDate.setHours(hour);
-  sunDate.setMinutes(0);
-  const sunPos = calculateSunPosition(latitude, longitude, sunDate);
+  // Resolve calculation date
+  let calcDate = new Date();
+  if (datePreset === "summer") {
+    calcDate = new Date(calcDate.getFullYear(), 5, 21); // 21 June (Summer Solstice)
+  } else if (datePreset === "winter") {
+    calcDate = new Date(calcDate.getFullYear(), 11, 21); // 21 December (Winter Solstice)
+  } else if (datePreset === "equinox") {
+    calcDate = new Date(calcDate.getFullYear(), 2, 21); // 21 March (Vernal Equinox)
+  }
 
-  const dfResult = calculateDaylightFactor({
+  // Shading factor: if blinds active, transmission reduced by 70%
+  const shadingFactor = showFacadeBlinds ? 0.30 : 1.0;
+
+  // Run Comprehensive Daylight Calculation
+  const result: ComprehensiveDaylightResult = calculateComprehensiveDaylight({
     length: roomL,
     width: roomW,
     height: roomH,
     windowCount,
     windowWidth,
     windowHeight,
+    windowSill,
+    glassTransmittance,
+    skyModel,
+    directSunlight: skyModel !== "overcast" && directSunlight,
+    latitude,
+    longitude,
+    date: calcDate,
+    hour,
+    northOrientation,
+    groundReflectance,
+    shadingReductionFactor: shadingFactor,
+    targetLux,
+    artificialPowerW,
   });
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-      <div className="bg-[#181a1f] border border-blue-500/40 rounded-xl shadow-2xl w-full max-w-lg text-slate-200 flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+      <div className="bg-[#181a1f] border border-amber-500/50 rounded-xl shadow-2xl w-full max-w-2xl text-slate-200 flex flex-col max-h-[92vh] overflow-hidden">
+        
+        {/* Modal Header */}
         <div className="px-5 py-3.5 bg-[#131519] border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-md bg-blue-600/20 text-blue-400 border border-blue-500/30">
-              <Sun className="size-4" />
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-amber-600/20 text-amber-400 border border-amber-500/30">
+              <Sun className="size-5" />
             </div>
             <div>
-              <h3 className="font-bold text-white text-sm">Daylight Simulation & Sun Position</h3>
-              <p className="text-[11px] text-slate-400">CIE Overcast Sky Model (EN 17037 / BREEAM Hea 01)</p>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-white text-sm tracking-wide">DIALux evo Daylight Simulation</h3>
+                <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 font-mono font-semibold border border-blue-500/30">
+                  CIE 110-1994 / EN 17037
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Natural daylight quotient, solar angle positioning & energy harvesting
+              </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded-md cursor-pointer">
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-white rounded-md hover:bg-slate-800 cursor-pointer transition">
             <X className="size-4" />
           </button>
         </div>
 
-        <div className="p-5 flex flex-col gap-4 text-xs">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-slate-400 font-semibold block mb-1">Geographic Location:</label>
-              <select
-                value={selectedCity}
-                onChange={(e) => {
-                  const city = cities.find((c) => c.name === e.target.value);
-                  if (city) {
-                    setSelectedCity(city.name);
-                    setLatitude(city.lat);
-                    setLongitude(city.lon);
-                  }
-                }}
-                className="w-full h-8 px-2.5 bg-slate-900 border border-slate-700 rounded text-white"
-              >
-                {cities.map((c) => (
-                  <option key={c.name} value={c.name}>{c.name} ({c.lat.toFixed(1)}°N)</option>
-                ))}
-              </select>
+        {/* Modal Body */}
+        <div className="p-5 flex flex-col gap-4 text-xs overflow-y-auto">
+          
+          {/* 1. Sky Model Selection (Tutorial Part 11 core feature) */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-bold text-slate-200 flex items-center gap-1.5">
+                <Cloud className="size-3.5 text-blue-400" /> CIE Sky Model (Standard Reference)
+              </label>
+              <span className="text-[10px] text-amber-400">
+                {skyModel === "overcast" ? "Required for EN 17037 Daylight Quotient" : "Direct Sunlight Supported"}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: "overcast", label: "CIE Overcast Sky", desc: "Diffuse 10,000 lx (No direct sun)", icon: Cloud },
+                { id: "average", label: "CIE Average Sky", desc: "Intermediate mixed sky", icon: Sun },
+                { id: "clear", label: "CIE Clear Sky", desc: "Clear blue sky + bright sunbeam", icon: Sparkles },
+              ].map((m) => {
+                const Icon = m.icon;
+                const isSel = skyModel === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setSkyModel(m.id as any);
+                      if (m.id === "clear") setDirectSunlight(true);
+                      if (m.id === "overcast") setDirectSunlight(false);
+                    }}
+                    className={`p-2.5 rounded-lg border text-left transition flex flex-col gap-0.5 cursor-pointer ${
+                      isSel
+                        ? "bg-amber-600/20 border-amber-500 text-white shadow-md shadow-amber-950/20"
+                        : "bg-[#14161a] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Icon className={`size-3.5 ${isSel ? "text-amber-400" : "text-slate-500"}`} />
+                      <span className="font-bold text-xs">{m.label}</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 leading-tight">{m.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Direct Sunlight & Shading Row */}
+          <div className="grid grid-cols-2 gap-3 bg-[#131519] p-3 rounded-lg border border-slate-800">
+            <label className={`flex items-center gap-2 cursor-pointer ${skyModel === "overcast" ? "opacity-50 cursor-not-allowed" : ""}`}>
+              <input
+                type="checkbox"
+                checked={directSunlight}
+                disabled={skyModel === "overcast"}
+                onChange={(e) => setDirectSunlight(e.target.checked)}
+                className="size-4 rounded accent-amber-500"
+              />
+              <div className="flex flex-col">
+                <span className="font-semibold text-white text-[11px]">Direct Sunlight Beam</span>
+                <span className="text-[9.5px] text-slate-400">
+                  {skyModel === "overcast" ? "Disabled for overcast sky" : "Calculate direct solar beam on workplane"}
+                </span>
+              </div>
+            </label>
+
+            <div className="flex items-center justify-between border-l border-slate-800 pl-3">
+              <div className="flex flex-col">
+                <span className="font-semibold text-white text-[11px]">Façade Shading</span>
+                <span className="text-[9.5px] text-slate-400">
+                  {showFacadeBlinds ? "Venetian blinds active (-70% cut)" : "Open (no blinds active)"}
+                </span>
+              </div>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                showFacadeBlinds ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-slate-800 text-slate-400"
+              }`}>
+                {showFacadeBlinds ? "Blinds Down" : "Open"}
+              </span>
+            </div>
+          </div>
+
+          {/* 2. Geographic Location, Date Presets & Time Slider */}
+          <div className="bg-[#121417] p-3.5 rounded-lg border border-slate-800 flex flex-col gap-3">
+            <div className="grid grid-cols-3 gap-2.5">
+              {/* City Selection */}
+              <div>
+                <label className="text-[10.5px] text-slate-400 font-semibold block mb-1">Geographic Location:</label>
+                <select
+                  value={selectedCity}
+                  onChange={(e) => {
+                    const city = cities.find((c) => c.name === e.target.value);
+                    if (city) {
+                      setSelectedCity(city.name);
+                      setLatitude(city.lat);
+                      setLongitude(city.lon);
+                    }
+                  }}
+                  className="w-full h-7 px-2 bg-[#181a1f] border border-slate-700 rounded text-white text-[11px]"
+                >
+                  {cities.map((c) => (
+                    <option key={c.name} value={c.name}>
+                      {c.name} ({c.lat >= 0 ? `${c.lat.toFixed(1)}°N` : `${Math.abs(c.lat).toFixed(1)}°S`})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date Presets */}
+              <div>
+                <label className="text-[10.5px] text-slate-400 font-semibold block mb-1 flex items-center gap-1">
+                  <Calendar className="size-3 text-amber-400" /> Astronomical Date:
+                </label>
+                <select
+                  value={datePreset}
+                  onChange={(e) => setDatePreset(e.target.value as any)}
+                  className="w-full h-7 px-2 bg-[#181a1f] border border-slate-700 rounded text-white text-[11px]"
+                >
+                  <option value="summer">21 June (Summer Solstice)</option>
+                  <option value="winter">21 Dec (Winter Solstice)</option>
+                  <option value="equinox">21 March (Equinox)</option>
+                  <option value="today">Today's Date</option>
+                </select>
+              </div>
+
+              {/* North Orientation */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10.5px] text-slate-400 font-semibold flex items-center gap-1">
+                    <Compass className="size-3 text-red-400" /> North Alignment:
+                  </label>
+                  <span className="text-[10px] text-amber-400 font-mono font-bold">{northOrientation}°</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  step="15"
+                  value={northOrientation}
+                  onChange={(e) => setNorthOrientation(parseInt(e.target.value) || 0)}
+                  className="w-full accent-amber-500 cursor-pointer"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="text-slate-400 font-semibold block mb-1">Time of Day (Sun Elevation):</label>
-              <div className="flex items-center gap-2">
+            {/* Time Slider & Solar Angles Readout */}
+            <div className="flex items-center justify-between gap-4 pt-1 border-t border-slate-800">
+              <div className="flex-1 flex flex-col gap-1">
+                <div className="flex justify-between items-center text-[10.5px]">
+                  <span className="text-slate-400 font-semibold flex items-center gap-1">
+                    <Clock className="size-3 text-blue-400" /> Time of Day (Sun Elevation):
+                  </span>
+                  <span className="font-mono text-amber-400 font-bold">{hour}:00</span>
+                </div>
                 <input
                   type="range"
                   min="6"
-                  max="18"
+                  max="19"
+                  step="1"
                   value={hour}
                   onChange={(e) => setHour(parseInt(e.target.value))}
-                  className="w-full accent-blue-500"
+                  className="w-full accent-amber-500 cursor-pointer"
                 />
-                <span className="font-mono text-white font-bold w-12 text-right">{hour}:00</span>
+              </div>
+
+              {/* Sun Solar Vector Metrics */}
+              <div className="flex items-center gap-2 bg-[#181a1f] px-3 py-1.5 rounded border border-slate-700/60">
+                <div className="text-center">
+                  <span className="text-[9px] text-slate-400 block">Altitude (α)</span>
+                  <strong className="text-amber-400 font-mono text-xs">{result.sunPosition.altitude}°</strong>
+                </div>
+                <div className="w-px h-6 bg-slate-700" />
+                <div className="text-center">
+                  <span className="text-[9px] text-slate-400 block">Azimuth (γ)</span>
+                  <strong className="text-blue-400 font-mono text-xs">{result.sunPosition.azimuth}°</strong>
+                </div>
+                <div className="w-px h-6 bg-slate-700" />
+                <div className="text-center">
+                  <span className="text-[9px] text-slate-400 block">Beam to Wall</span>
+                  <strong className={`font-mono text-xs ${result.sunPosition.directAngleToWindowDeg < 85 ? "text-emerald-400" : "text-slate-500"}`}>
+                    {result.sunPosition.directAngleToWindowDeg}°
+                  </strong>
+                </div>
               </div>
             </div>
           </div>
 
+          {/* 3. Surface & Apertures Summary Bar */}
           <div className="grid grid-cols-3 gap-2">
-            <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
-              <span className="text-[10px] text-slate-400 block">Solar Altitude (α)</span>
-              <strong className="text-amber-400 font-mono text-sm">{sunPos.altitude}°</strong>
+            {/* Ground Albedo */}
+            <div className="bg-[#14161a] p-2.5 rounded-lg border border-slate-800 flex flex-col gap-1">
+              <span className="text-[10px] text-slate-400 font-semibold">Ground Reflection (Albedo):</span>
+              <select
+                value={groundReflectance}
+                onChange={(e) => setGroundReflectance(parseFloat(e.target.value) || 0.2)}
+                className="w-full h-6 px-1.5 bg-[#181a1f] border border-slate-700 rounded text-white text-[10.5px]"
+              >
+                <option value="0.20">Lawn / Grass (20%)</option>
+                <option value="0.30">Light Concrete (30%)</option>
+                <option value="0.15">Dark Asphalt (15%)</option>
+                <option value="0.80">Clean Snow (80%)</option>
+                <option value="0.40">Dry Sand (40%)</option>
+              </select>
             </div>
-            <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
-              <span className="text-[10px] text-slate-400 block">Solar Azimuth (γ)</span>
-              <strong className="text-amber-400 font-mono text-sm">{sunPos.azimuth}°</strong>
+
+            {/* Glazing Transmittance */}
+            <div className="bg-[#14161a] p-2.5 rounded-lg border border-slate-800 flex flex-col gap-1">
+              <span className="text-[10px] text-slate-400 font-semibold">Glass Transmittance (τv):</span>
+              <select
+                value={glassTransmittance}
+                onChange={(e) => setGlassTransmittance(parseFloat(e.target.value) || 0.75)}
+                className="w-full h-6 px-1.5 bg-[#181a1f] border border-slate-700 rounded text-white text-[10.5px]"
+              >
+                <option value="0.75">Clear Double Glazing (75%)</option>
+                <option value="0.65">Triple Glazing Low-E (65%)</option>
+                <option value="0.50">Solar Control Glass (50%)</option>
+                <option value="0.35">Tinted Privacy Glass (35%)</option>
+              </select>
             </div>
-            <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
-              <span className="text-[10px] text-slate-400 block">Exterior Lux (CIE)</span>
-              <strong className="text-blue-400 font-mono text-sm">{dfResult.exteriorLux.toLocaleString()} lx</strong>
+
+            {/* Windows in Space */}
+            <div className="bg-[#14161a] p-2.5 rounded-lg border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-400 font-semibold block">Daylight Windows:</span>
+                <span className="text-white font-bold text-xs">{windowCount} active</span>
+                <span className="text-[9.5px] text-slate-500 block">{(windowCount * windowWidth * windowHeight).toFixed(2)} m² Glazing</span>
+              </div>
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenApertures();
+                }}
+                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-blue-300 rounded border border-slate-700 text-[10.5px] cursor-pointer"
+              >
+                Edit Windows
+              </button>
             </div>
           </div>
 
-          <div className="p-3 bg-[#14161a] border border-slate-800 rounded-lg flex items-center justify-between">
-            <div>
-              <span className="text-white font-semibold block">Window Glazing:</span>
-              <span className="text-slate-400 text-[11px]">
-                {windowCount} windows active (Total Glazing: {(windowCount * windowWidth * windowHeight).toFixed(2)} m²)
-              </span>
+          {/* 4. Results Navigation Tabs */}
+          <div className="flex border-b border-slate-800 gap-2">
+            {[
+              { id: "daylight_factor", label: "Daylight Factor (EN 17037)" },
+              { id: "illuminance", label: "Workplane Illuminance (lx)" },
+              { id: "energy_savings", label: "Energy Harvesting (EN 15193)" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`pb-2 text-xs font-bold transition border-b-2 cursor-pointer ${
+                  activeTab === tab.id
+                    ? "border-amber-500 text-amber-300"
+                    : "border-transparent text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab 1: Daylight Factor Results */}
+          {activeTab === "daylight_factor" && (
+            <div className="flex flex-col gap-3 animate-in fade-in duration-150">
+              <div className="grid grid-cols-4 gap-2">
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Average DF (Davg)</span>
+                  <strong className={`font-mono text-base ${result.isCompliant ? "text-emerald-400" : "text-amber-400"}`}>
+                    {result.avgDaylightFactor}%
+                  </strong>
+                </div>
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Minimum DF (Dmin)</span>
+                  <strong className="text-white font-mono text-base">{result.minDaylightFactor}%</strong>
+                </div>
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Maximum DF (Dmax)</span>
+                  <strong className="text-white font-mono text-base">{result.maxDaylightFactor}%</strong>
+                </div>
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Uniformity (U0)</span>
+                  <strong className="text-amber-400 font-mono text-base">{result.uniformityU0}</strong>
+                </div>
+              </div>
+
+              {/* Compliance Card */}
+              <div className={`p-3.5 rounded-lg border flex items-center justify-between ${
+                result.isCompliant ? "bg-emerald-950/20 border-emerald-500/30" : "bg-amber-950/20 border-amber-500/30"
+              }`}>
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white text-sm">EN 17037 Standard Assessment:</span>
+                    <span className={`px-2 py-0.5 rounded text-[10.5px] font-bold ${
+                      result.en17037Level === "High"
+                        ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                        : result.en17037Level === "Medium"
+                        ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                        : result.en17037Level === "Minimum"
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                        : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                    }`}>
+                      {result.en17037Level !== "None" ? `Level ${result.en17037Level} Compliant` : "Below EN 17037 Target (<2.0%)"}
+                    </span>
+                  </div>
+                  <span className="text-slate-400 text-[11px]">
+                    BREEAM Hea 01 requires Davg ≥ 2.0% across workplane. Maintained overcast illuminance: ~{result.avgDaylightLux} lx.
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 block">Exterior CIE Sky</span>
+                  <strong className="text-blue-400 font-mono text-sm">{result.exteriorHorizontalLux.toLocaleString()} lx</strong>
+                </div>
+              </div>
             </div>
+          )}
+
+          {/* Tab 2: Workplane Illuminance */}
+          {activeTab === "illuminance" && (
+            <div className="flex flex-col gap-3 animate-in fade-in duration-150">
+              <div className="grid grid-cols-4 gap-2">
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Avg Daylight Lux</span>
+                  <strong className="text-emerald-400 font-mono text-base">{result.avgDaylightLux} lx</strong>
+                </div>
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Min Daylight Lux</span>
+                  <strong className="text-white font-mono text-base">{result.minDaylightLux} lx</strong>
+                </div>
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Max Daylight Lux</span>
+                  <strong className="text-white font-mono text-base">{result.maxDaylightLux} lx</strong>
+                </div>
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Direct Sun Area</span>
+                  <strong className="text-amber-400 font-mono text-base">{result.directSunPatchArea} m²</strong>
+                </div>
+              </div>
+
+              <div className="p-3 bg-[#131519] rounded-lg border border-slate-800 flex items-center justify-between text-[11px]">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-white font-semibold">Exterior Normal Direct Beam:</span>
+                  <span className="text-slate-400">
+                    {result.exteriorDirectNormalLux.toLocaleString()} lx (Solar Altitude: {result.sunPosition.altitude}°)
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-white font-semibold">Max Direct Beam Inside Room:</span>
+                  <span className="text-amber-400 font-mono font-bold block">{result.directSunMaxLux} lx</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tab 3: Energy Savings & Harvesting */}
+          {activeTab === "energy_savings" && (
+            <div className="flex flex-col gap-3 animate-in fade-in duration-150">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Daylight Autonomy (DA)</span>
+                  <strong className="text-emerald-400 font-mono text-lg">{result.daylightAutonomyDA}%</strong>
+                </div>
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Continuous DA (cDA)</span>
+                  <strong className="text-blue-400 font-mono text-lg">{result.continuousDaylightAutonomyCDA}%</strong>
+                </div>
+                <div className="bg-[#14161a] p-2.5 rounded border border-slate-800 text-center">
+                  <span className="text-[10px] text-slate-400 block">Dimming Potential</span>
+                  <strong className="text-amber-400 font-mono text-lg">{result.energySavingsPercent}%</strong>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-emerald-950/20 border border-emerald-500/30 rounded-lg flex items-center justify-between">
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-bold text-white text-xs">EN 15193 Daylight Harvesting Savings:</span>
+                  <span className="text-slate-400 text-[11px]">
+                    Photo-sensor dims artificial lighting by up to {result.energySavingsPercent}% during daylight hours.
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 block">Annual Savings</span>
+                  <strong className="text-emerald-400 font-mono text-lg">{result.annualEnergySavedKwh} kWh/a</strong>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        {/* Modal Footer */}
+        <div className="px-5 py-3.5 bg-[#131519] border-t border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => {
-                onClose();
-                onOpenApertures();
+                const summaryText = `DIALux evo Daylight Simulation Report (EN 17037 / CIE 110-1994)\nLocation: ${selectedCity} (${latitude}°N, ${longitude}°E)\nSky Model: ${skyModel.toUpperCase()}\nSun Altitude: ${result.sunPosition.altitude}°, Azimuth: ${result.sunPosition.azimuth}°\nAverage Daylight Factor: ${result.avgDaylightFactor}%\nEN 17037 Compliance: ${result.en17037Level}\nAnnual Energy Saved: ${result.annualEnergySavedKwh} kWh/a`;
+                navigator.clipboard?.writeText(summaryText);
+                toast.success("Copied EN 17037 Daylight Calculation Summary to clipboard");
               }}
-              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-blue-300 rounded border border-slate-700 text-[11px] cursor-pointer"
+              className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 transition text-xs flex items-center gap-1.5 cursor-pointer"
             >
-              Edit Windows
+              <Download className="size-3.5 text-blue-400" />
+              <span>Copy Report Summary</span>
             </button>
           </div>
 
-          <div className={`p-3.5 rounded-lg border flex items-center justify-between ${
-            dfResult.isCompliant ? "bg-emerald-950/20 border-emerald-500/30" : "bg-amber-950/20 border-amber-500/30"
-          }`}>
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold text-white text-sm">Average Daylight Factor (DF):</span>
-                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                  dfResult.isCompliant ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"
-                }`}>
-                  {dfResult.isCompliant ? "EN 17037 PASS (≥2.0%)" : "BELOW TARGET (<2.0%)"}
-                </span>
-              </div>
-              <span className="text-slate-400 text-[11px]">
-                Maintained Daylight Illuminance: ~{dfResult.avgDaylightLux} lx on workplane (CIE Overcast Sky)
-              </span>
-            </div>
-            <div className="text-right">
-              <strong className={`text-2xl font-black font-mono ${
-                dfResult.isCompliant ? "text-emerald-400" : "text-amber-400"
-              }`}>
-                {dfResult.avgDaylightFactor}%
-              </strong>
-            </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="px-3.5 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 transition text-xs cursor-pointer">
+              Close
+            </button>
+            {onApplyDaylightScene && (
+              <button
+                onClick={() => {
+                  onApplyDaylightScene({
+                    skyModel,
+                    directSunlight: skyModel !== "overcast" && directSunlight,
+                    hour,
+                    latitude,
+                    longitude,
+                    cityName: selectedCity,
+                    northOrientation,
+                    sunAltitude: result.sunPosition.altitude,
+                    sunAzimuth: result.sunPosition.azimuth,
+                    groundReflectance,
+                    glassTransmittance,
+                  });
+                  onClose();
+                  toast.success(`Applied Daylight Scene: ${skyModel} at ${hour}:00 (${selectedCity})`);
+                }}
+                className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold transition text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-900/30"
+              >
+                <Check className="size-3.5" />
+                <span>Apply Daylight to 3D View</span>
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="px-5 py-3 bg-[#131519] border-t border-slate-800 flex items-center justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold transition text-xs cursor-pointer shadow-md"
-          >
-            Close
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -4783,6 +5225,9 @@ export interface SavedCameraViewpoint {
   targetY: number;
   targetZ: number;
   fov?: number;
+  slot?: number; // 1 to 9 (Tutorial 15 memory slots)
+  thumbnail?: string;
+  kelvin?: number;
 }
 
 export interface DialuxDisplayOptionsPanelProps {
@@ -5552,4 +5997,22 @@ export function DialuxDisplayOptionsPanel({
   );
 }
 
-
+export { SimpleIndoorPlanningModal, type SimpleIndoorPlanningModalProps } from "./SimpleIndoorPlanningModal";
+export { StaircaseExtrusionModal, type StaircaseExtrusionModalProps } from "./StaircaseExtrusionModal";
+export { StaircaseCopyAlongLineModal, type StaircaseCopyAlongLineModalProps } from "./StaircaseCopyAlongLineModal";
+export { WhiteBalanceCameraModal, type WhiteBalanceCameraModalProps } from "./WhiteBalanceCameraModal";
+export { DialuxRoundaboutModal, type DialuxRoundaboutModalProps } from "./DialuxRoundaboutModal";
+export { DialuxUGRModal, type DialuxUGRModalProps } from "./DialuxUGRModal";
+export { DialuxDrawingFromScratchModal, type DialuxDrawingFromScratchModalProps } from "./DialuxDrawingFromScratchModal";
+export { DialuxMedianStripModal, type DialuxMedianStripModalProps } from "./DialuxMedianStripModal";
+export { DialuxMaintenanceFactorStudioModal, type DialuxMaintenanceFactorStudioModalProps } from "./DialuxMaintenanceFactorStudioModal";
+export { DialuxLightScenesStudioModal, type DialuxLightScenesStudioModalProps } from "./DialuxLightScenesStudioModal";
+export { DialuxPoolLightingStudioModal, type DialuxPoolLightingStudioModalProps } from "./DialuxPoolLightingStudioModal";
+export { DialuxDaylightSystemsStudioModal, type DialuxDaylightSystemsStudioModalProps } from "./DialuxDaylightSystemsStudioModal";
+export { DialuxCutoutRoofStudioModal, type DialuxCutoutRoofStudioModalProps } from "./DialuxCutoutRoofStudioModal";
+export { DialuxWorkplaneStudioModal, type DialuxWorkplaneStudioModalProps } from "./DialuxWorkplaneStudioModal";
+export { DialuxStandardsStudioModal, type DialuxStandardsStudioModalProps } from "./DialuxStandardsStudioModal";
+export { DialuxTexturesStudioModal, type DialuxTexturesStudioModalProps } from "./DialuxTexturesStudioModal";
+export { DialuxImprovingLuminairesModal, type DialuxImprovingLuminairesModalProps } from "./DialuxImprovingLuminairesModal";
+export { DialuxCompleteSceneryModal, type DialuxCompleteSceneryModalProps } from "./DialuxCompleteSceneryModal";
+export { DialuxEffectiveLightingModal, type DialuxEffectiveLightingModalProps } from "./DialuxEffectiveLightingModal";

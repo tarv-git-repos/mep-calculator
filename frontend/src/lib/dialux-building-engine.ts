@@ -185,121 +185,45 @@ export const ROOM_PRESETS_EN12464 = [
  * and realistic indoor room contours (Office, Conference, Corridor, Restroom).
  */
 export function createDefaultBuilding(
-  buildingL: number = 12.0,
-  buildingW: number = 8.0,
-  storeyH: number = 2.80
+  buildingL: number = 6.0,
+  buildingW: number = 4.0,
+  storeyH: number = 2.80,
+  roomName: string = "Space 1"
 ): BuildingModel {
+  const L = Math.max(1, buildingL);
+  const W = Math.max(1, buildingW);
   const exteriorContour: Point2D[] = [
     { x: 0, y: 0 },
-    { x: buildingL, y: 0 },
-    { x: buildingL, y: buildingW },
-    { x: 0, y: buildingW },
+    { x: L, y: 0 },
+    { x: L, y: W },
+    { x: 0, y: W },
   ];
 
-  // Room 1: Open Office (West Wing: 7m x 5m)
-  const room1Poly: Point2D[] = [
-    { x: 0.2, y: 0.2 },
-    { x: 7.2, y: 0.2 },
-    { x: 7.2, y: 5.2 },
-    { x: 0.2, y: 5.2 },
+  const mainRoomPoly: Point2D[] = [
+    { x: 0, y: 0 },
+    { x: L, y: 0 },
+    { x: L, y: W },
+    { x: 0, y: W },
   ];
-  const r1Box = computeBoundingBox(room1Poly);
-
-  // Room 2: Conference Room (East Wing: 4.4m x 4.8m)
-  const room2Poly: Point2D[] = [
-    { x: 7.4, y: 0.2 },
-    { x: 11.8, y: 0.2 },
-    { x: 11.8, y: 5.0 },
-    { x: 7.4, y: 5.0 },
-  ];
-  const r2Box = computeBoundingBox(room2Poly);
-
-  // Room 3: Main Corridor (Access spine: 11.6m x 1.4m)
-  const room3Poly: Point2D[] = [
-    { x: 0.2, y: 5.4 },
-    { x: 11.8, y: 5.4 },
-    { x: 11.8, y: 6.6 },
-    { x: 0.2, y: 6.6 },
-  ];
-  const r3Box = computeBoundingBox(room3Poly);
-
-  // Room 4: Restroom & Service (South East: 4.4m x 1.1m)
-  const room4Poly: Point2D[] = [
-    { x: 7.4, y: 6.7 },
-    { x: 11.8, y: 6.7 },
-    { x: 11.8, y: 7.8 },
-    { x: 7.4, y: 7.8 },
-  ];
-  const r4Box = computeBoundingBox(room4Poly);
+  const rBox = computeBoundingBox(mainRoomPoly);
 
   const defaultRooms: IndoorRoomContour[] = [
     {
-      id: "room-open-office",
-      name: "Main Open Office",
+      id: "room-1",
+      name: roomName,
       storeyId: "storey-1",
-      polygon: room1Poly,
+      polygon: mainRoomPoly,
       wallThickness: 0.15,
       height: storeyH,
       targetLux: 500,
-      applicationProfile: "Offices - Writing, typing, reading data",
-      areaM2: calculatePolygonArea(room1Poly),
-      perimeterM: calculatePolygonPerimeter(room1Poly),
+      applicationProfile: "General Indoor Space",
+      areaM2: calculatePolygonArea(mainRoomPoly),
+      perimeterM: calculatePolygonPerimeter(mainRoomPoly),
       color: "#3b82f6",
-      originX: r1Box.minX,
-      originY: r1Box.minY,
-      length: r1Box.length,
-      width: r1Box.width,
-    },
-    {
-      id: "room-conference",
-      name: "Conference Room",
-      storeyId: "storey-1",
-      polygon: room2Poly,
-      wallThickness: 0.15,
-      height: storeyH,
-      targetLux: 500,
-      applicationProfile: "Offices - Conference and meeting rooms",
-      areaM2: calculatePolygonArea(room2Poly),
-      perimeterM: calculatePolygonPerimeter(room2Poly),
-      color: "#8b5cf6",
-      originX: r2Box.minX,
-      originY: r2Box.minY,
-      length: r2Box.length,
-      width: r2Box.width,
-    },
-    {
-      id: "room-corridor",
-      name: "Access Corridor",
-      storeyId: "storey-1",
-      polygon: room3Poly,
-      wallThickness: 0.12,
-      height: storeyH,
-      targetLux: 100,
-      applicationProfile: "Traffic zones and inside corridors",
-      areaM2: calculatePolygonArea(room3Poly),
-      perimeterM: calculatePolygonPerimeter(room3Poly),
-      color: "#10b981",
-      originX: r3Box.minX,
-      originY: r3Box.minY,
-      length: r3Box.length,
-      width: r3Box.width,
-    },
-    {
-      id: "room-restroom",
-      name: "Restroom & Facilities",
-      storeyId: "storey-1",
-      polygon: room4Poly,
-      wallThickness: 0.12,
-      height: storeyH,
-      targetLux: 200,
-      applicationProfile: "Rest, sanitation and first aid rooms",
-      areaM2: calculatePolygonArea(room4Poly),
-      perimeterM: calculatePolygonPerimeter(room4Poly),
-      color: "#06b6d4",
-      originX: r4Box.minX,
-      originY: r4Box.minY,
-      length: r4Box.length,
-      width: r4Box.width,
+      originX: rBox.minX,
+      originY: rBox.minY,
+      length: rBox.length,
+      width: rBox.width,
     },
   ];
 
@@ -316,14 +240,14 @@ export function createDefaultBuilding(
 
   return {
     id: "building-1",
-    name: "Corporate Building A",
-    description: "Standard commercial multi-room storey matching DIALux evo Tutorial Part 3",
+    name: "Building Structure",
+    description: "Architectural envelope aligned with room space",
     exteriorContour,
     wallThicknessM: 0.25,
     totalHeightM: storeyH,
     storeys: [storey1],
     activeStoreyId: "storey-1",
-    activeRoomId: defaultRooms[0].id,
+    activeRoomId: "room-1",
   };
 }
 

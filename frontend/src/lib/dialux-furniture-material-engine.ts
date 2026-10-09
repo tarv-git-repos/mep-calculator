@@ -610,7 +610,43 @@ export type FurnitureType =
   | "conference_table"
   | "bookshelf"
   | "monitor"
-  | "reception_desk";
+  | "reception_desk"
+  | "staircase"
+  | "extrusion_body"
+  | "step_unit"
+  | "step_light"
+  | "grouped_assembly";
+
+export interface ExtrusionPolygonPoint {
+  x: number;
+  y: number;
+}
+
+export interface StaircaseParameters {
+  type: "straight" | "with_landing" | "quarter_turn" | "half_turn" | "compact" | "floating" | "spiral";
+  stepCount: number;
+  riserHeight: number;
+  treadDepth: number;
+  stairWidth: number;
+  waistThickness: number;
+  hasTopLanding: boolean;
+  topLandingLength: number;
+  hasHandrail: boolean;
+  handrailSide: "left" | "right" | "both";
+  materialId: string;
+  colorHex: string;
+  calcSurfaceEnabled: boolean;
+  targetLux: number;
+  // DIALux evo Tutorial Part 14: Multi-flight & Copy Along Line parameters
+  flight2StepCount?: number;
+  landingDepth?: number;
+  turnDirection?: "left" | "right";
+  wellGapWidth?: number;
+  stepLightCount?: number;
+  stepLightSpacing?: number;
+  stepLightLumens?: number;
+  hasStepLights?: boolean;
+}
 
 export interface FurniturePart {
   id: string;
@@ -639,6 +675,12 @@ export interface FurnitureItem {
   colorHex: string;
   materialId: string;
   parts: FurniturePart[];
+  stairConfig?: StaircaseParameters;
+  extrusionPolygon?: ExtrusionPolygonPoint[];
+  extrusionDepth?: number;
+  subItems?: FurnitureItem[];
+  isGrouped?: boolean;
+  stepLights?: Array<{ x: number; y: number; z: number; lumens: number; wattage: number }>;
 }
 
 // ============================================================================
@@ -1291,3 +1333,1454 @@ export function generateCircularFurnitureArray(
 
   return items;
 }
+
+// ============================================================================
+// 6. DIALUX EVO TUTORIAL PART 13: STAIRCASES & EXTRUSION BODIES
+// ============================================================================
+
+/**
+ * Calculates ergonomic comfort per Blondel's Rule (2 * Riser + Tread = 60 to 65 cm)
+ * and Staircase Pitch Angle.
+ */
+export function calculateStaircaseBlondel(riserHeight: number, treadDepth: number): {
+  blondelValueCm: number;
+  pitchDeg: number;
+  isComfortable: boolean;
+  verdict: string;
+} {
+  const rCm = riserHeight * 100;
+  const tCm = treadDepth * 100;
+  const blondel = 2 * rCm + tCm;
+  const pitch = Math.atan2(riserHeight, treadDepth) * (180 / Math.PI);
+  const isComfortable = blondel >= 60 && blondel <= 65;
+  const verdict = isComfortable
+    ? "Compliant with Blondel comfort rule (2s + a = 60-65 cm)"
+    : blondel < 60
+    ? "Too shallow / long stride (2s + a < 60 cm)"
+    : "Too steep / short stride (2s + a > 65 cm)";
+  return {
+    blondelValueCm: Number(blondel.toFixed(1)),
+    pitchDeg: Number(pitch.toFixed(1)),
+    isComfortable,
+    verdict,
+  };
+}
+
+/**
+ * Creates an Architectural Staircase Compound Object matching DIALux evo Tutorial Part 13.
+ * Supports straight flights, landings, stringers, handrails, and EN 12464-1 calculation surface.
+ */
+export function createStaircaseItem(
+  id: string,
+  x: number,
+  z: number,
+  rotationDeg = 0,
+  config: Partial<StaircaseParameters> = {}
+): FurnitureItem {
+  const params: StaircaseParameters = {
+    type: config.type || "straight",
+    stepCount: config.stepCount || 10,
+    riserHeight: config.riserHeight || 0.17,
+    treadDepth: config.treadDepth || 0.28,
+    stairWidth: config.stairWidth || 1.20,
+    waistThickness: config.waistThickness || 0.15,
+    hasTopLanding: config.hasTopLanding ?? false,
+    topLandingLength: config.topLandingLength || 1.20,
+    hasHandrail: config.hasHandrail ?? true,
+    handrailSide: config.handrailSide || "right",
+    materialId: config.materialId || "concrete_fair_faced",
+    colorHex: config.colorHex || "#94a3b8",
+    calcSurfaceEnabled: config.calcSurfaceEnabled ?? true,
+    targetLux: config.targetLux || 100,
+  };
+
+  const totalRun = params.stepCount * params.treadDepth + (params.hasTopLanding ? params.topLandingLength : 0);
+  const totalHeight = params.stepCount * params.riserHeight;
+  const parts: FurniturePart[] = [];
+
+  // 1. Generate individual step blocks (Riser & Tread)
+  for (let i = 0; i < params.stepCount; i++) {
+    const stepZ = i * params.treadDepth - totalRun / 2 + params.treadDepth / 2;
+    const stepY = i * params.riserHeight;
+    parts.push({
+      id: `${id}_step_${i + 1}`,
+      name: `Step ${i + 1}`,
+      relX: 0,
+      relY: stepY,
+      relZ: stepZ,
+      width: params.stairWidth,
+      length: params.treadDepth,
+      height: params.riserHeight,
+      colorHex: params.colorHex,
+      shape: "box",
+    });
+  }
+
+  // 2. Top Landing Platform (if enabled)
+  if (params.hasTopLanding) {
+    const landingZ = params.stepCount * params.treadDepth - totalRun / 2 + params.topLandingLength / 2;
+    parts.push({
+      id: `${id}_top_landing`,
+      name: "Top Landing Platform",
+      relX: 0,
+      relY: totalHeight - params.riserHeight,
+      relZ: landingZ,
+      width: params.stairWidth,
+      length: params.topLandingLength,
+      height: params.riserHeight,
+      colorHex: params.colorHex,
+      shape: "box",
+    });
+  }
+
+  // 3. Structural Side Stringers
+  const stringerWidth = 0.05;
+  parts.push({
+    id: `${id}_stringer_left`,
+    name: "Left Stringer",
+    relX: -params.stairWidth / 2 + stringerWidth / 2,
+    relY: totalHeight / 2 - 0.05,
+    relZ: 0,
+    width: stringerWidth,
+    length: totalRun,
+    height: totalHeight * 0.45,
+    colorHex: "#475569",
+    shape: "box",
+  });
+  parts.push({
+    id: `${id}_stringer_right`,
+    name: "Right Stringer",
+    relX: params.stairWidth / 2 - stringerWidth / 2,
+    relY: totalHeight / 2 - 0.05,
+    relZ: 0,
+    width: stringerWidth,
+    length: totalRun,
+    height: totalHeight * 0.45,
+    colorHex: "#475569",
+    shape: "box",
+  });
+
+  // 4. Handrail Posts & Top Banister Rail (0.90 m elevation)
+  if (params.hasHandrail) {
+    const railX = params.handrailSide === "left" ? -params.stairWidth / 2 + 0.04 : params.stairWidth / 2 - 0.04;
+    const postCount = Math.max(3, Math.min(6, Math.floor(params.stepCount / 2)));
+    const postInterval = Math.floor(params.stepCount / postCount);
+
+    for (let p = 0; p <= postCount; p++) {
+      const stepIdx = Math.min(params.stepCount - 1, p * postInterval);
+      const postZ = stepIdx * params.treadDepth - totalRun / 2 + params.treadDepth / 2;
+      const postY = stepIdx * params.riserHeight + params.riserHeight;
+      parts.push({
+        id: `${id}_handrail_post_${p}`,
+        name: `Handrail Post ${p + 1}`,
+        relX: railX,
+        relY: postY,
+        relZ: postZ,
+        width: 0.04,
+        length: 0.04,
+        height: 0.90,
+        colorHex: "#334155",
+        shape: "cylinder",
+      });
+    }
+
+    // Top Handrail Rail Bar
+    parts.push({
+      id: `${id}_handrail_bar`,
+      name: "Top Handrail Banister",
+      relX: railX,
+      relY: totalHeight / 2 + 0.90,
+      relZ: 0,
+      width: 0.05,
+      length: totalRun,
+      height: 0.05,
+      colorHex: "#1e293b",
+      shape: "box",
+    });
+  }
+
+  return {
+    id,
+    name: `Staircase (${params.stepCount} Steps, ${params.type})`,
+    type: "staircase",
+    x,
+    y: 0,
+    z,
+    width: params.stairWidth,
+    length: totalRun,
+    height: totalHeight,
+    rotationDeg,
+    colorHex: params.colorHex,
+    materialId: params.materialId,
+    parts,
+    stairConfig: params,
+  };
+}
+
+/**
+ * Creates an Extrusion Body from an arbitrary 2D polygon profile (Tutorial 13).
+ */
+export function createExtrusionBodyItem(
+  id: string,
+  name: string,
+  x: number,
+  z: number,
+  depth: number,
+  polygon: ExtrusionPolygonPoint[],
+  rotationDeg = 0,
+  materialId = "concrete_fair_faced",
+  colorHex = "#94a3b8"
+): FurnitureItem {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  polygon.forEach((pt) => {
+    if (pt.x < minX) minX = pt.x;
+    if (pt.x > maxX) maxX = pt.x;
+    if (pt.y < minY) minY = pt.y;
+    if (pt.y > maxY) maxY = pt.y;
+  });
+
+  const width = Math.max(0.1, maxX - minX);
+  const height = Math.max(0.1, maxY - minY);
+
+  const parts: FurniturePart[] = [];
+  const segments = polygon.length;
+  for (let i = 0; i < segments - 1; i++) {
+    const p1 = polygon[i];
+    const p2 = polygon[i + 1];
+    const segW = Math.max(0.05, Math.abs(p2.x - p1.x));
+    const segH = Math.max(0.05, Math.abs(p2.y - p1.y));
+    const midX = (p1.x + p2.x) / 2 - (minX + maxX) / 2;
+    const midY = (p1.y + p2.y) / 2 - minY;
+    parts.push({
+      id: `${id}_slice_${i + 1}`,
+      name: `Extrusion Segment ${i + 1}`,
+      relX: midX,
+      relY: midY,
+      relZ: 0,
+      width: segW,
+      length: depth,
+      height: segH,
+      colorHex,
+      shape: "box",
+    });
+  }
+
+  return {
+    id,
+    name,
+    type: "extrusion_body",
+    x,
+    y: 0,
+    z,
+    width,
+    length: depth,
+    height,
+    rotationDeg,
+    colorHex,
+    materialId,
+    parts,
+    extrusionPolygon: polygon,
+    extrusionDepth: depth,
+  };
+}
+
+/**
+ * Point-by-point calculation of illuminance across staircase treads (EN 12464-1 & Tutorial Part 13 Pro-Tip).
+ */
+export function calculateStaircaseLighting(params: {
+  stair: FurnitureItem;
+  luminaires: Array<{ x: number; y: number; z: number; lumens?: number; wattage?: number; isExcluded?: boolean }>;
+  mf?: number;
+}): {
+  avgLux: number;
+  minLux: number;
+  maxLux: number;
+  uniformityU0: number;
+  stepPoints: Array<{ stepNumber: number; x: number; y: number; z: number; lux: number }>;
+  isCompliant: boolean;
+  targetLux: number;
+} {
+  const { stair, luminaires, mf = 0.8 } = params;
+  const cfg = stair.stairConfig;
+  const targetLux = cfg?.targetLux || 100;
+  const stepCount = cfg?.stepCount || 10;
+  const riserH = cfg?.riserHeight || 0.17;
+  const treadD = cfg?.treadDepth || 0.28;
+  const totalRun = stair.length;
+
+  const rad = (stair.rotationDeg * Math.PI) / 180;
+  const cosR = Math.cos(rad);
+  const sinR = Math.sin(rad);
+
+  const stepPoints: Array<{ stepNumber: number; x: number; y: number; z: number; lux: number }> = [];
+
+  for (let i = 0; i < stepCount; i++) {
+    const localRelZ = i * treadD - totalRun / 2 + treadD / 2;
+    const localRelY = (i + 1) * riserH;
+
+    // World coordinates of step tread center
+    const worldX = stair.x - localRelZ * sinR;
+    const worldY = stair.y + localRelY;
+    const worldZ = stair.z + localRelZ * cosR;
+
+    let stepLux = 0;
+    for (const lum of luminaires) {
+      if (lum.isExcluded) continue;
+      const dx = worldX - lum.x;
+      const dz = worldZ - lum.y; // room width maps to lum.y
+      const dy = lum.z - worldY;
+      const distHoriz = Math.sqrt(dx * dx + dz * dz);
+      const dist3D = Math.sqrt(distHoriz * distHoriz + dy * dy);
+      if (dist3D <= 0.1) continue;
+
+      const cosPsi = Math.max(0, dy / dist3D); // horizontal surface cosine
+      const fixtureLumens = lum.lumens || 3600;
+      const I_approx = (fixtureLumens / (2 * Math.PI)) * cosPsi;
+
+      const directLux = (I_approx * cosPsi * mf) / (dist3D * dist3D);
+      stepLux += directLux;
+    }
+
+    stepPoints.push({
+      stepNumber: i + 1,
+      x: Number(worldX.toFixed(2)),
+      y: Number(worldY.toFixed(2)),
+      z: Number(worldZ.toFixed(2)),
+      lux: Math.round(stepLux),
+    });
+  }
+
+  const luxValues = stepPoints.map((p) => p.lux);
+  const avgLux = luxValues.length > 0 ? Math.round(luxValues.reduce((a, b) => a + b, 0) / luxValues.length) : 0;
+  const minLux = luxValues.length > 0 ? Math.min(...luxValues) : 0;
+  const maxLux = luxValues.length > 0 ? Math.max(...luxValues) : 0;
+  const uniformityU0 = avgLux > 0 ? parseFloat((minLux / avgLux).toFixed(2)) : 0;
+  const isCompliant = avgLux >= targetLux && uniformityU0 >= 0.40;
+
+  return {
+    avgLux,
+    minLux,
+    maxLux,
+    uniformityU0,
+    stepPoints,
+    isCompliant,
+    targetLux,
+  };
+}
+
+// ============================================================================
+// 7. DIALUX EVO TUTORIAL PART 14: COPY ALONG A LINE, MULTI-FLIGHT STAIRS & GROUPING
+// ============================================================================
+
+export interface CopyAlongLineConfig {
+  sourceTemplate: "step_box" | "floating_tread" | "baluster_post" | "step_light" | "cube_block" | "custom_item";
+  customItem?: FurnitureItem;
+  startX: number;
+  startY: number;
+  startZ: number;
+  endX: number;
+  endY: number;
+  endZ: number;
+  mode: "fixed_count" | "fixed_spacing";
+  count: number;
+  spacing: number;
+  riserOffsetDeltaY: number;
+  alignment: "keep" | "follow_line";
+  materialId: string;
+  colorHex: string;
+  groupResults: boolean;
+  stepWidth?: number;
+  stepTreadDepth?: number;
+  stepRiserHeight?: number;
+  stepLightLumens?: number;
+  stepLightWattage?: number;
+}
+
+/**
+ * Creates a standalone step block furniture item.
+ */
+export function createStepUnitItem(
+  id: string,
+  x: number,
+  y: number,
+  z: number,
+  width = 1.20,
+  treadDepth = 0.28,
+  riserHeight = 0.17,
+  rotationDeg = 0,
+  materialId = "concrete_fair_faced",
+  colorHex = "#94a3b8"
+): FurnitureItem {
+  const parts: FurniturePart[] = [
+    {
+      id: `${id}_block`,
+      name: "Tread Block",
+      relX: 0,
+      relY: 0,
+      relZ: 0,
+      width,
+      length: treadDepth,
+      height: riserHeight,
+      colorHex,
+      shape: "box",
+    },
+    // High-visibility yellow safety edge
+    {
+      id: `${id}_nosing`,
+      name: "Safety Nosing Strip",
+      relX: 0,
+      relY: riserHeight - 0.005,
+      relZ: -treadDepth / 2 + 0.02,
+      width,
+      length: 0.04,
+      height: 0.01,
+      colorHex: "#eab308",
+      shape: "box",
+    },
+  ];
+
+  return {
+    id,
+    name: "Stair Step Unit",
+    type: "step_unit",
+    x,
+    y,
+    z,
+    width,
+    length: treadDepth,
+    height: riserHeight,
+    rotationDeg,
+    colorHex,
+    materialId,
+    parts,
+  };
+}
+
+/**
+ * Creates a floating cantilevered tread step with wall bracket anchor pin.
+ */
+export function createFloatingTreadUnitItem(
+  id: string,
+  x: number,
+  y: number,
+  z: number,
+  width = 1.10,
+  treadDepth = 0.30,
+  treadThickness = 0.05,
+  rotationDeg = 0,
+  materialId = "wood_oak_parquet",
+  colorHex = "#d4b996"
+): FurnitureItem {
+  const parts: FurniturePart[] = [
+    // Wood / stone cantilever tread slab
+    {
+      id: `${id}_slab`,
+      name: "Floating Tread Slab",
+      relX: 0,
+      relY: 0,
+      relZ: 0,
+      width,
+      length: treadDepth,
+      height: treadThickness,
+      colorHex,
+      shape: "box",
+    },
+    // Embedded steel wall mounting anchor pin
+    {
+      id: `${id}_wall_pin`,
+      name: "Steel Wall Anchor Pin",
+      relX: -width / 2 - 0.05,
+      relY: treadThickness / 2 - 0.015,
+      relZ: 0,
+      width: 0.12,
+      length: 0.04,
+      height: 0.03,
+      colorHex: "#334155",
+      shape: "box",
+    },
+  ];
+
+  return {
+    id,
+    name: "Floating Cantilever Tread",
+    type: "step_unit",
+    x,
+    y,
+    z,
+    width,
+    length: treadDepth,
+    height: treadThickness,
+    rotationDeg,
+    colorHex,
+    materialId,
+    parts,
+  };
+}
+
+/**
+ * Creates a recessed wall step luminaire fixture (Tutorial Part 14 Step Lighting).
+ */
+export function createStepLightItem(
+  id: string,
+  x: number,
+  y: number,
+  z: number,
+  rotationDeg = 0,
+  lumens = 250,
+  wattage = 4,
+  colorHex = "#0284c7"
+): FurnitureItem {
+  const parts: FurniturePart[] = [
+    {
+      id: `${id}_housing`,
+      name: "Recessed Step Light Bezel",
+      relX: 0,
+      relY: 0,
+      relZ: 0,
+      width: 0.15,
+      length: 0.04,
+      height: 0.08,
+      colorHex: "#1e293b",
+      shape: "box",
+    },
+    {
+      id: `${id}_lens`,
+      name: "Diffuser Glass Lens",
+      relX: 0,
+      relY: -0.01,
+      relZ: 0.015,
+      width: 0.12,
+      length: 0.01,
+      height: 0.03,
+      colorHex: "#fef08a",
+      shape: "box",
+    },
+  ];
+
+  return {
+    id,
+    name: `Step Luminaire (${lumens} lm)`,
+    type: "step_light",
+    x,
+    y,
+    z,
+    width: 0.15,
+    length: 0.04,
+    height: 0.08,
+    rotationDeg,
+    colorHex,
+    materialId: "metal_black_powder",
+    parts,
+    stepLights: [{ x, y, z, lumens, wattage }],
+  };
+}
+
+/**
+ * Executes DIALux evo Tutorial Part 14: "Copy along a line" (Copy and Arrange tool).
+ * Duplicates a selected object or step component along a 3D line vector with
+ * elevation rise per step, orientation following line, and optional grouping.
+ */
+export function generateCopyAlongLineObjects(config: CopyAlongLineConfig): FurnitureItem[] {
+  const {
+    sourceTemplate,
+    customItem,
+    startX,
+    startY,
+    startZ,
+    endX,
+    endY,
+    endZ,
+    mode,
+    count: inputCount,
+    spacing: inputSpacing,
+    riserOffsetDeltaY,
+    alignment,
+    materialId,
+    colorHex,
+    groupResults,
+    stepWidth = 1.20,
+    stepTreadDepth = 0.28,
+    stepRiserHeight = 0.17,
+    stepLightLumens = 250,
+    stepLightWattage = 4,
+  } = config;
+
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const dz = endZ - startZ;
+  const distHoriz = Math.sqrt(dx * dx + dz * dz);
+  const lineAngleDeg = (Math.atan2(dz, dx) * 180) / Math.PI;
+
+  let count = inputCount;
+  if (mode === "fixed_spacing") {
+    const spacing = Math.max(0.1, inputSpacing);
+    count = Math.max(2, Math.floor(distHoriz / spacing) + 1);
+  } else {
+    count = Math.max(2, inputCount);
+  }
+
+  const generatedItems: FurnitureItem[] = [];
+  const timestamp = Date.now();
+
+  for (let i = 0; i < count; i++) {
+    const t = count > 1 ? i / (count - 1) : 0;
+    const posX = startX + t * dx;
+    const posZ = startZ + t * dz;
+    const posY = startY + (riserOffsetDeltaY > 0 ? i * riserOffsetDeltaY : t * dy);
+
+    const rotation =
+      alignment === "follow_line"
+        ? lineAngleDeg
+        : customItem
+        ? customItem.rotationDeg
+        : 0;
+
+    const itemId = `copied_item_${timestamp}_${i + 1}`;
+
+    if (sourceTemplate === "step_box") {
+      generatedItems.push(
+        createStepUnitItem(
+          itemId,
+          posX,
+          posY,
+          posZ,
+          stepWidth,
+          stepTreadDepth,
+          stepRiserHeight,
+          rotation,
+          materialId,
+          colorHex
+        )
+      );
+    } else if (sourceTemplate === "floating_tread") {
+      generatedItems.push(
+        createFloatingTreadUnitItem(
+          itemId,
+          posX,
+          posY,
+          posZ,
+          stepWidth,
+          stepTreadDepth,
+          0.05,
+          rotation,
+          materialId,
+          colorHex
+        )
+      );
+    } else if (sourceTemplate === "baluster_post") {
+      const balusterParts: FurniturePart[] = [
+        {
+          id: `${itemId}_post`,
+          name: "Baluster Post",
+          relX: 0,
+          relY: 0,
+          relZ: 0,
+          width: 0.04,
+          length: 0.04,
+          height: 0.90,
+          colorHex: "#334155",
+          shape: "cylinder",
+        },
+      ];
+      generatedItems.push({
+        id: itemId,
+        name: `Baluster Post ${i + 1}`,
+        type: "cube",
+        x: posX,
+        y: posY,
+        z: posZ,
+        width: 0.04,
+        length: 0.04,
+        height: 0.90,
+        rotationDeg: rotation,
+        colorHex: "#334155",
+        materialId: "metal_black_powder",
+        parts: balusterParts,
+      });
+    } else if (sourceTemplate === "step_light") {
+      generatedItems.push(
+        createStepLightItem(
+          itemId,
+          posX,
+          posY,
+          posZ,
+          rotation,
+          stepLightLumens,
+          stepLightWattage,
+          "#0284c7"
+        )
+      );
+    } else if (sourceTemplate === "custom_item" && customItem) {
+      // Deep clone custom item with new coordinates
+      const clonedParts = customItem.parts.map((p, pIdx) => ({
+        ...p,
+        id: `${itemId}_part_${pIdx + 1}`,
+      }));
+      generatedItems.push({
+        ...customItem,
+        id: itemId,
+        name: `${customItem.name} (${i + 1})`,
+        x: posX,
+        y: posY,
+        z: posZ,
+        rotationDeg: rotation,
+        parts: clonedParts,
+      });
+    } else {
+      generatedItems.push(
+        createCubeItem(
+          itemId,
+          posX,
+          posZ,
+          stepWidth,
+          stepTreadDepth,
+          stepRiserHeight,
+          rotation,
+          materialId,
+          colorHex
+        )
+      );
+    }
+  }
+
+  // If groupResults is true, group into a single compound assembly (Tutorial 14)
+  if (groupResults && generatedItems.length > 1) {
+    const groupName =
+      sourceTemplate === "step_box"
+        ? `Stair Flight (${count} Steps via Line Array)`
+        : sourceTemplate === "floating_tread"
+        ? `Floating Staircase (${count} Treads via Line Array)`
+        : `Grouped Line Array (${count} Items)`;
+    return [groupFurnitureItems(generatedItems, groupName)];
+  }
+
+  return generatedItems;
+}
+
+/**
+ * Groups multiple furniture items into a single compound assembly (Tutorial 14 Grouping).
+ * Recalculates relative part offsets from the common bounding centroid.
+ */
+export function groupFurnitureItems(
+  items: FurnitureItem[],
+  groupName = "Grouped Assembly"
+): FurnitureItem {
+  if (items.length === 1) return items[0];
+
+  // Calculate bounding box across all items in world space
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  let minZ = Infinity, maxZ = -Infinity;
+
+  items.forEach((item) => {
+    const hW = item.width / 2;
+    const hL = item.length / 2;
+    if (item.x - hW < minX) minX = item.x - hW;
+    if (item.x + hW > maxX) maxX = item.x + hW;
+    if (item.y < minY) minY = item.y;
+    if (item.y + item.height > maxY) maxY = item.y + item.height;
+    if (item.z - hL < minZ) minZ = item.z - hL;
+    if (item.z + hL > maxZ) maxZ = item.z + hL;
+  });
+
+  const centerX = (minX + maxX) / 2;
+  const centerY = minY;
+  const centerZ = (minZ + maxZ) / 2;
+  const totalWidth = Math.max(0.2, maxX - minX);
+  const totalLength = Math.max(0.2, maxZ - minZ);
+  const totalHeight = Math.max(0.1, maxY - minY);
+
+  const aggregatedParts: FurniturePart[] = [];
+  const aggregatedStepLights: Array<{ x: number; y: number; z: number; lumens: number; wattage: number }> = [];
+
+  items.forEach((item, itemIdx) => {
+    const offsetX = item.x - centerX;
+    const offsetY = item.y - centerY;
+    const offsetZ = item.z - centerZ;
+
+    item.parts.forEach((part, partIdx) => {
+      aggregatedParts.push({
+        ...part,
+        id: `grp_${itemIdx}_${partIdx}_${part.id}`,
+        relX: offsetX + part.relX,
+        relY: offsetY + part.relY,
+        relZ: offsetZ + part.relZ,
+      });
+    });
+
+    if (item.stepLights) {
+      aggregatedStepLights.push(...item.stepLights);
+    }
+  });
+
+  return {
+    id: `group_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    name: groupName,
+    type: "grouped_assembly",
+    x: Number(centerX.toFixed(3)),
+    y: Number(centerY.toFixed(3)),
+    z: Number(centerZ.toFixed(3)),
+    width: Number(totalWidth.toFixed(3)),
+    length: Number(totalLength.toFixed(3)),
+    height: Number(totalHeight.toFixed(3)),
+    rotationDeg: 0,
+    colorHex: items[0]?.colorHex || "#94a3b8",
+    materialId: items[0]?.materialId || "concrete_fair_faced",
+    parts: aggregatedParts,
+    subItems: items,
+    isGrouped: true,
+    stepLights: aggregatedStepLights.length > 0 ? aggregatedStepLights : undefined,
+  };
+}
+
+/**
+ * Ungroups a compound assembly or staircase into individual furniture items (Tutorial 14 Ungrouping).
+ */
+export function ungroupFurnitureItem(groupedItem: FurnitureItem): FurnitureItem[] {
+  if (groupedItem.subItems && groupedItem.subItems.length > 0) {
+    return groupedItem.subItems;
+  }
+
+  // Fallback: explode parts into individual items
+  return groupedItem.parts.map((part, idx) => ({
+    id: `ungrouped_${groupedItem.id}_${idx + 1}`,
+    name: part.name || `Item Part ${idx + 1}`,
+    type: "cube",
+    x: groupedItem.x + part.relX,
+    y: groupedItem.y + part.relY,
+    z: groupedItem.z + part.relZ,
+    width: part.width,
+    length: part.length,
+    height: part.height,
+    rotationDeg: groupedItem.rotationDeg,
+    colorHex: part.colorHex || groupedItem.colorHex,
+    materialId: groupedItem.materialId,
+    parts: [
+      {
+        ...part,
+        relX: 0,
+        relY: 0,
+        relZ: 0,
+      },
+    ],
+  }));
+}
+
+/**
+ * Boolean Combine (Merge) multiple furniture objects into a single solid monolithic geometry (Tutorial 14).
+ */
+export function combineFurnitureItems(
+  items: FurnitureItem[],
+  combinedName = "Combined Monolithic Stair"
+): FurnitureItem {
+  const grp = groupFurnitureItems(items, combinedName);
+  return {
+    ...grp,
+    type: "staircase",
+    isGrouped: false,
+    subItems: undefined,
+  };
+}
+
+/**
+ * Creates an L-Shaped (Quarter-Turn) Architectural Staircase with intermediate Landing (Tutorial Part 14).
+ */
+export function createLShapedStaircaseItem(
+  id: string,
+  x: number,
+  z: number,
+  rotationDeg = 0,
+  config: Partial<StaircaseParameters> = {}
+): FurnitureItem {
+  const flight1Count = config.stepCount || 8;
+  const flight2Count = config.flight2StepCount || 8;
+  const riserH = config.riserHeight || 0.17;
+  const treadD = config.treadDepth || 0.28;
+  const width = config.stairWidth || 1.20;
+  const turnDir = config.turnDirection || "right"; // "left" or "right"
+  const matId = config.materialId || "concrete_fair_faced";
+  const colHex = config.colorHex || "#94a3b8";
+
+  const flight1Run = flight1Count * treadD;
+  const flight2Run = flight2Count * treadD;
+  const landingSize = width;
+  const totalRise = (flight1Count + flight2Count + 1) * riserH;
+
+  const parts: FurniturePart[] = [];
+
+  // Flight 1: Steps along Z axis
+  for (let i = 0; i < flight1Count; i++) {
+    parts.push({
+      id: `${id}_f1_step_${i + 1}`,
+      name: `Flight 1 - Step ${i + 1}`,
+      relX: 0,
+      relY: i * riserH,
+      relZ: i * treadD - flight1Run / 2,
+      width,
+      length: treadD,
+      height: riserH,
+      colorHex: colHex,
+      shape: "box",
+    });
+  }
+
+  // Quarter Landing Platform at elevation flight1Count * riserH
+  const landingY = flight1Count * riserH;
+  const landingZ = flight1Run / 2 + landingSize / 2 - treadD / 2;
+  parts.push({
+    id: `${id}_quarter_landing`,
+    name: "Quarter Landing Platform",
+    relX: 0,
+    relY: landingY,
+    relZ: landingZ,
+    width: landingSize,
+    length: landingSize,
+    height: riserH,
+    colorHex: colHex,
+    shape: "box",
+  });
+
+  // Flight 2: Steps turned 90 deg extending along X axis
+  const dirSign = turnDir === "right" ? 1 : -1;
+  for (let j = 0; j < flight2Count; j++) {
+    const stepY = (flight1Count + 1 + j) * riserH;
+    const stepX = dirSign * (landingSize / 2 + j * treadD + treadD / 2);
+    parts.push({
+      id: `${id}_f2_step_${j + 1}`,
+      name: `Flight 2 - Step ${j + 1}`,
+      relX: stepX,
+      relY: stepY,
+      relZ: landingZ,
+      width: treadD,
+      length: width,
+      height: riserH,
+      colorHex: colHex,
+      shape: "box",
+    });
+  }
+
+  // Safety Handrail Posts & Rails
+  if (config.hasHandrail ?? true) {
+    // Outer handrail on Flight 1
+    const railX = -width / 2 + 0.04;
+    parts.push({
+      id: `${id}_f1_rail`,
+      name: "Flight 1 Handrail",
+      relX: railX,
+      relY: landingY / 2 + 0.90,
+      relZ: 0,
+      width: 0.04,
+      length: flight1Run,
+      height: 0.04,
+      colorHex: "#1e293b",
+      shape: "box",
+    });
+    // Outer handrail on Flight 2
+    parts.push({
+      id: `${id}_f2_rail`,
+      name: "Flight 2 Handrail",
+      relX: dirSign * (landingSize / 2 + flight2Run / 2),
+      relY: (landingY + totalRise) / 2 + 0.90,
+      relZ: landingZ + width / 2 - 0.04,
+      width: flight2Run,
+      length: 0.04,
+      height: 0.04,
+      colorHex: "#1e293b",
+      shape: "box",
+    });
+  }
+
+  const stairParams: StaircaseParameters = {
+    type: "quarter_turn",
+    stepCount: flight1Count,
+    flight2StepCount: flight2Count,
+    riserHeight: riserH,
+    treadDepth: treadD,
+    stairWidth: width,
+    waistThickness: 0.15,
+    hasTopLanding: false,
+    topLandingLength: 1.20,
+    hasHandrail: config.hasHandrail ?? true,
+    handrailSide: "both",
+    materialId: matId,
+    colorHex: colHex,
+    calcSurfaceEnabled: true,
+    targetLux: config.targetLux || 100,
+    turnDirection: turnDir,
+  };
+
+  return {
+    id,
+    name: `L-Shaped Staircase (${flight1Count}+${flight2Count} Steps, Quarter-Turn)`,
+    type: "staircase",
+    x,
+    y: 0,
+    z,
+    width: width + flight2Run,
+    length: flight1Run + landingSize,
+    height: totalRise,
+    rotationDeg,
+    colorHex: colHex,
+    materialId: matId,
+    parts,
+    stairConfig: stairParams,
+  };
+}
+
+/**
+ * Creates a U-Shaped (Half-Turn / Dog-Leg) Architectural Staircase (Tutorial Part 14).
+ */
+export function createUShapedStaircaseItem(
+  id: string,
+  x: number,
+  z: number,
+  rotationDeg = 0,
+  config: Partial<StaircaseParameters> = {}
+): FurnitureItem {
+  const flight1Count = config.stepCount || 8;
+  const flight2Count = config.flight2StepCount || 8;
+  const riserH = config.riserHeight || 0.17;
+  const treadD = config.treadDepth || 0.28;
+  const width = config.stairWidth || 1.10;
+  const gap = config.wellGapWidth || 0.20;
+  const landingD = config.landingDepth || 1.20;
+  const matId = config.materialId || "concrete_fair_faced";
+  const colHex = config.colorHex || "#94a3b8";
+
+  const flightRun = Math.max(flight1Count, flight2Count) * treadD;
+  const halfLandingWidth = 2 * width + gap;
+  const totalRise = (flight1Count + flight2Count + 1) * riserH;
+  const midLandingY = flight1Count * riserH;
+
+  const parts: FurniturePart[] = [];
+
+  // Flight 1: Ascends in +Z direction on the left
+  const f1CenterX = -width / 2 - gap / 2;
+  for (let i = 0; i < flight1Count; i++) {
+    parts.push({
+      id: `${id}_f1_step_${i + 1}`,
+      name: `Flight 1 - Step ${i + 1}`,
+      relX: f1CenterX,
+      relY: i * riserH,
+      relZ: i * treadD - flightRun / 2,
+      width,
+      length: treadD,
+      height: riserH,
+      colorHex: colHex,
+      shape: "box",
+    });
+  }
+
+  // Half Landing Platform at intermediate elevation spanning both flights
+  const landingZ = flightRun / 2 + landingD / 2 - treadD / 2;
+  parts.push({
+    id: `${id}_half_landing`,
+    name: "Half-Turn Intermediate Landing",
+    relX: 0,
+    relY: midLandingY,
+    relZ: landingZ,
+    width: halfLandingWidth,
+    length: landingD,
+    height: riserH,
+    colorHex: colHex,
+    shape: "box",
+  });
+
+  // Flight 2: Ascends in -Z direction (180 degree turn) on the right
+  const f2CenterX = width / 2 + gap / 2;
+  for (let j = 0; j < flight2Count; j++) {
+    const stepY = (flight1Count + 1 + j) * riserH;
+    const stepZ = landingZ - landingD / 2 - j * treadD - treadD / 2;
+    parts.push({
+      id: `${id}_f2_step_${j + 1}`,
+      name: `Flight 2 - Step ${j + 1}`,
+      relX: f2CenterX,
+      relY: stepY,
+      relZ: stepZ,
+      width,
+      length: treadD,
+      height: riserH,
+      colorHex: colHex,
+      shape: "box",
+    });
+  }
+
+  // Central Stairwell Balustrade divider
+  parts.push({
+    id: `${id}_central_guard`,
+    name: "Stairwell Eye Guardrail",
+    relX: 0,
+    relY: midLandingY / 2 + 0.90,
+    relZ: 0,
+    width: 0.04,
+    length: flightRun,
+    height: 0.04,
+    colorHex: "#1e293b",
+    shape: "box",
+  });
+
+  const stairParams: StaircaseParameters = {
+    type: "half_turn",
+    stepCount: flight1Count,
+    flight2StepCount: flight2Count,
+    riserHeight: riserH,
+    treadDepth: treadD,
+    stairWidth: width,
+    waistThickness: 0.15,
+    hasTopLanding: false,
+    topLandingLength: 1.20,
+    hasHandrail: true,
+    handrailSide: "both",
+    materialId: matId,
+    colorHex: colHex,
+    calcSurfaceEnabled: true,
+    targetLux: config.targetLux || 100,
+    landingDepth: landingD,
+    wellGapWidth: gap,
+  };
+
+  return {
+    id,
+    name: `U-Shaped Staircase (${flight1Count}+${flight2Count} Steps, Half-Turn)`,
+    type: "staircase",
+    x,
+    y: 0,
+    z,
+    width: halfLandingWidth,
+    length: flightRun + landingD,
+    height: totalRise,
+    rotationDeg,
+    colorHex: colHex,
+    materialId: matId,
+    parts,
+    stairConfig: stairParams,
+  };
+}
+
+/**
+ * Creates a Modern Cantilevered Floating Tread Staircase (Tutorial Part 14).
+ */
+export function createFloatingCantileverStaircaseItem(
+  id: string,
+  x: number,
+  z: number,
+  rotationDeg = 0,
+  config: Partial<StaircaseParameters> = {}
+): FurnitureItem {
+  const stepCount = config.stepCount || 12;
+  const riserH = config.riserHeight || 0.18;
+  const treadD = config.treadDepth || 0.28;
+  const width = config.stairWidth || 1.10;
+  const matId = config.materialId || "wood_oak_parquet";
+  const colHex = config.colorHex || "#d4b996";
+  const totalRun = stepCount * treadD;
+  const totalRise = stepCount * riserH;
+
+  const parts: FurniturePart[] = [];
+
+  for (let i = 0; i < stepCount; i++) {
+    const stepZ = i * treadD - totalRun / 2 + treadD / 2;
+    const stepY = i * riserH;
+    // Wood / stone cantilever tread
+    parts.push({
+      id: `${id}_tread_${i + 1}`,
+      name: `Floating Tread ${i + 1}`,
+      relX: 0,
+      relY: stepY,
+      relZ: stepZ,
+      width,
+      length: treadD,
+      height: 0.05,
+      colorHex: colHex,
+      shape: "box",
+    });
+    // Embedded steel wall mounting anchor pin
+    parts.push({
+      id: `${id}_pin_${i + 1}`,
+      name: `Wall Anchor Pin ${i + 1}`,
+      relX: -width / 2 - 0.05,
+      relY: stepY + 0.015,
+      relZ: stepZ,
+      width: 0.12,
+      length: 0.05,
+      height: 0.04,
+      colorHex: "#334155",
+      shape: "box",
+    });
+  }
+
+  // Frameless Architectural Glass Balustrade on the outer edge
+  parts.push({
+    id: `${id}_glass_rail`,
+    name: "Architectural Glass Balustrade",
+    relX: width / 2 - 0.02,
+    relY: totalRise / 2 + 0.45,
+    relZ: 0,
+    width: 0.02,
+    length: totalRun,
+    height: 0.95,
+    colorHex: "#e0f2fe",
+    shape: "box",
+  });
+
+  const stairParams: StaircaseParameters = {
+    type: "floating",
+    stepCount,
+    riserHeight: riserH,
+    treadDepth: treadD,
+    stairWidth: width,
+    waistThickness: 0.05,
+    hasTopLanding: false,
+    topLandingLength: 1.20,
+    hasHandrail: true,
+    handrailSide: "right",
+    materialId: matId,
+    colorHex: colHex,
+    calcSurfaceEnabled: true,
+    targetLux: config.targetLux || 100,
+  };
+
+  return {
+    id,
+    name: `Floating Cantilevered Staircase (${stepCount} Treads)`,
+    type: "staircase",
+    x,
+    y: 0,
+    z,
+    width,
+    length: totalRun,
+    height: totalRise,
+    rotationDeg,
+    colorHex: colHex,
+    materialId: matId,
+    parts,
+    stairConfig: stairParams,
+  };
+}
+
+/**
+ * Creates a Spiral / Curved Array Staircase around a central pillar (Tutorial Part 14).
+ */
+export function createSpiralStaircaseItem(
+  id: string,
+  x: number,
+  z: number,
+  rotationDeg = 0,
+  config: Partial<StaircaseParameters> = {}
+): FurnitureItem {
+  const stepCount = config.stepCount || 16;
+  const riserH = config.riserHeight || 0.18;
+  const radius = (config.stairWidth || 1.80) / 2;
+  const matId = config.materialId || "wood_oak_parquet";
+  const colHex = config.colorHex || "#d4b996";
+  const totalRise = stepCount * riserH;
+
+  const parts: FurniturePart[] = [];
+
+  // Central cylindrical newel post
+  parts.push({
+    id: `${id}_central_column`,
+    name: "Central Newel Pillar",
+    relX: 0,
+    relY: totalRise / 2,
+    relZ: 0,
+    width: 0.20,
+    length: 0.20,
+    height: totalRise,
+    colorHex: "#334155",
+    shape: "cylinder",
+  });
+
+  // Radial winder steps fanning out in a polar circle
+  const angleStepRad = (Math.PI * 1.5) / stepCount; // 270 deg total turn
+  for (let i = 0; i < stepCount; i++) {
+    const angle = i * angleStepRad;
+    const midR = radius * 0.6;
+    const stepX = Math.cos(angle) * midR;
+    const stepZ = Math.sin(angle) * midR;
+    const stepY = i * riserH;
+
+    parts.push({
+      id: `${id}_spiral_step_${i + 1}`,
+      name: `Spiral Step ${i + 1}`,
+      relX: Number(stepX.toFixed(3)),
+      relY: stepY,
+      relZ: Number(stepZ.toFixed(3)),
+      width: radius * 0.7,
+      length: 0.28,
+      height: 0.05,
+      colorHex: colHex,
+      shape: "box",
+    });
+  }
+
+  const stairParams: StaircaseParameters = {
+    type: "spiral",
+    stepCount,
+    riserHeight: riserH,
+    treadDepth: 0.28,
+    stairWidth: radius * 2,
+    waistThickness: 0.05,
+    hasTopLanding: false,
+    topLandingLength: 1.0,
+    hasHandrail: true,
+    handrailSide: "right",
+    materialId: matId,
+    colorHex: colHex,
+    calcSurfaceEnabled: true,
+    targetLux: config.targetLux || 100,
+  };
+
+  return {
+    id,
+    name: `Spiral Staircase (${stepCount} Steps, R=${radius.toFixed(1)}m)`,
+    type: "staircase",
+    x,
+    y: 0,
+    z,
+    width: radius * 2,
+    length: radius * 2,
+    height: totalRise,
+    rotationDeg,
+    colorHex: colHex,
+    materialId: matId,
+    parts,
+    stairConfig: stairParams,
+  };
+}
+
+/**
+ * Calculates photometric compliance across multi-flight staircases and step lights (Tutorial Part 14).
+ */
+export function calculateMultiFlightStaircaseLighting(params: {
+  stair: FurnitureItem;
+  luminaires: Array<{ x: number; y: number; z: number; lumens?: number; wattage?: number; isExcluded?: boolean }>;
+  mf?: number;
+}): {
+  avgLux: number;
+  minLux: number;
+  maxLux: number;
+  uniformityU0: number;
+  flight1AvgLux: number;
+  flight2AvgLux: number;
+  landingAvgLux: number;
+  stepPoints: Array<{ stepNumber: number; flight: string; x: number; y: number; z: number; lux: number }>;
+  isCompliant: boolean;
+  targetLux: number;
+} {
+  const { stair, luminaires, mf = 0.8 } = params;
+  const cfg = stair.stairConfig;
+  const targetLux = cfg?.targetLux || 100;
+  const f1Count = cfg?.stepCount || 8;
+  const f2Count = cfg?.flight2StepCount || 8;
+  const riserH = cfg?.riserHeight || 0.17;
+  const treadD = cfg?.treadDepth || 0.28;
+
+  // Combine general room luminaires and dedicated step lights
+  const allLights = [
+    ...luminaires.filter((l) => !l.isExcluded),
+    ...(stair.stepLights || []).map((sl) => ({
+      x: sl.x,
+      y: sl.z,
+      z: sl.y,
+      lumens: sl.lumens,
+      wattage: sl.wattage,
+      isExcluded: false,
+    })),
+  ];
+
+  const stepPoints: Array<{ stepNumber: number; flight: string; x: number; y: number; z: number; lux: number }> = [];
+
+  const evalPoint = (wx: number, wy: number, wz: number): number => {
+    let ptLux = 0;
+    for (const lum of allLights) {
+      const dx = wx - lum.x;
+      const dz = wz - lum.y;
+      const dy = lum.z - wy;
+      const distHoriz = Math.sqrt(dx * dx + dz * dz);
+      const dist3D = Math.sqrt(distHoriz * distHoriz + dy * dy);
+      if (dist3D <= 0.05) continue;
+
+      const cosPsi = Math.max(0, dy / dist3D);
+      const fixtureLumens = lum.lumens || 3600;
+      const I_approx = (fixtureLumens / (2 * Math.PI)) * cosPsi;
+      const directLux = (I_approx * cosPsi * mf) / (dist3D * dist3D);
+      ptLux += directLux;
+    }
+    return Math.round(ptLux);
+  };
+
+  // Flight 1 treads
+  for (let i = 0; i < f1Count; i++) {
+    const wx = stair.x;
+    const wy = stair.y + (i + 1) * riserH;
+    const wz = stair.z + i * treadD - (f1Count * treadD) / 2;
+    stepPoints.push({
+      stepNumber: i + 1,
+      flight: "Flight 1",
+      x: Number(wx.toFixed(2)),
+      y: Number(wy.toFixed(2)),
+      z: Number(wz.toFixed(2)),
+      lux: evalPoint(wx, wy, wz),
+    });
+  }
+
+  // Intermediate Landing
+  const landingWy = stair.y + (f1Count + 1) * riserH;
+  const landingWz = stair.z + (f1Count * treadD) / 2 + 0.6;
+  stepPoints.push({
+    stepNumber: f1Count + 1,
+    flight: "Landing",
+    x: Number(stair.x.toFixed(2)),
+    y: Number(landingWy.toFixed(2)),
+    z: Number(landingWz.toFixed(2)),
+    lux: evalPoint(stair.x, landingWy, landingWz),
+  });
+
+  // Flight 2 treads (if present)
+  if (cfg?.type === "quarter_turn" || cfg?.type === "half_turn") {
+    for (let j = 0; j < f2Count; j++) {
+      const wx = cfg.type === "half_turn" ? stair.x + 1.2 : stair.x + (j + 1) * treadD;
+      const wy = stair.y + (f1Count + 1 + j + 1) * riserH;
+      const wz = cfg.type === "half_turn" ? landingWz - (j + 1) * treadD : landingWz;
+      stepPoints.push({
+        stepNumber: f1Count + 2 + j,
+        flight: "Flight 2",
+        x: Number(wx.toFixed(2)),
+        y: Number(wy.toFixed(2)),
+        z: Number(wz.toFixed(2)),
+        lux: evalPoint(wx, wy, wz),
+      });
+    }
+  }
+
+  const luxValues = stepPoints.map((p) => p.lux);
+  const avgLux = luxValues.length > 0 ? Math.round(luxValues.reduce((a, b) => a + b, 0) / luxValues.length) : 0;
+  const minLux = luxValues.length > 0 ? Math.min(...luxValues) : 0;
+  const maxLux = luxValues.length > 0 ? Math.max(...luxValues) : 0;
+  const uniformityU0 = avgLux > 0 ? parseFloat((minLux / avgLux).toFixed(2)) : 0;
+
+  const f1Points = stepPoints.filter((p) => p.flight === "Flight 1");
+  const f2Points = stepPoints.filter((p) => p.flight === "Flight 2");
+  const lPoints = stepPoints.filter((p) => p.flight === "Landing");
+
+  const flight1AvgLux = f1Points.length > 0 ? Math.round(f1Points.reduce((a, b) => a + b.lux, 0) / f1Points.length) : 0;
+  const flight2AvgLux = f2Points.length > 0 ? Math.round(f2Points.reduce((a, b) => a + b.lux, 0) / f2Points.length) : 0;
+  const landingAvgLux = lPoints.length > 0 ? Math.round(lPoints.reduce((a, b) => a + b.lux, 0) / lPoints.length) : 0;
+
+  const isCompliant = avgLux >= targetLux && uniformityU0 >= 0.40;
+
+  return {
+    avgLux,
+    minLux,
+    maxLux,
+    uniformityU0,
+    flight1AvgLux,
+    flight2AvgLux,
+    landingAvgLux,
+    stepPoints,
+    isCompliant,
+    targetLux,
+  };
+}
+

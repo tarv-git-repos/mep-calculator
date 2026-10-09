@@ -842,14 +842,6 @@ function CompanyHierarchyPage() {
     const cleanTitle = user.designation || ROLE_TITLE_MAP[mappedRole] || "Design Engineer";
     setFormDesignation(cleanTitle);
 
-    if (["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(mappedRole)) {
-      setFormApprovalAuthority("APPROVE_REJECT");
-    } else if (["SR_DESIGN_ENGINEER", "ENGINEER", "BIM_COORDINATOR"].includes(mappedRole)) {
-      setFormApprovalAuthority("REVIEW");
-    } else {
-      setFormApprovalAuthority("NONE");
-    }
-
     if (user.department && ["Management", "HVAC", "Electrical", "Plumbing", "Fire Fighting", "BIM & IT"].includes(user.department)) {
       setFormDepartment(user.department);
     } else if (user.role) {
@@ -911,13 +903,7 @@ function CompanyHierarchyPage() {
     setFormDepartment(defaultDept);
     setFormRole(defaultRole);
     setFormDesignation(ROLE_TITLE_MAP[defaultRole] || "Design Engineer");
-    setFormApprovalAuthority(
-      ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(defaultRole) 
-        ? "APPROVE_REJECT" 
-        : ["SR_DESIGN_ENGINEER", "ENGINEER", "BIM_COORDINATOR"].includes(defaultRole) 
-        ? "REVIEW" 
-        : "NONE"
-    );
+    setFormApprovalAuthority("NONE");
     const initialParents = presetParentId !== undefined ? (presetParentId ? [presetParentId] : []) : (members[0]?.id ? [members[0].id] : []);
     setFormParentIds(initialParents);
     setFormParentId(initialParents[0] || null);
@@ -935,14 +921,7 @@ function CompanyHierarchyPage() {
     setFormDesignation(member.designation || defaultTitle);
     setShowEmailSuggestions(false);
     setShowNameSuggestions(false);
-    setFormApprovalAuthority(
-      member.approvalAuthority ||
-      (["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(member.role)
-        ? "APPROVE_REJECT"
-        : ["SR_DESIGN_ENGINEER", "ENGINEER", "BIM_COORDINATOR"].includes(member.role)
-        ? "REVIEW"
-        : "NONE")
-    );
+    setFormApprovalAuthority(member.approvalAuthority || "NONE");
     const pIds = getMemberParentIds(member);
     setFormParentIds(pIds);
     setFormParentId(pIds[0] || null);
@@ -1018,7 +997,8 @@ function CompanyHierarchyPage() {
       email: targetEmail,
       designation: targetDesignation,
       role: targetRole,
-      department: targetDepartment
+      department: targetDepartment,
+      approvalAuthority: targetAuthority
     };
 
     api.adminUpdateProfile(targetEmail, profileUpdates).catch(err => {
@@ -2056,12 +2036,10 @@ function NodeCard({
     ? rawEffDesig 
     : rawEffRole;
 
-  const isApprover = member.approvalAuthority === "APPROVE_REJECT" || ["SUPER_ADMIN", "ORG_ADMIN", "PROJECT_MANAGER", "TEAM_LEADER", "DISCIPLINE_COORDINATOR"].includes(finalRole);
-  
-  // Deterministic workflow logic based on tree structure
-  const showSubmit = !hasSubordinates; // Leaf nodes always submit
-  const showApprove = hasSubordinates && isApprover; // Managers with approve authority
-  const showReview = hasSubordinates && !isApprover; // Middle managers without approve authority
+  // Functionality is decoupled from tree structure / roles, purely based on approvalAuthority
+  const showSubmit = member.approvalAuthority === "SUBMIT_TASK";
+  const showApprove = member.approvalAuthority === "APPROVE_REJECT";
+  const showReview = member.approvalAuthority === "REVIEW";
 
   return (
     <div
@@ -2299,12 +2277,14 @@ function AuthorityBadge({ authority }: { authority?: ApprovalAuthority }) {
           <UserCheck className="size-3" /> Review
         </span>
       );
-    case "NONE":
-    default:
+    case "SUBMIT_TASK":
       return (
-        <span className="px-2 py-0.5 rounded-full text-[9px] font-medium bg-slate-500/10 text-muted-foreground border border-slate-500/20 uppercase tracking-wider flex items-center gap-1" title="No review or approval authority">
-          None
+        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 uppercase tracking-wider flex items-center gap-1" title="Can submit calculation sheets">
+          <ArrowRight className="size-3" /> Submit
         </span>
       );
+    case "NONE":
+    default:
+      return null;
   }
 }

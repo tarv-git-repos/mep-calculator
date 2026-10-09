@@ -81,7 +81,8 @@ export const exportCondensatePDF = async (
     const clientName = meta.client || activeProj?.client || "-";
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "-";
 
-    const uTemp = isIP ? "deg F" : "deg C";
+    const uTemp = isIP ? "°C" : "°C"; // or °F for IP
+    const uTempStr = isIP ? "°F" : "°C";
     const uFlow = isIP ? "CFM" : "L/s";
     const uCond = isIP ? "GPM" : "L/s";
 
@@ -192,7 +193,7 @@ export const exportCondensatePDF = async (
     (totalRow as any)._isTotal = true;
     tableBody.push(totalRow);
 
-    // Standard Ventilation Header Color #D9D9D9 [217, 217, 217]
+    // Standard Clean Gray Header Color #D9D9D9 [217, 217, 217]
     const primaryFill = [217, 217, 217] as [number, number, number];
     const blueFill = [218, 233, 248] as [number, number, number]; // Soft light blue #DAE9F8
 
@@ -226,8 +227,8 @@ export const exportCondensatePDF = async (
         [
           { content: "Unit Ref / Tag" },
           { content: `Air Flow\n(${uFlow})` },
-          { content: `Entering DB/WB\n(${uTemp})` },
-          { content: `Leaving DB/WB\n(${uTemp})` },
+          { content: `Entering DB/WB\n(${uTempStr})` },
+          { content: `Leaving DB/WB\n(${uTempStr})` },
           { content: "W_in\n(kg/kg)" },
           { content: "W_out\n(kg/kg)" },
           { content: "dW\n(kg/kg)" },
@@ -353,7 +354,7 @@ export const exportCondensatePDF = async (
         5: { cellWidth: 42, fontSize: 6.5 },
       },
       didParseCell: (data: any) => {
-        // Highlight logic following Ventilation rules:
+        // Highlight logic following Ventilation & Preliminary rules:
         // No heading or description cell is highlighted.
         // Only the specific key output values (Column 3 for rows 3 & 4) receive the soft accent background.
         if (data.section === "body") {
@@ -367,36 +368,22 @@ export const exportCondensatePDF = async (
 
     currentY = (doc as any).lastAutoTable?.finalY + 6 || currentY + 45;
 
-    // Table 3: 4-Column Signature Block (Exact warm peach #FFE6CC header from Preliminary)
-    const sigDetails = getSignatureBlockDetails(projId, "/condensate-drain-calc", currentUserName, meta.reviewState);
-
-    const sigBody = [
-      [
-        { content: "Name:", styles: { fontStyle: "bold" as const, halign: "right" as const } },
-        { content: sigDetails?.originator?.name || sigDetails?.originatedName || currentUserName || "-", styles: { halign: "center" as const } },
-        { content: sigDetails?.reviewer?.name || sigDetails?.reviewerName || "-", styles: { halign: "center" as const } },
-        { content: sigDetails?.approver?.name || sigDetails?.approverName || "-", styles: { halign: "center" as const } },
-      ],
-      [
-        { content: "Date:", styles: { fontStyle: "bold" as const, halign: "right" as const } },
-        { content: sigDetails?.originator?.date || sigDetails?.originatedDate || today, styles: { halign: "center" as const } },
-        { content: sigDetails?.reviewer?.date || sigDetails?.reviewerDate || "-", styles: { halign: "center" as const } },
-        { content: sigDetails?.approver?.date || sigDetails?.approverDate || "-", styles: { halign: "center" as const } },
-      ],
-      [
-        { content: "Signature:", styles: { fontStyle: "bold" as const, halign: "right" as const } },
-        { content: sigDetails?.originator?.status || (sigDetails?.originatedName ? "Signed" : "-"), styles: { halign: "center" as const } },
-        { content: sigDetails?.reviewer?.status || (sigDetails?.reviewerName ? "Reviewed" : "-"), styles: { halign: "center" as const } },
-        { content: sigDetails?.approver?.status || (sigDetails?.approverName ? "Approved" : "-"), styles: { halign: "center" as const } },
-      ],
-    ];
+    // Table 3: 4-Column Signature Block (Exact warm peach #FFE6CC header from Ventilation & Preliminary)
+    const {
+      originatedName,
+      originatedDate,
+      reviewerName,
+      reviewerDate,
+      approverName,
+      approverDate,
+    } = getSignatureBlockDetails(projId, "/condensate-drain-calc", currentUserName, meta.reviewState);
 
     callAutoTable(doc, {
       startY: currentY,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
-        fontSize: 7.5,
+        fontSize: 8,
         halign: "center",
         valign: "middle",
         lineColor: [100, 100, 100],
@@ -404,19 +391,32 @@ export const exportCondensatePDF = async (
         cellPadding: { top: 2, bottom: 2, left: 1, right: 1 },
       },
       headStyles: {
-        fillColor: [255, 230, 204], // Standard #FFE6CC
+        fillColor: [255, 230, 204], // Standard #FFE6CC peach
         textColor: 0,
         fontStyle: "bold",
       },
       head: [
         [
-          { content: "Designation", styles: { halign: "center" as const } },
-          { content: "Originator", styles: { halign: "center" as const } },
-          { content: "Reviewer", styles: { halign: "center" as const } },
-          { content: "Approver", styles: { halign: "center" as const } },
+          { content: "" },
+          { content: "Originator" },
+          { content: "Reviewer" },
+          { content: "Approver" },
         ],
       ],
-      body: sigBody,
+      body: [
+        [
+          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+          { content: originatedName || currentUserName || "-", styles: { halign: "center" } },
+          { content: reviewerName || "-", styles: { halign: "center" } },
+          { content: approverName || "-", styles: { halign: "center" } },
+        ],
+        [
+          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+          { content: originatedDate || today, styles: { halign: "center" } },
+          { content: reviewerDate || "-", styles: { halign: "center" } },
+          { content: approverDate || "-", styles: { halign: "center" } },
+        ],
+      ],
       columnStyles: {
         0: { cellWidth: 32 },
         1: { cellWidth: 50 },

@@ -4,11 +4,25 @@ import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
 import { workspaceStore } from "./workspace-store";
 import { type LpdProject, type LpdGroup, type LpdSpace } from "./calc-lpd-calculation";
+import { getFloorRank } from "./bimViewerSpaceExtractor";
 import { toast } from "sonner";
 
 export interface LpdPdfExportOptions {
   scope?: "current" | "all"; // current area type (Internal or External) or both
 }
+
+const sanitizePdfText = (text: any): string => {
+  if (text === null || text === undefined) return "";
+  return String(text)
+    .replace(/[\uF0A3\u2264]/g, "<=") // <= symbol or unicode
+    .replace(/[\u2265]/g, ">=") // >= unicode
+    .replace(/[ð]/g, "<=") // mangled character
+    .replace(/[\u2013\u2014]/g, "-") // en-dash, em-dash
+    .replace(/[\u2018\u2019]/g, "'") // smart quotes
+    .replace(/[\u201C\u201D]/g, '"') // smart double quotes
+    .replace(/\s+/g, " ")
+    .trim();
+};
 
 export const exportLpdPDF = async (
   project: LpdProject,
@@ -105,6 +119,14 @@ export const exportLpdPDF = async (
       groupsToExport.push(...(activeGroups || []));
     }
 
+    // Sort floor groups in natural building vertical order (Basement 2 -> Basement 1 -> Ground -> 1st -> 2nd ... -> Roof)
+    groupsToExport.sort((a, b) => {
+      const rankA = getFloorRank(a.name);
+      const rankB = getFloorRank(b.name);
+      if (rankA !== rankB) return rankA - rankB;
+      return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
+    });
+
     // Build Table Body
     const bodyRows: any[] = [];
     let globalSrNo = 1;
@@ -117,6 +139,22 @@ export const exportLpdPDF = async (
     groupsToExport.forEach((group) => {
       const spaces = group.spaces || [];
       if (spaces.length === 0) return;
+
+      // Floor Section Header Row (matches user screenshot: bold cyan/blue floor title spanning across)
+      bodyRows.push([
+        { content: "", styles: { fillColor: [242, 247, 255] } },
+        {
+          content: sanitizePdfText(group.name).toUpperCase(),
+          colSpan: 6,
+          styles: {
+            fontStyle: "bold",
+            halign: "left",
+            textColor: [0, 136, 204], // Vibrant cyan-blue like image
+            fillColor: [242, 247, 255],
+            fontSize: 8.5,
+          },
+        },
+      ]);
 
       let floorWatts = 0;
       let floorArea = 0;
@@ -146,24 +184,16 @@ export const exportLpdPDF = async (
           .map((f) => `${f.type || "Fitting"}: ${f.qty || 1}x ${f.watts || 0}W`)
           .join("\n");
 
+        const cleanName = sanitizePdfText(space.name);
+
         bodyRows.push([
           { content: String(globalSrNo++), styles: { halign: "center" } },
-          { content: group.name, styles: { halign: "left" } },
-          { content: space.name, styles: { fontStyle: "bold", halign: "left" } },
-          { content: space.areaType || "-", styles: { halign: "left" } },
-          { content: areaVal > 0 ? areaVal.toFixed(1) : "-", styles: { halign: "right" } },
-          { content: fixSummary || "-", styles: { halign: "left" } },
-          { content: totalWatts.toLocaleString(), styles: { halign: "right", fontStyle: "bold" } },
-          { content: areaVal > 0 ? proposedLpd.toFixed(2) : "-", styles: { halign: "right" } },
-          { content: baselineLpd > 0 ? baselineLpd.toFixed(2) : "-", styles: { halign: "right" } },
-          {
-            content: areaVal > 0 && baselineLpd > 0 ? (isCompliant ? "PASS" : "FAIL") : "-",
-            styles: {
-              halign: "center",
-              fontStyle: "bold",
-              textColor: isCompliant ? [16, 120, 50] : [200, 20, 20],
-            },
-          },
+          { content: cleanName, styles: { fontStyle: "bold", halign: "center" } },
+          { content: areaVal > 0 ? areaVal.toFixed(1) : "-", styles: { halign: "center" } },
+          { content: sanitizePdfText(fixSummary) || "-", styles: { halign: "center" } },
+          { content: totalWatts.toLocaleString(), styles: { halign: "center", fontStyle: "bold" } },
+          { content: areaVal > 0 ? proposedLpd.toFixed(2) : "-", styles: { halign: "center" } },
+          { content: baselineLpd > 0 ? baselineLpd.toFixed(2) : "-", styles: { halign: "center" } },
         ]);
       });
 
@@ -173,76 +203,53 @@ export const exportLpdPDF = async (
       projectCompliantCount += floorCompliantCount;
 
       const floorAvgProposed = floorArea > 0 ? floorWatts / floorArea : 0;
-      const floorCompliant = floorCompliantCount === spaces.length;
 
       bodyRows.push([
-        { content: "", styles: { fillColor: [240, 243, 246] } },
-        { content: group.name, styles: { fontStyle: "bold", fillColor: [240, 243, 246] } },
+        { content: "", styles: { fillColor: [240, 243, 246], halign: "center" } },
         {
-          content: `TOTAL (${group.name})`,
-          colSpan: 2,
-          styles: { fontStyle: "bold", halign: "left", fillColor: [240, 243, 246] },
+          content: `TOTAL (${sanitizePdfText(group.name).toUpperCase()})`,
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 243, 246] },
         },
         {
           content: floorArea.toFixed(1),
-          styles: { fontStyle: "bold", halign: "right", fillColor: [240, 243, 246] },
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 243, 246] },
         },
         { content: "-", styles: { halign: "center", fillColor: [240, 243, 246] } },
         {
           content: floorWatts.toLocaleString(),
-          styles: { fontStyle: "bold", halign: "right", fillColor: [240, 243, 246] },
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 243, 246] },
         },
         {
           content: floorAvgProposed.toFixed(2),
-          styles: { fontStyle: "bold", halign: "right", fillColor: [240, 243, 246] },
+          styles: { fontStyle: "bold", halign: "center", fillColor: [240, 243, 246] },
         },
         { content: "-", styles: { halign: "center", fillColor: [240, 243, 246] } },
-        {
-          content: floorCompliant ? "PASS" : "FAIL",
-          styles: {
-            fontStyle: "bold",
-            halign: "center",
-            textColor: floorCompliant ? [16, 120, 50] : [200, 20, 20],
-            fillColor: [240, 243, 246],
-          },
-        },
       ]);
     });
 
     // Project Grand Total Row
     const grandAvgProposed = projectTotalArea > 0 ? projectTotalWatts / projectTotalArea : 0;
-    const allCompliant = projectTotalSpaces > 0 && projectCompliantCount === projectTotalSpaces;
 
     bodyRows.push([
-      { content: "", styles: { fillColor: [225, 235, 245] } },
+      { content: "", styles: { fillColor: [225, 235, 245], halign: "center" } },
       {
         content: "PROJECT GRAND TOTAL",
-        colSpan: 3,
-        styles: { fontStyle: "bold", halign: "left", fillColor: [225, 235, 245] },
+        styles: { fontStyle: "bold", halign: "center", fillColor: [225, 235, 245] },
       },
       {
         content: projectTotalArea.toFixed(1),
-        styles: { fontStyle: "bold", halign: "right", fillColor: [225, 235, 245] },
+        styles: { fontStyle: "bold", halign: "center", fillColor: [225, 235, 245] },
       },
       { content: "-", styles: { halign: "center", fillColor: [225, 235, 245] } },
       {
         content: `${projectTotalWatts.toLocaleString()} W`,
-        styles: { fontStyle: "bold", halign: "right", fillColor: [225, 235, 245] },
+        styles: { fontStyle: "bold", halign: "center", fillColor: [225, 235, 245] },
       },
       {
         content: grandAvgProposed.toFixed(2),
-        styles: { fontStyle: "bold", halign: "right", fillColor: [225, 235, 245] },
+        styles: { fontStyle: "bold", halign: "center", fillColor: [225, 235, 245] },
       },
       { content: "-", styles: { halign: "center", fillColor: [225, 235, 245] } },
-      {
-        content: allCompliant ? "PASS" : "REVIEW",
-        styles: {
-          fontStyle: "bold",
-          halign: "center",
-          textColor: allCompliant ? [16, 120, 50] : [200, 100, 20],
-          fillColor: [225, 235, 245],
-        },
-      },
     ]);
 
     // 4. Render AutoTable (matching layout of Ventilation Report)
@@ -253,6 +260,7 @@ export const exportLpdPDF = async (
       styles: {
         fontSize: 7.5,
         valign: "middle",
+        halign: "center",
         lineColor: [100, 100, 100],
         lineWidth: 0.1,
         cellPadding: { top: 1.5, bottom: 1.5, left: 1, right: 1 },
@@ -265,35 +273,29 @@ export const exportLpdPDF = async (
       },
       head: [
         [
-          { content: "Space & Building Envelope", colSpan: 5, styles: { fillColor: [230, 230, 230] } },
-          { content: "Lighting Fixtures", colSpan: 2, styles: { fillColor: [222, 231, 242] } },
-          { content: "ASHRAE 90.1 LPD Compliance", colSpan: 3, styles: { fillColor: [214, 226, 240] } },
+          { content: "Space & Building Envelope", colSpan: 3, styles: { fillColor: [230, 230, 230], halign: "center" } },
+          { content: "Lighting Fixtures", colSpan: 2, styles: { fillColor: [222, 231, 242], halign: "center" } },
+          { content: "ASHRAE 90.1 LPD Compliance", colSpan: 2, styles: { fillColor: [214, 226, 240], halign: "center" } },
         ],
         [
           { content: "Sr." },
-          { content: "Floor" },
           { content: "Space Name" },
-          { content: "Category / Type" },
           { content: `Area (${areaUnit})` },
           { content: "Fixtures" },
           { content: "Total (W)" },
           { content: `Proposed (${lpdUnit})` },
           { content: `Baseline (${lpdUnit})` },
-          { content: "Status" },
         ],
       ],
       body: bodyRows,
       columnStyles: {
-        0: { cellWidth: 8, halign: "center" },   // Sr.
-        1: { cellWidth: 16, halign: "left" },    // Floor
-        2: { cellWidth: 28, halign: "left" },    // Space Name
-        3: { cellWidth: 32, halign: "left" },    // Category
-        4: { cellWidth: 16, halign: "right" },   // Area
-        5: { cellWidth: 32, halign: "left" },    // Fixtures
-        6: { cellWidth: 14, halign: "right" },   // Total W
-        7: { cellWidth: 14, halign: "right" },   // Proposed LPD
-        8: { cellWidth: 14, halign: "right" },   // Baseline LPD
-        9: { cellWidth: 8, halign: "center" },   // Status
+        0: { cellWidth: 12, halign: "center" },  // Sr.
+        1: { cellWidth: 56, halign: "center" },  // Space Name
+        2: { cellWidth: 20, halign: "center" },  // Area
+        3: { cellWidth: 54, halign: "center" },  // Fixtures
+        4: { cellWidth: 14, halign: "center" },  // Total W
+        5: { cellWidth: 13, halign: "center" },  // Proposed LPD
+        6: { cellWidth: 13, halign: "center" },  // Baseline LPD
       },
     });
 

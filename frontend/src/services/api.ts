@@ -265,6 +265,8 @@ export const api = {
             if (!curUser.features) curUser.features = {};
             curUser.features.role = newRole;
             localStorage.setItem('currentUser', JSON.stringify(curUser));
+              localStorage.setItem('mep_profile', JSON.stringify(curUser));
+              localStorage.setItem('mep_user_data', JSON.stringify(curUser));
           }
         }
       } catch (e) {}
@@ -415,11 +417,15 @@ export const api = {
             const updatedRole = updates.role || curUser.role;
             const updatedDesignation = updates.designation !== undefined ? updates.designation : curUser.designation;
             curUser.role = updatedRole;
-            curUser.designation = updatedDesignation;
-            if (!curUser.features) curUser.features = {};
-            curUser.features.role = updatedRole;
-            curUser.features.designation = updatedDesignation;
+              curUser.designation = updatedDesignation;
+              if (updates.approvalAuthority !== undefined) curUser.approvalAuthority = updates.approvalAuthority;
+              if (!curUser.features) curUser.features = {};
+              curUser.features.role = updatedRole;
+              curUser.features.designation = updatedDesignation;
+              if (updates.approvalAuthority !== undefined) curUser.features.approvalAuthority = updates.approvalAuthority;
             localStorage.setItem('currentUser', JSON.stringify(curUser));
+              localStorage.setItem('mep_profile', JSON.stringify(curUser));
+              localStorage.setItem('mep_user_data', JSON.stringify(curUser));
           }
         }
       } catch (e) {}
@@ -1092,3 +1098,5 @@ export const api = {
     }
   }
 };
+
+

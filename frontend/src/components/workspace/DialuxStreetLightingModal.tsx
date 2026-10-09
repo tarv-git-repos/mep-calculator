@@ -24,6 +24,7 @@ import {
   ChevronDown,
   Zap,
   TrendingUp,
+  Shield,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -49,6 +50,8 @@ export interface DialuxStreetLightingModalProps {
   onClose: () => void;
   projectName?: string;
   projectCode?: string;
+  onOpenRoundabout?: () => void;
+  onOpenMedianStrip?: () => void;
 }
 
 export function DialuxStreetLightingModal({
@@ -56,6 +59,8 @@ export function DialuxStreetLightingModal({
   onClose,
   projectName = "Municipal Road Infrastructure",
   projectCode = "ST-13201",
+  onOpenRoundabout,
+  onOpenMedianStrip,
 }: DialuxStreetLightingModalProps) {
   // 1. Core State
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -596,6 +601,26 @@ export function DialuxStreetLightingModal({
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenRoundabout && (
+              <button
+                onClick={onOpenRoundabout}
+                className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                title="Open DIALux evo Tutorial 16 Roundabout Lighting Suite"
+              >
+                <Compass className="size-3.5 text-amber-400" />
+                <span>Roundabouts (Tutorial 16)</span>
+              </button>
+            )}
+            {onOpenMedianStrip && (
+              <button
+                onClick={onOpenMedianStrip}
+                className="px-2.5 py-1 rounded bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/40 text-[11px] font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                title="Open DIALux evo Tutorial 19 Median Strip Road Lighting Studio"
+              >
+                <Shield className="size-3.5 text-orange-400" />
+                <span>Median Strip (Tutorial 19)</span>
+              </button>
+            )}
             <button
               onClick={() => setIsFullscreen(!isFullscreen)}
               className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"

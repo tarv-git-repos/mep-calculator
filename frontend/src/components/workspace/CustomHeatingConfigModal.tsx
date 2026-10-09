@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   X, Check, SlidersHorizontal, Building2, Flame, Thermometer,
-  Layers, RotateCcw, Sparkles, ShieldAlert, ArrowRight, Info
+  Layers, RotateCcw, Sparkles, ShieldAlert, ArrowRight, Info, ChevronsUpDown
 } from "lucide-react";
 import { HEATING_PRESETS, type HeatingPresetKey } from "@/lib/calc-heating-load";
 import { toast } from "sonner";
@@ -228,19 +228,24 @@ export function CustomHeatingConfigModal({
                   <span>Clone Baseline Archetype</span>
                   <span className="text-[10px] text-muted-foreground">1-Click Preset</span>
                 </label>
-                <select
-                  onChange={(e) => handleCloneFromPreset(e.target.value as HeatingPresetKey)}
-                  className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 text-xs font-semibold text-foreground outline-none focus:border-primary cursor-pointer"
-                  defaultValue=""
-                >
-                  <option value="" disabled>Select baseline archetype to clone...</option>
-                  <option value="commercial_office">Commercial Office (5,000 ft²)</option>
-                  <option value="residential_house">Residential Home / Villa (2,500 ft²)</option>
-                  <option value="educational_school">School / Classrooms (8,000 ft²)</option>
-                  <option value="healthcare_clinic">Healthcare Clinic (4,000 ft²)</option>
-                  <option value="retail_showroom">Retail Showroom (6,000 ft²)</option>
-                  <option value="warehouse_storage">Warehouse / Storage (15,000 ft²)</option>
-                </select>
+                <div className="relative">
+                  <select
+                    onChange={(e) => handleCloneFromPreset(e.target.value as HeatingPresetKey)}
+                    className="w-full appearance-none bg-background border border-border rounded-lg pl-2.5 pr-8 py-1.5 text-xs font-semibold text-foreground outline-none focus:border-primary cursor-pointer hover:bg-surface-2 transition-all shadow-2xs"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Select baseline archetype to clone...</option>
+                    <option value="commercial_office">Commercial Office (5,000 ft²)</option>
+                    <option value="residential_house">Residential Home / Villa (2,500 ft²)</option>
+                    <option value="educational_school">School / Classrooms (8,000 ft²)</option>
+                    <option value="healthcare_clinic">Healthcare Clinic (4,000 ft²)</option>
+                    <option value="retail_showroom">Retail Showroom (6,000 ft²)</option>
+                    <option value="warehouse_storage">Warehouse / Storage (15,000 ft²)</option>
+                  </select>
+                  <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center">
+                    <ChevronsUpDown className="size-3 text-muted-foreground opacity-55" />
+                  </div>
+                </div>
               </div>
             </div>
 

@@ -485,6 +485,7 @@ function toSupabaseUserPayload(u) {
   if (u.subscription_expires !== undefined) feat.subscription_expires = u.subscription_expires;
   if (u.role) feat.role = u.role;
   if (u.organization_id !== undefined) feat.organization_id = u.organization_id;
+  if (u.approvalAuthority) feat.approvalAuthority = u.approvalAuthority;
   const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (u.organization_id ? 'ENTERPRISE' : 'PRO');
   feat.plan = userPlan;
   feat.subscription_status = userPlan;
@@ -2289,8 +2290,9 @@ const server = http.createServer(async (req, res) => {
       const newRole = updates.role || existing.role || existing.features?.role || 'Jr. Design Engineer';
       const newDesignation = updates.designation !== undefined ? updates.designation : (existing.designation || existing.features?.designation || newRole);
       const newPlan = updates.plan || updates.subscription_status || existing.plan || existing.subscription_status || existing.features?.plan || existing.features?.subscription_status || (newOrgId ? 'ENTERPRISE' : 'PRO');
+        const newAuth = updates.approvalAuthority !== undefined ? updates.approvalAuthority : (updates.features?.approvalAuthority !== undefined ? updates.features.approvalAuthority : (existing.approvalAuthority || existing.features?.approvalAuthority));
 
-      const updatedUser = {
+        const updatedUser = {
         ...existing,
         ...updates,
         plan: newPlan,
@@ -2301,6 +2303,7 @@ const server = http.createServer(async (req, res) => {
         role: newRole,
         designation: newDesignation,
         subscription_expires: newExp,
+          approvalAuthority: newAuth,
         features: {
           ...(existing.features || {}),
           ...(updates.features || {}),
@@ -2311,7 +2314,8 @@ const server = http.createServer(async (req, res) => {
           organization: newComp,
           role: newRole,
           designation: newDesignation,
-          subscription_expires: newExp
+          subscription_expires: newExp,
+            approvalAuthority: newAuth
         }
       };
       users[targetUserIndex] = updatedUser;
@@ -4556,3 +4560,4 @@ server.listen(PORT, '0.0.0.0', () => {
     }
   }, 24 * 60 * 60 * 1000);
 });
+

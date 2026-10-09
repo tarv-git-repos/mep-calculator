@@ -35,9 +35,18 @@ import {
   FileText,
   Calculator,
   Save,
+  Wind,
+  FileSpreadsheet,
+  Box,
+  Snowflake,
 } from "lucide-react";
+import {
+  getPreliminaryCoolingLoadSpaces,
+  getVentilationSpaces,
+} from "@/lib/calc-load-summary";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { cn } from "@/lib/utils";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
@@ -49,6 +58,7 @@ import {
   type LpdSpace,
   type LpdGroup,
   type LpdProject,
+  type BimSpaceForLpd,
   LPD_AUTHORITY_MAPPING,
   LIGHT_TYPE_MAPPING,
   DEFAULT_AUTHORITY_MAPPING_SQM,
@@ -264,6 +274,35 @@ function LPDCalculationPage() {
   } | null>(null);
   const [newAreaName, setNewAreaName] = useState("");
   const [newAreaBaselineLpd, setNewAreaBaselineLpd] = useState("");
+
+  // Import Sources (Ventilation, Preliminary Cooling Load, Excel, 3D BIM)
+  const [sourceModalOpen, setSourceModalOpen] = useState(false);
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
+  const excelInputRef = useRef<HTMLInputElement>(null);
+
+  const pclSpacesCount = useMemo(() => {
+    const pId = activeProjectId || project?.id || "default";
+    return getPreliminaryCoolingLoadSpaces(pId).length;
+  }, [activeProjectId, project?.id, importMenuOpen]);
+
+  const ventSpacesCount = useMemo(() => {
+    const pId = activeProjectId || project?.id || "default";
+    return getVentilationSpaces(pId).length;
+  }, [activeProjectId, project?.id, importMenuOpen]);
+
+  const lpdImportColumnMapping = useMemo(
+    () => ({
+      name: ["Space Name", "Space", "Room", "Room Name", "Name", "Description"],
+      area: ["Area", "Area (m2)", "Area (sq.m)", "Area (sqm)", "Area (sq.ft)", "Area (sqft)", "Space Area"],
+      areaType: ["Area Type", "Space Type", "Category", "Type", "Space Category"],
+      baselineLpd: ["Baseline LPD", "Baseline", "LPD Baseline", "LPD Limit"],
+      remarks: ["Remarks", "Comments", "Notes"],
+      fixtureType: ["Fixture Type", "Light Type", "Luminaire Type"],
+      watts: ["Watts", "Wattage", "Power (W)", "W"],
+      qty: ["Qty", "Quantity", "Count"],
+    }),
+    []
+  );
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
@@ -1103,6 +1142,174 @@ function LPDCalculationPage() {
 
 
 
+  const handleExcelFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const { read, utils } = await import("xlsx");
+      const data = await file.arrayBuffer();
+      const workbook = read(data);
+      if (!workbook.SheetNames.length) {
+        toast.error("Excel file is empty");
+        return;
+      }
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rawRows = utils.sheet_to_json<any>(firstSheet);
+      if (!rawRows || rawRows.length === 0) {
+        toast.error("No valid data rows found in the Excel sheet");
+        return;
+      }
+      handleImportExcelRows(rawRows);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to parse Excel file");
+    } finally {
+      if (e.target) e.target.value = "";
+    }
+  };
+
+  const handleImportFromVentilation = useCallback(() => {
+    let ventSpaces: any[] = [];
+    const projId = activeProjectId || project?.id || "default";
+
+    // 1. Check workspaceStore spaces
+    try {
+      const wsSpaces = workspaceStore.getState().spaces;
+      if (Array.isArray(wsSpaces) && wsSpaces.length > 0) {
+        ventSpaces = wsSpaces;
+      }
+    } catch (e) {}
+
+    // 2. Check project workspace_data spaces
+    const projWsSpaces = (project as any)?.workspace_data?.spaces;
+    if (ventSpaces.length === 0 && projWsSpaces) {
+      if (Array.isArray(projWsSpaces) && projWsSpaces.length > 0) {
+        ventSpaces = projWsSpaces;
+      }
+    }
+
+    // 3. Check local storage cache keys
+    if (ventSpaces.length === 0 && typeof localStorage !== "undefined") {
+      const keysToTry = [
+        `mep_spaces_${projId}`,
+        `spaces_${projId}`,
+        "mep_spaces",
+        "spaces",
+      ];
+      for (const k of keysToTry) {
+        try {
+          const saved = localStorage.getItem(k);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              ventSpaces = parsed;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (ventSpaces.length === 0) {
+      toast.info("No spaces found in the Ventilation schedule for this project.", {
+        description: "Add spaces in Ventilation (/ventilation) first or upload an Excel schedule.",
+      });
+      return;
+    }
+
+    const bimSpaces: BimSpaceForLpd[] = ventSpaces.map((s: any, idx: number) => ({
+      id: s.id || `vent-sp-${idx}`,
+      name: s.name || `Space ${idx + 1}`,
+      level: s.floor || s.level || "GROUND FLOOR",
+      zone: s.zone || "Default",
+      category: s.category || "General Office / Space",
+      area: typeof s.area === "number" ? s.area : (parseFloat(String(s.area)) || 0),
+      height: typeof s.height === "number" ? s.height : (parseFloat(String(s.height)) || 3.0),
+    }));
+
+    const { internalGroups, externalGroups, internalSpacesCount, externalSpacesCount } =
+      convertBimSpacesToLpdGroupsSplit(bimSpaces, { unitSystem });
+
+    updateProject((p) => ({
+      ...p,
+      internalGroups: internalGroups.length > 0 ? internalGroups : p.internalGroups,
+      externalGroups: externalGroups.length > 0 ? externalGroups : p.externalGroups,
+    }));
+
+    const totalCount = internalSpacesCount + externalSpacesCount;
+    toast.success(`Successfully imported ${totalCount} space(s) from Ventilation!`, {
+      description: `Generated ${internalGroups.length} internal floor(s) and ${externalGroups.length} external group(s).`,
+    });
+  }, [activeProjectId, project, unitSystem, updateProject]);
+
+  const handleImportFromPreliminary = useCallback(() => {
+    let pclRows: any[] = [];
+    const projId = activeProjectId || project?.id || "default";
+
+    // 1. Check mep_pcl_rows_${projId} and pcl_rows
+    if (typeof localStorage !== "undefined") {
+      const keysToTry = [`mep_pcl_rows_${projId}`, "pcl_rows"];
+      for (const k of keysToTry) {
+        try {
+          const saved = localStorage.getItem(k);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              pclRows = parsed;
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    // 2. Check project.workspace_data?.localStorageCache
+    if (pclRows.length === 0 && (project as any)?.workspace_data) {
+      const lsCache = (project as any).workspace_data.localStorageCache;
+      if (lsCache) {
+        const saved = lsCache[`mep_pcl_rows_${projId}`] || lsCache["pcl_rows"];
+        if (saved) {
+          try {
+            const parsed = typeof saved === "string" ? JSON.parse(saved) : saved;
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              pclRows = parsed;
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    if (pclRows.length === 0) {
+      toast.info("No spaces found in Preliminary Cooling Load calculation.", {
+        description: "Add spaces in Preliminary Cooling Load (/preliminary-cooling-load) first.",
+      });
+      return;
+    }
+
+    const bimSpaces: BimSpaceForLpd[] = pclRows.map((r: any, idx: number) => ({
+      id: r.id || `pcl-sp-${idx}`,
+      name: r.name || `Space ${idx + 1}`,
+      level: r.floor || "GROUND FLOOR",
+      category: r.type || "General Office / Space",
+      area: typeof r.area === "number" ? r.area : (parseFloat(String(r.area)) || 0),
+    }));
+
+    const { internalGroups, externalGroups, internalSpacesCount, externalSpacesCount } =
+      convertBimSpacesToLpdGroupsSplit(bimSpaces, { unitSystem });
+
+    updateProject((p) => ({
+      ...p,
+      internalGroups: internalGroups.length > 0 ? internalGroups : p.internalGroups,
+      externalGroups: externalGroups.length > 0 ? externalGroups : p.externalGroups,
+    }));
+
+    const totalCount = internalSpacesCount + externalSpacesCount;
+    toast.success(`Successfully imported ${totalCount} space(s) from Preliminary Cooling Load!`, {
+      description: `Generated ${internalGroups.length} internal floor(s) and ${externalGroups.length} external group(s).`,
+    });
+  }, [activeProjectId, project, unitSystem, updateProject]);
+
   const handleSyncFrom3DStudio = async () => {
     try {
       toast.loading("Scanning 3D Studio for spaces & luminaires...", { id: "lpd-3d-sync" });
@@ -1130,43 +1337,21 @@ function LPDCalculationPage() {
         }
       }
 
-      // Fallback 3: Check workspace store spaces if available
-      if (extracted.length === 0) {
-        const wsSpaces = workspaceStore.getState().spaces || [];
-        if (wsSpaces.length > 0) {
-          extracted = wsSpaces.map((s: any) => ({
-            id: s.id,
-            name: s.name,
-            level: s.floor || s.level || "GROUND FLOOR",
-            zone: s.zone || "Default",
-            category: s.category || "General Office / Space",
-            area: Number(s.area) || 20,
-            height: Number(s.height) || 3.0,
-            fixtures: s.fixtures || "",
-            multiplier: s.multiplier || 1,
-            aiDetected: true,
-            confidence: 0.9,
-            pressure: s.pressure || "0",
-            pressureAutoDetected: false,
-            source: "workspace" as const,
-          }));
-        }
-      }
-
       if (extracted.length === 0) {
         toast.info("No active 3D IFC spaces found.", {
-          description: "Open 3D Studio (/bim-viewer) to load your IFC model, or click below to launch 3D Studio.",
+          description: "No 3D model loaded yet. You can also import existing spaces from Ventilation or Preliminary Cooling Load.",
           action: {
-            label: "Open 3D Studio",
+            label: "Import Sources",
             onClick: () => {
-              window.location.href = "/bim-viewer";
+              setSourceModalOpen(true);
             },
           },
         });
         return;
       }
 
-      const { internalGroups, externalGroups, internalSpacesCount, externalSpacesCount } = convertBimSpacesToLpdGroupsSplit(extracted);
+      const { internalGroups, externalGroups, internalSpacesCount, externalSpacesCount } =
+        convertBimSpacesToLpdGroupsSplit(extracted, { unitSystem });
 
       updateProject((p) => ({
         ...p,
@@ -1190,6 +1375,29 @@ function LPDCalculationPage() {
       console.error("Failed to sync spaces from 3D Studio:", err);
       toast.error("Failed to sync spaces from 3D Studio.");
     }
+  };
+
+  const handleLoadBenchmarkSpaces = () => {
+    const benchmarkBimSpaces: BimSpaceForLpd[] = [
+      { id: "bm_1", name: "Reception & Main Lobby", level: "GROUND FLOOR", area: 85, category: "Lobby" },
+      { id: "bm_2", name: "Executive Boardroom", level: "FIRST FLOOR", area: 65, category: "Conference / Meeting Room" },
+      { id: "bm_3", name: "Main MDF / Server Room", level: "FIRST FLOOR", area: 25, category: "Electrical / Mechanical Room" },
+      { id: "bm_4", name: "Meeting Rooms (A & B)", level: "FIRST FLOOR", area: 35, category: "Conference / Meeting Room" },
+      { id: "bm_5", name: "Open Office Workstations", level: "FIRST FLOOR", area: 320, category: "Office - Open Plan" },
+      { id: "bm_6", name: "Restroom Blocks", level: "FIRST FLOOR", area: 30, category: "Restroom" },
+      { id: "bm_7", name: "Staff Breakout Pantry", level: "FIRST FLOOR", area: 45, category: "Dining Area" },
+      { id: "bm_8", name: "Circulation Corridors", level: "ROOF LEVEL", area: 110, category: "Corridor" },
+      { id: "bm_9", name: "Main Electrical Room", level: "ROOF LEVEL", area: 20, category: "Electrical / Mechanical Room" },
+      { id: "bm_10", name: "Primary AHU / Plant Room", level: "ROOF LEVEL", area: 40, category: "Electrical / Mechanical Room" },
+    ];
+
+    const { internalGroups, externalGroups } = convertBimSpacesToLpdGroupsSplit(benchmarkBimSpaces, { unitSystem });
+    updateProject((p) => ({
+      ...p,
+      internalGroups: internalGroups.length > 0 ? internalGroups : p.internalGroups,
+      externalGroups: externalGroups.length > 0 ? externalGroups : p.externalGroups,
+    }));
+    toast.success("Loaded 10 standard commercial office benchmark spaces!");
   };
 
   const handleOpenCalculationPreview = (space: LpdSpace, groupName?: string) => {
@@ -1714,34 +1922,133 @@ function LPDCalculationPage() {
                 </Popover>
               </div>
 
-              {/* Right Controls: Sync 3D BIM, Import, Export, + New Space */}
+              {/* Right Controls: Pull / Import Spaces, Import (Excel), Export, Save, + New Space */}
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleSyncFrom3DStudio}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 transition-all cursor-pointer shadow-2xs"
-                  title="Extract & sync rooms and fixture counts from 3D Studio (IFC model)"
-                >
-                  <Sparkles className="size-3.5 text-blue-500" />
-                  <span>Sync 3D BIM</span>
-                </button>
+                {/* Pull / Import Spaces Popover */}
+                <Popover open={importMenuOpen} onOpenChange={setImportMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 transition-colors cursor-pointer"
+                      title="Import spaces from Preliminary Cooling Load, Ventilation, or 3D Model"
+                    >
+                      <Sparkles className="size-3.5 text-indigo-500" />
+                      <span>Pull / Import Spaces</span>
+                      <ChevronDown className="size-3 text-indigo-500/70" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="end"
+                    className="w-80 p-2 bg-popover border border-border rounded-xl shadow-xl font-sans flex flex-col gap-1 z-50"
+                  >
+                    <div className="px-2 py-1.5 border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
+                      <span>Import Spaces & Loads</span>
+                      <span className="text-[10px] lowercase font-normal">early stage & 3d</span>
+                    </div>
 
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportMenuOpen(false);
+                        handleImportFromPreliminary();
+                      }}
+                      className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg text-[12px] hover:bg-surface-2 transition-colors text-left cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="size-7 rounded-md bg-sky-500/10 flex items-center justify-center text-sky-500 group-hover:scale-105 transition-transform">
+                          <Snowflake className="size-3.5" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-foreground">Preliminary Cooling Load</div>
+                          <div className="text-[10.5px] text-muted-foreground">Cooling kW & room areas</div>
+                        </div>
+                      </div>
+                      {pclSpacesCount > 0 ? (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                          {pclSpacesCount} spaces
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">0 spaces</span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportMenuOpen(false);
+                        handleImportFromVentilation();
+                      }}
+                      className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg text-[12px] hover:bg-surface-2 transition-colors text-left cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="size-7 rounded-md bg-teal-500/10 flex items-center justify-center text-teal-500 group-hover:scale-105 transition-transform">
+                          <Wind className="size-3.5" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-foreground">Ventilation Calculation</div>
+                          <div className="text-[10.5px] text-muted-foreground">Fresh air CFM & room areas</div>
+                        </div>
+                      </div>
+                      {ventSpacesCount > 0 ? (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-400">
+                          {ventSpacesCount} spaces
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">0 spaces</span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImportMenuOpen(false);
+                        handleSyncFrom3DStudio();
+                      }}
+                      className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg text-[12px] hover:bg-surface-2 transition-colors text-left cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="size-7 rounded-md bg-indigo-500/10 flex items-center justify-center text-indigo-500 group-hover:scale-105 transition-transform">
+                          <Box className="size-3.5" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-foreground">3D BIM / Auto Sync</div>
+                          <div className="text-[10.5px] text-muted-foreground">Pull from active 3D model</div>
+                        </div>
+                      </div>
+                    </button>
+
+                    <div className="pt-1 mt-1 border-t border-border flex items-center justify-between px-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImportMenuOpen(false);
+                          setSourceModalOpen(true);
+                        }}
+                        className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                      >
+                        More Options & IFC Upload...
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImportMenuOpen(false);
+                          handleLoadBenchmarkSpaces();
+                        }}
+                        className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        10 Benchmarks
+                      </button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {/* Import (Excel) Button right beside it */}
                 <ImportExcelBtn
-                  columnMapping={{
-                    "Space Name": ["Space Name", "Space", "Room", "Location", "Area Description"],
-                    "Area Type": ["Area Type", "Space Type", "Category", "Type"],
-                    "Area": ["Area", "Area (m²)", "Area (sq.ft)", "Area (sqm)", "Area (sqft)", "Floor Area"],
-                    "Baseline LPD": ["Baseline LPD", "Target LPD", "Max LPD", "Code LPD", "LPD Limit"],
-                    "Fixture Type": ["Fixture Type", "Light Type", "Fitting Type", "Luminaire"],
-                    "Watts": ["Watts", "Wattage", "Power (W)", "W/Fixture", "Lamp Watts"],
-                    "Qty": ["Qty", "Quantity", "Count", "Number of Fixtures", "No. of Fittings"],
-                    "Remarks": ["Remarks", "Notes", "Comments"],
-                  }}
+                  columnMapping={lpdImportColumnMapping}
                   onImport={handleImportExcelRows}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-border bg-background hover:bg-surface-2 text-foreground transition-all cursor-pointer shadow-2xs"
+                  className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium border border-border bg-background hover:bg-surface-2 transition-colors cursor-pointer"
                 >
-                  <Upload className="size-3.5 text-muted-foreground" />
-                  <span>Import</span>
+                  <Download className="size-3.5" /> Import
                 </ImportExcelBtn>
 
                 <button
@@ -2899,6 +3206,24 @@ function LPDCalculationPage() {
         isOpen={isPreviewOpen}
         onClose={() => setIsPreviewOpen(false)}
         data={previewData}
+      />
+
+      {/* Import Source Selection Modal */}
+      <ImportSourceModal
+        isOpen={sourceModalOpen}
+        onClose={() => setSourceModalOpen(false)}
+        onSelectExcel={() => excelInputRef.current?.click()}
+        onSelect3DViewer={handleSyncFrom3DStudio}
+        onSelectVentilation={handleImportFromVentilation}
+        onSelectPreliminary={handleImportFromPreliminary}
+        footerNote="Automatic ASHRAE 90.1 lighting power densities & space classifications applied"
+      />
+      <input
+        type="file"
+        ref={excelInputRef}
+        onChange={handleExcelFileInputChange}
+        accept=".xlsx,.xls,.csv"
+        className="hidden"
       />
 
       {/* Add Custom Area Type Modal */}

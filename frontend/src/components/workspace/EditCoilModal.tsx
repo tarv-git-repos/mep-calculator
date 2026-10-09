@@ -124,6 +124,9 @@ export function EditCoilModal({
     const massAirFlow = (flowLps / 1000) * 1.2;
     const condFlowLps = massAirFlow * dw;
     const condFlowGpm = lpsToGpm(condFlowLps);
+    const hourlyLhr = condFlowLps * 3600;
+    const hourlyGph = condFlowGpm * 60;
+    const branchPipe = condFlowGpm <= 0.05 ? { sizeInch: '3/4"', metricDn: 'DN20' } : condFlowGpm <= 0.20 ? { sizeInch: '1"', metricDn: 'DN25' } : { sizeInch: '1-1/4"', metricDn: 'DN32' };
 
     // Warnings
     const warnings: string[] = [];
@@ -138,6 +141,9 @@ export function EditCoilModal({
       massAirFlow,
       condFlowLps,
       condFlowGpm,
+      hourlyLhr,
+      hourlyGph,
+      branchPipe,
       warnings,
     };
   }, [dbIn, wbIn, dbOut, wbOut, flow, ip]);
@@ -367,6 +373,17 @@ export function EditCoilModal({
                       <span className="font-mono font-bold text-[14.5px] text-primary">
                         {ip ? `${previewCalc.condFlowGpm.toFixed(5)} GPM` : `${previewCalc.condFlowLps.toFixed(5)} L/s`}
                       </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[10.5px] pt-1 border-t border-primary/20">
+                      <div>
+                        <span className="text-neutral-500 dark:text-neutral-400 block text-[9.5px]">Hourly Generation:</span>
+                        <strong className="font-mono text-foreground">{ip ? `${previewCalc.hourlyGph.toFixed(2)} GPH` : `${previewCalc.hourlyLhr.toFixed(2)} L/hr`}</strong>
+                      </div>
+                      <div>
+                        <span className="text-neutral-500 dark:text-neutral-400 block text-[9.5px]">Branch Drain (IPC 307):</span>
+                        <strong className="font-mono text-emerald-600 dark:text-emerald-400">{ip ? previewCalc.branchPipe.sizeInch : previewCalc.branchPipe.metricDn}</strong>
+                      </div>
                     </div>
 
                     <div className="text-[9.5px] text-neutral-500 dark:text-neutral-400 font-mono bg-white/20 dark:bg-black/35 p-1.5 rounded-lg border border-black/5 dark:border-white/5 break-all leading-relaxed">

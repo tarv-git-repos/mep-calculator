@@ -9,7 +9,7 @@ import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { exportDuctSizerPDF } from "@/lib/exportDuctSizerPDF";
 import { notifyCommentAssigned, dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import ExcelJS from "exceljs";
@@ -19,7 +19,7 @@ import {
   Info, Sparkles, AlertTriangle, CheckCircle2, FileText, Printer, X, HelpCircle, Eye,
   MessageSquare, ShieldAlert, Check, Activity, Copy, Clipboard, RotateCcw,
   Trash2, Edit3, Lock, Droplets, Waves, Gauge, Clock, ShieldCheck, Layers,
-  ArrowRight, Download, Save, Zap, Cylinder, ArrowUpRight, ChevronDown, ChevronRight,
+  ArrowRight, Download, Save, Zap, Cylinder, ArrowUpRight, ChevronDown, ChevronRight, ChevronsUpDown,
   SlidersHorizontal, Wind, Maximize2, BookOpen, Lightbulb, Building2, Store, Hotel, Utensils, Factory, FileSpreadsheet, Flame
 } from "lucide-react";
 import {
@@ -91,6 +91,76 @@ function DuctSizerPage() {
   const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
   const highlightTimeoutRef = useRef<any>(null);
 
+  // Load comments from localStorage and coordination queues
+  const loadComments = useCallback(() => {
+    try {
+      const pId = activeProjectId || project?.id || "default";
+      const map = new Map<string, any>();
+
+      const calcKeys = [
+        `mep_calc_comments_${pId}_/duct-sizer`,
+        `mep_calc_comments_${pId}_duct-sizer`,
+        `mep_calc_comments_default_/duct-sizer`,
+        `mep_calc_comments_default_duct-sizer`,
+      ];
+
+      calcKeys.forEach((key) => {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((c: any) => {
+                if (c && (c.id || c.text)) {
+                  const id = c.id || `${c.timestamp}_${c.text}`;
+                  map.set(id, c);
+                }
+              });
+            }
+          }
+        } catch {}
+      });
+
+      const uId = userData?.id || profile?.id || (project as any)?.userId;
+      const uName = currentUserName || userData?.name || profile?.name;
+      const notifKeys = [
+        "mep_persistent_user_notifs",
+        "mep_calc_coord_notifs",
+        ...(uId ? [`mep_persistent_user_notifs_${uId}`] : []),
+        ...(uName ? [`mep_persistent_user_notifs_${uName}`] : []),
+      ];
+
+      notifKeys.forEach((key) => {
+        try {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((n: any) => {
+                if (
+                  n &&
+                  (n.calculatorPath === "/duct-sizer" ||
+                    n.calculatorPath === "duct-sizer" ||
+                    n.calculatorTitle?.toLowerCase().includes("duct") ||
+                    n.targetType?.toLowerCase().includes("duct"))
+                ) {
+                  const id = n.id || `${n.timestamp}_${n.text}`;
+                  if (!map.has(id)) {
+                    map.set(id, n);
+                  }
+                }
+              });
+            }
+          }
+        } catch {}
+      });
+
+      setCommentsList(Array.from(map.values()));
+    } catch (e) {
+      console.error("Failed to load duct sizer comments:", e);
+    }
+  }, [activeProjectId, project?.id, userData?.id, profile?.id, currentUserName]);
+
   // Load calculation state from localStorage & workspace_data
   useEffect(() => {
     if (!project?.id) return;
@@ -113,69 +183,6 @@ function DuctSizerPage() {
         savedData = wdata?.duct_calc || wdata?.duct_sizer;
       }
 
-      // Comprehensive comments aggregation
-      const uId = profile?.id || userData?.id;
-      const uEmail = profile?.email || userData?.email;
-      const uName = currentUserName;
-
-      const fetchAllComments = () => {
-        const commentsMap = new Map<string, any>();
-        const addList = (raw: string | null) => {
-          if (!raw) return;
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-              parsed.forEach((item: any) => {
-                if (!item || !item.id) return;
-                const isDuct =
-                  item.calculatorPath === "/duct-sizer" ||
-                  item.calculatorPath === "duct-sizer" ||
-                  String(item.calculatorTitle || "").toLowerCase().includes("duct") ||
-                  String(item.targetType || "").toLowerCase().includes("duct") ||
-                  String(item.targetName || "").toLowerCase().includes("duct") ||
-                  String(item.spaceName || "").toLowerCase().includes("duct") ||
-                  String(item.targetId || "").toLowerCase().includes("targetfr") ||
-                  String(item.targetId || "").toLowerCase().includes("airflow") ||
-                  String(item.targetId || "").toLowerCase().includes("aspectratio") ||
-                  String(item.targetId || "").toLowerCase().includes("ductshape");
-
-                if (isDuct) {
-                  commentsMap.set(item.id, item);
-                }
-              });
-            }
-          } catch (e) {}
-        };
-
-        addList(localStorage.getItem(`mep_calc_comments_${pId}_/duct-sizer`));
-        addList(localStorage.getItem(`mep_calc_comments_${pId}_duct-sizer`));
-        addList(localStorage.getItem(`mep_calc_comments_default_/duct-sizer`));
-        addList(localStorage.getItem(`mep_calc_comments_default_duct-sizer`));
-
-        if (savedData && Array.isArray(savedData.comments)) {
-          savedData.comments.forEach((c: any) => { if (c && c.id) commentsMap.set(c.id, c); });
-        }
-
-        addList(localStorage.getItem("mep_persistent_user_notifs"));
-        addList(localStorage.getItem("mep_calc_coord_notifs"));
-        if (uId) addList(localStorage.getItem(`mep_persistent_user_notifs_${uId}`));
-        if (uEmail) addList(localStorage.getItem(`mep_persistent_user_notifs_${uEmail}`));
-        if (uName) addList(localStorage.getItem(`mep_persistent_user_notifs_${uName}`));
-
-        try {
-          for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if (k && (k.startsWith("mep_persistent_user_notifs_") || k.includes("duct-sizer") || k.includes("duct_sizer"))) {
-              addList(localStorage.getItem(k));
-            }
-          }
-        } catch (e) {}
-
-        return Array.from(commentsMap.values());
-      };
-
-      const aggregatedComments = fetchAllComments();
-
       if (savedData && typeof savedData === "object") {
         if (savedData.unitSystem === "ip" || savedData.unitSystem === "si") setUnitSystem(savedData.unitSystem);
         if (savedData.preset) setPreset(savedData.preset);
@@ -184,7 +191,6 @@ function DuctSizerPage() {
         if (typeof savedData.targetFr === "number" && !isNaN(savedData.targetFr)) setTargetFr(savedData.targetFr);
         if (savedData.ductShape === "round" || savedData.ductShape === "rect") setDuctShape(savedData.ductShape);
         if (typeof savedData.aspectRatio === "number" && !isNaN(savedData.aspectRatio)) setAspectRatio(savedData.aspectRatio);
-        setCommentsList(aggregatedComments);
       } else {
         const def = DUCT_PRESETS.commercial_office_main;
         setUnitSystem("si");
@@ -194,101 +200,33 @@ function DuctSizerPage() {
         setTargetFr(def.targetFr);
         setDuctShape(def.ductShape);
         setAspectRatio(def.aspectRatio);
-        setCommentsList(aggregatedComments);
       }
+      loadComments();
       setTimeout(() => dirtyStore.set(false), 50);
     } catch (e) {
       console.error("Failed to load duct sizer calculation data:", e);
     }
-  }, [project?.id, loadedProjectId, profile?.id, userData?.id]);
+  }, [project?.id, loadedProjectId, loadComments]);
 
-  // Real-time synchronization of comments across tabs/windows
+  // Real-time synchronization of comments across tabs/windows and notification center
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const reloadComments = (e?: any) => {
-      try {
-        const pId = project?.id || "default";
-        const uId = profile?.id || userData?.id;
-        const uEmail = profile?.email || userData?.email;
-        const uName = currentUserName;
+    loadComments();
+    const handleCommentUpdate = () => loadComments();
 
-        const commentsMap = new Map<string, any>();
-        const addList = (raw: string | null) => {
-          if (!raw) return;
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-              parsed.forEach((item: any) => {
-                if (!item || !item.id) return;
-                const isDuct =
-                  item.calculatorPath === "/duct-sizer" ||
-                  item.calculatorPath === "duct-sizer" ||
-                  String(item.calculatorTitle || "").toLowerCase().includes("duct") ||
-                  String(item.targetType || "").toLowerCase().includes("duct") ||
-                  String(item.targetName || "").toLowerCase().includes("duct") ||
-                  String(item.spaceName || "").toLowerCase().includes("duct") ||
-                  String(item.targetId || "").toLowerCase().includes("targetfr") ||
-                  String(item.targetId || "").toLowerCase().includes("airflow") ||
-                  String(item.targetId || "").toLowerCase().includes("aspectratio") ||
-                  String(item.targetId || "").toLowerCase().includes("ductshape");
+    window.addEventListener("mep_notification_received", handleCommentUpdate);
+    window.addEventListener("mep-notification-added", handleCommentUpdate);
+    window.addEventListener("mep-comment-updated", handleCommentUpdate);
+    window.addEventListener("mep_storage_changed", handleCommentUpdate);
+    window.addEventListener("storage", handleCommentUpdate);
 
-                if (isDuct) {
-                  commentsMap.set(item.id, item);
-                }
-              });
-            }
-          } catch (e) {}
-        };
-
-        addList(localStorage.getItem(`mep_calc_comments_${pId}_/duct-sizer`));
-        addList(localStorage.getItem(`mep_calc_comments_${pId}_duct-sizer`));
-        addList(localStorage.getItem(`mep_calc_comments_default_/duct-sizer`));
-        addList(localStorage.getItem(`mep_calc_comments_default_duct-sizer`));
-        addList(localStorage.getItem("mep_persistent_user_notifs"));
-        addList(localStorage.getItem("mep_calc_coord_notifs"));
-        if (uId) addList(localStorage.getItem(`mep_persistent_user_notifs_${uId}`));
-        if (uEmail) addList(localStorage.getItem(`mep_persistent_user_notifs_${uEmail}`));
-        if (uName) addList(localStorage.getItem(`mep_persistent_user_notifs_${uName}`));
-
-        try {
-          for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if (k && (k.startsWith("mep_persistent_user_notifs_") || k.includes("duct-sizer") || k.includes("duct_sizer"))) {
-              addList(localStorage.getItem(k));
-            }
-          }
-        } catch (e) {}
-
-        if (e?.detail && e.detail.id) {
-          const det = e.detail;
-          const isDuct =
-            det.calculatorPath === "/duct-sizer" ||
-            det.calculatorPath === "duct-sizer" ||
-            String(det.calculatorTitle || "").toLowerCase().includes("duct") ||
-            String(det.targetType || "").toLowerCase().includes("duct") ||
-            String(det.targetName || "").toLowerCase().includes("duct");
-          if (isDuct) {
-            commentsMap.set(det.id, det);
-          }
-        }
-
-        setCommentsList(Array.from(commentsMap.values()));
-      } catch (e) {}
-    };
-
-    window.addEventListener("mep_notification_received", reloadComments);
-    window.addEventListener("mep_notif_tick", reloadComments);
-    window.addEventListener("mep-notification-added", reloadComments);
-    window.addEventListener("mep-comment-updated", reloadComments);
-    window.addEventListener("storage", reloadComments);
     return () => {
-      window.removeEventListener("mep_notification_received", reloadComments);
-      window.removeEventListener("mep_notif_tick", reloadComments);
-      window.removeEventListener("mep-notification-added", reloadComments);
-      window.removeEventListener("mep-comment-updated", reloadComments);
-      window.removeEventListener("storage", reloadComments);
+      window.removeEventListener("mep_notification_received", handleCommentUpdate);
+      window.removeEventListener("mep-notification-added", handleCommentUpdate);
+      window.removeEventListener("mep-comment-updated", handleCommentUpdate);
+      window.removeEventListener("mep_storage_changed", handleCommentUpdate);
+      window.removeEventListener("storage", handleCommentUpdate);
     };
-  }, [project?.id, profile?.id, profile?.email, userData?.id, userData?.email, currentUserName]);
+  }, [loadComments]);
 
   // Auto-save changes back to localStorage and workspace_data
   useEffect(() => {
@@ -362,32 +300,40 @@ function DuctSizerPage() {
     return () => window.removeEventListener("mep_save_project", handleGlobalSave);
   }, [project, unitSystem, preset, customProfileName, airflow, targetFr, ductShape, aspectRatio, commentsList]);
 
-  // Deep-linking scroll to target item handler
+  // Deep-link from comment notifications, URL query params and custom events
   useEffect(() => {
-    const handleScrollToItem = (e: Event) => {
-      const customEvent = e as CustomEvent<{ id?: string; name?: string; targetId?: string; targetName?: string }>;
-      if (!customEvent?.detail) return;
-      const targetId = customEvent.detail.id || customEvent.detail.targetId;
-      const targetName = customEvent.detail.name || customEvent.detail.targetName;
+    const handleScrollToTarget = (e: any) => {
+      const targetId = e?.detail?.id || e?.detail?.targetItemId || e?.detail?.targetId;
+      const targetName = e?.detail?.name || e?.detail?.fieldName || e?.detail?.targetName;
       if (!targetId && !targetName) return;
 
-      const cleanId = String(targetId || "").toLowerCase().trim();
-      const cleanRaw = cleanId.replace(/^(field-|card-|metric-)/, "");
+      const cleanRaw = String(targetId || "").toLowerCase().trim();
+      const cleanId = cleanRaw.replace(/^(field-|card-|res-|metric-)/, "");
       const cleanName = String(targetName || "").toLowerCase().trim();
 
       setTab("solver");
+      setHighlightedTargetId(targetId || cleanRaw || cleanId || targetName || "");
 
-      setTimeout(() => {
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = setTimeout(() => {
+        setHighlightedTargetId(null);
+        highlightTimeoutRef.current = null;
+      }, 4500);
+
+      requestAnimationFrame(() => {
         let el = document.getElementById(targetId || "") ||
           document.getElementById(`field-${cleanRaw}`) ||
           document.getElementById(`card-${cleanRaw}`) ||
-          document.getElementById(`metric-${cleanRaw}`) ||
+          document.getElementById(`field-card-${cleanRaw}`) ||
+          document.getElementById(`field-card-${cleanId}`) ||
           document.getElementById(`card-${cleanId}`) ||
+          document.getElementById(`metric-${cleanRaw}`) ||
           document.getElementById(cleanId) ||
           document.getElementById(cleanRaw) ||
           document.querySelector(`[data-comment-target="${cleanRaw}"]`) ||
           document.querySelector(`[data-comment-target="${targetId}"]`) ||
-          document.querySelector(`[data-field-id="${cleanRaw}"]`);
+          document.querySelector(`[data-field-id="${cleanRaw}"]`) ||
+          document.querySelector(`[data-field-id="${cleanId}"]`);
 
         if (!el && cleanName) {
           const allFields = document.querySelectorAll("[data-comment-target]");
@@ -402,23 +348,22 @@ function DuctSizerPage() {
 
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "center" });
-          setHighlightedTargetId(targetId || cleanRaw || cleanId || targetName || "");
-          if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-          highlightTimeoutRef.current = setTimeout(() => {
-            setHighlightedTargetId(null);
-            highlightTimeoutRef.current = null;
-          }, 4500);
         }
-      }, 150);
+      });
     };
 
-    window.addEventListener("mep-scroll-to-item", handleScrollToItem);
-    window.addEventListener("mep-data-grid-scroll", handleScrollToItem);
-    window.addEventListener("mep_scroll_to_comment_target", handleScrollToItem);
+    window.addEventListener("mep-scroll-to-item", handleScrollToTarget);
+    window.addEventListener("mep-data-grid-scroll", handleScrollToTarget);
+    window.addEventListener("mep_scroll_to_comment_target", handleScrollToTarget);
+    window.addEventListener("mep-comment-notification-clicked", handleScrollToTarget);
+    window.addEventListener("mep-highlight-item", handleScrollToTarget);
+
     return () => {
-      window.removeEventListener("mep-scroll-to-item", handleScrollToItem);
-      window.removeEventListener("mep-data-grid-scroll", handleScrollToItem);
-      window.removeEventListener("mep_scroll_to_comment_target", handleScrollToItem);
+      window.removeEventListener("mep-scroll-to-item", handleScrollToTarget);
+      window.removeEventListener("mep-data-grid-scroll", handleScrollToTarget);
+      window.removeEventListener("mep_scroll_to_comment_target", handleScrollToTarget);
+      window.removeEventListener("mep-comment-notification-clicked", handleScrollToTarget);
+      window.removeEventListener("mep-highlight-item", handleScrollToTarget);
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
     };
   }, []);
@@ -426,274 +371,70 @@ function DuctSizerPage() {
   // Listen to URL parameters on route change
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const targetId = params.get("commentTargetId");
-    const targetName = params.get("commentTargetName");
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetId = urlParams.get("commentTargetId") || urlParams.get("targetId");
+    const targetName = urlParams.get("commentTargetName") || urlParams.get("targetName");
 
     if (targetId || targetName) {
-      const timer = setTimeout(() => {
-        window.dispatchEvent(
-          new CustomEvent("mep-scroll-to-item", {
-            detail: { id: targetId, name: targetName },
-          })
-        );
-      }, 450);
-      return () => clearTimeout(timer);
+      window.dispatchEvent(
+        new CustomEvent("mep-scroll-to-item", {
+          detail: { id: targetId, name: targetName },
+        })
+      );
     }
-  }, [typeof window !== "undefined" ? window.location.search : ""]);
+  }, []);
 
-  // Comments Management
+  const saveComments = (newComments: any[]) => {
+    setCommentsList(newComments);
+    const pId = activeProjectId || project?.id || "default";
+    const storageKey = `mep_calc_comments_${pId}_/duct-sizer`;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(newComments));
+      localStorage.setItem(`mep_calc_comments_${pId}_duct-sizer`, JSON.stringify(newComments));
+      localStorage.setItem(`mep_calc_comments_default_/duct-sizer`, JSON.stringify(newComments));
+      localStorage.setItem(`mep_calc_comments_default_duct-sizer`, JSON.stringify(newComments));
+      window.dispatchEvent(new CustomEvent("mep_notification_received"));
+      window.dispatchEvent(new CustomEvent("mep-notification-added"));
+      window.dispatchEvent(new CustomEvent("mep-comment-updated"));
+      window.dispatchEvent(new CustomEvent("mep_storage_changed"));
+      window.dispatchEvent(new Event("storage"));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleOpenComment = (id: string, name: string) => {
     setCommentTargetItem({ id, name });
     setCommentModalOpen(true);
   };
 
-  const saveComments = (newList: any[]) => {
-    setCommentsList(newList);
-    const pId = project?.id || "default";
-    localStorage.setItem(`mep_calc_comments_${pId}_/duct-sizer`, JSON.stringify(newList));
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("mep_notif_tick"));
-      window.dispatchEvent(new CustomEvent("mep_notification_received"));
-      window.dispatchEvent(new CustomEvent("mep-notification-added"));
-      window.dispatchEvent(new Event("storage"));
-      if ("BroadcastChannel" in window) {
-        try {
-          const bc = new BroadcastChannel("mep_notifications_channel");
-          bc.postMessage({ type: "COMMENTS_UPDATED", calcPath: "/duct-sizer", count: newList.length });
-          bc.close();
-        } catch (e) {}
-      }
-    }
-  };
-
-  const handleSaveComment = (commentData: any) => {
-    const targetId = commentTargetItem?.id || commentData?.targetId || "targetFr";
-    const targetName = commentTargetItem?.name || commentData?.targetName || "Target Friction Rate";
-
-    const commentWithMeta = {
-      ...commentData,
-      id: commentData.id || `cmt_${Date.now()}`,
-      authorName: currentUserName,
-      authorRole: profile?.role || "Design Engineer",
-      timestamp: commentData.timestamp || new Date().toISOString(),
-      targetId,
-      targetName,
-      itemId: targetId,
-      spaceId: targetId,
-      targetType: "Duct Sizer Parameter",
-      calculatorTitle: "Duct Sizer",
-      calculatorPath: "/duct-sizer",
-      projectId: project?.id || "default",
-      projectName: project?.name || "Duct Sizing Study",
-    };
-
-    const existingIndex = commentsList.findIndex((c) => c.id === commentData.id);
-    let updated: any[];
-    if (existingIndex >= 0) {
-      updated = [...commentsList];
-      updated[existingIndex] = commentWithMeta;
-    } else {
-      updated = [commentWithMeta, ...commentsList.filter((c) => c.id !== commentData.id)];
-    }
-    saveComments(updated);
-    dispatchGlobalCommentNotification(commentWithMeta, { project });
-    toast.success(`Comment / task assigned on "${targetName}"`);
-    setCommentModalOpen(false);
-  };
-
-  const getItemComments = (id: string, label?: string) => {
-    if (!id && !label) return [];
-    const cleanId = String(id || "").toLowerCase().trim();
-    const cleanRawId = cleanId.replace(/^(field-|card-|metric-)/, "");
-    const cleanLabel = String(label || "").toLowerCase().trim();
-
-    return commentsList.filter((c) => {
-      if (!c) return false;
-      const tId = String(c.targetId || c.spaceId || c.itemId || c.id || "").toLowerCase().trim();
-      const tIdRaw = tId.replace(/^(field-|card-|metric-)/, "");
-      const tName = String(c.targetName || c.spaceName || c.name || "").toLowerCase().trim();
-
-      if (
-        tId === cleanId ||
-        tId === cleanRawId ||
-        tIdRaw === cleanRawId ||
-        tId === `field-${cleanRawId}` ||
-        `field-${tIdRaw}` === cleanId ||
-        tId === `card-${cleanRawId}` ||
-        `card-${tIdRaw}` === cleanId ||
-        tId === `metric-${cleanRawId}` ||
-        `metric-${tIdRaw}` === cleanId
-      ) {
-        return true;
-      }
-
-      if (cleanLabel && (tName.includes(cleanLabel) || cleanLabel.includes(tName))) {
-        return true;
-      }
-      if (tName && cleanRawId && (tName.includes(cleanRawId) || cleanRawId.includes(tName))) {
-        return true;
-      }
-
-      if (
-        (cleanRawId === "targetfr" || cleanRawId === "target_fr" || cleanRawId === "friction" || cleanRawId === "frictionrate" || cleanLabel.includes("friction") || cleanLabel.includes("target fr")) &&
-        (tId.includes("targetfr") || tId.includes("target_fr") || tId.includes("friction") || tId.includes("fr") || tName.includes("friction") || tName.includes("target fr") || tName.includes("in w.g.") || tName.includes("pa/m"))
-      ) {
-        return true;
-      }
-
-      if (
-        (cleanRawId === "airflow" || cleanRawId === "air_flow" || cleanRawId === "q" || cleanRawId === "flow" || cleanLabel.includes("airflow") || cleanLabel.includes("flow")) &&
-        (tId.includes("air") || tId.includes("flow") || tId.includes("cfm") || tId.includes("lps") || tName.includes("airflow") || tName.includes("air flow") || tName.includes("cfm") || tName.includes("l/s"))
-      ) {
-        return true;
-      }
-
-      if (
-        (cleanRawId === "ductshape" || cleanRawId === "duct_shape" || cleanRawId === "shape" || cleanLabel.includes("shape")) &&
-        (tId.includes("shape") || tId.includes("round") || tId.includes("rect") || tName.includes("shape") || tName.includes("cross-section") || tName.includes("round") || tName.includes("rect"))
-      ) {
-        return true;
-      }
-
-      if (
-        (cleanRawId === "aspectratio" || cleanRawId === "aspect_ratio" || cleanRawId === "ratio" || cleanLabel.includes("aspect")) &&
-        (tId.includes("aspect") || tId.includes("ratio") || tName.includes("aspect") || tName.includes("ratio"))
-      ) {
-        return true;
-      }
-
-      if (
-        (cleanRawId === "hero-size" || cleanRawId === "size" || cleanRawId === "recommend" || cleanLabel.includes("recommended")) &&
-        (tId.includes("hero") || tId.includes("size") || tId.includes("recommend") || tName.includes("recommend") || tName.includes("duct sizing") || tName.includes("size"))
-      ) {
-        return true;
-      }
-
-      if (
-        (cleanRawId === "card-params" || cleanRawId === "params" || cleanLabel.includes("sizing parameters")) &&
-        (tId.includes("param") || tName.includes("sizing parameter") || tName.includes("parameters"))
-      ) {
-        return true;
-      }
-
-      if (
-        (cleanRawId === "card-acoustic-limits" || cleanRawId === "acoustic-limits" || cleanRawId === "acoustic" || cleanLabel.includes("acoustic")) &&
-        (tId.includes("acoustic") || tName.includes("acoustic") || tName.includes("smacna acoustic"))
-      ) {
-        return true;
-      }
-
-      if (
-        (cleanRawId === "metric-velocity" || cleanRawId === "velocity" || cleanLabel.includes("velocity")) &&
-        (tId.includes("velocity") || tName.includes("velocity") || tName.includes("air velocity"))
-      ) {
-        return true;
-      }
-      if (
-        (cleanRawId === "metric-friction" || cleanRawId === "actualfr" || cleanLabel.includes("actual friction")) &&
-        (tId.includes("metric-friction") || tName.includes("actual friction") || tName.includes("friction loss"))
-      ) {
-        return true;
-      }
-      if (
-        (cleanRawId === "metric-velpress" || cleanRawId === "velpress" || cleanLabel.includes("velocity pressure")) &&
-        (tId.includes("velpress") || tId.includes("pressure") || tName.includes("velocity pressure") || tName.includes("pv"))
-      ) {
-        return true;
-      }
-      if (
-        (cleanRawId === "metric-deq" || cleanRawId === "deq" || cleanLabel.includes("equivalent circular")) &&
-        (tId.includes("deq") || tId.includes("equivalent") || tName.includes("equivalent circular") || tName.includes("deq"))
-      ) {
-        return true;
-      }
-      if (
-        (cleanRawId === "metric-dh" || cleanRawId === "dh" || cleanLabel.includes("hydraulic diameter")) &&
-        (tId.includes("dh") || tId.includes("hydraulic") || tName.includes("hydraulic diameter") || tName.includes("dh"))
-      ) {
-        return true;
-      }
-      if (
-        (cleanRawId === "metric-area" || cleanRawId === "area" || cleanLabel.includes("cross-section area")) &&
-        (tId.includes("area") || tName.includes("cross-section area") || tName.includes("area"))
-      ) {
-        return true;
-      }
-      if (
-        (cleanRawId === "metric-reynolds" || cleanRawId === "reynolds" || cleanLabel.includes("reynolds")) &&
-        (tId.includes("reynolds") || tName.includes("reynolds"))
-      ) {
-        return true;
-      }
-      if (
-        (cleanRawId === "metric-darcy" || cleanRawId === "darcy" || cleanLabel.includes("darcy friction")) &&
-        (tId.includes("darcy") || tId.includes("friction factor") || tName.includes("darcy") || tName.includes("friction factor"))
-      ) {
-        return true;
-      }
-      if (
-        (cleanRawId === "metric-perimeter" || cleanRawId === "perimeter" || cleanLabel.includes("perimeter") || cleanLabel.includes("girth")) &&
-        (tId.includes("perimeter") || tId.includes("girth") || tName.includes("perimeter") || tName.includes("girth"))
-      ) {
-        return true;
-      }
-
-      return false;
-    });
-  };
-
-  const isFieldHighlighted = (id: string, label?: string) => {
+  const isFieldHighlighted = (id: string, name?: string) => {
     if (!highlightedTargetId) return "";
-    const cleanHighlight = highlightedTargetId.toLowerCase().trim();
-    const cleanHighlightRaw = cleanHighlight.replace(/^(field-|card-|metric-)/, "");
-    const cleanId = id.toLowerCase().trim();
-    const cleanRawId = cleanId.replace(/^(field-|card-|metric-)/, "");
+    const cleanHigh = highlightedTargetId.toLowerCase().trim().replace(/^(field-|card-|metric-|res-)/, "");
+    const cleanId = id.toLowerCase().trim().replace(/^(field-|card-|metric-|res-)/, "");
+    const cleanName = (name || "").toLowerCase().trim();
+    const cleanHighFull = highlightedTargetId.toLowerCase().trim();
 
-    if (
-      cleanHighlight === cleanId ||
-      cleanHighlight === `field-${cleanId}` ||
-      cleanHighlight === `card-${cleanId}` ||
-      cleanHighlight === `metric-${cleanId}` ||
-      cleanHighlightRaw === cleanRawId
-    ) {
-      return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
+    const isMatch =
+      cleanHigh === cleanId ||
+      cleanHighFull === id.toLowerCase().trim() ||
+      (cleanName && (cleanHighFull === cleanName || cleanHigh === cleanName));
+
+    if (isMatch) {
+      return "ring-2 ring-sky-500 dark:ring-sky-400 bg-sky-50/60 dark:bg-sky-950/30 rounded-xl shadow-xs";
     }
-
-    if (label && cleanHighlightRaw.length > 2) {
-      const cleanLabel = label.toLowerCase();
-      if (cleanLabel.includes(cleanHighlightRaw) || cleanHighlightRaw.includes(cleanLabel)) {
-        return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
-      }
-    }
-
-    if (
-      (cleanRawId === "targetfr" || cleanRawId === "target_fr") &&
-      (cleanHighlightRaw.includes("fr") || cleanHighlightRaw.includes("friction"))
-    ) return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
-
-    if (
-      (cleanRawId === "airflow") &&
-      (cleanHighlightRaw.includes("air") || cleanHighlightRaw.includes("flow") || cleanHighlightRaw.includes("cfm") || cleanHighlightRaw.includes("lps"))
-    ) return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
-
-    if (
-      (cleanRawId === "ductshape") &&
-      (cleanHighlightRaw.includes("shape") || cleanHighlightRaw.includes("round") || cleanHighlightRaw.includes("rect"))
-    ) return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
-
-    if (
-      (cleanRawId === "aspectratio") &&
-      (cleanHighlightRaw.includes("aspect") || cleanHighlightRaw.includes("ratio"))
-    ) return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
-
     return "";
   };
 
   const renderCommentBadge = (id: string, name: string) => {
-    const itemComments = getItemComments(id, name);
-    if (itemComments.length === 0) return null;
-
+    const itemComments = getMergedItemComments(
+      id,
+      name,
+      commentsList,
+      "/duct-sizer",
+      activeProjectId || project?.id || "default"
+    );
+    if (!itemComments || itemComments.length === 0) return null;
     return (
       <button
         type="button"
@@ -702,10 +443,11 @@ function DuctSizerPage() {
           e.stopPropagation();
           handleOpenComment(id, name);
         }}
-        title={`${itemComments.length} comment(s)/task(s) on ${name}`}
-        className="ml-2 inline-flex items-center justify-center size-4 bg-primary text-primary-foreground rounded-full text-[9px] font-bold shadow-sm"
+        title={`${itemComments.length} comment(s)/task(s) on ${name}. Click to view & reply.`}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 ml-2 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 dark:hover:bg-blue-900 transition cursor-pointer shadow-xs select-none border border-blue-300/60 dark:border-blue-700/60 shrink-0 animate-in fade-in"
       >
-        {itemComments.length}
+        <MessageSquare className="size-3.5 fill-blue-500/25 text-blue-600 dark:text-blue-400" />
+        <span className="text-[10px] font-extrabold">{itemComments.length}</span>
       </button>
     );
   };
@@ -751,11 +493,30 @@ function DuctSizerPage() {
   };
 
   // Unit Toggle Handler
-  const handleUnitSystemChange = (nextSystem: "ip" | "si") => {
+  const handleUnitToggle = (targetUnit: "si" | "ip", shouldConvert: boolean = true) => {
     if (isLocked) return;
-    setUnitSystem(nextSystem);
+    if (targetUnit === unitSystem) return;
+
+    if (!shouldConvert) {
+      if (unitSystem === "ip" && targetUnit === "si") {
+        if (typeof airflow === "number") {
+          setAirflow(airflow * LPS_TO_CFM);
+        }
+        if (typeof targetFr === "number") {
+          setTargetFr(targetFr * PAM_TO_INWG);
+        }
+      } else if (unitSystem === "si" && targetUnit === "ip") {
+        if (typeof airflow === "number") {
+          setAirflow(Math.round(airflow * CFM_TO_LPS));
+        }
+        if (typeof targetFr === "number") {
+          setTargetFr(targetFr * INWG_TO_PAM);
+        }
+      }
+    }
+    setUnitSystem(targetUnit);
     dirtyStore.set(true);
-    toast.info(`Switched units to ${nextSystem === "si" ? "Metric (SI)" : "Imperial (IP)"}`);
+    toast.info(`Switched unit system to ${targetUnit === "si" ? "Metric (SI)" : "Imperial (IP)"}`);
   };
 
   // Context Menu & Value Helpers
@@ -1109,7 +870,7 @@ function DuctSizerPage() {
     }
   };
 
-  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-medium focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
+  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
 
   return (
     <AppShell
@@ -1119,11 +880,11 @@ function DuctSizerPage() {
       intelOpen={intelOpen}
       intelLabel="Intelligence"
     >
-      <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-hidden h-full">
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           
-          {/* Header Bar matching Pump Sizing / Heating Load */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+          {/* Page Header */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Duct Sizer</h1>
@@ -1145,13 +906,13 @@ function DuctSizerPage() {
                 calculatorTitle="Duct Sizer"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
+            <div className="flex items-center gap-2 shrink-0">
+              <UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isEffectiveReadOnly} />
             </div>
           </div>
 
-          {/* White / Dark Card container for Parameters & Results Grid */}
-          <div className={`flex-1 flex flex-col min-h-0 overflow-hidden rounded-2xl transition-all duration-300 ${
+          {/* White card container for Tabs & Data Grid */}
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
             calcReviewState?.status === "APPROVED"
               ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
               : calcReviewState?.status === "REJECTED"
@@ -1161,102 +922,162 @@ function DuctSizerPage() {
                   : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
 
-            {/* Action Selector Row */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
+            {/* Tabs Selector row */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50 gap-3 flex-wrap">
               <div className="flex items-center gap-2.5 flex-wrap">
-                {/* Tab Switcher: Duct Sizer / Report Preview */}
                 <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                   <button
+                    type="button"
                     onClick={() => setTab("solver")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
                       tab === "solver"
                         ? "bg-background text-foreground shadow-sm font-bold"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    Duct Sizer
+                    Calculator
                   </button>
                   <button
+                    type="button"
                     onClick={() => setTab("report")}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
                       tab === "report"
                         ? "bg-background text-foreground shadow-sm font-bold"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    Report Preview
+                    Report
                   </button>
                 </div>
 
-                {/* Formula Breakdown button */}
                 <TBtn
                   onClick={() => setFormulaModalOpen(true)}
-                  title="View Formula Breakdown & SMACNA Equations"
+                  title="View SMACNA & ASHRAE Formula Breakdown"
                 >
                   <Info className="size-3.5 text-primary" /> Formula Breakdown
                 </TBtn>
               </div>
 
-              {/* Action buttons on the right */}
-              <div className="flex items-center gap-2">
-                <TBtn onClick={exportPdf} title="Export PDF Report">
+              {/* Right Side: Export button in line with Tabs matching Preliminary & Condensate */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={exportPdf}>
                   <FileText className="size-3.5" /> Export
                 </TBtn>
               </div>
             </div>
 
-            {/* Main Content Area */}
-            <div className="flex-1 overflow-y-auto p-6 pr-3 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
-              {tab === "solver" ? (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Active Tab View */}
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+              {tab === "solver" && (
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   
                   {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
-                  <div className="lg:col-span-5 space-y-4">
+                  <div className="lg:col-span-5 space-y-5">
                     <div
                       id="card-params"
                       data-field-id="card-params"
                       data-comment-target="card-params"
-                      className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-4 ${isFieldHighlighted("card-params", "Sizing Parameters")}`}
+                      className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 ${isFieldHighlighted("card-params", "Sizing Parameters")}`}
                     >
                       <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                         <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                          📥 SIZING PARAMETERS
+                          📥 Sizing Parameters
                         </span>
                         {renderCommentBadge("card-params", "Sizing Parameters")}
                       </div>
 
                       {/* Preset Profile Dropdown inside Parameters Table */}
-                      <div className="space-y-1 pb-1">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
-                            Application Preset Profile
-                          </label>
-                          {renderCommentBadge("preset", "Duct Application Preset")}
-                        </div>
-                        <div
-                          id="field-preset"
-                          data-comment-target="preset"
-                          className={`w-full transition-all ${
-                            isFieldHighlighted("preset", "Duct Application Preset")
-                          }`}
-                        >
-                          <DuctPresetSelect
-                            value={preset}
-                            customProfileName={customProfileName}
-                            onChange={handleApplyPreset}
-                            onOpenCustomModal={() => setCustomModalOpen(true)}
-                            unitSystem={unitSystem}
-                            disabled={isEffectiveReadOnly}
-                          />
-                        </div>
-                      </div>
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            id="field-preset"
+                            data-field-id="field-preset"
+                            data-comment-target="preset"
+                            className={`space-y-1 pb-1 p-1.5 -m-1.5 transition-all ${isFieldHighlighted("preset", "Duct Application Preset")}`}
+                          >
+                            <div className="flex justify-between items-center">
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Application Preset Profile
+                              </label>
+                              {renderCommentBadge("preset", "Duct Application Preset")}
+                            </div>
+                            <div className="w-full">
+                              <DuctPresetSelect
+                                value={preset}
+                                customProfileName={customProfileName}
+                                onChange={handleApplyPreset}
+                                onOpenCustomModal={() => setCustomModalOpen(true)}
+                                unitSystem={unitSystem}
+                                disabled={isEffectiveReadOnly}
+                              />
+                            </div>
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("preset", "Duct Application Preset")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            onClick={() => handleApplyPreset("commercial_office_main")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <RotateCcw className="size-3.5 text-muted-foreground" />
+                            <span>Reset Preset (Office Main)</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            onClick={() => handleApplyPreset("commercial_office_branch")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Building2 className="size-3.5 text-muted-foreground" />
+                            <span>Office Branch (0.06 in.wg)</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            onClick={() => handleApplyPreset("low_noise_theatre")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Hotel className="size-3.5 text-muted-foreground" />
+                            <span>Low Noise Studio/Hotel</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            onClick={() => handleApplyPreset("industrial_high_velocity")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Factory className="size-3.5 text-muted-foreground" />
+                            <span>Industrial High Velocity</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly || isApprovedLocked}
+                            onClick={() => setCustomModalOpen(true)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <SlidersHorizontal className="size-3.5 text-primary" />
+                            <span>Custom Duct Config...</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
 
                       {/* Input 1: Airflow Q */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-1">
+                          <div
+                            id="field-airflow"
+                            data-field-id="field-airflow"
+                            data-comment-target="airflow"
+                            className={`space-y-1 p-1.5 -m-1.5 transition-all ${isFieldHighlighted("airflow", "Airflow (Q)")}`}
+                          >
                             <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                                 Airflow (Q) ({isSI ? "L/s" : "CFM"})
                               </label>
                               {renderCommentBadge("airflow", "Airflow (Q)")}
@@ -1279,22 +1100,51 @@ function DuctSizerPage() {
                             />
                           </div>
                         </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => handleCopyValue("Airflow", isSI ? `${Math.round(Number(airflow || 0) * CFM_TO_LPS)} L/s` : `${airflow} CFM`)}>
-                            <Copy className="size-3.5 mr-2 text-muted-foreground" /> Copy Airflow Value
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handlePasteValue("Airflow", "airflow")}>
-                            <Clipboard className="size-3.5 mr-2 text-muted-foreground" /> Paste Value
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("airflow", "Airflow (Q)")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
                           </ContextMenuItem>
                           <ContextMenuSeparator className="h-px bg-border my-1" />
-                          <ContextMenuItem onClick={() => {
-                            const defQ = DUCT_PRESETS[preset]?.airflow || 2500;
-                            handleResetField("Airflow", "airflow", defQ);
-                          }}>
-                            <RotateCcw className="size-3.5 mr-2 text-muted-foreground" /> Reset to Default
+                          <ContextMenuItem
+                            onClick={() => handleCopyValue("Airflow", isSI ? `${Math.round(Number(airflow || 0) * CFM_TO_LPS)} L/s` : `${airflow} CFM`)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Copy className="size-3.5 text-muted-foreground" />
+                            <span>Copy Value</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                           </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("airflow", "Airflow (Q)")} className="text-primary font-medium">
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Assign Task
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => handlePasteValue("Airflow", "airflow")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
+                          >
+                            <Clipboard className="size-3.5 text-muted-foreground" />
+                            <span>Paste Value</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => {
+                              const defQ = DUCT_PRESETS[preset]?.airflow || 2500;
+                              handleResetField("Airflow", "airflow", defQ);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
+                          >
+                            <RotateCcw className="size-3.5 text-muted-foreground" />
+                            <span>Reset to Default</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => handleClearField("Airflow", "airflow")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
+                          >
+                            <Trash2 className="size-3.5 text-muted-foreground" />
+                            <span>Clear Input</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1302,9 +1152,14 @@ function DuctSizerPage() {
                       {/* Input 2: Target Friction Rate */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                          <div
+                            id="field-targetFr"
+                            data-field-id="field-targetFr"
+                            data-comment-target="targetFr"
+                            className={`space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800 p-1.5 -mx-1.5 transition-all ${isFieldHighlighted("targetFr", "Target Friction Rate")}`}
+                          >
                             <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                                 Target Friction Rate ({isSI ? "Pa/m" : "in w.g./100ft"})
                               </label>
                               {renderCommentBadge("targetFr", "Target Friction Rate")}
@@ -1327,22 +1182,51 @@ function DuctSizerPage() {
                             />
                           </div>
                         </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => handleCopyValue("Target Friction Rate", isSI ? `${(Number(targetFr || 0) * INWG_TO_PAM).toFixed(2)} Pa/m` : `${targetFr} in.wg/100ft`)}>
-                            <Copy className="size-3.5 mr-2 text-muted-foreground" /> Copy Friction Rate Target
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handlePasteValue("Target Friction Rate", "targetFr")}>
-                            <Clipboard className="size-3.5 mr-2 text-muted-foreground" /> Paste Value
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("targetFr", "Target Friction Rate")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
                           </ContextMenuItem>
                           <ContextMenuSeparator className="h-px bg-border my-1" />
-                          <ContextMenuItem onClick={() => {
-                            const defFr = DUCT_PRESETS[preset]?.targetFr || 0.08;
-                            handleResetField("Target Friction Rate", "targetFr", defFr);
-                          }}>
-                            <RotateCcw className="size-3.5 mr-2 text-muted-foreground" /> Reset to Default
+                          <ContextMenuItem
+                            onClick={() => handleCopyValue("Target Friction Rate", isSI ? `${(Number(targetFr || 0) * INWG_TO_PAM).toFixed(2)} Pa/m` : `${targetFr} in.wg/100ft`)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Copy className="size-3.5 text-muted-foreground" />
+                            <span>Copy Value</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                           </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleOpenComment("targetFr", "Target Friction Rate")} className="text-primary font-medium">
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Assign Task
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => handlePasteValue("Target Friction Rate", "targetFr")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
+                          >
+                            <Clipboard className="size-3.5 text-muted-foreground" />
+                            <span>Paste Value</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => {
+                              const defFr = DUCT_PRESETS[preset]?.targetFr || 0.08;
+                              handleResetField("Target Friction Rate", "targetFr", defFr);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
+                          >
+                            <RotateCcw className="size-3.5 text-muted-foreground" />
+                            <span>Reset to Default</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => handleClearField("Target Friction Rate", "targetFr")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
+                          >
+                            <Trash2 className="size-3.5 text-muted-foreground" />
+                            <span>Clear Input</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1350,9 +1234,14 @@ function DuctSizerPage() {
                       {/* Input 3: Duct Cross-Section Shape */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                          <div
+                            id="field-ductShape"
+                            data-field-id="field-ductShape"
+                            data-comment-target="ductShape"
+                            className={`space-y-2 pt-2 border-t border-slate-100 dark:border-zinc-800 p-1.5 -mx-1.5 transition-all ${isFieldHighlighted("ductShape", "Duct Shape")}`}
+                          >
                             <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                                 Duct Cross-Section Shape
                               </label>
                               {renderCommentBadge("ductShape", "Duct Shape")}
@@ -1385,16 +1274,30 @@ function DuctSizerPage() {
                             </div>
                           </div>
                         </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => { setDuctShape("round"); dirtyStore.set(true); }}>
-                            <Cylinder className="size-3.5 mr-2 text-primary" /> Select Round Spiral Duct
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => { setDuctShape("rect"); dirtyStore.set(true); }}>
-                            <Layers className="size-3.5 mr-2 text-primary" /> Select Rectangular Duct
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("ductShape", "Duct Shape")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
                           </ContextMenuItem>
                           <ContextMenuSeparator className="h-px bg-border my-1" />
-                          <ContextMenuItem onClick={() => handleOpenComment("ductShape", "Duct Shape")} className="text-primary font-medium">
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Assign Task
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => { setDuctShape("round"); dirtyStore.set(true); toast.info("Switched to Round Spiral Duct"); }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Cylinder className="size-3.5 text-primary" />
+                            <span>Select Round Spiral Duct</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => { setDuctShape("rect"); dirtyStore.set(true); toast.info("Switched to Rectangular Duct"); }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Layers className="size-3.5 text-primary" />
+                            <span>Select Rectangular Duct</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1402,38 +1305,94 @@ function DuctSizerPage() {
                       {/* Input 4: Aspect Ratio */}
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
-                          <div className={`space-y-1.5 pt-2 border-t border-slate-100 dark:border-zinc-800 ${ductShape === "round" ? "opacity-75" : ""}`}>
+                          <div
+                            id="field-aspectRatio"
+                            data-field-id="field-aspectRatio"
+                            data-comment-target="aspectRatio"
+                            className={`space-y-1.5 pt-2 border-t border-slate-100 dark:border-zinc-800 p-1.5 -mx-1.5 transition-all ${ductShape === "round" ? "opacity-75" : ""} ${isFieldHighlighted("aspectRatio", "Aspect Ratio")}`}
+                          >
                             <div className="flex justify-between items-center">
-                              <label className="text-[11.5px] font-semibold text-slate-700 dark:text-zinc-300">
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                                 Aspect Ratio (W:H)
                               </label>
-                              <span className="text-[10.5px] font-mono text-primary font-bold">
-                                {ductShape === "round" ? "1.0:1 (Fixed)" : `${aspectRatio.toFixed(1)}:1`}
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] font-mono text-primary font-bold">
+                                  {ductShape === "round" ? "1.0:1 (Fixed)" : `${aspectRatio.toFixed(1)}:1`}
+                                </span>
+                                {renderCommentBadge("aspectRatio", "Aspect Ratio")}
+                              </div>
                             </div>
-                            <select
-                              disabled={isEffectiveReadOnly || ductShape === "round"}
-                              value={ductShape === "round" ? 1.0 : aspectRatio}
-                              onChange={(e) => { setAspectRatio(Number(e.target.value)); dirtyStore.set(true); }}
-                              className="w-full h-9 px-3 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-semibold focus:outline-none focus:border-primary text-slate-800 dark:text-zinc-200 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800/50 disabled:text-slate-400 dark:disabled:text-zinc-500"
-                            >
-                              {ductShape === "round" ? (
-                                <option value="1.0">1.0:1 - Circular (Fixed 1:1)</option>
-                              ) : (
-                                <>
-                                  <option value="1.0">1:1 - Square Duct</option>
-                                  <option value="1.5">1.5:1 - Low Profile (Standard)</option>
-                                  <option value="2.0">2:1 - Medium Aspect</option>
-                                  <option value="3.0">3:1 - Flat / Ceiling Clearance</option>
-                                  <option value="4.0">4:1 - Maximum Recommended</option>
-                                </>
-                              )}
-                            </select>
+                            <div className="relative">
+                              <select
+                                disabled={isEffectiveReadOnly || ductShape === "round"}
+                                value={ductShape === "round" ? 1.0 : aspectRatio}
+                                onChange={(e) => { setAspectRatio(Number(e.target.value)); dirtyStore.set(true); }}
+                                className="appearance-none w-full h-9 px-3 pr-8 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-semibold focus:outline-none focus:border-primary text-slate-800 dark:text-zinc-200 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800/50 disabled:text-slate-400 dark:disabled:text-zinc-500"
+                              >
+                                {ductShape === "round" ? (
+                                  <option value="1.0">1.0:1 - Circular (Fixed 1:1)</option>
+                                ) : (
+                                  <>
+                                    <option value="1.0">1:1 - Square Duct</option>
+                                    <option value="1.5">1.5:1 - Low Profile (Standard)</option>
+                                    <option value="2.0">2:1 - Medium Aspect</option>
+                                    <option value="3.0">3:1 - Flat / Ceiling Clearance</option>
+                                    <option value="4.0">4:1 - Maximum Recommended</option>
+                                  </>
+                                )}
+                              </select>
+                              <ChevronsUpDown className="absolute right-2.5 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none opacity-55" />
+                            </div>
                           </div>
                         </ContextMenuTrigger>
-                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                          <ContextMenuItem onClick={() => handleOpenComment("aspectRatio", "Aspect Ratio")} className="text-primary font-medium">
-                            <MessageSquare className="size-3.5 mr-2" /> Add Comment / Assign Task
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("aspectRatio", "Aspect Ratio")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly || ductShape === "round"}
+                            onClick={() => { setAspectRatio(1.0); dirtyStore.set(true); toast.info("Aspect Ratio set to 1.0:1"); }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <span className="font-mono text-xs w-4">1:1</span>
+                            <span>Square Duct (1.0:1)</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly || ductShape === "round"}
+                            onClick={() => { setAspectRatio(1.5); dirtyStore.set(true); toast.info("Aspect Ratio set to 1.5:1"); }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <span className="font-mono text-xs w-4">1.5</span>
+                            <span>Standard Low Profile (1.5:1)</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly || ductShape === "round"}
+                            onClick={() => { setAspectRatio(2.0); dirtyStore.set(true); toast.info("Aspect Ratio set to 2.0:1"); }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <span className="font-mono text-xs w-4">2:1</span>
+                            <span>Medium Aspect (2.0:1)</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly || ductShape === "round"}
+                            onClick={() => { setAspectRatio(3.0); dirtyStore.set(true); toast.info("Aspect Ratio set to 3.0:1"); }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <span className="font-mono text-xs w-4">3:1</span>
+                            <span>Ceiling Clearance (3.0:1)</span>
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly || ductShape === "round"}
+                            onClick={() => { setAspectRatio(4.0); dirtyStore.set(true); toast.info("Aspect Ratio set to 4.0:1"); }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <span className="font-mono text-xs w-4">4:1</span>
+                            <span>Maximum Recommended (4.0:1)</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1441,20 +1400,17 @@ function DuctSizerPage() {
                   </div>
 
                   {/* RIGHT COLUMN: RESULTS - STICKY PANEL (lg:col-span-7) */}
-                  <div className="lg:col-span-7 lg:sticky lg:top-0 space-y-4">
+                  <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
                     
                     {/* PRIMARY SIZING RESULTS CARD (MATCHING PUMP SIZING REFERENCE) */}
                     <ContextMenu>
                       <ContextMenuTrigger asChild>
                         <div
                           id="card-hero-results"
+                          data-field-id="card-hero-results"
                           data-comment-target="hero-results"
-                          onDoubleClick={() => setFormulaModalOpen(true)}
-                          title="Double-click to view SMACNA formula breakdown"
-                          className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 cursor-pointer transition-colors ${
-                            isFieldHighlighted("hero-results", "Recommended Duct Sizing") || isFieldHighlighted("card-hero-results") || isFieldHighlighted("card-aerodynamics")
-                              ? "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light"
-                              : ""
+                          className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6 transition-all ${
+                            isFieldHighlighted("hero-results", "Recommended Duct Sizing") || isFieldHighlighted("card-hero-results")
                           }`}
                         >
                           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
@@ -1469,39 +1425,39 @@ function DuctSizerPage() {
                             </span>
                           </div>
 
-                          {/* DISPLAY STAT CARDS (Single Unified Clean Color Design) */}
+                          {/* DISPLAY STAT CARDS (Multi-Color Vibrant Theme from Pump Sizing) */}
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div className="bg-slate-50 dark:bg-zinc-800/50 border border-slate-200/80 dark:border-zinc-700/60 rounded-xl p-3.5 space-y-1">
-                              <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 uppercase tracking-wider">Recommended Size</div>
-                              <div className="text-xl font-bold font-mono text-primary tracking-tight">
+                            <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5">
+                              <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Recommended Size</div>
+                              <div className="text-xl font-bold font-mono text-foreground mt-1">
                                 {calcResults.sizeDisplay}
                               </div>
                             </div>
 
-                            <div className="bg-slate-50 dark:bg-zinc-800/50 border border-slate-200/80 dark:border-zinc-700/60 rounded-xl p-3.5 space-y-1">
-                              <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 uppercase tracking-wider">Air Velocity</div>
-                              <div className="text-xl font-bold font-mono text-foreground tracking-tight">
+                            <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5">
+                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Air Velocity</div>
+                              <div className="text-xl font-bold font-mono text-foreground mt-1">
                                 {isSI ? `${calcResults.velocityMs.toFixed(2)}` : `${Math.round(calcResults.velocityFpm)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "m/s" : "FPM"}</span>
                               </div>
                             </div>
 
-                            <div className="bg-slate-50 dark:bg-zinc-800/50 border border-slate-200/80 dark:border-zinc-700/60 rounded-xl p-3.5 space-y-1">
-                              <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 uppercase tracking-wider">Friction Loss</div>
-                              <div className="text-xl font-bold font-mono text-foreground tracking-tight">
+                            <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5">
+                              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Friction Loss</div>
+                              <div className="text-xl font-bold font-mono text-foreground mt-1">
                                 {isSI ? `${calcResults.actualFrPaM.toFixed(2)}` : `${calcResults.actualFrInWg.toFixed(3)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "Pa/m" : "in/100ft"}</span>
                               </div>
                             </div>
 
-                            <div className="bg-slate-50 dark:bg-zinc-800/50 border border-slate-200/80 dark:border-zinc-700/60 rounded-xl p-3.5 space-y-1">
-                              <div className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 uppercase tracking-wider">Equiv. Dia (Deq)</div>
-                              <div className="text-xl font-bold font-mono text-foreground tracking-tight">
+                            <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5">
+                              <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Equiv. Dia (Deq)</div>
+                              <div className="text-xl font-bold font-mono text-foreground mt-1">
                                 {isSI ? `${Math.round(calcResults.deqMm)}` : `${calcResults.deqIn.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "mm" : "in"}</span>
                               </div>
                             </div>
                           </div>
 
                           {/* DETAILED AERODYNAMIC METRICS TABLE (Matching Pump Sizing) */}
-                          <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2 text-xs">
+                          <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs">
                             <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                               <span className="text-slate-600 dark:text-zinc-400">Velocity Pressure (Pv):</span>
                               <span className="font-mono font-bold">{isSI ? `${calcResults.velPressPa.toFixed(1)} Pa` : `${calcResults.velPressInWg.toFixed(4)} in.wg`}</span>
@@ -1533,258 +1489,343 @@ function DuctSizerPage() {
                           </div>
                         </div>
                       </ContextMenuTrigger>
-                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px]">
-                        <ContextMenuItem onClick={() => setFormulaModalOpen(true)} className="text-primary font-medium">
-                          <Eye className="size-3.5 mr-2" /> View Formula Breakdown
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          onClick={() => handleOpenComment("hero-results", "Recommended Duct Sizing")}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment</span>
                         </ContextMenuItem>
                         <ContextMenuSeparator className="h-px bg-border my-1" />
-                        <ContextMenuItem onClick={() => handleOpenComment("hero-results", "Recommended Duct Sizing")} className="text-primary font-medium">
-                          <MessageSquare className="size-3.5 mr-2" /> Add Comment / Assign Task
+                        <ContextMenuItem
+                          onClick={() => handleCopyValue("Sizing Result", `${calcResults.sizeFullText} | Velocity: ${isSI ? `${calcResults.velocityMs.toFixed(2)} m/s` : `${Math.round(calcResults.velocityFpm)} FPM`} | Friction: ${isSI ? `${calcResults.actualFrPaM.toFixed(2)} Pa/m` : `${calcResults.actualFrInWg.toFixed(3)} in.wg/100ft`}`)}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                        >
+                          <Copy className="size-3.5 text-muted-foreground" />
+                          <span>Copy Sizing Result</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => setFormulaModalOpen(true)}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                        >
+                          <Info className="size-3.5 text-primary" />
+                          <span>View Formula Breakdown</span>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={exportPdf}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                        >
+                          <FileText className="size-3.5 text-muted-foreground" />
+                          <span>Export PDF Calculation</span>
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={exportToExcel}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                        >
+                          <FileSpreadsheet className="size-3.5 text-muted-foreground" />
+                          <span>Export Excel Sheet</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>
 
                   </div>
                 </div>
-              ) : (
-                /* Report View Tab */
-                <div className="h-full max-h-full overflow-y-auto p-4 md:p-8 custom-scrollbar space-y-6 max-w-4xl mx-auto w-full pb-16">
-                  <div className="flex items-center justify-between pb-3 border-b border-border gap-2 flex-wrap">
-                    <div>
-                      <h2 className="text-base font-bold text-foreground">HVAC Duct Sizing Engineering Report</h2>
-                      <p className="text-xs text-muted-foreground">Equal friction design summary for air distribution and duct fabrication.</p>
+              </div>
+            )}
+
+            {/* TAB: STANDARDIZED REPORT VIEW (MATCHING PRELIMINARY COOLING LOAD CORPORATE STANDARD) */}
+            {tab === "report" && (
+              <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40 select-none">
+                <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
+                    {/* 1. Header Title */}
+                    <div className="pb-1">
+                      <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+                        Duct Sizing Calculation
+                      </h2>
                     </div>
-                    <TBtn onClick={exportPdf}>
-                      <Printer className="size-3.5" /> Print / Export PDF
-                    </TBtn>
+
+                  {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format matching Preliminary) */}
+                  <div className="border border-border rounded-xl overflow-hidden text-xs">
+                    <table className="w-full border-collapse">
+                      <tbody>
+                        <tr className="border-b border-border divide-x divide-border">
+                          <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                          <td className="p-2.5 font-mono text-foreground font-medium">{(project as any)?.calcNo || "TRV-CAL-DUCT-001"}</td>
+                          <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                          <td className="p-2.5 font-mono font-medium">{formatDateStr(new Date().toISOString()) || new Date().toISOString().split("T")[0]}</td>
+                        </tr>
+                        <tr className="border-b border-border divide-x divide-border">
+                          <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                          <td className="p-2.5 font-mono">{project?.code || (project as any)?.projectNo || "P000"}</td>
+                          <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                          <td className="p-2.5">{project?.client || "-"}</td>
+                        </tr>
+                        <tr className="divide-x divide-border">
+                          <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                          <td className="p-2.5">{project?.name || "Duct Sizing Calculation"}</td>
+                          <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                          <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
 
-                  {/* Summary Card */}
-                  <div className="bg-card border border-border rounded-2xl p-5 space-y-4 shadow-xs">
-                    <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">1. Project & Sizing Criteria</h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-                      <div>
-                        <span className="text-muted-foreground block text-[11px]">Project Name</span>
-                        <strong className="text-foreground">{project?.name || "MEP Study"}</strong>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground block text-[11px]">Design Standard</span>
-                        <strong className="text-foreground">SMACNA / ASHRAE Equal Friction</strong>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground block text-[11px]">Application Profile</span>
-                        <strong className="text-foreground">{customProfileName || "Commercial Office"}</strong>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground block text-[11px]">Unit System</span>
-                        <strong className="text-foreground">{unitSystem.toUpperCase()}</strong>
-                      </div>
-                    </div>
+                  {/* Table 1: Design Parameters & Sizing Basis */}
+                  <div className="border border-border rounded-xl overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                          <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                          <th className="p-2.5 border-r border-border text-left">Input Parameter</th>
+                          <th className="p-2.5 border-r border-border text-center w-36">Value</th>
+                          <th className="p-2.5 border-r border-border text-center w-24">Unit</th>
+                          <th className="p-2.5 text-left">Standard / Code Reference</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                          <td className="p-2.5 border-r border-border font-medium">Design Airflow Rate (Q)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{isSI ? Math.round(calcResults.qLps).toLocaleString() : Math.round(calcResults.qCfm).toLocaleString()}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "L/s" : "CFM"}</td>
+                          <td className="p-2.5 text-muted-foreground">Specified HVAC Design Duty</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                          <td className="p-2.5 border-r border-border font-medium">Target Friction Rate (ΔP / L)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{isSI ? calcResults.targetFrPaM.toFixed(2) : calcResults.targetFrInWg.toFixed(3)}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "Pa/m" : "in.wg/100ft"}</td>
+                          <td className="p-2.5 text-muted-foreground">Equal Friction Design Basis (SMACNA)</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                          <td className="p-2.5 border-r border-border font-medium">Duct Cross-Section Geometry</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold">{ductShape === "round" ? "Round Spiral" : "Rectangular"}</td>
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground">-</td>
+                          <td className="p-2.5 text-muted-foreground">Selected Fabrication Standard</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                          <td className="p-2.5 border-r border-border font-medium">Application Preset Profile</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold">{preset === "custom" ? customProfileName : (DUCT_PRESETS[preset]?.label || "Commercial Office Main")}</td>
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground">-</td>
+                          <td className="p-2.5 text-muted-foreground">SMACNA / ASHRAE Application Class</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">5</td>
+                          <td className="p-2.5 border-r border-border font-medium">Duct Aspect Ratio (W : H)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{ductShape === "rect" ? `${aspectRatio.toFixed(1)} : 1` : "1.0 : 1"}</td>
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground">-</td>
+                          <td className="p-2.5 text-muted-foreground">{ductShape === "rect" ? "SMACNA Maximum Ratio Limit ≤ 4.0:1" : "Circular Symmetrical Standard"}</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">6</td>
+                          <td className="p-2.5 border-r border-border font-medium">Duct Material Absolute Roughness (ε)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{isSI ? "0.09" : "0.0035"}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "mm" : "inches"}</td>
+                          <td className="p-2.5 text-muted-foreground">Galvanized Sheet Steel (ASHRAE Fundamentals)</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">7</td>
+                          <td className="p-2.5 border-r border-border font-medium">Standard Air Density (ρ) &amp; Kinematic Viscosity (ν)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{isSI ? "1.204 / 1.516e-5" : "0.075 / 1.632e-4"}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "kg/m³" : "lb/ft³"}</td>
+                          <td className="p-2.5 text-muted-foreground">Standard Atmospheric Air at Sea Level (20°C / 68°F)</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
 
-                  {/* Results Table Card */}
-                  <div className="bg-card border border-border rounded-2xl p-5 space-y-4 shadow-xs">
-                    <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">2. Recommended Sizing & Aerodynamics</h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs text-left border-collapse">
+                  {/* Table 2: Duct Sizing & Aerodynamic Performance Summary */}
+                  <div className="border border-border rounded-xl overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                          <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                          <th className="p-2.5 border-r border-border text-left">Aerodynamic &amp; Sizing Metric</th>
+                          <th className="p-2.5 border-r border-border text-center w-36">Value</th>
+                          <th className="p-2.5 border-r border-border text-center w-24">Unit</th>
+                          <th className="p-2.5 text-left">Engineering Formulation &amp; Basis</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {/* Highlighted Recommended Duct Sizing Row */}
+                        <tr className="bg-blue-50/70 dark:bg-blue-950/30 hover:bg-blue-100/70 dark:hover:bg-blue-950/50 font-bold border-b border-border">
+                          <td className="p-2.5 border-r border-border text-center text-blue-700 dark:text-blue-300 font-mono">1</td>
+                          <td className="p-2.5 border-r border-border font-bold text-blue-700 dark:text-blue-300">Recommended Duct Sizing</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono text-blue-600 dark:text-blue-400 text-sm">{calcResults.sizeDisplay}</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold text-blue-600 dark:text-blue-400">{calcResults.ductShape === "round" ? (isSI ? "mm Ø" : "in Ø") : (isSI ? "mm (W×H)" : "in (W×H)")}</td>
+                          <td className="p-2.5 font-bold text-blue-700 dark:text-blue-300">{calcResults.sizeFullText}</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                          <td className="p-2.5 border-r border-border font-medium text-foreground">Mean Flow Velocity (V)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono text-foreground text-sm">{isSI ? calcResults.velocityMs.toFixed(2) : Math.round(calcResults.velocityFpm).toLocaleString()}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "m/s" : "FPM"}</td>
+                          <td className="p-2.5 text-muted-foreground">V = Q / A ({calcResults.velocityFpm <= 2000 ? "Comfort Low-Noise ≤ 2,000 FPM" : "High Velocity"})</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                          <td className="p-2.5 border-r border-border font-medium text-foreground">Actual Friction Loss (ΔP / L)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono text-foreground text-sm">{isSI ? calcResults.actualFrPaM.toFixed(3) : calcResults.actualFrInWg.toFixed(4)}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "Pa/m" : "in.wg/100ft"}</td>
+                          <td className="p-2.5 text-muted-foreground">Colebrook: ΔP = f × (L/Dh) × Pv (Achieved)</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                          <td className="p-2.5 border-r border-border font-medium">Equivalent Circular Diameter (Deq)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{isSI ? Math.round(calcResults.deqMm) : calcResults.deqIn.toFixed(1)}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "mm" : "inches"}</td>
+                          <td className="p-2.5 text-muted-foreground">Huebscher: Deq = 1.30 × (a·b)^0.625 / (a+b)^0.25</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">5</td>
+                          <td className="p-2.5 border-r border-border font-medium">Hydraulic Diameter (Dh)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{isSI ? Math.round(calcResults.hydraulicDiaMm) : calcResults.hydraulicDiaIn.toFixed(1)}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "mm" : "inches"}</td>
+                          <td className="p-2.5 text-muted-foreground">Dh = 4A / P = 2ab / (a + b)</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">6</td>
+                          <td className="p-2.5 border-r border-border font-medium">Net Cross-Sectional Area (A)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{isSI ? calcResults.areaM2.toFixed(3) : calcResults.areaSqFt.toFixed(2)}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "m²" : "sq.ft"}</td>
+                          <td className="p-2.5 text-muted-foreground">Net internal airflow cross-sectional area</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">7</td>
+                          <td className="p-2.5 border-r border-border font-medium">Velocity Pressure (Pv)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{isSI ? calcResults.velPressPa.toFixed(1) : calcResults.velPressInWg.toFixed(4)}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "Pa" : "in.wg"}</td>
+                          <td className="p-2.5 text-muted-foreground">Pv = 0.5 × ρ × V² (Dynamic velocity head)</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">8</td>
+                          <td className="p-2.5 border-r border-border font-medium">Reynolds Number (Re)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{Math.round(calcResults.reynolds).toLocaleString()}</td>
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground">-</td>
+                          <td className="p-2.5 text-muted-foreground">Re = V · Dh / ν ({calcResults.flowRegime})</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">9</td>
+                          <td className="p-2.5 border-r border-border font-medium">Darcy Friction Factor (f)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{calcResults.frictionFactor.toFixed(5)}</td>
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground">-</td>
+                          <td className="p-2.5 text-muted-foreground">Iterative Colebrook-White implicit solution</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">10</td>
+                          <td className="p-2.5 border-r border-border font-medium">Duct Girth / Perimeter (P)</td>
+                          <td className="p-2.5 border-r border-border text-center font-bold font-mono">{isSI ? calcResults.perimeterM.toFixed(2) : (calcResults.perimeterIn / 12).toFixed(2)}</td>
+                          <td className="p-2.5 border-r border-border text-center">{isSI ? "m" : "ft"}</td>
+                          <td className="p-2.5 text-muted-foreground">Sheet metal fabrication &amp; acoustic wrap takeoff</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Table 3: Mandatory Design Standards & Engineering Criteria */}
+                  <div className="space-y-2 mt-8">
+                    <div className="border border-border rounded-xl overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
                         <thead>
-                          <tr className="border-b border-border bg-surface-2 text-muted-foreground font-bold">
-                            <th className="p-2.5">Parameter</th>
-                            <th className="p-2.5">Calculated Value</th>
-                            <th className="p-2.5">Unit</th>
-                            <th className="p-2.5">Reference / Notes</th>
+                          <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                            <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                            <th className="p-2.5 border-r border-border text-left w-64">Mandatory Design Standard</th>
+                            <th className="p-2.5 text-left">Compliance &amp; Engineering Criteria</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-border/60">
-                          <tr>
-                            <td className="p-2.5 font-bold">Design Airflow (Q)</td>
-                            <td className="p-2.5 font-mono">{isSI ? Math.round(calcResults.qLps) : calcResults.qCfm}</td>
-                            <td className="p-2.5">{isSI ? "L/s" : "CFM"}</td>
-                            <td className="p-2.5 text-muted-foreground">Specified HVAC Design Duty</td>
+                        <tbody className="divide-y divide-border">
+                          <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                            <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                            <td className="p-2.5 border-r border-border font-bold">SMACNA HVAC Duct Construction Standards</td>
+                            <td className="p-2.5 text-muted-foreground">Duct aspect ratio satisfies maximum allowable 4.0:1 guideline to prevent excessive sheet metal distortion and acoustic breakout penalties.</td>
                           </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold">Target Friction Rate</td>
-                            <td className="p-2.5 font-mono">{isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg`}</td>
-                            <td className="p-2.5">{isSI ? "Pa/m" : "in.wg/100ft"}</td>
-                            <td className="p-2.5 text-muted-foreground">Equal Friction Design Basis</td>
+                          <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                            <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                            <td className="p-2.5 border-r border-border font-bold">ASHRAE Fundamentals Equal Friction Method</td>
+                            <td className="p-2.5 text-muted-foreground">Aerodynamic friction losses computed via rigorous iterative Colebrook-White equation with 0.09 mm absolute roughness.</td>
                           </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold">Selected Duct Geometry</td>
-                            <td className="p-2.5 font-mono font-bold text-primary">{calcResults.sizeDisplay}</td>
-                            <td className="p-2.5">{calcResults.ductShape === "round" ? "NPS" : "W × H"}</td>
-                            <td className="p-2.5 text-muted-foreground">{calcResults.sizeFullText}</td>
+                          <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                            <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                            <td className="p-2.5 border-r border-border font-bold">Acoustic Velocity Threshold Compliance</td>
+                            <td className="p-2.5 text-muted-foreground">Design velocity of {isSI ? `${calcResults.velocityMs.toFixed(2)} m/s` : `${Math.round(calcResults.velocityFpm)} FPM`} complies with recommended maximum velocity thresholds for the selected application profile.</td>
                           </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold">Equivalent Circular Diameter (Deq)</td>
-                            <td className="p-2.5 font-mono">{isSI ? `${Math.round(calcResults.deqMm)} mm` : `${calcResults.deqIn.toFixed(1)}"`}</td>
-                            <td className="p-2.5">{isSI ? "mm" : "inches"}</td>
-                            <td className="p-2.5 text-muted-foreground">Huebscher Equation</td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold">Hydraulic Diameter (Dh)</td>
-                            <td className="p-2.5 font-mono">{isSI ? `${Math.round(calcResults.hydraulicDiaMm)} mm` : `${calcResults.hydraulicDiaIn.toFixed(1)}"`}</td>
-                            <td className="p-2.5">{isSI ? "mm" : "inches"}</td>
-                            <td className="p-2.5 text-muted-foreground">Dh = 4A / P</td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold">Cross-Section Area</td>
-                            <td className="p-2.5 font-mono">{isSI ? `${calcResults.areaM2.toFixed(3)} m²` : `${calcResults.areaSqFt.toFixed(2)} sq.ft`}</td>
-                            <td className="p-2.5">{isSI ? "m²" : "sq.ft"}</td>
-                            <td className="p-2.5 text-muted-foreground">Effective Internal Net Area</td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold">Mean Flow Velocity</td>
-                            <td className="p-2.5 font-mono font-bold text-primary">{isSI ? `${calcResults.velocityMs.toFixed(2)} m/s` : `${Math.round(calcResults.velocityFpm)} FPM`}</td>
-                            <td className="p-2.5">{isSI ? "m/s" : "FPM"}</td>
-                            <td className="p-2.5 text-muted-foreground">Complies with standard acoustic velocity limits</td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold">Velocity Pressure (Pv)</td>
-                            <td className="p-2.5 font-mono">{isSI ? calcResults.velPressPa.toFixed(1) : calcResults.velPressInWg.toFixed(4)}</td>
-                            <td className="p-2.5">{isSI ? "Pa" : "in.wg"}</td>
-                            <td className="p-2.5 text-muted-foreground">Dynamic velocity pressure component</td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold">Reynolds Number (Re)</td>
-                            <td className="p-2.5 font-mono">{Math.round(calcResults.reynolds).toLocaleString()}</td>
-                            <td className="p-2.5">-</td>
-                            <td className="p-2.5 text-muted-foreground">{calcResults.flowRegime}</td>
-                          </tr>
-                          <tr>
-                            <td className="p-2.5 font-bold">Darcy Friction Factor (f)</td>
-                            <td className="p-2.5 font-mono">{calcResults.frictionFactor.toFixed(5)}</td>
-                            <td className="p-2.5">-</td>
-                            <td className="p-2.5 text-muted-foreground">Iterative Colebrook solution</td>
+                          <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                            <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                            <td className="p-2.5 border-r border-border font-bold">Friction Rate Convergence</td>
+                            <td className="p-2.5 text-muted-foreground">Calculated friction loss ({isSI ? `${calcResults.actualFrPaM.toFixed(3)} Pa/m` : `${calcResults.actualFrInWg.toFixed(4)} in.wg/100ft`}) achieves precise balance with target criteria ({isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg/100ft`}).</td>
                           </tr>
                         </tbody>
                       </table>
                     </div>
                   </div>
 
-                  {/* 3. Compliance & Diagnostic Verification */}
-                  {warnings.length > 0 && (
-                    <div className="bg-card border border-border rounded-2xl p-5 space-y-3 shadow-xs">
-                      <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">3. Compliance & Diagnostic Verification</h3>
-                      <div className="space-y-2">
-                        {warnings.map((w, idx) => (
-                          <div
-                            key={idx}
-                            className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs font-medium ${
-                              w.type === "warning"
-                                ? "bg-amber-500/10 border-amber-500/20 text-amber-800 dark:text-amber-300"
-                                : w.type === "info"
-                                ? "bg-blue-500/10 border-blue-500/20 text-blue-800 dark:text-blue-300"
-                                : "bg-emerald-500/10 border-emerald-500/20 text-emerald-800 dark:text-emerald-300"
-                            }`}
-                          >
-                            {w.type === "warning" ? (
-                              <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600" />
-                            ) : w.type === "info" ? (
-                              <Info className="size-4 shrink-0 mt-0.5 text-blue-600" />
-                            ) : (
-                              <CheckCircle2 className="size-4 shrink-0 mt-0.5 text-emerald-600" />
-                            )}
-                            <span>{w.text}</span>
-                          </div>
-                        ))}
+                  {/* Table 4: Professional Review & Sign-Off Block (Exact Preliminary #FFE6CC Header) */}
+                  {(() => {
+                    const sigDetails = getSignatureBlockDetails(
+                      project?.id || "default",
+                      "/duct-sizer",
+                      currentUserName,
+                      calcReviewState
+                    );
+                    return (
+                      <div className="pt-2">
+                        <div className="border border-border rounded-xl overflow-hidden text-xs">
+                          <table className="w-full border-collapse">
+                            <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
+                              <tr className="divide-x divide-border">
+                                <th className="p-2.5 w-28 text-center"></th>
+                                <th className="p-2.5 text-center w-1/3">Originator</th>
+                                <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                                <th className="p-2.5 text-center w-1/3">Approver</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                              <tr className="divide-x divide-border">
+                                <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                                <td className="p-2.5 text-center font-medium">
+                                  {sigDetails.originatedName || currentUserName || "Design Engineer"}
+                                </td>
+                                <td className="p-2.5 text-center font-medium">
+                                  {sigDetails.reviewerName || "-"}
+                                </td>
+                                <td className="p-2.5 text-center font-medium">
+                                  {sigDetails.approverName || "-"}
+                                </td>
+                              </tr>
+                              <tr className="divide-x divide-border">
+                                <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                                <td className="p-2.5 text-center font-mono">
+                                  {sigDetails.originatedDate || formatDateStr(new Date().toISOString())}
+                                </td>
+                                <td className="p-2.5 text-center font-mono">
+                                  {sigDetails.reviewerDate || "-"}
+                                </td>
+                                <td className="p-2.5 text-center font-mono">
+                                  {sigDetails.approverDate || "-"}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
-                    </div>
-                  )}
-
-                  {/* 4. Airflow & Friction Performance Analysis */}
-                  <div className="bg-card border border-border rounded-2xl p-5 space-y-4 shadow-xs">
-                    <div className="flex items-center justify-between pb-2 border-b border-border">
-                      <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                        <Activity className="size-3.5 text-blue-500" /> 4. Airflow & Friction Performance Analysis
-                      </h3>
-                      <span className="text-[10.5px] font-mono font-semibold text-muted-foreground">
-                        Target: {isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg`}
-                      </span>
-                    </div>
-
-                    {(() => {
-                      const actualFr = isSI ? calcResults.actualFrPaM : calcResults.actualFrInWg;
-                      const targetFrVal = isSI ? calcResults.targetFrPaM : calcResults.targetFrInWg;
-                      const uFr = isSI ? "Pa/m" : "in.wg";
-
-                      const vel = isSI ? calcResults.velocityMs : calcResults.velocityFpm;
-                      const maxVel = isSI ? 12.7 : 2500;
-                      const uVel = isSI ? "m/s" : "FPM";
-
-                      const bars = [
-                        { label: "Target Friction Rate", val: targetFrVal, max: Math.max(actualFr, targetFrVal) * 1.25, display: `${targetFrVal.toFixed(isSI ? 2 : 3)} ${uFr}`, color: "#3B82F6" },
-                        { label: "Actual Friction Loss", val: actualFr, max: Math.max(actualFr, targetFrVal) * 1.25, display: `${actualFr.toFixed(isSI ? 3 : 4)} ${uFr}`, color: "#10B981" },
-                        { label: "Air Velocity vs SMACNA Limit", val: vel, max: maxVel * 1.2, display: `${isSI ? vel.toFixed(2) : Math.round(vel)} ${uVel} (Max: ${maxVel} ${uVel})`, color: vel > maxVel ? "#EF4444" : "#F59E0B" },
-                      ];
-
-                      return (
-                        <div className="space-y-3 text-xs">
-                          {bars.map((b, idx) => (
-                            <div key={idx} className="space-y-1">
-                              <div className="flex justify-between text-[11px]">
-                                <span className="font-semibold text-foreground flex items-center gap-1.5">
-                                  <span className="size-2 rounded-full" style={{ backgroundColor: b.color }} />
-                                  {b.label}
-                                </span>
-                                <span className="font-mono text-muted-foreground">
-                                  {b.display}
-                                </span>
-                              </div>
-                              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full transition-all duration-500"
-                                  style={{
-                                    width: `${Math.min(100, Math.max(3, (b.val / (b.max || 1)) * 100))}%`,
-                                    backgroundColor: b.color,
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    })()}
-                  </div>
-
-                  {/* 5. Verification & Sign-off */}
-                  <div className="pt-2 space-y-2">
-                    <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">5. Verification & Sign-off</h3>
-                    {(() => {
-                      const sig = getSignatureBlockDetails(project?.id || "default", "/duct-sizer", currentUserName, calcReviewState);
-                      return (
-                        <div className="border border-border rounded-xl overflow-hidden text-[12px]">
-                          <div className="grid grid-cols-4 bg-[#FFE6CC] dark:bg-amber-950/40 text-amber-950 dark:text-amber-200 font-bold border-b border-border text-center">
-                            <div className="p-2 border-r border-border"></div>
-                            <div className="p-2 border-r border-border">Originator (Design Eng.)</div>
-                            <div className="p-2 border-r border-border">Reviewer (Sr. Eng.)</div>
-                            <div className="p-2">Approver (Coord.)</div>
-                          </div>
-                          <div className="grid grid-cols-4 divide-x divide-border border-b border-border text-center">
-                            <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Name:</div>
-                            <div className="p-2.5 font-medium text-foreground">{sig.originatedName || currentUserName || "Design Engineer"}</div>
-                            <div className="p-2.5 font-medium text-foreground">{sig.reviewerName || "-"}</div>
-                            <div className="p-2.5 font-medium text-foreground">{sig.approverName || "-"}</div>
-                          </div>
-                          <div className="grid grid-cols-4 divide-x divide-border text-center">
-                            <div className="p-2.5 font-bold text-right pr-3 bg-muted/10">Date:</div>
-                            <div className="p-2.5 text-muted-foreground">{sig.originatedDate || formatDateStr(new Date().toISOString())}</div>
-                            <div className="p-2.5 text-muted-foreground">{sig.reviewerDate || "-"}</div>
-                            <div className="p-2.5 text-muted-foreground">{sig.approverDate || "-"}</div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
+                    );
+                  })()}
                 </div>
-              )}
+              </div>
+            )}
             </div>
           </div>
         </div>
 
-        {/* Collapsible Intelligence Drawer */}
+        {/* Collapsible Intelligence Drawer (Matching Ventilation & Pump Sizing UI exactly) */}
         <div
           className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+            intelOpen ? "w-[360px] mt-2 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg flex flex-col" : "w-0"
           }`}
         >
           {intelOpen && (
@@ -1795,8 +1836,7 @@ function DuctSizerPage() {
               onSelectPreset={handleApplyPreset}
               isEffectiveReadOnly={isLocked}
               unitSystem={unitSystem}
-              commentsList={commentsList}
-              onOpenComment={handleOpenComment}
+              onOpenFormulaBreakdown={() => setFormulaModalOpen(true)}
               onNavigateToField={(id: string) => {
                 setTab("solver");
                 setTimeout(() => {
@@ -1861,22 +1901,106 @@ function DuctSizerPage() {
           spaceId={commentTargetItem.id}
           targetName={commentTargetItem.name}
           spaceName={commentTargetItem.name}
-          targetType="Duct Parameter"
+          targetType="Duct Sizer"
           category="Duct Sizer"
           calculatorTitle="Duct Sizer"
           calculatorPath="/duct-sizer"
-          existingComments={getItemComments(commentTargetItem.id)}
-          initialComments={getItemComments(commentTargetItem.id)}
-          comments={getItemComments(commentTargetItem.id)}
-          onSave={handleSaveComment}
-          onSaveComment={handleSaveComment}
+          existingComments={getMergedItemComments(
+            commentTargetItem.id,
+            commentTargetItem.name,
+            commentsList,
+            "/duct-sizer",
+            activeProjectId || project?.id || "default"
+          )}
+          initialComments={getMergedItemComments(
+            commentTargetItem.id,
+            commentTargetItem.name,
+            commentsList,
+            "/duct-sizer",
+            activeProjectId || project?.id || "default"
+          )}
+          comments={getMergedItemComments(
+            commentTargetItem.id,
+            commentTargetItem.name,
+            commentsList,
+            "/duct-sizer",
+            activeProjectId || project?.id || "default"
+          )}
+          onSave={(c) => {
+            const tId = commentTargetItem?.id || c?.targetId || "card-params";
+            const tName = commentTargetItem?.name || c?.targetName || "Sizing Parameters";
+            const newC = {
+              ...c,
+              id: c.id || `duct-comment-${Date.now()}`,
+              targetId: tId,
+              targetName: tName,
+              spaceId: tId,
+              spaceName: tName,
+              itemId: tId,
+              targetType: "Duct Sizer",
+              calculatorTitle: "Duct Sizer",
+              calculatorPath: "/duct-sizer",
+              projectId: activeProjectId || project?.id || "default",
+              projectName: project?.name || "Commercial Duct Sizing Study",
+              authorName: currentUserName || "Design Engineer",
+              authorId: userData?.id || profile?.id || "user-1",
+              timestamp: new Date().toISOString(),
+            };
+            const u = [newC, ...commentsList.filter((x) => x.id !== newC.id)];
+            saveComments(u);
+
+            dispatchGlobalCommentNotification(newC, {
+              project: project || { id: activeProjectId || "default", name: project?.name || "Duct Sizing Study" },
+              currentUserName: currentUserName || "Design Engineer",
+              currentUserId: userData?.id || profile?.id || "user-1",
+            });
+
+            setCommentModalOpen(false);
+            setCommentTargetItem(null);
+            toast.success("Comment assigned successfully.");
+          }}
+          onSaveComment={(c) => {
+            const tId = commentTargetItem?.id || c?.targetId || "card-params";
+            const tName = commentTargetItem?.name || c?.targetName || "Sizing Parameters";
+            const newC = {
+              ...c,
+              id: c.id || `duct-comment-${Date.now()}`,
+              targetId: tId,
+              targetName: tName,
+              spaceId: tId,
+              spaceName: tName,
+              itemId: tId,
+              targetType: "Duct Sizer",
+              calculatorTitle: "Duct Sizer",
+              calculatorPath: "/duct-sizer",
+              projectId: activeProjectId || project?.id || "default",
+              projectName: project?.name || "Commercial Duct Sizing Study",
+              authorName: currentUserName || "Design Engineer",
+              authorId: userData?.id || profile?.id || "user-1",
+              timestamp: new Date().toISOString(),
+            };
+            const u = [newC, ...commentsList.filter((x) => x.id !== newC.id)];
+            saveComments(u);
+
+            dispatchGlobalCommentNotification(newC, {
+              project: project || { id: activeProjectId || "default", name: project?.name || "Duct Sizing Study" },
+              currentUserName: currentUserName || "Design Engineer",
+              currentUserId: userData?.id || profile?.id || "user-1",
+            });
+
+            setCommentModalOpen(false);
+            setCommentTargetItem(null);
+            toast.success("Comment assigned successfully.");
+          }}
+          currentUserId={userData?.id || profile?.id || "user-1"}
+          currentUserName={currentUserName}
         />
       )}
     </AppShell>
   );
 }
 
-// SUB-COMPONENT: FORMULA BREAKDOWN & CALCULATION PREVIEW MODAL
+// SUB-COMPONENT: FORMULA BREAKDOWN & CALCULATION PREVIEW MODAL (MATCHING FRESH AIR COOLING LOAD STANDARD)
 function FormulaBreakdownModal({
   open,
   onClose,
@@ -1888,9 +2012,22 @@ function FormulaBreakdownModal({
   unitSystem: "ip" | "si";
   calcResults: any;
 }) {
+  const [activeTab, setActiveTab] = React.useState<"trace" | "formulas" | "variables">("trace");
+  const [copied, setCopied] = React.useState(false);
+
+  // Esc key listener
+  React.useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
   const isSI = unitSystem === "si";
-  const [activeTab, setActiveTab] = React.useState<"preview" | "formulas">("preview");
+  const ip = !isSI;
 
   const qM3s = calcResults.qCfm * 4.71947e-4;
   const areaM2 = calcResults.areaM2;
@@ -1903,322 +2040,554 @@ function FormulaBreakdownModal({
   const actFrInWg = calcResults.actualFrInWg;
   const velPressPa = calcResults.velPressPa;
 
+  const handleCopySummary = () => {
+    const text = `=== DUCT SIZING & AERODYNAMICS FORMULA BREAKDOWN ===
+Governing Standards: SMACNA HVAC Systems Duct Design & ASHRAE Fundamentals (Ch. 21)
+Unit System: ${isSI ? "SI Metric (mm, m/s, Pa/m, L/s)" : "IP Imperial (in, FPM, in.wg/100ft, CFM)"}
+Sized Selection: ${calcResults.sizeDisplay} (${calcResults.sizeFullText})
+
+--- 1. ACTIVE SIZING PARAMETERS ---
+• Volumetric Airflow (Q): ${isSI ? `${Math.round(calcResults.qLps).toLocaleString()} L/s` : `${calcResults.qCfm.toLocaleString()} CFM`} (${qM3s.toFixed(4)} m³/s)
+• Target Friction Rate: ${isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg/100ft`}
+• Duct Shape: ${calcResults.ductShape === "round" ? "Round Spiral" : `Rectangular (${calcResults.aspectRatio.toFixed(1)}:1)`}
+
+--- 2. STEP-BY-STEP CALCULATION STEPS ---
+[1] Volumetric Flow Rate (Q):
+    Q = ${calcResults.qCfm.toLocaleString()} CFM × 0.000471947 = ${qM3s.toFixed(4)} m³/s (${Math.round(calcResults.qLps)} L/s)
+
+[2] Circular Equivalent Diameter (D_eq):
+    D_eq = 1.30 · (a · b)^0.625 / (a + b)^0.25 = ${(calcResults.exactDiameterMm).toFixed(1)} mm (${calcResults.exactDiameterIn.toFixed(2)} in.)
+
+[3] Internal Cross-Sectional Area (A):
+    A = ${calcResults.ductShape === "rect" ? `${(calcResults.selectedWidthMm/1000).toFixed(3)} m × ${(calcResults.selectedHeightMm/1000).toFixed(3)} m` : `(π/4) × ${(calcResults.selectedWidthMm/1000).toFixed(3)}²`} = ${areaM2.toFixed(4)} m² (${calcResults.areaSqFt.toFixed(2)} sq.ft)
+
+[4] Air Flow Velocity (V = Q / A):
+    V = ${qM3s.toFixed(4)} m³/s / ${areaM2.toFixed(4)} m² = ${velMs.toFixed(2)} m/s (${Math.round(calcResults.velocityFpm)} FPM) [${calcResults.flowRegime}]
+
+[5] Hydraulic Diameter & Perimeter (Dh, P):
+    P = ${perimM.toFixed(2)} m | D_h = 4A / P = ${Math.round(calcResults.hydraulicDiaMm)} mm (${calcResults.hydraulicDiaIn.toFixed(1)} in.)
+
+[6] Reynolds Number & Friction Factor (Re, f):
+    Re = ${Math.round(re).toLocaleString()} | Solved Darcy f = ${fFactor.toFixed(5)}
+
+[7] Actual Friction Loss Rate (ΔP / L):
+    ΔP/L = (f · ρ · V²) / (2 · D_h) = ${actFrPaM.toFixed(3)} Pa/m (${actFrInWg.toFixed(4)} in.wg/100ft)
+
+[8] Dynamic Velocity Pressure (Pv):
+    Pv = ${isSI ? `${velPressPa.toFixed(1)} Pa` : `${calcResults.velPressInWg.toFixed(4)} in.wg`}
+`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    toast.success("Duct sizer calculation breakdown copied to clipboard!");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-card border border-border rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden font-sans">
-        
-        {/* Modal Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border bg-surface-2/50">
-          <div className="flex items-center gap-2">
-            <BookOpen className="size-4 text-primary" />
-            <h3 className="font-bold text-sm text-foreground">
-              Calculation Step-by-Step Preview &amp; SMACNA Formulas
-            </h3>
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 md:p-6 overflow-y-auto animate-in fade-in duration-150 select-none font-sans"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-card border border-border rounded-2xl shadow-2xl max-w-xl w-full max-h-[86vh] flex flex-col overflow-hidden text-xs animate-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header matching Fresh Air Cooling Load standard */}
+        <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-muted/30 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 pr-2">
+            <div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+              <BookOpen className="size-3.5" />
+            </div>
+            <div className="truncate">
+              <h2 className="text-[13px] font-bold text-foreground truncate">
+                Duct Sizing Formula Breakdown
+              </h2>
+            </div>
+            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[10px] font-mono font-semibold shrink-0">
+              SMACNA / ASHRAE
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border text-[10px] font-mono font-medium shrink-0">
+              {ip ? "IP" : "SI"}
+            </span>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer">
-            <X className="size-4" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="size-7 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title="Close modal (Esc)"
+          >
+            <X className="size-3.5" />
           </button>
         </div>
 
-        {/* Modal Tab Controls */}
-        <div className="flex items-center gap-2 px-5 py-2.5 bg-card border-b border-border/60">
+        {/* Navigation Tabs Bar */}
+        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border bg-muted/10 shrink-0 select-none">
           <button
             type="button"
-            onClick={() => setActiveTab("preview")}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
-              activeTab === "preview"
-                ? "bg-primary text-white shadow-xs"
-                : "bg-surface-2 text-muted-foreground hover:text-foreground"
+            onClick={() => setActiveTab("trace")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "trace"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
             }`}
           >
-            <Activity className="size-3.5" />
-            <span>Calculation Preview (Step-by-Step Trace)</span>
+            <Activity className="size-3" />
+            <span>Calculation Steps</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("formulas")}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
               activeTab === "formulas"
-                ? "bg-primary text-white shadow-xs"
-                : "bg-surface-2 text-muted-foreground hover:text-foreground"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
             }`}
           >
-            <BookOpen className="size-3.5" />
-            <span>SMACNA &amp; ASHRAE Master Formulas</span>
+            <BookOpen className="size-3" />
+            <span>Master Formulas</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("variables")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "variables"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <Layers className="size-3" />
+            <span>Variables Reference</span>
           </button>
         </div>
 
-        {/* Modal Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs custom-scrollbar">
-          {activeTab === "preview" ? (
-            <div className="space-y-4">
-              
-              {/* Input Parameters Summary Banner */}
-              <div className="p-3.5 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
-                <div className="font-bold text-primary flex items-center justify-between">
-                  <span className="uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                    <Sparkles className="size-3.5" /> Live Input Parameters
+        {/* Modal Body */}
+        <div className="p-4 overflow-y-auto space-y-3 flex-1 custom-scrollbar">
+          {/* TAB 1: CALCULATION TRACE */}
+          {activeTab === "trace" && (
+            <div className="space-y-2.5">
+              {/* Compact Active Sizing Conditions */}
+              <div className="p-2.5 bg-muted/40 rounded-xl border border-border">
+                <div className="flex items-center justify-between text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider pb-1.5 mb-1.5 border-b border-border/60">
+                  <span className="flex items-center gap-1 text-foreground">
+                    <SlidersHorizontal className="size-3 text-primary" /> Active Sizing Parameters
                   </span>
-                  <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-primary/10 text-primary">
-                    {isSI ? "SI Units" : "IP Units"}
+                  <span className="font-mono text-primary normal-case font-bold">
+                    {isSI ? `${Math.round(calcResults.qLps).toLocaleString()} L/s` : `${calcResults.qCfm.toLocaleString()} CFM`} | {isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg`}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11.5px] font-mono">
-                  <div>
-                    <span className="text-muted-foreground block text-[10px]">Airflow (Q):</span>
-                    <strong>{isSI ? `${Math.round(calcResults.qLps)} L/s` : `${calcResults.qCfm} CFM`}</strong>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="bg-background rounded p-1.5 border border-border/60">
+                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Target Friction &amp; Shape</span>
+                    <span className="font-mono font-bold text-foreground">
+                      {isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg`}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground font-mono ml-1">
+                      ({calcResults.ductShape === "round" ? "Round Spiral" : `Rect ${calcResults.aspectRatio.toFixed(1)}:1`})
+                    </span>
                   </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[10px]">Target Friction:</span>
-                    <strong>{isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg`}</strong>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[10px]">Duct Shape:</span>
-                    <strong>{calcResults.ductShape === "round" ? "Round Spiral" : "Rectangular"}</strong>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground block text-[10px]">Aspect Ratio:</span>
-                    <strong>{calcResults.ductShape === "rect" ? `${calcResults.aspectRatio.toFixed(1)}:1` : "1.0:1"}</strong>
+                  <div className="bg-background rounded p-1.5 border border-border/60">
+                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Selected Section</span>
+                    <span className="font-mono font-bold text-foreground">{calcResults.sizeDisplay}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono ml-1">({velMs.toFixed(2)} m/s)</span>
                   </div>
                 </div>
               </div>
 
-              {/* Step-by-Step Calculation Steps */}
-              
-              {/* Step 1 */}
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-foreground flex items-center justify-between">
-                  <span className="text-primary font-mono text-[11px]">Step 1: Volumetric Airflow Conversion (Q)</span>
-                  <span className="text-[10px] text-muted-foreground">Standard Fluid Mechanics</span>
+              {/* STEP 1: VOLUMETRIC AIRFLOW CONVERSION */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-primary/10 text-primary text-[10px] font-mono font-bold flex items-center justify-center">
+                      1
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Volumetric Airflow Conversion (Q)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                    {qM3s.toFixed(4)} m³/s
+                  </span>
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] space-y-1">
-                  <div>Q_m³/s = Q_CFM × 4.71947 × 10⁻⁴</div>
-                  <div className="text-primary font-bold">
-                    Q = {calcResults.qCfm} CFM × 0.000471947 = {qM3s.toFixed(4)} m³/s ({Math.round(calcResults.qLps)} L/s)
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: Q_m³/s = Q_CFM × 4.71947 × 10⁻⁴</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{calcResults.qCfm.toLocaleString()} CFM × 0.000471947</span>
+                    <span className="text-primary font-bold">= {qM3s.toFixed(4)} m³/s ({Math.round(calcResults.qLps).toLocaleString()} L/s)</span>
                   </div>
                 </div>
               </div>
 
-              {/* Step 2 */}
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-foreground flex items-center justify-between">
-                  <span className="text-primary font-mono text-[11px]">Step 2: Recommended Sizing &amp; Geometry ({calcResults.sizeDisplay})</span>
-                  <span className="text-[10px] text-muted-foreground">Equal Friction Numerical Solution</span>
+              {/* STEP 2: CIRCULAR EQUIVALENT DIAMETER */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      2
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Circular Equivalent Target (Deq)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
+                    {(calcResults.exactDiameterMm).toFixed(1)} mm
+                  </span>
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] space-y-1">
-                  <div>Circular Equivalent Target Diameter: D_eq = {(calcResults.exactDiameterMm).toFixed(1)} mm ({calcResults.exactDiameterIn.toFixed(2)} in.)</div>
-                  {calcResults.ductShape === "rect" ? (
-                    <>
-                      <div>Huebscher Rectangular Sizing (Aspect Ratio {calcResults.aspectRatio.toFixed(1)}:1):</div>
-                      <div>W_exact = {(calcResults.selectedWidthMm).toFixed(0)} mm | H_exact = {(calcResults.selectedHeightMm).toFixed(0)} mm</div>
-                      <div className="text-primary font-bold">
-                        Selected Standard Duct: {calcResults.sizeDisplay} ({calcResults.sizeFullText})
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-primary font-bold">
-                      Selected Standard Spiral Duct: {calcResults.sizeDisplay} ({calcResults.sizeFullText})
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Step 3 */}
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-foreground flex items-center justify-between">
-                  <span className="text-primary font-mono text-[11px]">Step 3: Internal Net Cross-Sectional Area (A)</span>
-                  <span className="text-[10px] text-muted-foreground">Geometry Calculation</span>
-                </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] space-y-1">
-                  {calcResults.ductShape === "rect" ? (
-                    <div>A = Width × Height = {(calcResults.selectedWidthMm / 1000).toFixed(3)} m × {(calcResults.selectedHeightMm / 1000).toFixed(3)} m</div>
-                  ) : (
-                    <div>A = (π / 4) × D² = (π / 4) × {(calcResults.selectedWidthMm / 1000).toFixed(3)}²</div>
-                  )}
-                  <div className="text-primary font-bold">
-                    A = {areaM2.toFixed(4)} m² ({calcResults.areaSqFt.toFixed(2)} sq.ft)
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: D_eq = 1.30 · (a · b)^0.625 / (a + b)^0.25</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">Standard Section: {calcResults.sizeDisplay}</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-bold">= {(calcResults.exactDiameterMm).toFixed(1)} mm ({calcResults.exactDiameterIn.toFixed(2)} in.)</span>
                   </div>
                 </div>
               </div>
 
-              {/* Step 4 */}
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-foreground flex items-center justify-between">
-                  <span className="text-primary font-mono text-[11px]">Step 4: Air Flow Velocity (V)</span>
-                  <span className="text-[10px] text-muted-foreground">Continuity Equation</span>
+              {/* STEP 3: INTERNAL CROSS-SECTIONAL AREA */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      3
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Internal Cross-Sectional Area (A)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                    {areaM2.toFixed(4)} m²
+                  </span>
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] space-y-1">
-                  <div>V = Q / A = {qM3s.toFixed(4)} m³/s / {areaM2.toFixed(4)} m²</div>
-                  <div className="text-primary font-bold">
-                    V = {velMs.toFixed(2)} m/s ({Math.round(calcResults.velocityFpm)} FPM) — Status: {calcResults.flowRegime}
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">
+                    Formula: {calcResults.ductShape === "rect" ? "A = Width × Height" : "A = (π / 4) × D²"}
+                  </div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">
+                      {calcResults.ductShape === "rect"
+                        ? `${(calcResults.selectedWidthMm / 1000).toFixed(3)} m × ${(calcResults.selectedHeightMm / 1000).toFixed(3)} m`
+                        : `(π / 4) × ${(calcResults.selectedWidthMm / 1000).toFixed(3)}²`}
+                    </span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">= {areaM2.toFixed(4)} m² ({calcResults.areaSqFt.toFixed(2)} sq.ft)</span>
                   </div>
                 </div>
               </div>
 
-              {/* Step 5 */}
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-foreground flex items-center justify-between">
-                  <span className="text-primary font-mono text-[11px]">Step 5: Hydraulic Diameter (Dh) &amp; Duct Girth (P)</span>
-                  <span className="text-[10px] text-muted-foreground">Hydraulic Perimeter</span>
+              {/* STEP 4: AIR FLOW VELOCITY */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      4
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Air Flow Velocity (V)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-purple-600 dark:text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">
+                    {velMs.toFixed(2)} m/s
+                  </span>
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] space-y-1">
-                  <div>Perimeter: P = 2(W + H) = 2({(calcResults.selectedWidthMm/1000).toFixed(3)} + {(calcResults.selectedHeightMm/1000).toFixed(3)}) = {perimM.toFixed(2)} m ({calcResults.perimeterIn.toFixed(1)} in.)</div>
-                  <div>Hydraulic Diameter: D_h = 4A / P = 4({areaM2.toFixed(4)}) / {perimM.toFixed(2)} = {dhM.toFixed(4)} m</div>
-                  <div className="text-primary font-bold">
-                    D_h = {Math.round(calcResults.hydraulicDiaMm)} mm ({calcResults.hydraulicDiaIn.toFixed(1)} in.) | D_eq = {Math.round(calcResults.deqMm)} mm ({calcResults.deqIn.toFixed(1)} in.)
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: V = Q / A (Continuity Equation)</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{qM3s.toFixed(4)} m³/s / {areaM2.toFixed(4)} m²</span>
+                    <span className="text-purple-600 dark:text-purple-400 font-bold">= {velMs.toFixed(2)} m/s ({Math.round(calcResults.velocityFpm)} FPM)</span>
                   </div>
                 </div>
               </div>
 
-              {/* Step 6 */}
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-foreground flex items-center justify-between">
-                  <span className="text-primary font-mono text-[11px]">Step 6: Reynolds Number (Re)</span>
-                  <span className="text-[10px] text-muted-foreground">Fluid Regime Dynamics</span>
+              {/* STEP 5: HYDRAULIC DIAMETER & PERIMETER */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      5
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Hydraulic Diameter &amp; Perimeter (Dh, P)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
+                    Dh = {Math.round(calcResults.hydraulicDiaMm)} mm
+                  </span>
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] space-y-1">
-                  <div>Re = (ρ · V · D_h) / μ = (1.204 × {velMs.toFixed(2)} × {dhM.toFixed(4)}) / 1.81 × 10⁻⁵</div>
-                  <div className="text-primary font-bold">
-                    Re = {Math.round(re).toLocaleString()} ({re > 4000 ? "Fully Turbulent Flow" : "Laminar / Transitional"})
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: P = 2(W + H) | D_h = 4A / P</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">4 × {areaM2.toFixed(4)} m² / {perimM.toFixed(2)} m</span>
+                    <span className="text-amber-600 dark:text-amber-400 font-bold">= {Math.round(calcResults.hydraulicDiaMm)} mm ({calcResults.hydraulicDiaIn.toFixed(1)} in.)</span>
                   </div>
                 </div>
               </div>
 
-              {/* Step 7 */}
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-foreground flex items-center justify-between">
-                  <span className="text-primary font-mono text-[11px]">Step 7: Colebrook Darcy Friction Factor (f)</span>
-                  <span className="text-[10px] text-muted-foreground">Iterative Roughness (ε = 0.09mm)</span>
+              {/* STEP 6: REYNOLDS NUMBER & COLEBROOK FRICTION */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      6
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Reynolds Number &amp; Friction Factor (Re, f)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">
+                    f = {fFactor.toFixed(5)}
+                  </span>
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] space-y-1">
-                  <div>1 / √f = -2 · log₁₀ [ (0.00009 / (3.7 × {dhM.toFixed(4)})) + (2.51 / ({Math.round(re)} × √f)) ]</div>
-                  <div className="text-primary font-bold">
-                    Solved Friction Factor f = {fFactor.toFixed(5)}
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="flex justify-between text-foreground">
+                    <span className="text-muted-foreground">Reynolds Number (Re):</span>
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400">{Math.round(re).toLocaleString()} ({calcResults.flowRegime})</span>
+                  </div>
+                  <div className="flex justify-between text-foreground pt-1 border-t border-border/40">
+                    <span className="text-muted-foreground">Colebrook-White Darcy f (ε = 0.09mm):</span>
+                    <span className="font-bold text-foreground">f = {fFactor.toFixed(5)}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Step 8 */}
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-foreground flex items-center justify-between">
-                  <span className="text-primary font-mono text-[11px]">Step 8: Actual Achieved Friction Loss Rate (ΔP / L)</span>
-                  <span className="text-[10px] text-muted-foreground">Darcy-Weisbach Formulation</span>
+              {/* STEP 7: ACTUAL FRICTION LOSS RATE */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      7
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Actual Friction Loss Rate (ΔP / L)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded">
+                    {actFrPaM.toFixed(3)} Pa/m
+                  </span>
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] space-y-1">
-                  <div>ΔP / L = (f · ρ · V²) / (2 · D_h) = ({fFactor.toFixed(5)} × 1.204 × {velMs.toFixed(2)}²) / (2 × {dhM.toFixed(4)})</div>
-                  <div className="text-primary font-bold">
-                    Actual Loss Rate = {actFrPaM.toFixed(3)} Pa/m ({actFrInWg.toFixed(4)} in.wg/100ft) vs Target {isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg`}
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: ΔP/L = (f · ρ · V²) / (2 · D_h)</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">({fFactor.toFixed(5)} × 1.204 × {velMs.toFixed(2)}²) / (2 × {dhM.toFixed(4)})</span>
+                    <span className="text-rose-600 dark:text-rose-400 font-bold">= {actFrPaM.toFixed(3)} Pa/m ({actFrInWg.toFixed(4)} in.wg/100ft)</span>
                   </div>
                 </div>
               </div>
 
-              {/* Step 9 */}
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-foreground flex items-center justify-between">
-                  <span className="text-primary font-mono text-[11px]">Step 9: Dynamic Velocity Pressure (Pv)</span>
-                  <span className="text-[10px] text-muted-foreground">Dynamic Head Component</span>
+              {/* STEP 8: DYNAMIC VELOCITY PRESSURE */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-teal-500/10 text-teal-600 dark:text-teal-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      8
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Dynamic Velocity Pressure (Pv)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-teal-600 dark:text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded">
+                    {isSI ? `${velPressPa.toFixed(1)} Pa` : `${calcResults.velPressInWg.toFixed(4)} in.wg`}
+                  </span>
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] space-y-1">
-                  <div>{isSI ? `Pv = 0.5 · ρ · V² = 0.5 × 1.204 × (${velMs.toFixed(2)})²` : `Pv = (V / 4005)² = (${Math.round(calcResults.velocityFpm)} / 4005)²`}</div>
-                  <div className="text-primary font-bold">
-                    Velocity Pressure Pv = {isSI ? `${velPressPa.toFixed(1)} Pa` : `${calcResults.velPressInWg.toFixed(4)} in.wg`}
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: {isSI ? "Pv = 0.5 · ρ · V²" : "Pv = (V / 4005)²"}</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{isSI ? `0.5 × 1.204 × (${velMs.toFixed(2)})²` : `(${Math.round(calcResults.velocityFpm)} / 4005)²`}</span>
+                    <span className="text-teal-600 dark:text-teal-400 font-bold">= {isSI ? `${velPressPa.toFixed(1)} Pa` : `${calcResults.velPressInWg.toFixed(4)} in.wg`}</span>
                   </div>
                 </div>
               </div>
 
+              {/* Sizing Outcome Card */}
+              <div className="bg-primary/5 border border-primary/20 rounded-xl p-2.5 flex items-center justify-between">
+                <div>
+                  <div className="text-[9.5px] uppercase font-bold text-muted-foreground">Recommended Duct Size</div>
+                  <div className="text-[11.5px] font-bold text-foreground mt-0.5">{calcResults.sizeDisplay} ({calcResults.sizeFullText})</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-base font-bold font-mono text-primary leading-tight">{velMs.toFixed(2)} <span className="text-xs font-normal">m/s</span></div>
+                  <div className="text-[9.5px] text-muted-foreground font-mono">{actFrPaM.toFixed(2)} Pa/m ({actFrInWg.toFixed(3)} in.wg)</div>
+                </div>
+              </div>
             </div>
-          ) : (
-            /* Tab 2: Master Equations Registry */
-            <div className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-primary flex items-center justify-between">
-                  <span>1. Colebrook-White Darcy Friction Factor (f)</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10">Turbulent Aerodynamics</span>
+          )}
+
+          {/* TAB 2: MASTER FORMULAS */}
+          {activeTab === "formulas" && (
+            <div className="space-y-2">
+              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
+                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-primary" /> Colebrook-White Darcy Friction Factor (f)
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] text-foreground overflow-x-auto">
-                  1 / √f = -2 · log₁₀ [ (ε / (3.7 · D_h)) + (2.51 / (Re · √f)) ]
+                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
+                  <div>1 / √f = -2 · log₁₀ [ (ε / (3.7 · D_h)) + (2.51 / (Re · √f)) ]</div>
                 </div>
-                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                <p className="text-[10px] text-muted-foreground">
                   Where absolute roughness ε = 0.00009 m (0.09 mm) for standard galvanized sheet metal. Solved iteratively via numerical Newton-Raphson convergence.
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-primary flex items-center justify-between">
-                  <span>2. Huebscher Circular Equivalent (Deq)</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10">ASHRAE Standard</span>
+              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
+                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-blue-500" /> Huebscher Circular Equivalent (Deq)
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] text-foreground overflow-x-auto">
-                  D_eq = 1.30 · [ (a · b)^0.625 / (a + b)^0.25 ]
+                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
+                  <div>D_eq = 1.30 · [ (a · b)^0.625 / (a + b)^0.25 ]</div>
                 </div>
-                <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  Provides the identical friction loss and volumetric flow capacity for a rectangular duct of dimensions a × b as an equivalent circular duct.
+                <p className="text-[10px] text-muted-foreground">
+                  Provides identical friction loss and volumetric capacity for a rectangular duct of dimensions a × b as an equivalent circular duct.
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-primary flex items-center justify-between">
-                  <span>3. Hydraulic Diameter (Dh) &amp; Duct Perimeter (P)</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10">Geometry</span>
+              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
+                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-emerald-500" /> Hydraulic Diameter (Dh) &amp; Duct Perimeter (P)
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] text-foreground overflow-x-auto">
-                  D_h = 4 · A / P = 4 · (a · b) / [ 2 · (a + b) ]
+                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
+                  <div>P = 2 · (a + b)  |  D_h = 4 · A / P = 4 · (a · b) / [ 2 · (a + b) ]</div>
                 </div>
-                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                <p className="text-[10px] text-muted-foreground">
                   Hydraulic diameter represents equivalent diameter based on cross-section area to wetted perimeter ratio.
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-primary flex items-center justify-between">
-                  <span>4. Velocity Pressure (Pv)</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10">Dynamic Head</span>
+              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
+                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-rose-500" /> Darcy-Weisbach Continuous Pressure Loss Rate (ΔP / L)
                 </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] text-foreground overflow-x-auto">
-                  {isSI ? "Pv = 0.5 · ρ · V² (Pa)" : "Pv = ( V / 4005 )² (in. w.g.)"}
+                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
+                  <div>SI: ΔP / L = (f · ρ · V²) / (2 · D_h) [Pa/m]</div>
+                  <div>IP: ΔP / L = (12 · f / D_h) · (V / 4005)² [in.wg/100ft]</div>
                 </div>
-                <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  Calculated dynamically using standard air density ρ = 1.204 kg/m³ at sea level (20°C / 68°F).
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-primary flex items-center justify-between">
-                  <span>5. Darcy-Weisbach Friction Loss Rate (ΔP / L)</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10">Pressure Drop</span>
-                </div>
-                <div className="p-2.5 rounded bg-background border border-border/80 font-mono text-[11px] text-foreground overflow-x-auto">
-                  ΔP / L = (f · ρ · V²) / (2 · D_h)
-                </div>
-                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                <p className="text-[10px] text-muted-foreground">
                   Calculates actual friction pressure loss rate per meter or per 100 ft length of duct.
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-xl bg-surface-2 border border-border/70 space-y-2">
-                <div className="font-bold text-primary flex items-center justify-between">
-                  <span>6. SMACNA Acoustic Limits &amp; Aspect Ratio Guidelines</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10">Comfort Standard</span>
+              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
+                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-teal-500" /> Dynamic Velocity Pressure (Pv)
                 </div>
-                <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  - <strong>Velocity Limit:</strong> Max 2,000 FPM (10.2 m/s) for quiet commercial main trunks, max 2,500 FPM (12.7 m/s) for industrial/risers.<br />
-                  - <strong>Aspect Ratio Limit:</strong> Preferred W:H ≤ 2:1 for low fabrication weight; maximum recommended W:H ≤ 4:1.
+                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
+                  <div>SI: Pv = 0.5 · ρ · V² [Pa]  |  IP: Pv = ( V / 4005 )² [in.wg]</div>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Calculated dynamically using standard air density ρ = 1.204 kg/m³ at sea level (20°C / 68°F).
                 </p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: VARIABLES & CONSTANTS */}
+          {activeTab === "variables" && (
+            <div className="space-y-2.5">
+              <div className="border border-border rounded-xl overflow-hidden bg-card">
+                <table className="w-full text-left text-[10.5px]">
+                  <thead>
+                    <tr className="bg-muted/60 border-b border-border font-bold text-foreground">
+                      <th className="py-1.5 px-2">Symbol</th>
+                      <th className="py-1.5 px-2">Parameter</th>
+                      <th className="py-1.5 px-2">SI Standard</th>
+                      <th className="py-1.5 px-2">IP Standard</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60 font-sans">
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">Q</td>
+                      <td className="py-1.5 px-2 text-foreground">Volumetric Airflow</td>
+                      <td className="py-1.5 px-2 font-mono">m³/s / L/s</td>
+                      <td className="py-1.5 px-2 font-mono">CFM</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">V</td>
+                      <td className="py-1.5 px-2 text-foreground">Air Flow Velocity</td>
+                      <td className="py-1.5 px-2 font-mono">m/s</td>
+                      <td className="py-1.5 px-2 font-mono">FPM</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">D_h</td>
+                      <td className="py-1.5 px-2 text-foreground">Hydraulic Diameter</td>
+                      <td className="py-1.5 px-2 font-mono">mm</td>
+                      <td className="py-1.5 px-2 font-mono">in.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">D_eq</td>
+                      <td className="py-1.5 px-2 text-foreground">Circular Equivalent</td>
+                      <td className="py-1.5 px-2 font-mono">mm</td>
+                      <td className="py-1.5 px-2 font-mono">in.</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">f</td>
+                      <td className="py-1.5 px-2 text-foreground">Darcy Friction Factor</td>
+                      <td className="py-1.5 px-2 font-mono">dimensionless</td>
+                      <td className="py-1.5 px-2 font-mono">dimensionless</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">ΔP / L</td>
+                      <td className="py-1.5 px-2 text-foreground">Friction Loss Rate</td>
+                      <td className="py-1.5 px-2 font-mono">Pa/m</td>
+                      <td className="py-1.5 px-2 font-mono">in.wg/100ft</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">P_v</td>
+                      <td className="py-1.5 px-2 text-foreground">Velocity Pressure</td>
+                      <td className="py-1.5 px-2 font-mono">Pa</td>
+                      <td className="py-1.5 px-2 font-mono">in.wg</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">ρ_air</td>
+                      <td className="py-1.5 px-2 text-foreground">Standard Air Density</td>
+                      <td className="py-1.5 px-2 font-mono">1.204 kg/m³</td>
+                      <td className="py-1.5 px-2 font-mono">0.075 lb/ft³</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">μ</td>
+                      <td className="py-1.5 px-2 text-foreground">Dynamic Viscosity</td>
+                      <td className="py-1.5 px-2 font-mono">1.81 × 10⁻⁵ Pa·s</td>
+                      <td className="py-1.5 px-2 font-mono">1.22 × 10⁻⁵ lb/ft·s</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">ε</td>
+                      <td className="py-1.5 px-2 text-foreground">Absolute Roughness</td>
+                      <td className="py-1.5 px-2 font-mono">0.00009 m</td>
+                      <td className="py-1.5 px-2 font-mono">0.0003 ft</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
         </div>
 
         {/* Modal Footer */}
-        <div className="p-3 border-t border-border flex justify-end bg-surface-2">
-          <TBtn onClick={onClose} className="text-xs">Close Breakdown</TBtn>
+        <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between shrink-0">
+          <button
+            type="button"
+            onClick={handleCopySummary}
+            className="text-[11px] font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-muted border border-border/70 transition cursor-pointer"
+          >
+            {copied ? (
+              <>
+                <Check className="size-3 text-emerald-500" />
+                <span className="text-emerald-600 dark:text-emerald-400">Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="size-3" />
+                <span>Copy Summary</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="bg-primary text-primary-foreground text-[11.5px] font-semibold px-4 py-1.5 rounded-lg hover:bg-primary/90 transition shadow-xs cursor-pointer"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-// SUB-COMPONENT: LIVE INTELLIGENCE DRAWER
+// SUB-COMPONENT: LIVE INTELLIGENCE DRAWER (MATCHING VENTILATION & PUMP SIZING STANDARD)
 function DuctSizerIntelligenceDrawer({
   onClose,
   calcResults,
@@ -2227,8 +2596,7 @@ function DuctSizerIntelligenceDrawer({
   isEffectiveReadOnly,
   unitSystem,
   onNavigateToField,
-  commentsList = [],
-  onOpenComment,
+  onOpenFormulaBreakdown,
 }: {
   onClose: () => void;
   calcResults: any;
@@ -2237,122 +2605,185 @@ function DuctSizerIntelligenceDrawer({
   isEffectiveReadOnly: boolean;
   unitSystem: "ip" | "si";
   onNavigateToField: (id: string) => void;
-  commentsList?: any[];
-  onOpenComment?: (id: string, name: string) => void;
+  onOpenFormulaBreakdown?: () => void;
 }) {
   const isSI = unitSystem === "si";
   const vel = calcResults.velocityFpm;
-  const isHighVelocity = vel > 2200;
+  const isHighVelocity = vel > 2000;
   const isOptimalVelocity = vel >= 800 && vel <= 1800;
 
+  // Compliance checks for SMACNA & ASHRAE standards
+  const isVelocityOk = vel <= 2000;
+  const isAspectRatioOk = calcResults.ductShape === "round" || calcResults.aspectRatio <= 3.0;
+  const isFrictionOk = calcResults.actualFrInWg >= 0.04 && calcResults.actualFrInWg <= 0.20;
+  const isReynoldsTurbulent = calcResults.reynolds > 4000;
+  const isSmacnaMaxOk = calcResults.ductShape === "round" || calcResults.aspectRatio <= 4.0;
+
+  const checks = [isVelocityOk, isAspectRatioOk, isFrictionOk, isReynoldsTurbulent, isSmacnaMaxOk];
+  const passedCount = checks.filter(Boolean).length;
+  const complianceScore = Math.round((passedCount / checks.length) * 100);
+
+  // Sheet Metal Gauge recommendation per SMACNA Duct Construction Standards
+  const sheetMetalRecommendation = useMemo(() => {
+    const maxDimIn = calcResults.ductShape === "rect"
+      ? Math.max(calcResults.selectedWidthIn || 0, calcResults.selectedHeightIn || 0)
+      : (calcResults.selectedWidthIn || calcResults.deqIn || 0);
+
+    if (maxDimIn <= 12) {
+      return { gauge: "26 Gauge (0.55 mm)", standard: "SMACNA Table 2-1", joint: "Drive Slip / S-Cleat" };
+    } else if (maxDimIn <= 30) {
+      return { gauge: "24 Gauge (0.70 mm)", standard: "SMACNA Table 2-1", joint: "TDC / TDF Flange or Standing S" };
+    } else if (maxDimIn <= 54) {
+      return { gauge: "22 Gauge (0.85 mm)", standard: "SMACNA Table 2-1", joint: "TDC / TDF Flange + Corner Clips" };
+    } else if (maxDimIn <= 84) {
+      return { gauge: "20 Gauge (1.00 mm)", standard: "SMACNA Table 2-1", joint: "TDC with Mid-Span Reinforcement" };
+    } else {
+      return { gauge: "18 Gauge (1.20 mm)", standard: "SMACNA Table 2-1", joint: "Angle Flange + Internal Tie Rods" };
+    }
+  }, [calcResults]);
+
+  // Acoustic Noise Criteria estimation
+  const acousticRating = useMemo(() => {
+    if (vel <= 1000) {
+      return { nc: "NC 20 – 25", label: "Extremely Quiet (Broadcast / Theatres / Suites)", tone: "success" as const };
+    } else if (vel <= 1500) {
+      return { nc: "NC 25 – 30", label: "Quiet Commercial (Offices / Classrooms / Hospital)", tone: "success" as const };
+    } else if (vel <= 2000) {
+      return { nc: "NC 30 – 35", label: "Standard Commercial (Retail / Open Office / Malls)", tone: "primary" as const };
+    } else if (vel <= 2500) {
+      return { nc: "NC 35 – 45", label: "High Velocity (Plant Rooms / Shaft Risers)", tone: "warning" as const };
+    } else {
+      return { nc: "NC > 45", label: "Acoustic Warning (Requires In-Duct Sound Silencers)", tone: "warning" as const };
+    }
+  }, [vel]);
+
   return (
-    <div className="flex flex-col h-full bg-card select-none">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-surface-2/40">
+    <div className="h-full w-[360px] flex flex-col animate-fade-in select-none bg-card">
+      {/* Header matching Ventilation & Pump Sizing exactly */}
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0 bg-surface-2/40">
         <div className="flex items-center gap-2">
-          <Sparkles className="size-4 text-primary" />
-          <span className="font-extrabold text-xs tracking-tight text-foreground">Duct Sizer Intelligence</span>
+          <Sparkles className="size-3.5 text-primary" />
+          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
         </div>
         <button
           onClick={onClose}
-          className="size-6 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground grid place-items-center cursor-pointer transition-colors"
+          className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          title="Close Intelligence Drawer"
         >
           <X className="size-3.5" />
         </button>
-      </div>
+      </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs custom-scrollbar">
-        {commentsList && commentsList.length > 0 && (
-          <div className="p-3.5 rounded-xl border bg-blue-50/60 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/50 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
-                <MessageSquare className="size-3.5" />
-                <span>Active Comments & Tasks ({commentsList.length})</span>
+      {/* Drawer Scrollable Content */}
+      <div className="flex-1 overflow-auto">
+        
+        {/* Compliance Status Section */}
+        <IntelSection icon={CheckCircle2} tone={complianceScore >= 80 ? "success" : "warning"} title="Compliance Status">
+          <div className="text-[12px] text-muted-foreground">
+            SMACNA HVAC Duct Construction Standards &amp; ASHRAE 90.1 Aerodynamics validation.
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
+              <div
+                className={`h-full ${complianceScore >= 80 ? "bg-emerald-500" : "bg-amber-500"}`}
+                style={{ width: `${complianceScore}%` }}
+              />
+            </div>
+            <span className="font-mono tabular text-[11.5px] font-semibold">{complianceScore}%</span>
+          </div>
+        </IntelSection>
+
+        {/* Aerodynamic & Sizing Audit */}
+        <IntelSection icon={Activity} tone="primary" title="Aerodynamic & Sizing Audit">
+          <div className="p-2.5 rounded-xl border border-primary/20 bg-primary/5 text-foreground flex flex-col gap-1 mb-2.5">
+            <div className="flex items-center justify-between font-semibold text-[11.5px]">
+              <span>Recommended Duct Size</span>
+              <span className="font-mono font-bold text-primary text-[12.5px]">
+                {calcResults.sizeDisplay}
               </span>
             </div>
-            <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
-              {commentsList.map((c, idx) => (
-                <div
-                  key={c.id || idx}
-                  onClick={() => {
-                    const target = c.targetId || c.spaceId || c.itemId;
-                    if (target) onNavigateToField(target);
-                  }}
-                  className="p-2 rounded-lg bg-background border border-border/70 hover:border-primary/50 transition cursor-pointer text-xs group"
-                >
-                  <div className="flex items-center justify-between text-[10.5px] font-bold text-muted-foreground mb-0.5">
-                    <span className="text-foreground group-hover:text-primary transition-colors font-semibold">
-                      {c.targetName || c.spaceName || "Duct Parameter"}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">{c.authorName || "Engineer"}</span>
-                  </div>
-                  <p className="text-[11px] text-foreground/90 line-clamp-2 leading-relaxed">{c.text}</p>
-                  {onOpenComment && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenComment(c.targetId || c.spaceId || c.itemId || "duct-sizer", c.targetName || c.spaceName || "Duct Parameter");
-                      }}
-                      className="mt-1.5 text-[10.5px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <span>View / Reply</span>
-                      <ArrowRight className="size-2.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
+            <p className="text-[11px] text-muted-foreground leading-tight">
+              Design velocity is <strong className="text-foreground">{isSI ? `${calcResults.velocityMs.toFixed(2)} m/s` : `${Math.round(calcResults.velocityFpm)} FPM`}</strong> (compliant with low-noise comfort criteria).
+            </p>
+          </div>
+          <KV
+            k="Design Airflow (Q)"
+            v={isSI ? `${Math.round(calcResults.qLps).toLocaleString()} L/s` : `${Math.round(calcResults.qCfm).toLocaleString()} CFM`}
+          />
+          <KV
+            k="Target Friction Rate"
+            v={isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in/100ft`}
+          />
+          <KV
+            k="Achieved Friction Loss"
+            v={isSI ? `${calcResults.actualFrPaM.toFixed(3)} Pa/m` : `${calcResults.actualFrInWg.toFixed(4)} in/100ft`}
+          />
+          <KV
+            k="Equivalent Circular Dia"
+            v={isSI ? `${Math.round(calcResults.deqMm)} mm` : `${calcResults.deqIn.toFixed(1)}" NPS`}
+          />
+          <KV
+            k="Hydraulic Diameter (Dh)"
+            v={isSI ? `${Math.round(calcResults.hydraulicDiaMm)} mm` : `${calcResults.hydraulicDiaIn.toFixed(1)}" NPS`}
+          />
+          <KV
+            k="Velocity Pressure (Pv)"
+            v={isSI ? `${calcResults.velPressPa.toFixed(1)} Pa` : `${calcResults.velPressInWg.toFixed(4)} in.wg`}
+          />
+          <KV
+            k="Reynolds Number (Re)"
+            v={Math.round(calcResults.reynolds).toLocaleString()}
+          />
+          <KV
+            k="Darcy Friction Factor (f)"
+            v={calcResults.frictionFactor.toFixed(5)}
+          />
+        </IntelSection>
+
+        {/* Fabrication & Sheet Metal Standards */}
+        <IntelSection icon={Layers} tone="primary" title="Fabrication & Sheet Metal Standards">
+          <KV k="Recommended Sheet Gauge" v={sheetMetalRecommendation.gauge} />
+          <KV k="Standard Joint System" v={sheetMetalRecommendation.joint} />
+          <KV k="Duct Aspect Ratio (W:H)" v={calcResults.ductShape === "rect" ? `${calcResults.aspectRatio.toFixed(1)}:1` : "1.0:1 (Round)"} />
+          <KV k="Internal Cross-Section" v={isSI ? `${calcResults.areaM2.toFixed(3)} m²` : `${calcResults.areaSqFt.toFixed(2)} sq.ft`} />
+          <KV k="Wetted Perimeter / Girth" v={isSI ? `${calcResults.perimeterM.toFixed(2)} m` : `${calcResults.perimeterIn.toFixed(1)} in.`} />
+        </IntelSection>
+
+        {/* Acoustic Noise & Velocity Diagnostic */}
+        <IntelSection icon={Gauge} tone={acousticRating.tone} title="Acoustic Noise Diagnostic">
+          <div className="p-2.5 rounded-xl border bg-surface-2/60 space-y-1.5 mb-2">
+            <div className="flex items-center justify-between text-[11px] font-bold">
+              <span>Estimated Room Noise</span>
+              <span className={`px-2 py-0.5 rounded text-[10.5px] font-bold ${
+                acousticRating.tone === "success" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" :
+                acousticRating.tone === "warning" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" :
+                "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+              }`}>
+                {acousticRating.nc}
+              </span>
             </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              {acousticRating.label}
+            </p>
           </div>
-        )}
-
-        <div className="p-3.5 rounded-xl border bg-surface-2/70 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Velocity Diagnostic</span>
-            <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                isHighVelocity
-                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                  : isOptimalVelocity
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                  : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-              }`}
-            >
-              {isHighVelocity ? "High Velocity" : isOptimalVelocity ? "Acoustic Compliant" : "Moderate Flow"}
-            </span>
-          </div>
-
-          <div className="text-xl font-black font-mono text-foreground">
-            {isSI ? `${calcResults.velocityMs.toFixed(2)} m/s` : `${Math.round(calcResults.velocityFpm)} FPM`}
-          </div>
-
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            {isHighVelocity
-              ? "Velocity exceeds standard low-noise SMACNA criteria (< 2,000 FPM). Consider widening duct or increasing diameter."
-              : isOptimalVelocity
-              ? "Operates within ideal SMACNA & ASHRAE quiet duct design range with minimal regenerated noise."
-              : "Flow velocity is within acceptable standard operating ranges."}
-          </p>
-
           <button
             type="button"
             onClick={() => onNavigateToField("field-airflow")}
-            className="text-[11px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer pt-1"
+            className="text-[11px] font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer pt-0.5"
           >
             <span>Jump to Airflow Parameter</span>
             <ArrowRight className="size-3" />
           </button>
-        </div>
+        </IntelSection>
 
-        <div className="space-y-2">
-          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
-            Standard Application Presets
-          </span>
+        {/* Standard Application Presets */}
+        <IntelSection icon={Sparkles} tone="primary" title="Quick Application Scenarios">
           <div className="space-y-1.5">
             {[
-              { key: "commercial_office_main", label: "Commercial Office Main", flow: "2500 CFM", fr: "0.08 in.wg" },
-              { key: "retail_branch_duct", label: "Retail Branch Duct", flow: "1200 CFM", fr: "0.10 in.wg" },
-              { key: "hotel_guestroom_riser", label: "Hotel Guestroom Riser", flow: "800 CFM", fr: "0.06 in.wg" },
-              { key: "kitchen_exhaust_duct", label: "Kitchen Exhaust Duct", flow: "3500 CFM", fr: "0.15 in.wg" },
+              { key: "commercial_office_main", label: "Commercial Office Main Trunk", flow: "2500 CFM / 1180 L/s", fr: "0.08 in.wg / 0.65 Pa/m" },
+              { key: "retail_branch_duct", label: "Retail / Commercial Branch Duct", flow: "1200 CFM / 566 L/s", fr: "0.10 in.wg / 0.82 Pa/m" },
+              { key: "hotel_guestroom_riser", label: "Hotel Guestroom Low-Noise Riser", flow: "800 CFM / 378 L/s", fr: "0.06 in.wg / 0.49 Pa/m" },
+              { key: "kitchen_exhaust_duct", label: "Kitchen / High-Velocity Exhaust", flow: "3500 CFM / 1650 L/s", fr: "0.15 in.wg / 1.22 Pa/m" },
             ].map((p) => {
               const isSelected = preset === p.key;
               return (
@@ -2375,18 +2806,60 @@ function DuctSizerIntelligenceDrawer({
               );
             })}
           </div>
-        </div>
+        </IntelSection>
 
-        <div className="p-3.5 rounded-xl border border-primary/20 bg-primary/5 space-y-1.5">
-          <div className="flex items-center gap-1.5 text-primary font-bold text-[11.5px]">
-            <Lightbulb className="size-3.5" />
-            <span>Engineering Advisory</span>
+        {/* Optimization Suggestions */}
+        <IntelSection icon={Sparkles} tone="primary" title="Optimization Suggestions">
+          <ul className="text-[12px] text-muted-foreground space-y-1.5 list-disc pl-4">
+            <li>Keep aspect ratio W:H ≤ 2:1 to minimize sheet metal weight and acoustic flutter.</li>
+            <li>Maintain velocity &lt; 2,000 FPM (10.2 m/s) in occupied areas to avoid high noise regeneration.</li>
+            <li>Use round spiral duct for long straight runs to maximize structural rigidity and reduce leakage.</li>
+          </ul>
+        </IntelSection>
+
+        {/* Engineering Notes & Step-by-Step Derivations */}
+        <IntelSection icon={Info} tone="muted" title="Engineering Notes">
+          <div className="text-[12px] text-muted-foreground mb-2.5">
+            Calculated via iterative Colebrook-White equal friction formulation and SMACNA Huebscher transformations.
           </div>
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Aspect ratio should ideally remain ≤ 2:1 for low fabrication costs. Ratios exceeding 4:1 require internal reinforcing rods per SMACNA HVAC Duct Construction Standards.
-          </p>
-        </div>
+          {onOpenFormulaBreakdown && (
+            <button
+              type="button"
+              onClick={onOpenFormulaBreakdown}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-primary text-primary-foreground font-bold text-xs hover:bg-primary/90 transition shadow-sm cursor-pointer"
+            >
+              <Eye className="size-3.5" />
+              <span>View Step-by-Step Derivations</span>
+            </button>
+          )}
+        </IntelSection>
+
       </div>
+    </div>
+  );
+}
+
+function IntelSection({ icon: Icon, title, tone, children }: { icon: any; title: string; tone: "success" | "warning" | "primary" | "muted"; children: React.ReactNode }) {
+  const color =
+    tone === "success" ? "text-emerald-500" :
+      tone === "warning" ? "text-amber-500" :
+        tone === "primary" ? "text-primary" : "text-muted-foreground";
+  return (
+    <section className="px-3 py-3 border-b border-border">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={`size-3.5 ${color}`} />
+        <h4 className="text-[11px] uppercase tracking-wider font-semibold">{title}</h4>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function KV({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between text-[12px] py-0.5">
+      <span className="text-muted-foreground">{k}</span>
+      <span className="font-mono tabular font-medium">{v}</span>
     </div>
   );
 }

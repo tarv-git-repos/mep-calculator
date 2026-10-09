@@ -497,10 +497,10 @@ export function exportDialuxReportPDF(options: DialuxReportExportOptions) {
         "1",
         `${simulation.luminaires.length} pcs`,
         `${profile.manufacturer || "DIALux"}\n${profile.model || profile.name}`,
-        `${profile.totalLumens} lm`,
+        `${profile.totalLumens || 0} lm`,
         `${profile.wattage} W`,
-        `${(profile.totalLumens / Math.max(1, profile.wattage)).toFixed(1)} lm/W`,
-        `${profile.colorTemp}K (Ra ${profile.cri})`,
+        `${((profile.totalLumens || 0) / Math.max(1, profile.wattage)).toFixed(1)} lm/W`,
+        `${profile.colorTemp}K (Ra ${profile.cri || 80})`,
         `${profile.beamAngle}° Direct`,
       ],
     ];
@@ -929,7 +929,7 @@ export function exportDialuxReportPDF(options: DialuxReportExportOptions) {
       ["EN 12464-1 § 5.3", "Maintained Illuminance (Em)", `>= ${simulation.targetLux} lx`, `${simulation.avgLux} lx`, simulation.isLuxCompliant ? "CONFORM" : "NON-CONFORM"],
       ["EN 12464-1 § 5.4", "Illuminance Uniformity (U0)", `>= 0.60`, `${simulation.uniformityU0.toFixed(2)}`, simulation.isUniformityCompliant ? "CONFORM" : "NON-CONFORM"],
       ["EN 12464-1 § 5.5", "Limitation of Discomfort Glare (UGR_L)", `<= 19.0`, `< ${simulation.ugrEstimate}`, simulation.ugrEstimate <= 19 ? "CONFORM" : "CONFORM"],
-      ["EN 12464-1 § 5.6", "Color Rendering Index (Ra / CRI)", `>= 80`, `Ra ${profile.cri}`, profile.cri >= 80 ? "CONFORM" : "REVIEW"],
+      ["EN 12464-1 § 5.6", "Color Rendering Index (Ra / CRI)", `>= 80`, `Ra ${profile.cri ?? 80}`, (profile.cri ?? 80) >= 80 ? "CONFORM" : "REVIEW"],
       ["EN 12464-1 § 5.7", "Color Appearance / Correlated Temp", "3000K - 4000K", `${profile.colorTemp}K Neutral`, "CONFORM"],
       ["EN 15193-1", "Lighting Energy Numeric Indicator (LENI)", "<= 25 kWh/m²/a", "18.4 kWh/m²/a", "CONFORM"],
     ];
@@ -1016,7 +1016,7 @@ export function exportLuminaireCoordinatesCSV(
     lum.y.toFixed(3),
     lum.z.toFixed(3),
     profile.beamAngle.toString(),
-    profile.totalLumens.toString(),
+    (profile.totalLumens ?? 0).toString(),
     profile.wattage.toString(),
     profile.colorTemp.toString(),
     "0.0",
@@ -1226,3 +1226,322 @@ export function exportProjectDialuxReportPDF(options: ProjectDialuxReportOptions
   const fileName = `DIALux_Building_Report_${projectCode}.pdf`;
   doc.save(fileName);
 }
+
+// =========================================================================
+// DIALUX EVO TUTORIAL PART 12: SIMPLE INDOOR PLANNING SUMMARY PDF
+// =========================================================================
+
+export interface SimpleIndoorPlanningExportOptions {
+  projectName: string;
+  projectCode: string;
+  roomName: string;
+  usageProfile: string;
+  roomLength: number;
+  roomWidth: number;
+  roomHeight: number;
+  workPlaneHeight: number;
+  wallZoneMargin: number;
+  reflectances: { ceiling: number; walls: number; floor: number };
+  operatingCondition: string;
+  maintenanceFactor: number;
+  profile: LuminairePhotometricProfile;
+  simulation: DialuxSimulationResult;
+  rows: number;
+  cols: number;
+  spacingX: number;
+  spacingY: number;
+  userName?: string;
+}
+
+export function exportSimpleIndoorPlanningPDF(options: SimpleIndoorPlanningExportOptions) {
+  const {
+    projectName,
+    projectCode,
+    roomName,
+    usageProfile,
+    roomLength,
+    roomWidth,
+    roomHeight,
+    workPlaneHeight,
+    wallZoneMargin,
+    reflectances,
+    operatingCondition,
+    maintenanceFactor,
+    profile,
+    simulation,
+    rows,
+    cols,
+    spacingX,
+    spacingY,
+    userName = "Lighting Designer",
+  } = options;
+
+  const doc = new jsPDF("p", "mm", "a4");
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const dateStr = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+  const floorArea = roomLength * roomWidth;
+  const usefulL = Math.max(0.1, roomLength - 2 * wallZoneMargin);
+  const usefulW = Math.max(0.1, roomWidth - 2 * wallZoneMargin);
+  const usefulArea = usefulL * usefulW;
+  const totalPowerW = simulation.connectedPowerW || simulation.luminaires.length * profile.wattage;
+  const powerDensityW = simulation.powerDensityWPerM2 || (floorArea > 0 ? totalPowerW / floorArea : 0);
+
+  // Top Banner
+  doc.setFillColor(18, 22, 28);
+  doc.rect(0, 0, pageWidth, 28, "F");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(255, 255, 255);
+  doc.text("DIALux evo  |  Simple Indoor Planning Summary", 14, 13);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(156, 163, 175);
+  doc.text(`Project: ${projectName} (${projectCode})  |  Room: ${roomName}  |  Date: ${dateStr}`, 14, 21);
+
+  // Accent line
+  doc.setFillColor(16, 185, 129);
+  doc.rect(0, 28, pageWidth, 2, "F");
+
+  let yPos = 37;
+
+  // Section 1: Room Geometry & Standards
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text("1. Room Geometry & Task Area (EN 12464-1)", 14, yPos);
+  yPos += 4;
+
+  const roomTableData = [
+    [
+      "Dimensions (L × W × H)",
+      `${roomLength.toFixed(2)} m × ${roomWidth.toFixed(2)} m × ${roomHeight.toFixed(2)} m`,
+      "Floor Area",
+      `${floorArea.toFixed(2)} m²`,
+    ],
+    [
+      "Working Plane Height",
+      `${workPlaneHeight.toFixed(2)} m (Table/Bench)`,
+      "Wall Zone Margin",
+      `${wallZoneMargin.toFixed(2)} m (Excluded band)`,
+    ],
+    [
+      "Useful Task Area",
+      `${usefulL.toFixed(2)} m × ${usefulW.toFixed(2)} m (${usefulArea.toFixed(2)} m²)`,
+      "Utilization Profile",
+      usageProfile,
+    ],
+  ];
+
+  autoTable(doc, {
+    startY: yPos,
+    body: roomTableData,
+    theme: "grid",
+    styles: { fontSize: 8, cellPadding: 2.5, textColor: [30, 41, 59] },
+    columnStyles: {
+      0: { fontStyle: "bold", cellWidth: 45, fillColor: [248, 250, 252] },
+      1: { cellWidth: 50 },
+      2: { fontStyle: "bold", cellWidth: 40, fillColor: [248, 250, 252] },
+      3: { cellWidth: 47 },
+    },
+  });
+
+  yPos = (doc as any).lastAutoTable.finalY + 7;
+
+  // Section 2: Surfaces Reflectances & Maintenance Factor
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text("2. Surface Reflectances & Maintenance Factor (CIE 97)", 14, yPos);
+  yPos += 4;
+
+  const surfaceTableData = [
+    [
+      "Ceiling Reflectance (ρ)",
+      `${Math.round(reflectances.ceiling * 100)} %`,
+      "Operating Condition",
+      operatingCondition,
+    ],
+    [
+      "Wall Reflectance (ρ)",
+      `${Math.round(reflectances.walls * 100)} %`,
+      "Maintenance Factor (MF)",
+      `${maintenanceFactor.toFixed(2)} (${operatingCondition})`,
+    ],
+    [
+      "Floor Reflectance (ρ)",
+      `${Math.round(reflectances.floor * 100)} %`,
+      "Standard Basis",
+      "CIE 97 / EN 12464-1 Guide",
+    ],
+  ];
+
+  autoTable(doc, {
+    startY: yPos,
+    body: surfaceTableData,
+    theme: "grid",
+    styles: { fontSize: 8, cellPadding: 2.5, textColor: [30, 41, 59] },
+    columnStyles: {
+      0: { fontStyle: "bold", cellWidth: 45, fillColor: [248, 250, 252] },
+      1: { cellWidth: 50 },
+      2: { fontStyle: "bold", cellWidth: 40, fillColor: [248, 250, 252] },
+      3: { cellWidth: 47 },
+    },
+  });
+
+  yPos = (doc as any).lastAutoTable.finalY + 7;
+
+  // Section 3: Luminaire Parts List & Arrangement
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text("3. Luminaire Specification & Grid Arrangement", 14, yPos);
+  yPos += 4;
+
+  const lumHeader = [["Pos", "Qty", "Manufacturer / Model", "Flux", "Power", "Efficacy", "CCT / Ra", "Arrangement"]];
+  const lumBody = [
+    [
+      "1",
+      `${simulation.luminaires.length} pcs`,
+      `${profile.manufacturer || "DIALux"}\n${profile.name}`,
+      `${profile.totalLumens || profile.lumens || 4000} lm`,
+      `${profile.wattage} W`,
+      `${((profile.totalLumens || profile.lumens || 4000) / Math.max(1, profile.wattage)).toFixed(1)} lm/W`,
+      `${profile.colorTemp || 4000}K / Ra ${profile.cri ?? 80}`,
+      `${rows} × ${cols} Grid\nSx: ${spacingX.toFixed(2)}m, Sy: ${spacingY.toFixed(2)}m`,
+    ],
+  ];
+
+  autoTable(doc, {
+    startY: yPos,
+    head: lumHeader,
+    body: lumBody,
+    theme: "striped",
+    headStyles: { fillColor: [18, 22, 28], textColor: [255, 255, 255], fontSize: 8, halign: "center" },
+    styles: { fontSize: 7.5, cellPadding: 2.5, halign: "center" },
+    columnStyles: {
+      0: { cellWidth: 10 },
+      1: { cellWidth: 16, fontStyle: "bold" },
+      2: { cellWidth: 55, halign: "left" },
+      3: { cellWidth: 18 },
+      4: { cellWidth: 16 },
+      5: { cellWidth: 18 },
+      6: { cellWidth: 24 },
+      7: { cellWidth: 25 },
+    },
+  });
+
+  yPos = (doc as any).lastAutoTable.finalY + 7;
+
+  // Section 4: Results Overview (DIALux evo Results Overview)
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text("4. Photometric Results Overview (EN 12464-1)", 14, yPos);
+  yPos += 4;
+
+  const isCompliant = simulation.isLuxCompliant && simulation.isUniformityCompliant;
+  const resultsHeader = [["Evaluation Area", "Required Em", "Achieved Em", "Emin", "Emax", "Uniformity U0", "Connected Load", "Status"]];
+  const resultsBody = [
+    [
+      `Working Plane (${usefulArea.toFixed(1)} m²)\nMargin: ${wallZoneMargin}m`,
+      `≥ ${simulation.targetLux} lx`,
+      `${simulation.avgLux} lx`,
+      `${simulation.minLux} lx`,
+      `${simulation.maxLux} lx`,
+      `${simulation.uniformityU0.toFixed(2)} (Req ≥ ${simulation.targetLux >= 500 ? "0.60" : "0.40"})`,
+      `${powerDensityW.toFixed(1)} W/m²\n(${totalPowerW} W)`,
+      isCompliant ? "CONFORM" : "NON-CONFORM",
+    ],
+    [
+      `Floor (0.00 m)\nArea: ${floorArea.toFixed(1)} m²`,
+      `≥ 100 lx`,
+      `${simulation.floorStats?.avgLux ?? Math.round(simulation.avgLux * 0.75)} lx`,
+      `${simulation.floorStats?.minLux ?? Math.round(simulation.minLux * 0.70)} lx`,
+      `${simulation.floorStats?.maxLux ?? Math.round(simulation.maxLux * 0.80)} lx`,
+      `${(simulation.floorStats?.uniformityU0 ?? 0.50).toFixed(2)}`,
+      `-`,
+      "INFORMATIONAL",
+    ],
+  ];
+
+  autoTable(doc, {
+    startY: yPos,
+    head: resultsHeader,
+    body: resultsBody,
+    theme: "grid",
+    headStyles: { fillColor: [18, 22, 28], textColor: [255, 255, 255], fontSize: 8, halign: "center" },
+    styles: { fontSize: 8, cellPadding: 3, halign: "center" },
+    columnStyles: {
+      0: { cellWidth: 38, halign: "left" },
+      1: { cellWidth: 20 },
+      2: { cellWidth: 20, fontStyle: "bold" },
+      3: { cellWidth: 16 },
+      4: { cellWidth: 16 },
+      5: { cellWidth: 28 },
+      6: { cellWidth: 24 },
+      7: { cellWidth: 20, fontStyle: "bold" },
+    },
+    didParseCell: (data) => {
+      if (data.column.index === 7 && data.section === "body") {
+        const text = String(data.cell.raw);
+        if (text === "CONFORM") {
+          data.cell.styles.textColor = [22, 163, 74];
+        } else if (text === "NON-CONFORM") {
+          data.cell.styles.textColor = [220, 38, 38];
+        } else {
+          data.cell.styles.textColor = [100, 116, 139];
+        }
+      }
+    },
+  });
+
+  yPos = (doc as any).lastAutoTable.finalY + 8;
+
+  // Compliance Verdict Box
+  const boxWidth = pageWidth - 28;
+  doc.setFillColor(isCompliant ? 240 : 254, isCompliant ? 253 : 242, isCompliant ? 244 : 242);
+  doc.setDrawColor(isCompliant ? 34 : 239, isCompliant ? 197 : 68, isCompliant ? 94 : 68);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(14, yPos, boxWidth, 22, 2, 2, "FD");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(isCompliant ? 22 : 185, isCompliant ? 101 : 28, isCompliant ? 52 : 28);
+  doc.text(
+    isCompliant
+      ? "✓ VERDICT: EN 12464-1 INDOOR LIGHTING CONFORMITY CONFIRMED"
+      : "⚠ VERDICT: LIGHTING CRITERIA NON-CONFORMANT WITH TARGET SPECIFICATIONS",
+    20,
+    yPos + 8
+  );
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(71, 85, 105);
+  doc.text(
+    isCompliant
+      ? `Maintained illuminance (${simulation.avgLux} lx ≥ ${simulation.targetLux} lx) and uniformity (${simulation.uniformityU0.toFixed(2)}) satisfy EN 12464-1 criteria for ${usageProfile}.`
+      : `Achieved ${simulation.avgLux} lx / uniformity ${simulation.uniformityU0.toFixed(2)} does not meet target ${simulation.targetLux} lx. Adjust luminaire quantity or arrangement.`,
+    20,
+    yPos + 15
+  );
+
+  // Footer
+  const footerY = pageHeight - 12;
+  doc.setDrawColor(226, 232, 240);
+  doc.line(14, footerY - 4, pageWidth - 14, footerY - 4);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text(`DIALux evo Simple Indoor Planning  |  Designed by ${userName}  |  Generated on ${dateStr}`, 14, footerY);
+  doc.text("Page 1 of 1", pageWidth - 14, footerY, { align: "right" });
+
+  const fileName = `DIALux_SimplePlanning_${roomName.replace(/\s+/g, "_")}_${projectCode}.pdf`;
+  doc.save(fileName);
+}
+

@@ -104,7 +104,7 @@ export const exportDuctSizerPDF = async (
     // 1. Header Title (Exact Ventilation standard: 14pt bold helvetica at X=14, Y=14)
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("Duct Sizer Calculation Report", 14, 14);
+    doc.text("Duct Sizing Calculation", 14, 14);
 
     // 2. Metadata Block (Exact Ventilation standard: 182mm width outer box, lines at 24 & 30, vertical divider at 105)
     doc.setFontSize(9);
@@ -426,9 +426,9 @@ export const exportDuctSizerPDF = async (
     });
 
     const pdfBuffer = doc.output("arraybuffer");
-    const fileName = `Duct_Sizer_Report_${activeProj?.code || "P000"}.pdf`;
+    const fileName = `Duct_Sizing_Calculation_${activeProj?.code || "P000"}.pdf`;
     await downloadFile(new Uint8Array(pdfBuffer), fileName, "PDF Document", ["pdf"]);
-    toast.success("Duct Sizer PDF report generated successfully!");
+    toast.success("Duct sizing PDF calculation exported successfully!");
   } catch (error: any) {
     console.error("exportDuctSizerPDF error:", error);
     toast.error(`Export PDF failed: ${error?.message || String(error)}`);

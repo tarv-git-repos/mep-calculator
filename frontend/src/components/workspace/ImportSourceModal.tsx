@@ -1,5 +1,5 @@
 import React from "react";
-import { FileSpreadsheet, Box, X, ArrowRight, Sparkles, Wind } from "lucide-react";
+import { FileSpreadsheet, Box, X, ArrowRight, Sparkles, Wind, Zap } from "lucide-react";
 
 interface ImportSourceModalProps {
   isOpen: boolean;
@@ -7,6 +7,8 @@ interface ImportSourceModalProps {
   onSelectExcel: () => void;
   onSelect3DViewer: () => void;
   onSelectVentilation?: () => void;
+  onSelectPreliminary?: () => void;
+  footerNote?: string;
 }
 
 export function ImportSourceModal({
@@ -15,6 +17,8 @@ export function ImportSourceModal({
   onSelectExcel,
   onSelect3DViewer,
   onSelectVentilation,
+  onSelectPreliminary,
+  footerNote,
 }: ImportSourceModalProps) {
   if (!isOpen) return null;
 
@@ -123,7 +127,38 @@ export function ImportSourceModal({
                   <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                  Import all room names, floor levels, and areas ($m^2$) directly from the active Ventilation schedule.
+                  Import all room names, floor levels, and areas directly from the active Ventilation schedule.
+                </p>
+              </div>
+            </button>
+          )}
+
+          {/* Option 4: Preliminary Cooling Load (if provided) */}
+          {onSelectPreliminary && (
+            <button
+              onClick={() => {
+                onClose();
+                onSelectPreliminary();
+              }}
+              className="group relative flex items-start gap-4 p-4 rounded-xl border border-border bg-surface-1/30 hover:bg-amber-500/5 hover:border-amber-500/40 transition-all text-left shadow-sm hover:shadow-md cursor-pointer"
+            >
+              <div className="p-3 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 group-hover:scale-105 transition-transform">
+                <Zap className="size-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-foreground group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+                      Import from Preliminary Cooling Load
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                      Cooling Load
+                    </span>
+                  </div>
+                  <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  Import room names, floor levels, areas, and space categories from the Preliminary Cooling Load calculation.
                 </p>
               </div>
             </button>
@@ -132,7 +167,7 @@ export function ImportSourceModal({
 
         {/* Footer */}
         <div className="px-5 py-3.5 bg-surface-2/40 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-          <span>Automatic heat density & space classification applied</span>
+          <span>{footerNote || "Automatic code baseline & space classification applied"}</span>
           <button 
             onClick={onClose}
             className="font-medium text-foreground hover:underline cursor-pointer"

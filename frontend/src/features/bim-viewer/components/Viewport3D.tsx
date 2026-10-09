@@ -16,6 +16,15 @@ import { api as backendApi } from '@/services/api';
 
 import { ensureApiBridge } from '../tauri-bridge';
 
+// ============================================================================
+// CONFIGURATION: Adjust these values to perfectly align the 2D spaces with the 3D model
+// Increasing X moves the spaces RIGHT. Decreasing X moves them LEFT.
+// Increasing Z moves the spaces DOWN (on screen). Decreasing Z moves them UP.
+// ============================================================================
+const CONFIG_SPACE_OFFSET_X = -5.7; // Adjusted further right from -5.0
+const CONFIG_SPACE_OFFSET_Z = 9.65;  // Adjust this if you need to move them up/down
+// ============================================================================
+
 export function Viewport3D() {
     const viewportRef = useRef<HTMLDivElement>(null);
     const isInitialized = useRef(false);
@@ -31,7 +40,7 @@ export function Viewport3D() {
 
         // Mock UI object that syncs with Zustand store
         const store = useViewerStore.getState;
-        
+
         class MockBtn {
             classList = {
                 contains: (cls: string) => this.hasCls(cls),
@@ -45,46 +54,46 @@ export function Viewport3D() {
             };
             style = { display: 'block' };
             onclick: any = null;
-            
-            constructor(private hasCls: (cls: string) => boolean, private addCls: (cls: string) => void, private rmCls: (cls: string) => void) {}
+
+            constructor(private hasCls: (cls: string) => boolean, private addCls: (cls: string) => void, private rmCls: (cls: string) => void) { }
         }
 
         const ui = {
             viewport: viewportElement,
-            overlay: { classList: { add: () => {}, remove: () => {} }, style: { display: 'flex' } },
+            overlay: { classList: { add: () => { }, remove: () => { } }, style: { display: 'flex' } },
             loader: { style: { display: 'none' } },
             text: { innerText: 'Drag & Drop .ifc file here' },
             toolbar: { style: { display: 'none' } },
-            selectedSpaceInfo: { 
+            selectedSpaceInfo: {
                 set innerHTML(val: string) { store().setSelectedSpaceInfo(val); },
                 get innerHTML() { return store().selectedSpaceInfo; }
             },
-            
+
             btn3d: new MockBtn(() => store().viewMode === '3d', () => store().setViewMode('3d'), () => store().setViewMode('2d')),
             btn2d: new MockBtn(() => store().viewMode === '2d', () => store().setViewMode('2d'), () => store().setViewMode('3d')),
-            
+
             btnColorFull: new MockBtn(() => store().colorMode === 'full', () => store().setColorMode('full'), () => store().setColorMode('mono')),
             btnColorMono: new MockBtn(() => store().colorMode === 'mono', () => store().setColorMode('mono'), () => store().setColorMode('full')),
-            
+
             btnOrbit: new MockBtn(() => store().cameraMode === 'orbit', () => store().setCameraMode('orbit'), () => store().setCameraMode('walk')),
             btnWalk: new MockBtn(() => store().cameraMode === 'walk', () => store().setCameraMode('walk'), () => store().setCameraMode('orbit')),
-            
+
             btnClip: new MockBtn(() => store().isClipActive, () => store().setIsClipActive(true), () => store().setIsClipActive(false)),
             btnTags: new MockBtn(() => store().isTagsActive, () => store().setIsTagsActive(true), () => store().setIsTagsActive(false)),
             btnSpaces: new MockBtn(() => store().isSpacesActive, () => store().setIsSpacesActive(true), () => store().setIsSpacesActive(false)),
-            
+
             selectLevel: {
                 get value() { return store().selectedLevel; },
                 set value(val: string) { store().setSelectedLevel(val); },
                 style: { display: 'none' },
                 onchange: null as any,
                 innerHTML: '',
-                appendChild: () => {}
+                appendChild: () => { }
             }
         };
 
         let _levels: any[] = [];
-        
+
         // Replace getElementById('viewport') with viewportElement
         const getElementByIdBackup = document.getElementById;
         document.getElementById = (id) => id === 'viewport' ? viewportElement : getElementByIdBackup.call(document, id);
@@ -162,7 +171,7 @@ export function Viewport3D() {
                         pos: [pos.x, pos.y, pos.z],
                         target: [target.x, target.y, target.z]
                     };
-                } catch {}
+                } catch { }
             }
         };
 
@@ -170,7 +179,7 @@ export function Viewport3D() {
         if (world.camera?.controls) {
             world.camera.controls.addEventListener("update", () => {
                 if (isFragmentsInitialized && fragments?.core) {
-                    try { fragments.core.update(); } catch {}
+                    try { fragments.core.update(); } catch { }
                 }
                 if (!cameraUpdateDebounce) {
                     cameraUpdateDebounce = setTimeout(() => {
@@ -215,9 +224,9 @@ export function Viewport3D() {
                                 if (typeof m.material.dispose === 'function') m.material.dispose();
                             }
                         }
-                    } catch {}
+                    } catch { }
                 });
-            } catch {}
+            } catch { }
             list.length = 0;
         };
 
@@ -228,7 +237,7 @@ export function Viewport3D() {
                     viewportAbortController.abort();
                     viewportAbortController = null;
                 }
-            } catch {}
+            } catch { }
 
             // 2. Remove selection highlighter listeners
             try {
@@ -236,14 +245,14 @@ export function Viewport3D() {
                     selectionManager.highlighter.events.select.onHighlight.remove(activeSelectHighlightHandler);
                     activeSelectHighlightHandler = null;
                 }
-            } catch {}
+            } catch { }
             try {
                 if (activeSelectClearHandler && selectionManager.highlighter?.events?.select?.onClear) {
                     selectionManager.highlighter.events.select.onClear.remove(activeSelectClearHandler);
                     activeSelectClearHandler = null;
                 }
-            } catch {}
-            try { await selectionManager.clear(); } catch {}
+            } catch { }
+            try { await selectionManager.clear(); } catch { }
 
             // 3. Remove & dispose tags
             try {
@@ -261,9 +270,9 @@ export function Viewport3D() {
                         if ((t as any).element && typeof (t as any).element.remove === 'function') {
                             (t as any).element.remove();
                         }
-                    } catch {}
+                    } catch { }
                 });
-            } catch {}
+            } catch { }
             activeTags = [];
 
             // 4. Remove & dispose all space meshes, lines, crosshairs, and 2D outlines
@@ -284,7 +293,7 @@ export function Viewport3D() {
                     await floorPlanManager.deleteClipPlane(floorPlanManager.activePlaneId);
                     floorPlanManager.activePlaneId = null;
                 }
-            } catch {}
+            } catch { }
 
             // 6. Dispose previous model
             try {
@@ -306,7 +315,7 @@ export function Viewport3D() {
                                         if (typeof child.material.dispose === 'function') child.material.dispose();
                                     }
                                 }
-                            } catch {}
+                            } catch { }
                         });
                         if (currentModel.object.parent) {
                             currentModel.object.parent.remove(currentModel.object);
@@ -319,7 +328,7 @@ export function Viewport3D() {
                     }
                     currentModel = null;
                 }
-            } catch {}
+            } catch { }
         };
 
         let isModelLoadingInProgress = false;
@@ -375,12 +384,12 @@ export function Viewport3D() {
 
                 ensureApiBridge();
                 const api = (window as any).api || {};
-                const getFilePathFn = typeof api.getFilePath === 'function' 
-                    ? api.getFilePath 
+                const getFilePathFn = typeof api.getFilePath === 'function'
+                    ? api.getFilePath
                     : ((f: File) => (f as any).path || f.name || "project_model.ifc");
-                
+
                 const fileKey = getFilePathFn(file);
-                
+
                 const processIfcFn = typeof api.processIfc === 'function' ? api.processIfc : null;
                 if (!processIfcFn) {
                     throw new Error("3D IFC Converter Engine bridge unavailable.");
@@ -849,7 +858,7 @@ export function Viewport3D() {
                     const { pos, target } = (window as any)._bimCameraState;
                     try {
                         world.camera.controls.setLookAt(pos[0], pos[1], pos[2], target[0], target[1], target[2], false);
-                    } catch {}
+                    } catch { }
                 } else {
                     try {
                         const fitBox = new THREE.Box3().setFromObject(model.object);
@@ -972,9 +981,14 @@ export function Viewport3D() {
                                     const storeyId = parentStorey ? parentStorey.expressId : 0;
                                     const matrix = new THREE.Matrix4();
                                     child.getMatrixAt(i, matrix);
+                                    const globalMatrix = new THREE.Matrix4().multiplyMatrices(child.matrixWorld, matrix);
+
+                                    // Apply the explicit space offset to correct alignment with the architectural model
+                                    const spaceOffsetMatrix = new THREE.Matrix4().makeTranslation(CONFIG_SPACE_OFFSET_X, 0.0, CONFIG_SPACE_OFFSET_Z);
+                                    globalMatrix.premultiply(spaceOffsetMatrix);
 
                                     const outline = new THREE.LineSegments(edgesGeom, lineMat);
-                                    outline.applyMatrix4(matrix);
+                                    outline.applyMatrix4(globalMatrix);
                                     if (verticalAxis === 'y') outline.position.y += offsetVal; else outline.position.z += offsetVal;
                                     (outline as any).expressId = expressId;
                                     (outline as any).storeyId = storeyId;
@@ -984,8 +998,8 @@ export function Viewport3D() {
                                     spaceLineMeshes.push(outline);
 
                                     if (baseBox) {
-                                        const instanceBox = new THREE.Box3().copy(baseBox).applyMatrix4(matrix);
-                                        const origin = new THREE.Vector3().setFromMatrixPosition(matrix);
+                                        const instanceBox = new THREE.Box3().copy(baseBox).applyMatrix4(globalMatrix);
+                                        const origin = new THREE.Vector3().setFromMatrixPosition(globalMatrix);
                                         const center = new THREE.Vector3();
                                         instanceBox.getCenter(center);
 
@@ -1264,7 +1278,7 @@ export function Viewport3D() {
 
                 ui.selectLevel.onchange = async () => {
                     const val = ui.selectLevel.value;
-                    try { await selectionManager.clear(); } catch {}
+                    try { await selectionManager.clear(); } catch { }
                     await floorPlanManager.deleteClipPlane(floorPlanManager.activePlaneId || undefined);
                     floorPlanManager.activePlaneId = null;
 
@@ -1354,10 +1368,10 @@ export function Viewport3D() {
                         floorPlanManager.activePlaneId = null;
                         await hider.set(false, spaceMap);
                         updateTagsForLevel('');
-                        try { await selectionManager.clear(); } catch {}
+                        try { await selectionManager.clear(); } catch { }
                         spaceLineMeshes.forEach(line => line.visible = false);
-                    } else { 
-                        ui.selectLevel.style.display = 'inline-block'; 
+                    } else {
+                        ui.selectLevel.style.display = 'inline-block';
                         if (lastHoveredId !== null || ui.selectedSpaceInfo.innerHTML !== 'Click on a space in 2D view to select it.') {
                             lastHoveredId = null;
                             setSelectedSpaceHighlight(-1, false);
@@ -1437,7 +1451,7 @@ export function Viewport3D() {
                     spaceCrossMeshes.forEach(c => c.visible = false);
                     space2dPickMeshes.forEach(mesh => mesh.visible = false);
                     updateTagsForLevel('');
-                    
+
                     if (lastHoveredId !== null || ui.selectedSpaceInfo.innerHTML !== 'Click on a space in 3D view to select it.') {
                         lastHoveredId = null;
                         setSelectedSpaceHighlight(-1, false);
@@ -1445,7 +1459,7 @@ export function Viewport3D() {
                     }
 
                     if (ui.btnClip.classList.contains('active')) {
-                        ui.selectLevel.style.display = 'inline-block'; 
+                        ui.selectLevel.style.display = 'inline-block';
                         if (lastHoveredId !== null || ui.selectedSpaceInfo.innerHTML !== 'Click on a space in 3D view to select it.') {
                             lastHoveredId = null;
                             setSelectedSpaceHighlight(-1, false);
@@ -1457,7 +1471,7 @@ export function Viewport3D() {
                         store().setSelectedLevel('');
                         await floorPlanManager.deleteClipPlane(floorPlanManager.activePlaneId || undefined);
                         floorPlanManager.activePlaneId = null;
-                        
+
                         // Restore visibility of all building elements across all levels
                         const allElementIds = new Set<number>();
                         storeys.forEach(s => s.localElementIds.forEach(id => allElementIds.add(id)));
@@ -1531,13 +1545,13 @@ export function Viewport3D() {
                     applyGrayscaleMode(true);
                 };
 
-                const TAG_OFFSET_X = -6.0;
-                const TAG_OFFSET_Z = 9.5;
-                const TAG_OFFSET_Y = 0.0;
+                const SPACE_OFFSET_X = CONFIG_SPACE_OFFSET_X;
+                const SPACE_OFFSET_Z = CONFIG_SPACE_OFFSET_Z;
+                const SPACE_OFFSET_Y = 0.0;
                 const TAG_WORLD_WIDTH_METERS = 1.5;
 
-                const PLANE_OFFSET_X = 0.3;
-                const PLANE_OFFSET_Z = 0.1320;
+                const PLANE_OFFSET_X = 0.0;
+                const PLANE_OFFSET_Z = 0.0;
 
                 const createRoomTagSprite = (longName: string, floorLabel: string, name: string, area: number): THREE.Sprite => {
                     const canvas = document.createElement('canvas');
@@ -1596,8 +1610,15 @@ export function Viewport3D() {
                     const currentVerticalAxis = (Math.abs(world.camera.three.up.z) > 0.5) ? 'z' : 'y';
                     const height = currentVerticalAxis === 'y' ? (curBBox.max.y - curBBox.min.y) : (curBBox.max.z - curBBox.min.z);
                     const scale = height > 100 ? 1.0 : 0.001;
-                    if (currentVerticalAxis === 'y') return new THREE.Vector3(localX * scale + TAG_OFFSET_X, localZ * scale + TAG_OFFSET_Y, -localY * scale + TAG_OFFSET_Z);
-                    else return new THREE.Vector3(localX * scale + TAG_OFFSET_X, localY * scale + TAG_OFFSET_Z, localZ * scale + TAG_OFFSET_Y);
+
+                    let vec: THREE.Vector3;
+                    if (currentVerticalAxis === 'y') vec = new THREE.Vector3(localX * scale + SPACE_OFFSET_X, localZ * scale + SPACE_OFFSET_Y, -localY * scale + SPACE_OFFSET_Z);
+                    else vec = new THREE.Vector3(localX * scale + SPACE_OFFSET_X, localY * scale + SPACE_OFFSET_Z, localZ * scale + SPACE_OFFSET_Y);
+
+                    if (model.object && model.object.matrixWorld) {
+                        vec.applyMatrix4(model.object.matrixWorld);
+                    }
+                    return vec;
                 };
 
                 const processedRoomKeys = new Set<string>();
@@ -1668,17 +1689,54 @@ export function Viewport3D() {
                         const linePoints: THREE.Vector3[] = [];
                         const worldXZ: { x: number, z: number }[] = [];
 
-                        s.polygon.forEach((pt: any, idx: number) => {
-                            const pWorld = localToWorld(pt.x, pt.y, 0);
-                            const wx = pWorld.x + PLANE_OFFSET_X;
-                            const wz = pWorld.z + PLANE_OFFSET_Z;
+                        // Robustly map the raw 2D polygon footprint exactly into the true 3D bounding box of the physical mesh
+                        const boundsData = activeSpaceBoundsMap.get(s.expressId);
 
-                            if (idx === 0) shape.moveTo(wx, wz);
-                            else shape.lineTo(wx, wz);
+                        if (boundsData && boundsData.box && s.polygon.length > 0) {
+                            const instanceBox = boundsData.box;
 
-                            linePoints.push(new THREE.Vector3(wx, targetY, wz));
-                            worldXZ.push({ x: wx, z: wz });
-                        });
+                            let rawMinX = Infinity, rawMaxX = -Infinity;
+                            let rawMinY = Infinity, rawMaxY = -Infinity;
+                            s.polygon.forEach((pt: any) => {
+                                if (pt.x < rawMinX) rawMinX = pt.x;
+                                if (pt.x > rawMaxX) rawMaxX = pt.x;
+                                if (pt.y < rawMinY) rawMinY = pt.y;
+                                if (pt.y > rawMaxY) rawMaxY = pt.y;
+                            });
+
+                            const rawWidthX = rawMaxX - rawMinX;
+                            const rawWidthY = rawMaxY - rawMinY;
+                            const trueWidthX = instanceBox.max.x - instanceBox.min.x;
+                            const trueWidthZ = instanceBox.max.z - instanceBox.min.z;
+
+                            const scaleX = rawWidthX > 0.0001 ? (trueWidthX / rawWidthX) : 1;
+                            const scaleZ = rawWidthY > 0.0001 ? (trueWidthZ / rawWidthY) : 1;
+
+                            s.polygon.forEach((pt: any, idx: number) => {
+                                const wx = instanceBox.min.x + (pt.x - rawMinX) * scaleX;
+                                // Invert Y to Z mapping to match Three.js Y-up standard where +Y screen is -Z world
+                                const wz = instanceBox.max.z - (pt.y - rawMinY) * scaleZ;
+
+                                if (idx === 0) shape.moveTo(wx, wz);
+                                else shape.lineTo(wx, wz);
+
+                                linePoints.push(new THREE.Vector3(wx, targetY, wz));
+                                worldXZ.push({ x: wx, z: wz });
+                            });
+                        } else {
+                            // Fallback to legacy mapping if no 3D mesh is present
+                            s.polygon.forEach((pt: any, idx: number) => {
+                                const pWorld = localToWorld(pt.x, pt.y, 0);
+                                const wx = pWorld.x + PLANE_OFFSET_X;
+                                const wz = pWorld.z + PLANE_OFFSET_Z;
+
+                                if (idx === 0) shape.moveTo(wx, wz);
+                                else shape.lineTo(wx, wz);
+
+                                linePoints.push(new THREE.Vector3(wx, targetY, wz));
+                                worldXZ.push({ x: wx, z: wz });
+                            });
+                        }
 
                         const fillGeom = new THREE.ShapeGeometry(shape);
                         const fillMat = new THREE.MeshBasicMaterial({
@@ -1750,10 +1808,10 @@ export function Viewport3D() {
 
                 await hider.set(false, spaceMap);
                 updateTagsForLevel('');
-                
+
                 store().setIsLoaded(true);
                 store().setIsLoading(false);
-            } catch (err) { 
+            } catch (err) {
                 console.error("loadIfcFile error:", err);
                 store().setLoadingText('Error: ' + err);
                 store().setIsLoading(false);
@@ -1771,7 +1829,7 @@ export function Viewport3D() {
                 activeGhostMesh = null;
             }
             useViewerStore.getState().setDraggedEquipmentId(null);
-            
+
             try {
                 if (e.dataTransfer?.getData('text/plain')) {
                     const raw = e.dataTransfer.getData('text/plain');
@@ -1810,7 +1868,7 @@ export function Viewport3D() {
                         return;
                     }
                 }
-            } catch(err) { console.error('[MEP-DND] handleDrop error:', err); }
+            } catch (err) { console.error('[MEP-DND] handleDrop error:', err); }
 
             const file = e.dataTransfer?.files[0];
             if (file && (window as any).loadIfcFile) {
@@ -1822,14 +1880,14 @@ export function Viewport3D() {
             const customEvent = e as CustomEvent;
             const equip = customEvent.detail;
             if (!equip) return;
-            
+
             if (!ui.btn2d.classList.contains('active')) {
                 if (ui.btn2d.onclick) {
                     const p = ui.btn2d.onclick(new MouseEvent('click') as any);
                     if (p && (p as any).then) await p;
                 }
             }
-            
+
             if (equip.locationSpaceId) {
                 let targetStoreyId = null;
                 for (const [expressId, spData] of spaceWorldPolygons) {
@@ -1838,7 +1896,7 @@ export function Viewport3D() {
                         break;
                     }
                 }
-                
+
                 if (targetStoreyId && String(ui.selectLevel.value) !== String(targetStoreyId)) {
                     ui.selectLevel.value = String(targetStoreyId);
                     if (ui.selectLevel.onchange) {
@@ -1860,7 +1918,7 @@ export function Viewport3D() {
                 } else {
                     world.camera.controls.dollyTo(15, true);
                 }
-                
+
                 if (transformControl) {
                     transformControl.camera = world.camera.three;
                     transformControl.setMode('translate');
@@ -1877,8 +1935,8 @@ export function Viewport3D() {
         document.addEventListener('dragover', handleDragOver);
         document.addEventListener('drop', handleDrop);
         window.addEventListener('mep-focus-equipment', handleFocusEquipment);
-        
-        
+
+
         const renderEquipmentMeshes = () => {
             console.log('[MEP-EQUIPMENT-RENDER] renderEquipmentMeshes called');
             const state = workspaceStore.getState();
@@ -1901,7 +1959,7 @@ export function Viewport3D() {
                         posZ: equip.positionZ,
                         rotY: equip.rotationY
                     });
-                    
+
                     let worldY = equip.positionY || 0;
                     if (equip.locationSpaceId && activeSpaceBoundsMap.has(Number(equip.locationSpaceId))) {
                         const spaceData = activeSpaceBoundsMap.get(Number(equip.locationSpaceId));
@@ -1981,11 +2039,11 @@ export function Viewport3D() {
 
         ui.viewport.addEventListener('pointerup', (e: PointerEvent) => {
             if (ui.btn2d.classList.contains('active')) { if (transformControl) transformControl.detach(); return; }
-            
+
             const rect = ui.viewport.getBoundingClientRect();
             const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
             const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-            
+
             const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
             const clickX = worldPos.x;
             const clickZ = worldPos.z;
@@ -2051,8 +2109,8 @@ export function Viewport3D() {
         ui.btnOrbit.onclick = () => { document.exitPointerLock(); ui.btnOrbit.classList.add('active'); ui.btnWalk.classList.remove('active'); };
         ui.btnWalk.onclick = () => { ui.btnWalk.classList.add('active'); ui.btnOrbit.classList.remove('active'); };
 
-                activeGhostMesh = null;
-        
+        activeGhostMesh = null;
+
         ui.viewport.addEventListener('dragover', (e: DragEvent) => {
             e.preventDefault();
             const draggedId = useViewerStore.getState().draggedEquipmentId;
@@ -2063,10 +2121,10 @@ export function Viewport3D() {
                 }
                 return;
             }
-            
+
             const equip = workspaceStore.getState().equipment.find(eq => eq.id === draggedId);
             if (!equip) return;
-            
+
             const L = (equip.dimensions?.length || 1500) / 1000;
             const W = (equip.dimensions?.width || 1000) / 1000;
             const H = (equip.dimensions?.height || 1000) / 1000;
@@ -2097,14 +2155,14 @@ export function Viewport3D() {
                 activeGhostMesh.position.set(worldPos.x, 0, worldPos.z);
             }
         });
-        
+
         ui.viewport.addEventListener('dragleave', () => {
             if (activeGhostMesh) {
                 world.scene.three.remove(activeGhostMesh);
                 activeGhostMesh = null;
             }
         });
-        
+
         // Viewport drop listener handles ghost mesh and drag state cleanup.
         // Equipment placement mutation is authoritatively handled by document-level handleDrop.
         ui.viewport.addEventListener('drop', () => {
@@ -2163,7 +2221,7 @@ export function Viewport3D() {
             const rect = ui.viewport.getBoundingClientRect();
             const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
             const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-            
+
             const hitGroup = checkPlacedEquipmentHit(ndcX, ndcY);
             if (hitGroup) {
                 selectedEquipmentId = hitGroup.userData.equipmentId;
@@ -2171,9 +2229,9 @@ export function Viewport3D() {
                 pointerIsDraggingPlaced = false;
                 dragStartX = e.clientX;
                 dragStartY = e.clientY;
-                
+
                 updateEquipmentHighlights();
-                
+
                 ui.viewport.setPointerCapture(e.pointerId);
                 if (world.camera?.controls) world.camera.controls.enabled = false;
                 e.stopImmediatePropagation();
@@ -2190,16 +2248,16 @@ export function Viewport3D() {
                 if (!pointerIsDraggingPlaced && (Math.abs(e.clientX - dragStartX) > 3 || Math.abs(e.clientY - dragStartY) > 3)) {
                     pointerIsDraggingPlaced = true;
                 }
-                
+
                 if (pointerIsDraggingPlaced) {
                     const rect = ui.viewport.getBoundingClientRect();
                     const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
                     const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
                     const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
-                    
+
                     const pseudoMouseEvent = new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY });
                     const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(pseudoMouseEvent) : null;
-                    
+
                     if (hit) {
                         const level = useViewerStore.getState().levels.find((l: any) => String(l.expressId) === String(hit.storeyExpressId));
                         const floorElevation = level ? level.elevation : 0;
@@ -2216,12 +2274,12 @@ export function Viewport3D() {
             if (activePlacedDragGroup && ui.viewport.hasPointerCapture(e.pointerId)) {
                 ui.viewport.releasePointerCapture(e.pointerId);
                 if (world.camera?.controls) world.camera.controls.enabled = true;
-                
+
                 if (pointerIsDraggingPlaced) {
                     const equipId = activePlacedDragGroup.userData.equipmentId;
                     const pseudoMouseEvent = new MouseEvent('mouseup', { clientX: e.clientX, clientY: e.clientY });
                     const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(pseudoMouseEvent) : null;
-                    
+
                     if (hit) {
                         const updatedEquipment = workspaceStore.getState().equipment.map((eq: any) => {
                             if (eq.id === equipId) {
@@ -2248,13 +2306,13 @@ export function Viewport3D() {
                         }
                     }
                 }
-                
+
                 activePlacedDragGroup = null;
                 pointerIsDraggingPlaced = false;
                 e.stopImmediatePropagation();
             }
         });
-// Expose Toolbar callbacks to window so the React component can trigger them
+        // Expose Toolbar callbacks to window so the React component can trigger them
         (window as any)._toolbarCallbacks = {
             on3dToggle: () => ui.btn3d.onclick && ui.btn3d.onclick(),
             on2dToggle: () => ui.btn2d.onclick && ui.btn2d.onclick(),
@@ -2277,7 +2335,7 @@ export function Viewport3D() {
                     try {
                         localStorage.removeItem('mep_active_bim_spaces');
                         if (activeProjId) localStorage.removeItem(`mep_active_bim_spaces_${activeProjId}`);
-                    } catch {}
+                    } catch { }
                     await cleanupCurrentSceneAndModel();
                     store().setIsLoaded(false);
                     store().setIsLoading(false);
@@ -2285,7 +2343,7 @@ export function Viewport3D() {
                 }
             }
         };
-        
+
         setIsReady(true);
 
         // Preload saved project IFC file if present for active project
@@ -2362,7 +2420,7 @@ export function Viewport3D() {
         <div className="flex-1 relative w-full h-full">
             <DropOverlay />
             <div id="viewport" ref={viewportRef} className="absolute inset-0 z-0"></div>
-            <Toolbar 
+            <Toolbar
                 on3dToggle={() => getCb().on3dToggle?.()}
                 on2dToggle={() => getCb().on2dToggle?.()}
                 onColorToggle={(mode: string) => getCb().onColorToggle?.(mode)}

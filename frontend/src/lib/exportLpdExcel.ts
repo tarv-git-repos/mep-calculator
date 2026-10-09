@@ -34,7 +34,7 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
       currentUserName = user.name || "System Admin";
       const ws = JSON.parse(localStorage.getItem('workspace-storage') || '{}');
       activeProjectId = ws.state?.activeProjectId || "default";
-    } catch (e) {}
+    } catch (e) { }
   }
 
   const workbook = new ExcelJS.Workbook();
@@ -74,14 +74,14 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
   // Set Column Widths (matching template)
   sheet.getColumn(1).width = 12; // S.NO
   sheet.getColumn(2).width = 37.14; // AREA
-  
+
   let colIdx = 3;
   for (let i = 0; i < maxFixtures; i++) {
     sheet.getColumn(colIdx++).width = 13.43; // LIGHT TYPE
     sheet.getColumn(colIdx++).width = 11.86; // WATTS
     sheet.getColumn(colIdx++).width = 10.14; // NO OF LIGHTS
   }
-  
+
   sheet.getColumn(colIdx++).width = 13.14; // TOTAL WATTAGE
   sheet.getColumn(colIdx++).width = 13.14; // SQ.M
   sheet.getColumn(colIdx++).width = 14.00; // SQ.F (increased from 9.57)
@@ -184,9 +184,15 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
       const row = sheet.getRow(currentRow);
       row.getCell(1).value = globalSrNo++;
       row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
-      
-      row.getCell(2).value = space.name || "Space";
-      row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+      // Since TYPE OF AREA is removed, include it in AREA or just leave as is. User wanted it exact, so we'll just put name. 
+      // If areaType is selected, append it in brackets to preserve data!
+      let spaceStr = space.name;
+      if (space.areaType) {
+        spaceStr += `\n(${space.areaType.replace(/\b\w/g, (l: string) => l.toUpperCase())})`;
+      }
+      row.getCell(2).value = spaceStr;
+      row.getCell(2).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
 
       let cIdx = 3;
       for (let i = 0; i < maxFixtures; i++) {
@@ -196,7 +202,7 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
           row.getCell(cIdx + 1).value = fixture.watts ? parseFloat(String(fixture.watts)) : null;
           row.getCell(cIdx + 2).value = fixture.qty ? parseFloat(String(fixture.qty)) : null;
         }
-        
+
         row.getCell(cIdx).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
         row.getCell(cIdx + 1).alignment = { horizontal: 'center', vertical: 'middle' };
         row.getCell(cIdx + 2).alignment = { horizontal: 'center', vertical: 'middle' };
@@ -231,12 +237,12 @@ export const exportLpdExcel = async (project: LpdProject, unitSystem: "si" | "ip
       row.getCell(cIdx + 3).value = calculatedDensity;
       row.getCell(cIdx + 4).value = baselineLpd;
       row.getCell(cIdx + 5).value = space.remarks || "";
-      
+
       // Formatting
       [cIdx, cIdx + 1, cIdx + 2, cIdx + 3, cIdx + 4, cIdx + 5].forEach(c => {
         row.getCell(c).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       });
-      
+
       row.getCell(cIdx).numFmt = '0.00';
       row.getCell(cIdx + 1).numFmt = '0.00';
       row.getCell(cIdx + 2).numFmt = '0.00';

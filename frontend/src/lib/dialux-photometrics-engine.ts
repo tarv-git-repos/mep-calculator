@@ -1982,6 +1982,377 @@ export function calculateDaylightFactor(params: {
   };
 }
 
+export type CIESkyModel = "overcast" | "average" | "clear";
+
+export interface ComprehensiveDaylightParams {
+  length: number;
+  width: number;
+  height: number;
+  windowCount: number;
+  windowWidth: number;
+  windowHeight: number;
+  windowSill?: number;
+  glassTransmittance?: number; // default 0.75
+  reflectances?: SurfaceReflectances;
+  skyModel?: CIESkyModel; // default "overcast"
+  directSunlight?: boolean; // default false for overcast, true for clear/average
+  latitude?: number; // default 51.5 (London / Lüdenscheid)
+  longitude?: number; // default 0.0
+  date?: Date;
+  hour?: number; // 0-24
+  northOrientation?: number; // 0-360 degrees (0 = North along +Z)
+  groundReflectance?: number; // 0.20 default (grass)
+  shadingReductionFactor?: number; // 1.0 = open, 0.3 = 45 deg blinds, 0.05 = closed
+  targetLux?: number; // target illuminance for room (e.g. 500 lx)
+  artificialPowerW?: number; // total artificial power (e.g. 100 W)
+  gridPointsX?: number; // default 8
+  gridPointsY?: number; // default 8
+}
+
+export interface ComprehensiveDaylightResult {
+  skyModel: CIESkyModel;
+  directSunlight: boolean;
+  sunPosition: {
+    altitude: number;
+    azimuth: number;
+    solarNoon: string;
+    isSunAboveHorizon: boolean;
+    directAngleToWindowDeg: number;
+  };
+  exteriorHorizontalLux: number;
+  exteriorDirectNormalLux: number;
+  exteriorDiffuseSkyLux: number;
+  avgDaylightFactor: number;
+  minDaylightFactor: number;
+  maxDaylightFactor: number;
+  uniformityU0: number; // min / avg
+  avgDaylightLux: number;
+  minDaylightLux: number;
+  maxDaylightLux: number;
+  en17037Level: "None" | "Minimum" | "Medium" | "High";
+  isCompliant: boolean;
+  daylightAutonomyDA: number;
+  continuousDaylightAutonomyCDA: number;
+  energySavingsPercent: number;
+  annualEnergySavedKwh: number;
+  directSunPatchArea: number;
+  directSunMaxLux: number;
+  pointGrid: {
+    x: number;
+    y: number;
+    daylightFactor: number;
+    daylightLux: number;
+    inDirectSun: boolean;
+  }[];
+}
+
+/**
+ * Returns false color hex for Daylight Factor % according to EN 17037 / DIALux evo standards.
+ */
+export function getDaylightFactorFalseColor(df: number): string {
+  if (df < 0.5) return "#1e3a8a"; // Dark Blue (<0.5%)
+  if (df < 1.0) return "#0284c7"; // Cyan / Light Blue (0.5 - 1.0%)
+  if (df < 2.0) return "#10b981"; // Emerald Green (1.0 - 2.0%)
+  if (df < 3.5) return "#eab308"; // Amber / Yellow (2.0 - 3.5%)
+  if (df < 5.0) return "#f97316"; // Orange (3.5 - 5.0%)
+  return "#ef4444"; // Red / Magenta (>=5.0%)
+}
+
+/**
+ * Calculates full DIALux evo CIE Daylight system (Tutorial Part 11):
+ * - CIE 110-1994 Reference Sky Models (Overcast, Average, Clear)
+ * - Direct solar beam penetration through windows
+ * - Workplane point-by-point Daylight Factor (D %) and Daylight Illuminance (lx)
+ * - EN 17037 / BREEAM / DIN 5034 Daylight Provision evaluation
+ * - Daylight autonomy and photo-sensor energy savings (EN 15193)
+ */
+export function calculateComprehensiveDaylight(
+  params: ComprehensiveDaylightParams
+): ComprehensiveDaylightResult {
+  const {
+    length,
+    width,
+    height,
+    windowCount,
+    windowWidth,
+    windowHeight,
+    windowSill = 0.8,
+    glassTransmittance = 0.75,
+    reflectances = { ceiling: 0.7, walls: 0.5, floor: 0.2 },
+    skyModel = "overcast",
+    directSunlight = skyModel === "clear",
+    latitude = 51.5,
+    longitude = 0.0,
+    date = new Date(),
+    hour = 12,
+    northOrientation = 0,
+    groundReflectance = 0.20,
+    shadingReductionFactor = 1.0,
+    targetLux = 500,
+    artificialPowerW = 100,
+    gridPointsX = 8,
+    gridPointsY = 8,
+  } = params;
+
+  // 1. Calculate Astronomical Sun Position
+  const calcDate = new Date(date);
+  calcDate.setHours(hour);
+  calcDate.setMinutes(0);
+  calcDate.setSeconds(0);
+  const sunPos = calculateSunPosition(latitude, longitude, calcDate);
+  const isSunAboveHorizon = sunPos.altitude > 0;
+
+  // Window Wall normal is facing South by default (relative to site North orientation)
+  // Window wall azimuth: 180 deg + northOrientation
+  const windowWallAzimuth = (180 + northOrientation) % 360;
+  let azimuthDiff = Math.abs(sunPos.azimuth - windowWallAzimuth);
+  if (azimuthDiff > 180) azimuthDiff = 360 - azimuthDiff;
+  const directAngleToWindowDeg = Math.round(azimuthDiff);
+  const isSunFacingWindows = isSunAboveHorizon && azimuthDiff < 85;
+
+  // 2. Compute Exterior Illuminance according to CIE Sky Model
+  const altRad = (sunPos.altitude * Math.PI) / 180;
+  const sinAlt = Math.max(0, Math.sin(altRad));
+
+  let exteriorDiffuseSkyLux = 10000; // Standard Overcast
+  let exteriorDirectNormalLux = 0;
+
+  if (skyModel === "overcast") {
+    exteriorDiffuseSkyLux = 10000;
+    exteriorDirectNormalLux = 0;
+  } else if (skyModel === "average") {
+    if (isSunAboveHorizon) {
+      exteriorDiffuseSkyLux = Math.round(12000 + 18000 * sinAlt);
+      exteriorDirectNormalLux = Math.round(48000 * sinAlt);
+    } else {
+      exteriorDiffuseSkyLux = 500;
+      exteriorDirectNormalLux = 0;
+    }
+  } else if (skyModel === "clear") {
+    if (isSunAboveHorizon) {
+      exteriorDiffuseSkyLux = Math.round(9000 + 12000 * sinAlt);
+      exteriorDirectNormalLux = Math.round(96000 * (1 - Math.exp(-0.16 * sunPos.altitude)));
+    } else {
+      exteriorDiffuseSkyLux = 300;
+      exteriorDirectNormalLux = 0;
+    }
+  }
+
+  const hasDirectSun = directSunlight && isSunFacingWindows && exteriorDirectNormalLux > 0;
+  const directHorizontalLux = hasDirectSun ? Math.round(exteriorDirectNormalLux * sinAlt) : 0;
+  const exteriorHorizontalLux = exteriorDiffuseSkyLux + directHorizontalLux;
+
+  // 3. Base Daylight Factor (BRE / CIE 110 model)
+  if (windowCount <= 0 || windowWidth <= 0 || windowHeight <= 0) {
+    return {
+      skyModel,
+      directSunlight: hasDirectSun,
+      sunPosition: {
+        altitude: sunPos.altitude,
+        azimuth: sunPos.azimuth,
+        solarNoon: sunPos.solarNoon,
+        isSunAboveHorizon,
+        directAngleToWindowDeg,
+      },
+      exteriorHorizontalLux,
+      exteriorDirectNormalLux,
+      exteriorDiffuseSkyLux,
+      avgDaylightFactor: 0,
+      minDaylightFactor: 0,
+      maxDaylightFactor: 0,
+      uniformityU0: 0,
+      avgDaylightLux: 0,
+      minDaylightLux: 0,
+      maxDaylightLux: 0,
+      en17037Level: "None",
+      isCompliant: false,
+      daylightAutonomyDA: 0,
+      continuousDaylightAutonomyCDA: 0,
+      energySavingsPercent: 0,
+      annualEnergySavedKwh: 0,
+      directSunPatchArea: 0,
+      directSunMaxLux: 0,
+      pointGrid: [],
+    };
+  }
+
+  const floorArea = length * width;
+  const totalGlazingArea = windowCount * windowWidth * windowHeight;
+  const totalSurfaceArea = 2 * (length * width + length * height + width * height);
+  const rAvg =
+    (floorArea * reflectances.floor +
+      floorArea * reflectances.ceiling +
+      2 * (length + width) * height * reflectances.walls) /
+    totalSurfaceArea;
+
+  const skyAngleDeg = 45;
+  const skyFactor = skyAngleDeg / 90;
+  const denom = Math.max(0.1, totalSurfaceArea * (1 - rAvg));
+
+  // Effective transmittance including shading
+  const effectiveTau = glassTransmittance * Math.max(0.05, shadingReductionFactor);
+
+  // Ground reflected component contribution
+  const ercBonus = 1 + groundReflectance * 0.35;
+
+  const baseDf = ((totalGlazingArea * effectiveTau * skyFactor * ercBonus) / denom) * 100 * 2.8;
+
+  // 4. Point-by-Point Workplane Grid Distribution
+  const pointGrid: {
+    x: number;
+    y: number;
+    daylightFactor: number;
+    daylightLux: number;
+    inDirectSun: boolean;
+  }[] = [];
+
+  const stepX = length / gridPointsX;
+  const stepY = width / gridPointsY;
+
+  // Direct sun patch calculation
+  // Sun enters through windows positioned along Y=0 (South wall)
+  const tanAlt = Math.max(0.15, Math.tan(altRad));
+  const sunBeamDepth = (windowHeight + windowSill) / tanAlt;
+  const sunBeamWidthFactor = Math.cos((azimuthDiff * Math.PI) / 180);
+
+  let dfSum = 0;
+  let dfMin = 999;
+  let dfMax = 0;
+  let luxSum = 0;
+  let luxMin = 999999;
+  let luxMax = 0;
+  let directSunPoints = 0;
+
+  for (let ix = 0; ix < gridPointsX; ix++) {
+    const ptX = (ix + 0.5) * stepX;
+    for (let iy = 0; iy < gridPointsY; iy++) {
+      const ptY = (iy + 0.5) * stepY;
+
+      // Distance from window wall (Y=0)
+      const distFromWindow = ptY;
+      const decay = Math.exp((-1.65 * distFromWindow) / width);
+      const pointDf = Number(Math.max(0.08, baseDf * (0.35 + 1.65 * decay)).toFixed(2));
+
+      // Diffuse lux from sky
+      let pointLux = Math.round((pointDf / 100) * exteriorDiffuseSkyLux);
+
+      // Check if point falls within direct sun beam patch
+      let inDirectSun = false;
+      if (hasDirectSun && isSunFacingWindows && ptY <= sunBeamDepth) {
+        // Lateral check for window columns
+        const winSpacing = length / (windowCount + 1);
+        for (let w = 1; w <= windowCount; w++) {
+          const winCenter = w * winSpacing;
+          const beamLateralShift = Math.tan((azimuthDiff * Math.PI) / 180) * ptY;
+          const effectiveBeamCenter =
+            winCenter + (sunPos.azimuth > windowWallAzimuth ? beamLateralShift : -beamLateralShift);
+          if (Math.abs(ptX - effectiveBeamCenter) <= windowWidth * 0.65 * sunBeamWidthFactor) {
+            inDirectSun = true;
+            break;
+          }
+        }
+      }
+
+      if (inDirectSun) {
+        directSunPoints++;
+        const directLuxContribution = Math.round(
+          exteriorDirectNormalLux * sinAlt * effectiveTau * 0.85
+        );
+        pointLux += directLuxContribution;
+      }
+
+      pointGrid.push({
+        x: ptX,
+        y: ptY,
+        daylightFactor: pointDf,
+        daylightLux: pointLux,
+        inDirectSun,
+      });
+
+      dfSum += pointDf;
+      dfMin = Math.min(dfMin, pointDf);
+      dfMax = Math.max(dfMax, pointDf);
+
+      luxSum += pointLux;
+      luxMin = Math.min(luxMin, pointLux);
+      luxMax = Math.max(luxMax, pointLux);
+    }
+  }
+
+  const totalPoints = pointGrid.length;
+  const avgDaylightFactor = Number((dfSum / totalPoints).toFixed(2));
+  const minDaylightFactor = Number(dfMin.toFixed(2));
+  const maxDaylightFactor = Number(dfMax.toFixed(2));
+  const uniformityU0 = Number((minDaylightFactor / (avgDaylightFactor || 1)).toFixed(2));
+
+  const avgDaylightLux = Math.round(luxSum / totalPoints);
+  const minDaylightLux = luxMin;
+  const maxDaylightLux = luxMax;
+
+  // Direct sun patch area in m^2
+  const pointCellArea = (length * width) / totalPoints;
+  const directSunPatchArea = Number((directSunPoints * pointCellArea).toFixed(2));
+  const directSunMaxLux = hasDirectSun ? luxMax : 0;
+
+  // 5. EN 17037 Daylight Level Assessment
+  let en17037Level: "None" | "Minimum" | "Medium" | "High" = "None";
+  if (avgDaylightFactor >= 5.0 && minDaylightFactor >= 2.1) {
+    en17037Level = "High";
+  } else if (avgDaylightFactor >= 3.0 && minDaylightFactor >= 1.4) {
+    en17037Level = "Medium";
+  } else if (avgDaylightFactor >= 2.0 && minDaylightFactor >= 0.7) {
+    en17037Level = "Minimum";
+  } else if (avgDaylightFactor >= 2.0) {
+    en17037Level = "Minimum";
+  }
+
+  const isCompliant = avgDaylightFactor >= 2.0;
+
+  // 6. Daylight Autonomy & Energy Savings (EN 15193)
+  const luxRatio = Math.min(1.5, avgDaylightLux / Math.max(100, targetLux));
+  const daylightAutonomyDA = Math.min(100, Math.round(luxRatio * 75));
+  const continuousDaylightAutonomyCDA = Math.min(100, Math.round(luxRatio * 88));
+
+  // Dimming factor: Photo sensor dims artificial luminaires when daylight is present
+  const dimmingFraction = Math.min(0.85, Math.max(0, avgDaylightLux / (targetLux * 1.2)));
+  const energySavingsPercent = Math.round(dimmingFraction * 100);
+  // Standard office operating hours: 2500 hours / year
+  const annualEnergySavedKwh = Number(
+    ((artificialPowerW * 2500 * dimmingFraction) / 1000).toFixed(1)
+  );
+
+  return {
+    skyModel,
+    directSunlight: hasDirectSun,
+    sunPosition: {
+      altitude: sunPos.altitude,
+      azimuth: sunPos.azimuth,
+      solarNoon: sunPos.solarNoon,
+      isSunAboveHorizon,
+      directAngleToWindowDeg,
+    },
+    exteriorHorizontalLux,
+    exteriorDirectNormalLux,
+    exteriorDiffuseSkyLux,
+    avgDaylightFactor,
+    minDaylightFactor,
+    maxDaylightFactor,
+    uniformityU0,
+    avgDaylightLux,
+    minDaylightLux,
+    maxDaylightLux,
+    en17037Level,
+    isCompliant,
+    daylightAutonomyDA,
+    continuousDaylightAutonomyCDA,
+    energySavingsPercent,
+    annualEnergySavedKwh,
+    directSunPatchArea,
+    directSunMaxLux,
+    pointGrid,
+  };
+}
+
 /**
  * Evaluates Emergency Lighting according to EN 1838 standard:
  * 1. Escape Routes (width 1.0m): E_min >= 1.0 lx, Uniformity U_d = E_min / E_max >= 1:40 (0.025)

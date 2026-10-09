@@ -91,11 +91,11 @@ export const exportFM200PDF = async (
     const primaryFill: [number, number, number] = [217, 217, 217]; // Uniform gray #D9D9D9 (Matching Ventilation)
     const blueFill: [number, number, number] = [218, 233, 248];    // Soft Blue highlight #DAE9F8 (Matching Ventilation)
 
-    // 1. Header Title matching Ventilation standard
+    // 1. Header Title matching Preliminary/Heating Load standard
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(0, 0, 0);
-    doc.text("FM-200 Clean Agent Fire Suppression Sizing Report", 14, 14);
+    doc.text("FM-200 Clean Agent Fire Suppression Calculation", 14, 14);
 
     // 2. Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
     doc.setFontSize(9);
@@ -332,7 +332,7 @@ export const exportFM200PDF = async (
       currentY = 14;
     }
 
-    // 6. Table 4: Professional Review & Sign-Off Block
+    // 6. Table 4: Professional Review & Sign-Off Block (Exact Preliminary #FFE6CC Header)
     const sigDetails = getSignatureBlockDetails(
       activeProj?.id || "default",
       "/plumbing-fm200",
@@ -340,58 +340,56 @@ export const exportFM200PDF = async (
       meta.reviewState
     );
 
-    const sigTableRows = [
-      [
-        { content: "Approval Role", styles: { fontStyle: "bold", halign: "left", fillColor: primaryFill, textColor: [0, 0, 0] } },
-        { content: "Engineer Name", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } },
-        { content: "Status / Role Title", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } },
-        { content: "Signature / Date", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } }
-      ],
-      [
-        { content: "Originator / Prepared By", styles: { fontStyle: "bold", halign: "left" } },
-        { content: sigDetails.originatedName, styles: { halign: "center" } },
-        { content: "Fire Protection Design Engineer", styles: { halign: "center" } },
-        { content: sigDetails.originatedDate || today, styles: { halign: "center" } }
-      ],
-      [
-        { content: "Reviewer / Checked By", styles: { fontStyle: "bold", halign: "left" } },
-        { content: sigDetails.reviewerName || "Pending Review", styles: { halign: "center" } },
-        { content: "Senior Fire Protection Lead", styles: { halign: "center" } },
-        { content: sigDetails.reviewerDate || "—", styles: { halign: "center" } }
-      ],
-      [
-        { content: "Approver / Verified By", styles: { fontStyle: "bold", halign: "left" } },
-        { content: sigDetails.approverName || "Pending Approval", styles: { halign: "center" } },
-        { content: "Principal / MEP Director", styles: { halign: "center" } },
-        { content: sigDetails.approverDate || "—", styles: { halign: "center" } }
-      ]
-    ];
-
     callAutoTable(doc, {
       startY: currentY + 5,
       margin: { left: 14, right: 14 },
       theme: "grid",
-      body: sigTableRows,
-      pageBreak: "avoid",
       styles: {
-        fontSize: 7.2,
+        fontSize: 8,
+        halign: "center",
         valign: "middle",
         lineColor: [100, 100, 100],
         lineWidth: 0.1,
-        cellPadding: { top: 2.2, bottom: 2.2, left: 2.0, right: 2.0 },
-        minCellHeight: 6.0
+        cellPadding: { top: 2.2, bottom: 2.2, left: 1, right: 1 },
       },
+      headStyles: {
+        fillColor: [255, 230, 204],
+        textColor: 0,
+        fontStyle: "bold",
+      },
+      head: [
+        [
+          { content: "" },
+          { content: "Originator" },
+          { content: "Reviewer" },
+          { content: "Approver" },
+        ],
+      ],
+      body: [
+        [
+          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+          { content: sigDetails.originatedName || currentUserName || "Design Engineer", styles: { halign: "center" } },
+          { content: sigDetails.reviewerName || "-", styles: { halign: "center" } },
+          { content: sigDetails.approverName || "-", styles: { halign: "center" } },
+        ],
+        [
+          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+          { content: sigDetails.originatedDate || today, styles: { halign: "center" } },
+          { content: sigDetails.reviewerDate || "-", styles: { halign: "center" } },
+          { content: sigDetails.approverDate || "-", styles: { halign: "center" } },
+        ],
+      ],
       columnStyles: {
-        0: { cellWidth: 46, halign: "left" },
-        1: { cellWidth: 46, halign: "center" },
-        2: { cellWidth: 46, halign: "center" },
-        3: { cellWidth: 44, halign: "center" }
-      }
+        0: { cellWidth: 32 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 50 },
+        3: { cellWidth: 50 },
+      },
     });
 
     const pdfBuffer = doc.output("arraybuffer");
-    await downloadFile(new Uint8Array(pdfBuffer), `FM200_Sizing_Report_${projectNo}.pdf`, "PDF Document", ["pdf"]);
-    toast.success("PDF exported successfully!");
+    await downloadFile(new Uint8Array(pdfBuffer), `FM200_Suppression_Calculation_${projectNo}.pdf`, "PDF Document", ["pdf"]);
+    toast.success("FM-200 PDF calculation exported successfully!");
 
   } catch (err: any) {
     console.error("PDF export error:", err);
