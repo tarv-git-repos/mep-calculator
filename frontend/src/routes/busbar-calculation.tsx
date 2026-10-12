@@ -689,17 +689,18 @@ function BusbarCalculationPage() {
       toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
       return;
     }
-    if (panels.length === 1) {
-      if (await confirm("Are you sure you want to clear the only panel?")) {
-        pushToUndo(panels);
-        setPanels([{ ...panels[0], sections: [] }]);
-      }
-      return;
+    const targetPanel = panels.find((p) => p.id === id);
+    const hasData = targetPanel && targetPanel.sections.some((s) => s.rows && s.rows.length > 0);
+
+    if (hasData) {
+      const ok = await confirm(`Are you sure you want to remove ${targetPanel.name || "this panel"} and all its busbar rows?`);
+      if (!ok) return;
     }
-    if (await confirm("Are you sure you want to remove this LV Panel?")) {
-      pushToUndo(panels);
-      setPanels(panels.filter(p => p.id !== id));
-    }
+
+    pushToUndo(panels);
+    const updated = panels.filter((p) => p.id !== id);
+    setPanels(updated);
+    toast.success(`Removed ${targetPanel?.name || "Panel"}`);
   };
 
   const updatePanel = (id: string, field: keyof LVPanel, val: any) => {
@@ -1845,6 +1846,34 @@ function BusbarCalculationPage() {
         </div>
 
         <div className="flex-1 overflow-auto bg-background p-4 md:p-6 gap-4 flex flex-col min-h-0">
+          {calculatedPanels.length === 0 && (
+            <div className="flex flex-col items-center justify-center p-12 text-center border-2 border-dashed border-border rounded-2xl bg-surface-1/40 my-auto">
+              <div className="p-3 rounded-full bg-primary/10 text-primary mb-3">
+                <Plus className="size-6" />
+              </div>
+              <h3 className="text-sm font-bold text-foreground">No LV Panels</h3>
+              <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                All panels have been removed. Click "+ Add LV Panel" or "Sync 3D & Load Summary" to create one.
+              </p>
+              <div className="flex items-center gap-2 mt-4">
+                <button
+                  disabled={isApproved}
+                  onClick={addPanel}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-full bg-primary text-white hover:bg-primary/90 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                >
+                  <Plus className="size-3.5" /> Add LV Panel
+                </button>
+                <button
+                  disabled={isApproved}
+                  onClick={handleSync3DAndLoadSummary}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-full border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <Sparkles className="size-3.5" /> Sync 3D & Load Summary
+                </button>
+              </div>
+            </div>
+          )}
+
           {calculatedPanels.map((panel, pIdx) => {
             return (
               <div key={panel.id} className="flex flex-col bg-card border border-border rounded-2xl shadow-xs overflow-hidden shrink-0">
