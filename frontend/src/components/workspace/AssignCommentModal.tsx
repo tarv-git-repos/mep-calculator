@@ -6,6 +6,7 @@ import { useWorkspace } from '@/lib/workspace-store';
 import { TaskComment } from '@/lib/ventilation-calc';
 import { toast } from 'sonner';
 import { dispatchGlobalCommentNotification } from '@/utils/notificationHelpers';
+import { getMergedItemComments } from '@/utils/commentHelpers';
 
 interface AssignCommentModalProps {
   isOpen?: boolean;
@@ -50,22 +51,35 @@ export function AssignCommentModal({
   initialComments = [],
   comments = []
 }: AssignCommentModalProps) {
+  const { userData, profile } = useAuth();
+  const { project, isReadOnly } = useWorkspace();
+  const isEffectiveReadOnly = isReadOnly || (typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly));
   const isModalOpen = Boolean(isOpen ?? open);
   const effectiveTargetId = targetId || spaceId || (typeof targetItem === 'object' ? targetItem?.id : '') || '';
   const effectiveTargetName = targetName || spaceName || targetLabel || (typeof targetItem === 'object' ? targetItem?.name || targetItem?.label : '') || 'Parameter';
   const effectiveTargetType = targetType || category || 'space';
   const validExistingComments = useMemo(() => {
-    const raw = (existingComments && existingComments.length > 0)
+    let raw = (existingComments && existingComments.length > 0)
       ? existingComments
       : (initialComments && initialComments.length > 0)
       ? initialComments
-      : (comments || []);
+      : (comments && comments.length > 0)
+      ? comments
+      : [];
+
+    if ((!raw || raw.length === 0) && (effectiveTargetId || effectiveTargetName)) {
+      raw = getMergedItemComments(
+        effectiveTargetId,
+        effectiveTargetName,
+        undefined,
+        calculatorPath || (typeof window !== "undefined" ? window.location.pathname : undefined),
+        project?.id
+      );
+    }
+
     if (!Array.isArray(raw)) return [];
-    return raw.filter((c: any) => c && typeof c === 'object' && Boolean(c.text && String(c.text).trim().length > 0));
-  }, [existingComments, initialComments, comments]);
-  const { userData, profile } = useAuth();
-  const { project, isReadOnly } = useWorkspace();
-  const isEffectiveReadOnly = isReadOnly || (typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly));
+    return raw.filter((c: any) => c && typeof c === 'object' && Boolean((c.text || c.comment) && String(c.text || c.comment).trim().length > 0));
+  }, [existingComments, initialComments, comments, effectiveTargetId, effectiveTargetName, calculatorPath, project?.id]);
   
   const [commentText, setCommentText] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -74,6 +88,7 @@ export function AssignCommentModal({
   const [availableUsers, setAvailableUsers] = useState<any[]>([]);
   const [availableTeams, setAvailableTeams] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!isModalOpen) {
@@ -206,9 +221,9 @@ export function AssignCommentModal({
     };
 
     fetchAssignees();
-  }, [isOpen, project?.id, isEffectiveReadOnly]);
+  }, [isModalOpen, project?.id, isEffectiveReadOnly]);
 
-  if (!isOpen) return null;
+  if (!isModalOpen) return null;
 
   const handleSave = async () => {
     if (isEffectiveReadOnly) {
@@ -217,103 +232,108 @@ export function AssignCommentModal({
       return;
     }
 
-    if (!commentText.trim() && selectedUsers.length === 0 && selectedTeams.length === 0) {
-      toast.error("Please enter a comment description or select an assignee.");
+    if (!commentText.trim()) {
+      toast.error("Please enter a comment description.");
       return;
     }
 
-    const finalDescription = commentText.trim() || "Assigned task for review";
-
-    const allAssignedUserIds = new Set<string>();
-    const assignedDisplayNames: string[] = [];
-
-    selectedUsers.forEach(uKey => {
-      if (!uKey) return;
-      const matchU = availableUsers.find(u => 
-        String(u.id) === uKey || String(u.email) === uKey || String(u.name) === uKey || String(u.rawName) === uKey
-      );
-      if (matchU) {
-        // Store canonical user ID/email
-        if (matchU.id) allAssignedUserIds.add(String(matchU.id).trim());
-        else if (matchU.email) allAssignedUserIds.add(String(matchU.email).trim());
-        else allAssignedUserIds.add(String(uKey).trim());
-
-        assignedDisplayNames.push(matchU.name || matchU.email || uKey);
-      } else {
-        allAssignedUserIds.add(String(uKey).trim());
-        assignedDisplayNames.push(String(uKey).trim());
-      }
-    });
-
-    selectedTeams.forEach(tKey => {
-      if (!tKey) return;
-      const matchT = availableTeams.find(t => 
-        String(t.id) === tKey || String(t.name) === tKey
-      );
-      if (matchT && Array.isArray(matchT.team_members)) {
-        matchT.team_members.forEach((m: any) => {
-          const mId = String(m.id || m.user_id || m.email || m).trim();
-          if (mId) allAssignedUserIds.add(mId);
-        });
-        assignedDisplayNames.push(`Team: ${matchT.name}`);
-      } else {
-        allAssignedUserIds.add(String(tKey).trim());
-      }
-    });
-
-    const newComment: TaskComment = {
-      id: `comment_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      text: finalDescription,
-      assignedUsers: Array.from(allAssignedUserIds),
-      assignedTeams: selectedTeams,
-      authorId: profile?.id || userData?.id || 'unknown',
-      authorName: userData?.name || profile?.name || 'Design Engineer',
-      timestamp: new Date().toISOString(),
-      targetId: effectiveTargetId,
-      targetName: effectiveTargetName,
-      targetType: targetType || 'parameter',
-      spaceId: effectiveTargetId,
-      spaceName: effectiveTargetName,
-      itemId: effectiveTargetId,
-      calculatorTitle: calculatorTitle || (typeof document !== 'undefined' ? document.title.split('—')[0].trim() : 'MEP Calculator'),
-      calculatorPath: calculatorPath || (typeof window !== 'undefined' ? window.location.pathname : '/'),
-      projectId: project?.id || 'default',
-    };
-
-    const saveFn = onSave || onSaveComment || onCommentAdded;
+    setIsSubmitting(true);
     try {
-      if (saveFn) {
-        await saveFn(newComment);
-      }
-      const uniqueDisplay = Array.from(new Set(assignedDisplayNames));
-      if (uniqueDisplay.length > 0) {
-        toast.success(`Comment & task assigned to ${uniqueDisplay.join(', ')}`);
-      } else {
-        toast.success("Comment sent to project coordination");
-      }
-    } catch(e) {
-      console.error(e);
-      toast.error("Failed to send comment");
-    }
+      const finalDescription = commentText.trim();
 
-    try {
-      dispatchGlobalCommentNotification({
-        ...newComment,
+      const allAssignedUserIds = new Set<string>();
+      const assignedDisplayNames: string[] = [];
+
+      selectedUsers.forEach(uKey => {
+        if (!uKey) return;
+        const matchU = availableUsers.find(u => 
+          String(u.id) === uKey || String(u.email) === uKey || String(u.name) === uKey || String(u.rawName) === uKey
+        );
+        if (matchU) {
+          // Store canonical user ID/email
+          if (matchU.id) allAssignedUserIds.add(String(matchU.id).trim());
+          else if (matchU.email) allAssignedUserIds.add(String(matchU.email).trim());
+          else allAssignedUserIds.add(String(uKey).trim());
+
+          assignedDisplayNames.push(matchU.name || matchU.email || uKey);
+        } else {
+          allAssignedUserIds.add(String(uKey).trim());
+          assignedDisplayNames.push(String(uKey).trim());
+        }
+      });
+
+      selectedTeams.forEach(tKey => {
+        if (!tKey) return;
+        const matchT = availableTeams.find(t => 
+          String(t.id) === tKey || String(t.name) === tKey
+        );
+        if (matchT && Array.isArray(matchT.team_members)) {
+          matchT.team_members.forEach((m: any) => {
+            const mId = String(m.id || m.user_id || m.email || m).trim();
+            if (mId) allAssignedUserIds.add(mId);
+          });
+          assignedDisplayNames.push(`Team: ${matchT.name}`);
+        } else {
+          allAssignedUserIds.add(String(tKey).trim());
+        }
+      });
+
+      const newComment: TaskComment = {
+        id: `comment_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        text: finalDescription,
+        assignedUsers: Array.from(allAssignedUserIds),
+        assignedTeams: selectedTeams,
+        authorId: profile?.id || userData?.id || 'unknown',
+        authorName: userData?.name || profile?.name || 'Design Engineer',
+        timestamp: new Date().toISOString(),
         targetId: effectiveTargetId,
         targetName: effectiveTargetName,
-        targetType: targetType || 'space',
+        targetType: targetType || 'parameter',
+        spaceId: effectiveTargetId,
+        spaceName: effectiveTargetName,
+        itemId: effectiveTargetId,
         calculatorTitle: calculatorTitle || (typeof document !== 'undefined' ? document.title.split('—')[0].trim() : 'MEP Calculator'),
-        calculatorPath: calculatorPath || (typeof window !== 'undefined' ? window.location.pathname : '/')
-      }, {
-        project,
-        currentUserName: userData?.name || profile?.name || 'Design Engineer',
-        currentUserId: profile?.id || userData?.id || 'unknown'
-      });
-    } catch(e) {
-      console.error(e);
-    }
+        calculatorPath: calculatorPath || (typeof window !== 'undefined' ? window.location.pathname : '/'),
+        projectId: project?.id || 'default',
+      };
 
-    onClose();
+      const saveFn = onSave || onSaveComment || onCommentAdded;
+      try {
+        if (saveFn) {
+          await saveFn(newComment);
+        }
+        const uniqueDisplay = Array.from(new Set(assignedDisplayNames));
+        if (uniqueDisplay.length > 0) {
+          toast.success(`Comment & task assigned to ${uniqueDisplay.join(', ')}`);
+        } else {
+          toast.success("Comment sent to project coordination");
+        }
+      } catch(e) {
+        console.error(e);
+        toast.error("Failed to send comment");
+      }
+
+      try {
+        dispatchGlobalCommentNotification({
+          ...newComment,
+          targetId: effectiveTargetId,
+          targetName: effectiveTargetName,
+          targetType: targetType || 'space',
+          calculatorTitle: calculatorTitle || (typeof document !== 'undefined' ? document.title.split('—')[0].trim() : 'MEP Calculator'),
+          calculatorPath: calculatorPath || (typeof window !== 'undefined' ? window.location.pathname : '/')
+        }, {
+          project,
+          currentUserName: userData?.name || profile?.name || 'Design Engineer',
+          currentUserId: profile?.id || userData?.id || 'unknown'
+        });
+      } catch(e) {
+        console.error(e);
+      }
+
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const formatAssignedUsers = (assignedList: string[]) => {
@@ -487,6 +507,12 @@ export function AssignCommentModal({
               autoFocus
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && commentText.trim() && !isSubmitting) {
+                  e.preventDefault();
+                  handleSave();
+                }
+              }}
               placeholder="Describe the changes or task required..."
               className="w-full h-28 px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all custom-scrollbar resize-none"
             />
@@ -503,11 +529,12 @@ export function AssignCommentModal({
             Cancel
           </button>
           <button 
+            type="button"
             onClick={handleSave}
-            disabled={!commentText.trim() && selectedUsers.length === 0 && selectedTeams.length === 0}
+            disabled={!commentText.trim() || isSubmitting}
             className="px-5 py-2 rounded-lg text-sm font-bold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
           >
-            Send Comment
+            {isSubmitting ? "Sending..." : "Send Comment"}
           </button>
         </div>
         

@@ -4,10 +4,10 @@ import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { cToF, fToC, lpsToCfm, cfmToLps, lpsToGpm } from "@/utils/conversions";
-import { 
-  calculateCondensateRows, 
-  calculateCondensateTotals, 
-  getCoilMissingReasons, 
+import {
+  calculateCondensateRows,
+  calculateCondensateTotals,
+  getCoilMissingReasons,
   checkIfCoilMissingData,
   wFromWB,
   satP
@@ -23,6 +23,7 @@ import {
   Save,
   Edit3,
   Copy,
+  CopyPlus,
   MessageSquare,
   Undo,
   Redo,
@@ -191,11 +192,10 @@ function InlineInput({
       onDoubleClick={(e) => {
         e.stopPropagation();
       }}
-      className={`bg-transparent ${!hasCustomWidth ? "w-full" : ""} border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${
-        isEffectiveDisabled
+      className={`bg-transparent ${!hasCustomWidth ? "w-full" : ""} border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${isEffectiveDisabled
           ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent"
           : "hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 cursor-text"
-      } ${className}`}
+        } ${className}`}
     />
   );
 }
@@ -216,7 +216,7 @@ function CondensateDrainCalcPage() {
   const isLocked = useCalculationLock("/condensate-drain-calc", effectiveProjectId);
   const calcReviewState = useCalculationReviewState("/condensate-drain-calc", effectiveProjectId);
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
-  
+
   const [rows, setRows] = useState<CoilRow[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -228,7 +228,7 @@ function CondensateDrainCalcPage() {
             return data.rows;
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
     return DEFAULT_COILS;
   });
@@ -255,11 +255,11 @@ function CondensateDrainCalcPage() {
     if (filterFlaggedOnly) count++;
     return count;
   }, [filterFlaggedOnly]);
-  
+
   // Comment & Task Modal State matching Preliminary Cooling Load
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<CoilRow | null>(null);
-  
+
   // Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
@@ -431,14 +431,14 @@ function CondensateDrainCalcPage() {
       if (lsCache && lsCache[pKey]) {
         try {
           restoredData = typeof lsCache[pKey] === "string" ? JSON.parse(lsCache[pKey]) : lsCache[pKey];
-        } catch (err) {}
+        } catch (err) { }
       }
       if (!restoredData) {
         const stored = localStorage.getItem(pKey);
         if (stored) {
           try {
             restoredData = JSON.parse(stored);
-          } catch (err) {}
+          } catch (err) { }
         }
       }
       if (restoredData) {
@@ -486,13 +486,13 @@ function CondensateDrainCalcPage() {
     dirtyStore.set(true);
 
     if (shouldConvert) {
-      const convT = (t: any) => {
+      const convT = (t: any): number | "" => {
         const n = Number(t);
         if (isNaN(n) || t === "" || t === undefined || t === null) return "";
         const converted = targetUnit === "ip" ? cToF(n) : fToC(n);
         return isNaN(converted) ? "" : Number(converted.toFixed(1));
       };
-      const convF = (f: any) => {
+      const convF = (f: any): number | "" => {
         const n = Number(f);
         if (isNaN(n) || f === "" || f === undefined || f === null) return "";
         const converted = targetUnit === "ip" ? lpsToCfm(n) : cfmToLps(n);
@@ -614,20 +614,7 @@ function CondensateDrainCalcPage() {
       editable: true,
       render: (r: any) => (
         <div className="flex items-center gap-1.5 w-full">
-          {Array.isArray(r.comments) && r.comments.length > 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleOpenComment(r);
-              }}
-              title={`${r.comments.length} comment(s)/task(s) assigned to coil "${r.name}"`}
-              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-            >
-              <MessageSquare className="size-3.5 fill-blue-500/20" />
-              <span className="text-[10px] font-bold">{r.comments.length}</span>
-            </button>
-          )}
+          
           <InlineInput
             type="text"
             value={r.name}
@@ -776,11 +763,10 @@ function CondensateDrainCalcPage() {
             className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
           >
             <Flag
-              className={`size-3.5 transition-all duration-200 ${
-                isFlagged
+              className={`size-3.5 transition-all duration-200 ${isFlagged
                   ? "fill-red-500 text-red-500 scale-110"
                   : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
-              }`}
+                }`}
             />
           </button>
         );
@@ -793,12 +779,12 @@ function CondensateDrainCalcPage() {
     const selectedIds = isMulti ? Array.from(selected) : [r.id];
     const targetsCount = selectedIds.length;
     const targetCalcRow = calculatedRows.find(c => c.id === r.id);
-    const isFlagged = targetCalcRow 
-      ? (Boolean(targetCalcRow.flagged) || Boolean(targetCalcRow.isAutoFlagged) || Boolean(targetCalcRow.isEffectivelyFlagged)) 
+    const isFlagged = targetCalcRow
+      ? (Boolean(targetCalcRow.flagged) || Boolean(targetCalcRow.isAutoFlagged) || Boolean(targetCalcRow.isEffectivelyFlagged))
       : Boolean(r.flagged);
 
     return (
-      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         {/* Add Comment */}
         <ContextMenuItem
           onClick={() => handleOpenComment(r)}
@@ -806,6 +792,22 @@ function CondensateDrainCalcPage() {
         >
           <MessageSquare className="size-3.5" />
           <span>Add Comment</span>
+        </ContextMenuItem>
+
+        {/* Flag */}
+        <ContextMenuItem
+          onClick={() => {
+            if (isLocked) {
+              toast.info("Calculation is approved and locked. Modifications are locked.", { id: "readonly-notice" });
+              return;
+            }
+            handleToggleFlag(selectedIds);
+          }}
+          disabled={isLocked}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
+        >
+          <Flag className={`size-3.5 ${isFlagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+          <span>{isMulti ? `Toggle Flag (${targetsCount} selected)` : isFlagged ? "Unflag Coil" : "Flag Coil"}</span>
         </ContextMenuItem>
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -855,10 +857,10 @@ function CondensateDrainCalcPage() {
           onClick={() => handleRowDoubleClick(r)}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
         >
-          <Edit3 className="size-3.5 text-muted-foreground" />
-          <span>{isMulti ? `Bulk Edit (${targetsCount} coils)` : "Edit Coil"}</span>
+          <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="whitespace-nowrap">{isMulti ? `Bulk Edit (${targetsCount} coils)` : "Edit Coil"}</span>
           {!isMulti && (
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
           )}
         </ContextMenuItem>
 
@@ -874,25 +876,9 @@ function CondensateDrainCalcPage() {
           disabled={isLocked}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
         >
-          <Copy className="size-3.5 text-muted-foreground" />
+          <CopyPlus className="size-3.5 text-muted-foreground" />
           <span>{isMulti ? "Duplicate Selected" : "Duplicate Coil"}</span>
           <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
-        </ContextMenuItem>
-
-        {/* Flag */}
-        <ContextMenuItem
-          onClick={() => {
-            if (isLocked) {
-              toast.info("Calculation is approved and locked. Modifications are locked.", { id: "readonly-notice" });
-              return;
-            }
-            handleToggleFlag(selectedIds);
-          }}
-          disabled={isLocked}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
-        >
-          <Flag className={`size-3.5 ${isFlagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
-          <span>{isMulti ? `Toggle Flag (${targetsCount} selected)` : isFlagged ? "Unflag Coil" : "Flag Coil"}</span>
         </ContextMenuItem>
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -911,7 +897,7 @@ function CondensateDrainCalcPage() {
         >
           <Trash2 className="size-3.5" />
           <span>Delete</span>
-          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+          <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
     );
@@ -954,11 +940,11 @@ function CondensateDrainCalcPage() {
         ...updated,
         id: updated.id || `coil-${Date.now()}`,
         name: updated.name || `Coil ${rows.length + 1}`,
-        dbIn: updated.dbIn === "" || updated.dbIn === undefined ? (ip ? 75.2 : 24.0) : Number(updated.dbIn),
-        wbIn: updated.wbIn === "" || updated.wbIn === undefined ? (ip ? 62.6 : 17.0) : Number(updated.wbIn),
-        dbOut: updated.dbOut === "" || updated.dbOut === undefined ? (ip ? 57.2 : 14.0) : Number(updated.dbOut),
-        wbOut: updated.wbOut === "" || updated.wbOut === undefined ? (ip ? 55.4 : 13.0) : Number(updated.wbOut),
-        flow: updated.flow === "" || updated.flow === undefined ? (ip ? 1000 : 500) : Number(updated.flow),
+        dbIn: (updated.dbIn as any) === "" || updated.dbIn === undefined ? (ip ? 75.2 : 24.0) : Number(updated.dbIn),
+        wbIn: (updated.wbIn as any) === "" || updated.wbIn === undefined ? (ip ? 62.6 : 17.0) : Number(updated.wbIn),
+        dbOut: (updated.dbOut as any) === "" || updated.dbOut === undefined ? (ip ? 57.2 : 14.0) : Number(updated.dbOut),
+        wbOut: (updated.wbOut as any) === "" || updated.wbOut === undefined ? (ip ? 55.4 : 13.0) : Number(updated.wbOut),
+        flow: (updated.flow as any) === "" || updated.flow === undefined ? (ip ? 1000 : 500) : Number(updated.flow),
         comments: []
       };
       updateRowsWithHistory([...rows, finalCoil]);
@@ -1061,8 +1047,8 @@ function CondensateDrainCalcPage() {
     }
     const flagSet = new Set(ids);
     const targetCalcRow = calculatedRows.find(r => flagSet.has(r.id));
-    const isCurrentlyFlagged = targetCalcRow 
-      ? (Boolean(targetCalcRow.flagged) || Boolean(targetCalcRow.isAutoFlagged) || Boolean(targetCalcRow.isEffectivelyFlagged)) 
+    const isCurrentlyFlagged = targetCalcRow
+      ? (Boolean(targetCalcRow.flagged) || Boolean(targetCalcRow.isAutoFlagged) || Boolean(targetCalcRow.isEffectivelyFlagged))
       : false;
     const nextVal = !isCurrentlyFlagged;
     const newRows = rows.map(r => {
@@ -1331,8 +1317,8 @@ function CondensateDrainCalcPage() {
   }, [project?.id, calcReviewState]);
 
   return (
-    <AppShell 
-      title="Coil Condensate Calculator" 
+    <AppShell
+      title="Coil Condensate Calculator"
       hideSubHeader={true}
       onIntelClick={() => setIntelOpen((v) => !v)}
       intelOpen={intelOpen}
@@ -1345,15 +1331,14 @@ function CondensateDrainCalcPage() {
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Coil Condensate Calculator</h1>
               </div>
-              
-              <button 
+
+              <button
                 type="button"
                 onClick={() => setIntelOpen((v) => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                  intelOpen
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                }`}
+                  }`}
                 title="Toggle Coil Condensate Intelligence & Psychrometric Audit"
               >
                 <Sparkles className="size-3.5" />
@@ -1380,15 +1365,14 @@ function CondensateDrainCalcPage() {
           </div>
 
           {/* Main Card container for Tabs & Data Grid */}
-          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${
-            calcReviewState?.status === "APPROVED" 
-              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED"
+              ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
               : calcReviewState?.status === "REJECTED"
                 ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
                 : calcReviewState?.status === "REVIEWED"
                   ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
                   : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
-          }`}>
+            }`}>
             {/* Tabs Selector row */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap modal-blur-bg">
               <div className="flex items-center gap-2.5 flex-wrap">
@@ -1396,22 +1380,20 @@ function CondensateDrainCalcPage() {
                   <button
                     type="button"
                     onClick={() => setTab("coils")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "coils"
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${tab === "coils"
                         ? "bg-background text-foreground shadow-sm font-bold"
                         : "text-muted-foreground hover:text-foreground"
-                    }`}
+                      }`}
                   >
                     Coils
                   </button>
                   <button
                     type="button"
                     onClick={() => setTab("report")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      tab === "report"
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${tab === "report"
                         ? "bg-background text-foreground shadow-sm font-bold"
                         : "text-muted-foreground hover:text-foreground"
-                    }`}
+                      }`}
                   >
                     Report
                   </button>
@@ -1451,11 +1433,10 @@ function CondensateDrainCalcPage() {
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
-                          className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                            activeFiltersCount > 0
+                          className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${activeFiltersCount > 0
                               ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
                               : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                          }`}
+                            }`}
                         >
                           <Filter className="size-3.5 shrink-0" />
                           <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
@@ -1490,14 +1471,12 @@ function CondensateDrainCalcPage() {
                           <button
                             type="button"
                             onClick={() => setFilterFlaggedOnly(!filterFlaggedOnly)}
-                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                              filterFlaggedOnly ? "bg-primary" : "bg-muted"
-                            }`}
+                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${filterFlaggedOnly ? "bg-primary" : "bg-muted"
+                              }`}
                           >
                             <span
-                              className={`pointer-events-none inline-block size-4 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out ${
-                                filterFlaggedOnly ? "translate-x-4" : "translate-x-0"
-                              }`}
+                              className={`pointer-events-none inline-block size-4 transform rounded-full bg-background shadow-lg ring-0 transition duration-200 ease-in-out ${filterFlaggedOnly ? "translate-x-4" : "translate-x-0"
+                                }`}
                             />
                           </button>
                         </div>
@@ -1508,11 +1487,10 @@ function CondensateDrainCalcPage() {
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
-                          className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                            sortBy !== "default"
+                          className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${sortBy !== "default"
                               ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
                               : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                          }`}
+                            }`}
                         >
                           <ArrowUpDown className="size-3.5 shrink-0" />
                           <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
@@ -1550,11 +1528,10 @@ function CondensateDrainCalcPage() {
                             <button
                               key={opt.id}
                               onClick={() => setSortBy(opt.id)}
-                              className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
-                                sortBy === opt.id
+                              className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${sortBy === opt.id
                                   ? "bg-primary/10 text-primary font-semibold"
                                   : "text-foreground hover:bg-surface-2"
-                              }`}
+                                }`}
                             >
                               <span>{opt.label}</span>
                               {sortBy === opt.id && <Check className="size-3 text-primary shrink-0" />}
@@ -1590,7 +1567,7 @@ function CondensateDrainCalcPage() {
                               localStorage.removeItem("mep_grid_condensate_coils");
                               window.dispatchEvent(new Event("resize"));
                               toast.success("Column widths reset to auto-distribution");
-                            } catch (e) {}
+                            } catch (e) { }
                           }}
                           className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground font-semibold text-[11.5px] border border-border transition-colors cursor-pointer"
                         >
@@ -1718,6 +1695,7 @@ function CondensateDrainCalcPage() {
                         selected={selected}
                         onToggle={handleToggleSelectRow}
                         onToggleAll={handleToggleSelectAll}
+                        onCommentClick={handleOpenComment}
                         renderContextMenu={renderCoilContextMenu}
                         onRowDoubleClick={handleRowDoubleClick}
                         activeRowId={editingCoil?.id}
@@ -1750,7 +1728,7 @@ function CondensateDrainCalcPage() {
               {tab === "report" && (
                 <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
                   <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
-                    
+
                     {/* 1. Title (Exact Preliminary format with Calculation keyword) */}
                     <div className="pb-1">
                       <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
@@ -2005,9 +1983,8 @@ function CondensateDrainCalcPage() {
         </div>
         {/* Intelligence drawer */}
         <div
-          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
-          }`}
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+            }`}
         >
           {intelOpen && (
             <CoilCondensateIntelligenceDrawer
@@ -2071,7 +2048,7 @@ function CondensateDrainCalcPage() {
               if (typeof forceSaveToCloud === "function") {
                 forceSaveToCloud();
               }
-            } catch (e) {}
+            } catch (e) { }
           }}
         />
       )}
@@ -2279,11 +2256,10 @@ function CoilCondensateIntelligenceDrawer({
                       return (
                         <tr
                           key={pipe.sizeInch}
-                          className={`transition-colors ${
-                            isSelectedPipe
+                          className={`transition-colors ${isSelectedPipe
                               ? "bg-emerald-500/20 font-bold text-foreground"
                               : "hover:bg-surface-2/50 text-muted-foreground"
-                          }`}
+                            }`}
                         >
                           <td className="py-1.5 px-2">
                             <span className="font-sans font-semibold text-foreground">{pipe.sizeInch}</span> ({pipe.dn})
@@ -2576,11 +2552,11 @@ Selected Coil: ${activeCoil.name || "Coil Unit"}
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-150 font-sans"
       onClick={onClose}
     >
-      <div 
+      <div
         className="bg-card border border-border rounded-2xl shadow-2xl max-w-xl w-full max-h-[86vh] flex flex-col overflow-hidden text-xs animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
@@ -2617,11 +2593,10 @@ Selected Coil: ${activeCoil.name || "Coil Unit"}
           <button
             type="button"
             onClick={() => setActiveTab("trace")}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
-              activeTab === "trace"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${activeTab === "trace"
                 ? "bg-primary text-primary-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
+              }`}
           >
             <Activity className="size-3" />
             <span>Calculation Steps</span>
@@ -2629,11 +2604,10 @@ Selected Coil: ${activeCoil.name || "Coil Unit"}
           <button
             type="button"
             onClick={() => setActiveTab("formulas")}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
-              activeTab === "formulas"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${activeTab === "formulas"
                 ? "bg-primary text-primary-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
+              }`}
           >
             <BookOpen className="size-3" />
             <span>Master Formulas</span>
@@ -2641,11 +2615,10 @@ Selected Coil: ${activeCoil.name || "Coil Unit"}
           <button
             type="button"
             onClick={() => setActiveTab("variables")}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
-              activeTab === "variables"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${activeTab === "variables"
                 ? "bg-primary text-primary-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
+              }`}
           >
             <Layers className="size-3" />
             <span>Variables Reference</span>

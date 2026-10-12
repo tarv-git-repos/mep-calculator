@@ -27,6 +27,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { CalculationPreviewModal, CalculationPreviewData } from "@/components/calculator-framework/CalculationPreviewModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import {
@@ -292,12 +293,10 @@ function PumpSizingPage() {
     const unresolvedCount = existing.filter(c => c.status !== "resolved").length;
     if (unresolvedCount === 0) return null;
     return (
-      <button 
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleOpenComment(id, name); }}
-        className="ml-2 inline-flex items-center justify-center size-4 bg-primary text-primary-foreground rounded-full text-[9px] font-bold shadow-sm"
-      >
-        {unresolvedCount}
-      </button>
+      <RowCommentCornerBadge
+        count={unresolvedCount}
+        onClick={() => handleOpenComment(id, name)}
+      />
     );
   };
 
@@ -779,7 +778,7 @@ function PumpSizingPage() {
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                         >
                           <MessageSquare className="size-3.5" />
-                          <span>Add Comment / Assign Task</span>
+                          <span>Add Comment</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>
@@ -858,7 +857,7 @@ function PumpSizingPage() {
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                         >
                           <MessageSquare className="size-3.5" />
-                          <span>Add Comment / Assign Task</span>
+                          <span>Add Comment</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>
@@ -944,7 +943,7 @@ function PumpSizingPage() {
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                         >
                           <MessageSquare className="size-3.5" />
-                          <span>Add Comment / Assign Task</span>
+                          <span>Add Comment</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>
@@ -1008,7 +1007,7 @@ function PumpSizingPage() {
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                         >
                           <MessageSquare className="size-3.5" />
-                          <span>Add Comment / Assign Task</span>
+                          <span>Add Comment</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>
@@ -1102,7 +1101,7 @@ function PumpSizingPage() {
                         className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                       >
                         <MessageSquare className="size-3.5" />
-                        <span>Add Comment / Assign Task</span>
+                        <span>Add Comment</span>
                       </ContextMenuItem>
                     </ContextMenuContent>
                   </ContextMenu>

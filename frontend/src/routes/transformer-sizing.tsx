@@ -146,7 +146,7 @@ function TransformerSizingPage() {
         className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium transition-colors"
       >
         <MessageSquare className="size-3.5" />
-        <span>Add Comment / Assign Task</span>
+        <span>Add Comment</span>
       </ContextMenuItem>
 
       <ContextMenuSeparator className="h-px bg-slate-200 dark:bg-slate-800 my-1" />
@@ -683,23 +683,8 @@ function TransformerSizingPage() {
 
   const columns: Column<any>[] = [
     { key: "description", header: "DESCRIPTION", width: 180, editable: true, render: (r) => {
-        const itemComments = getMergedItemComments(r.id, r.description, (r as any).comments, "/transformer-sizing", project?.id);
         return (
           <div className="flex items-center gap-1.5 w-full">
-            {itemComments.length > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenComment(r.id, r.description);
-                }}
-                title={`${itemComments.length} comment(s)/task(s) assigned`}
-                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-              >
-                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                <span className="text-[10px] font-bold">{itemComments.length}</span>
-              </button>
-            )}
             <InlineInput 
               value={r.description} 
               onCommit={(val) => handleUpdateRow(r.id, "description", val)}
@@ -920,6 +905,7 @@ function TransformerSizingPage() {
                       setLoadRows(loadRows.map(r => ({ ...r, selected: !allSelected })));
                     }}
                     onRowDoubleClick={(row) => setPreviewRow(row)}
+                    onCommentClick={(r) => handleOpenComment(r.id, r.description)}
                     renderContextMenu={renderRowContextMenu}
                   />
                 )}

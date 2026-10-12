@@ -1,6 +1,7 @@
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
@@ -244,18 +245,10 @@ export function FireTankDurationPage() {
     const itemComments = commentsMap[id] || [];
     if (itemComments.length === 0) return null;
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          handleOpenComment(id, label);
-        }}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-        title={`${itemComments.length} comment(s)/task(s) assigned`}
-      >
-        <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-        <span>{itemComments.length}</span>
-      </button>
+      <RowCommentCornerBadge
+        count={itemComments.length}
+        onClick={() => handleOpenComment(id, label)}
+      />
     );
   };
 
@@ -348,7 +341,7 @@ export function FireTankDurationPage() {
             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{itemComments.length ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <span>{itemComments.length ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -455,7 +448,7 @@ export function FireTankDurationPage() {
             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{itemComments.length ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <span>{itemComments.length ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -839,7 +832,7 @@ export function FireTankDurationPage() {
                         className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                       >
                         <MessageSquare className="size-3.5" />
-                        <span>{commentsMap["hazardPreset"]?.length ? `View / Add Comments (${commentsMap["hazardPreset"].length})` : "Add Comment / Assign Task"}</span>
+                        <span>{commentsMap["hazardPreset"]?.length ? `View / Add Comments (${commentsMap["hazardPreset"].length})` : "Add Comment"}</span>
                       </ContextMenuItem>
                     </ContextMenuContent>
                   </ContextMenu>
@@ -980,7 +973,7 @@ export function FireTankDurationPage() {
                         className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                       >
                         <MessageSquare className="size-3.5" />
-                        <span>{commentsMap["allowInflowCredit"]?.length ? `View / Add Comments (${commentsMap["allowInflowCredit"].length})` : "Add Comment / Assign Task"}</span>
+                        <span>{commentsMap["allowInflowCredit"]?.length ? `View / Add Comments (${commentsMap["allowInflowCredit"].length})` : "Add Comment"}</span>
                       </ContextMenuItem>
                     </ContextMenuContent>
                   </ContextMenu>
@@ -1134,7 +1127,7 @@ export function FireTankDurationPage() {
                       className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                     >
                       <MessageSquare className="size-3.5" />
-                      <span>{commentsMap["actual-dur"]?.length ? `View / Add Comments (${commentsMap["actual-dur"].length})` : "Add Comment / Assign Task"}</span>
+                      <span>{commentsMap["actual-dur"]?.length ? `View / Add Comments (${commentsMap["actual-dur"].length})` : "Add Comment"}</span>
                     </ContextMenuItem>
                   </ContextMenuContent>
                 </ContextMenu>

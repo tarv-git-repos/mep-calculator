@@ -13,7 +13,7 @@ import {
   AlertTriangle, Info, Printer, FileSpreadsheet, Plus, Trash2,
   ChevronDown, ChevronUp, Edit3, Settings, HelpCircle, Sparkles,
   Wind, Layers, Gauge, Zap, Activity, FileText, X, Flag,
-  Copy, Scissors, Clipboard, Flame, CheckCircle2, RefreshCw, Check,
+  Copy, CopyPlus, Scissors, Clipboard, Flame, CheckCircle2, RefreshCw, Check,
   Box, Upload, Filter, ArrowUpDown, Search, MessageSquare
 } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -1252,46 +1252,52 @@ function BasementSmokeCalcPage() {
     const grp = calculatedGroups.find(g => g.basementLevel === groupValue);
 
     return (
-      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         <ContextMenuItem
           onClick={() => handleOpenComment(groupValue, groupValue, "level")}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
         >
-          <MessageSquare className="size-3.5 text-blue-600" />
+          <MessageSquare className="size-3.5" />
           <span>Add Comment to {groupValue}</span>
         </ContextMenuItem>
-        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
-          onClick={() => handleOpenBulkEdit(matchingIds)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          onClick={() => handleAddZoneToLevel(groupValue)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
         >
-          <Edit3 className="size-3.5 text-primary" />
-          <span>Bulk Edit {matchingIds.length} Spaces</span>
+          <Plus className="size-3.5 text-muted-foreground" />
+          <span>Add Zone to {groupValue}</span>
         </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         {grp && (
           <ContextMenuItem
             onClick={() => handleOpenEditLevelModal(grp)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
-            <Edit3 className="size-3.5 text-primary" />
-            <span>Edit Level Parameters</span>
+            <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+            <span className="whitespace-nowrap">Edit Level Parameters</span>
           </ContextMenuItem>
         )}
-        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
-          onClick={() => handleAddZoneToLevel(groupValue)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          onClick={() => handleOpenBulkEdit(matchingIds)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
         >
-          <Plus className="size-3.5 text-emerald-600" />
-          <span>Add Zone to {groupValue}</span>
+          <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="whitespace-nowrap">Bulk Edit {matchingIds.length} Spaces</span>
         </ContextMenuItem>
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
           onClick={() => handleDeleteLevel(groupValue, matchingIds)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
         >
-          <Trash2 className="size-3.5" />
-          <span>Delete Entire {groupValue}</span>
+          <Trash2 className="size-3.5 shrink-0" />
+          <span className="whitespace-nowrap">Delete Entire {groupValue}</span>
+          <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto pl-3 whitespace-nowrap text-right">Delete</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
     );
@@ -1299,36 +1305,44 @@ function BasementSmokeCalcPage() {
 
   const renderRowContextMenu = (row: typeof calculatedRows[0]) => {
     return (
-      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         <ContextMenuItem
           onClick={() => handleOpenComment(row.id, row.name || row.zoneName, "zone")}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
         >
-          <MessageSquare className="size-3.5 text-blue-600" />
-          <span>Add Comment to {row.name || row.zoneName}</span>
+          <MessageSquare className="size-3.5 shrink-0" />
+          <span className="whitespace-nowrap">Add Comment</span>
         </ContextMenuItem>
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
           onClick={() => handleOpenBulkEdit([row.id])}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
         >
-          <Edit3 className="size-3.5 text-primary" />
-          <span>Bulk Edit Space</span>
+          <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="whitespace-nowrap">Bulk Edit Space</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
         </ContextMenuItem>
+
         <ContextMenuItem
           onClick={() => handleDuplicateZone(row)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
         >
-          <Copy className="size-3.5 text-muted-foreground" />
-          <span>Duplicate Space</span>
+          <CopyPlus className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="whitespace-nowrap">Duplicate Space</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Ctrl+D</ContextMenuShortcut>
         </ContextMenuItem>
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
           onClick={() => handleDeleteFloor(row.id)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
         >
-          <Trash2 className="size-3.5" />
-          <span>Delete Space</span>
+          <Trash2 className="size-3.5 shrink-0" />
+          <span className="whitespace-nowrap">Delete Space</span>
+          <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto pl-3 whitespace-nowrap text-right">Delete</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
     );
@@ -1340,25 +1354,9 @@ function BasementSmokeCalcPage() {
       header: "LEVEL / ZONE NAME",
       width: 170,
       editable: true,
-      render: (r) => {
-        const itemComments = getMergedItemComments(r.id, r.name, commentsList, "/basement-smoke-calc", project?.id);
-        return (
-          <div className="flex items-center gap-1.5 w-full">
-            {itemComments.length > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenComment(r.id, r.name, "zone");
-                }}
-                title={`${itemComments.length} comment(s)/task(s) assigned`}
-                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-              >
-                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                <span className="text-[10px] font-bold">{itemComments.length}</span>
-              </button>
-            )}
-            <input
+      render: (r) => (
+        <div className="flex items-center gap-1.5 w-full">
+          <input
               disabled={isApprovedLocked}
               type="text"
               value={r.name}
@@ -1367,9 +1365,8 @@ function BasementSmokeCalcPage() {
               className="h-6 px-1.5 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 focus:bg-background focus:border-border rounded border border-transparent text-xs font-medium text-foreground outline-none w-full"
               placeholder="Basement 1 - Zone 1"
             />
-          </div>
-        );
-      },
+        </div>
+      ),
     },
     {
       key: "area",
@@ -1957,10 +1954,10 @@ function BasementSmokeCalcPage() {
       onIntelClick={() => setIntelOpen(v => !v)}
       intelOpen={intelOpen}
     >
-      <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           {/* Page Header & Actions */}
-          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Basement Smoke Extract Schedule</h1>
@@ -1984,13 +1981,6 @@ function BasementSmokeCalcPage() {
                 calculatorPath="/basement-smoke-calc" 
                 calculatorTitle="Basement Smoke Extract Schedule" 
               />
-
-              {commentsList.length > 0 && (
-                <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
-                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Active {commentsList.length === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
-                </div>
-              )}
             </div>
             
             <div className="flex items-center gap-2">
@@ -2350,6 +2340,7 @@ function BasementSmokeCalcPage() {
                       selected={selectedRowIds}
                       onToggle={toggle}
                       onToggleAll={toggleAll}
+                      onCommentClick={(r) => handleOpenComment(r.id, r.name || r.zoneName, "zone")}
                       renderContextMenu={renderRowContextMenu}
                       groupBy={(r) => (r.basementLevel && r.basementLevel !== "undefined" ? r.basementLevel : (r.name && r.name.includes(" - ") ? r.name.split(" - ")[0] : "Basement 1"))}
                       groupOrder={groupOrder}
@@ -2628,51 +2619,60 @@ function BasementSmokeCalcPage() {
                               )}
                             </div>
                           </ContextMenuTrigger>
-                          <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
                             <ContextMenuItem
                               onClick={() => handleOpenComment(fs.id, fs.name, "system")}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                             >
-                              <MessageSquare className="size-3.5 text-blue-600" />
-                              <span>Add Comment / Task to {fs.name}</span>
+                              <MessageSquare className="size-3.5 shrink-0" />
+                              <span className="whitespace-nowrap">Add Comment to {fs.name}</span>
                             </ContextMenuItem>
-                            <ContextMenuSeparator className="h-px bg-border my-1" />
+
                             <ContextMenuItem
                               onClick={() => setFireConfigFSId(fs.id)}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                             >
-                              <Flame className="size-3.5 text-rose-500" />
-                              <span>Configure Fire Scenario & Zone ACH</span>
+                              <Flame className="size-3.5 text-muted-foreground shrink-0" />
+                              <span className="whitespace-nowrap">Configure Fire Scenario & Zone ACH</span>
                             </ContextMenuItem>
-                            <ContextMenuItem
-                              onClick={() => handleOpenEditFS(fs)}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                            >
-                              <Edit3 className="size-3.5 text-primary" />
-                              <span>Edit Fan System Properties</span>
-                            </ContextMenuItem>
+
                             <ContextMenuItem
                               onClick={() => setFanSystems(fanSystems.map(x => x.id === fs.id ? { ...x, collapsed: !x.collapsed } : x))}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                             >
-                              <Settings className="size-3.5 text-muted-foreground" />
-                              <span>{fs.collapsed ? "Expand Fan System Card" : "Collapse Fan System Card"}</span>
+                              <Settings className="size-3.5 text-muted-foreground shrink-0" />
+                              <span className="whitespace-nowrap">{fs.collapsed ? "Expand Fan System Card" : "Collapse Fan System Card"}</span>
                             </ContextMenuItem>
+
                             <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                            <ContextMenuItem
+                              onClick={() => handleOpenEditFS(fs)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+                              <span className="whitespace-nowrap">Edit Fan System Properties</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
+                            </ContextMenuItem>
+
                             <ContextMenuItem
                               onClick={() => handleDuplicateFanSystem(fs)}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                             >
-                              <Copy className="size-3.5 text-muted-foreground" />
-                              <span>Duplicate Fan System</span>
+                              <CopyPlus className="size-3.5 text-muted-foreground shrink-0" />
+                              <span className="whitespace-nowrap">Duplicate Fan System</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Ctrl+D</ContextMenuShortcut>
                             </ContextMenuItem>
+
                             <ContextMenuSeparator className="h-px bg-border my-1" />
+
                             <ContextMenuItem
                               onClick={() => setFanSystems(fanSystems.filter(x => x.id !== fs.id))}
-                              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
                             >
                               <Trash2 className="size-3.5" />
                               <span>Delete Fan System</span>
+                              <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>

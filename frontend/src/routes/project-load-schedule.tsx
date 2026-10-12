@@ -11,6 +11,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { NetworkSLD } from "@/components/workspace/NetworkSLD";
 import { Plus, Trash2, Network, Table as TableIcon, Copy, Zap, Download, Eye, EyeOff } from "lucide-react";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -1050,32 +1051,24 @@ function ProjectLoadSchedulePage() {
                       </tr>
                     ) : activeBoard.circuits.map((c: any) => {
                       const load = calculateCircuitLoad(c);
+                      const itemComments = getMergedItemComments(c.id, c.roomArea || c.desc || `Circuit ${c.cirNo}`, (c as any).comments, "/project-load-schedule", project?.id);
                       return (
                         <tr key={c.id} className="border-b border-slate-300 hover:bg-slate-50">
                           {isDB ? (
                             <>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.cirNo} onChange={e => updateCircuit(c.id, "cirNo", e.target.value)} /></td>
+                              <td className="p-0 border-r border-slate-300 relative">
+                                <RowCommentCornerBadge
+                                  id={c.id}
+                                  count={itemComments.length}
+                                  onClick={() => handleOpenComment(c.id, c.roomArea || `Circuit ${c.cirNo}`)}
+                                  title={`${itemComments.length} comment(s)/task(s) assigned`}
+                                />
+                                <input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.cirNo} onChange={e => updateCircuit(c.id, "cirNo", e.target.value)} />
+                              </td>
                               <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.mcb} onChange={e => updateCircuit(c.id, "mcb", e.target.value)} /></td>
                               {!isCompactView && <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.wireEcc} onChange={e => updateCircuit(c.id, "wireEcc", e.target.value)} /></td>}
                               <td className="p-0 border-r border-slate-300">
                                 <div className="flex items-center gap-1 px-1">
-                                  {(() => {
-                                    const itemComments = getMergedItemComments(c.id, c.roomArea || `Circuit ${c.cirNo}`, (c as any).comments, "/project-load-schedule", project?.id);
-                                    return itemComments.length > 0 ? (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleOpenComment(c.id, c.roomArea || `Circuit ${c.cirNo}`);
-                                        }}
-                                        title={`${itemComments.length} comment(s)/task(s) assigned`}
-                                        className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                                      >
-                                        <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                        <span className="text-[10px] font-bold">{itemComments.length}</span>
-                                      </button>
-                                    ) : null;
-                                  })()}
                                   <input className="w-full h-8 px-1 bg-transparent outline-none focus:bg-slate-100 text-left" value={c.roomArea} onChange={e => updateCircuit(c.id, "roomArea", e.target.value)} />
                                 </div>
                               </td>
@@ -1098,7 +1091,15 @@ function ProjectLoadSchedulePage() {
                             </>
                           ) : (
                             <>
-                              <td className="p-0 border-r border-slate-300"><input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.cirNo} onChange={e => updateCircuit(c.id, "cirNo", e.target.value)} /></td>
+                              <td className="p-0 border-r border-slate-300 relative">
+                                <RowCommentCornerBadge
+                                  id={c.id}
+                                  count={itemComments.length}
+                                  onClick={() => handleOpenComment(c.id, c.desc || `Circuit ${c.cirNo}`)}
+                                  title={`${itemComments.length} comment(s)/task(s) assigned`}
+                                />
+                                <input className="w-full h-8 px-1 bg-transparent text-center outline-none focus:bg-slate-100" value={c.cirNo} onChange={e => updateCircuit(c.id, "cirNo", e.target.value)} />
+                              </td>
                               <td className="p-0 border-r border-slate-300">
                                 <input 
                                   className={`w-full h-8 px-2 bg-transparent outline-none focus:bg-slate-100 text-left ${c.isFeeder ? 'text-blue-700 font-medium' : ''}`} 

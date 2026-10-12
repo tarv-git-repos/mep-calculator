@@ -1544,7 +1544,7 @@ function SpacesView() {
     const targetsCount = selectedIds.length;
 
     return (
-      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         {/* Add Comment */}
         <ContextMenuItem
           onClick={() => {
@@ -1750,8 +1750,8 @@ function SpacesView() {
             }}
             className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
           >
-            <Edit3 className="size-3.5 text-muted-foreground" />
-            <span>Bulk Edit ({targetsCount} spaces)</span>
+            <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+            <span className="whitespace-nowrap">Bulk Edit ({targetsCount} spaces)</span>
           </ContextMenuItem>
         ) : (
           <ContextMenuItem
@@ -1764,9 +1764,9 @@ function SpacesView() {
             }}
             className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
           >
-            <Edit3 className="size-3.5 text-muted-foreground" />
-            <span>Edit Space</span>
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+            <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+            <span className="whitespace-nowrap">Edit Space</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
           </ContextMenuItem>
         )}
 
@@ -5240,7 +5240,7 @@ function ZonesView() {
         className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
       >
         <MessageSquare className="size-3.5" />
-        <span>Add Comment / Assign Task</span>
+        <span>Add Comment</span>
       </ContextMenuItem>
       <ContextMenuSeparator className="h-px bg-border my-1" />
       <ContextMenuItem
@@ -6566,7 +6566,7 @@ function EquipmentView() {
         className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
       >
         <MessageSquare className="size-3.5" />
-        <span>Add Comment / Assign Task</span>
+        <span>Add Comment</span>
       </ContextMenuItem>
       <ContextMenuSeparator className="h-px bg-border my-1" />
       <ContextMenuItem

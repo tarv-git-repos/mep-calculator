@@ -20,6 +20,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { EditSprinklerModal, type SprinklerFormData } from "@/components/workspace/EditSprinklerModal";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
@@ -500,31 +501,24 @@ function SprinklerDensityPage() {
               e.stopPropagation();
               setEditModalOpen(true);
             }}
-            className={`border border-border rounded-2xl p-3.5 bg-background shadow-xs flex flex-col gap-2 transition cursor-context-menu group ${
+            className={`border border-border rounded-2xl p-3.5 bg-background shadow-xs flex flex-col gap-2 transition cursor-context-menu group relative ${
               isHighlighted
                 ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20"
                 : ""
             }`}
           >
+            <RowCommentCornerBadge count={itemComments.length} onClick={() => handleOpenComment(id, label)} />
+            <RowCommentCornerBadge
+              id={id}
+              count={itemComments.length}
+              onClick={() => handleOpenComment(id, label)}
+              title={`${itemComments.length} comment(s)/task(s) assigned`}
+            />
             <div className="flex justify-between items-baseline">
               <span className="flex items-center gap-1.5">
                 <label htmlFor={id} className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground cursor-pointer">
                   {label}
                 </label>
-                {hasComments && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
-                  >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
-                  </button>
-                )}
               </span>
               <span className="text-[11px] font-bold text-muted-foreground font-mono">
                 {unit}
@@ -609,7 +603,7 @@ function SprinklerDensityPage() {
             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -645,20 +639,7 @@ function SprinklerDensityPage() {
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <span>{label}</span>
-                {hasComments && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
-                  >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
-                  </button>
-                )}
+                
               </label>
               <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
             </div>
@@ -718,7 +699,7 @@ function SprinklerDensityPage() {
             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -756,20 +737,7 @@ function SprinklerDensityPage() {
                 <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground cursor-pointer">
                   {label}
                 </label>
-                {hasComments && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
-                  >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
-                  </button>
-                )}
+                
               </span>
               <span className="text-[11px] font-bold text-muted-foreground font-mono">
                 {unitSystem === "ip" ? "GPM/√psi" : "L/min/√bar"}
@@ -830,7 +798,7 @@ function SprinklerDensityPage() {
             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -870,23 +838,11 @@ function SprinklerDensityPage() {
                 : ""
             }`}
           >
+            <RowCommentCornerBadge count={itemComments.length} onClick={() => handleOpenComment(id, label)} />
             <span className={`text-[13px] font-medium flex items-center gap-1.5 ${isPrimary ? "text-foreground font-bold" : "text-muted-foreground"}`}>
               {IconComp && <IconComp className={`size-3.5 ${isPrimary ? "text-red-500" : "text-primary"}`} />}
               <span>{label}</span>
-              {hasComments && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenComment(id, label);
-                  }}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                  title={`${itemComments.length} comment(s)/task(s) assigned`}
-                >
-                  <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                  <span>{itemComments.length}</span>
-                </button>
-              )}
+              
             </span>
             <span className={`font-mono ${isPrimary ? "font-extrabold text-red-500 dark:text-red-400 text-[15px]" : "font-bold text-foreground text-[14px]"}`}>
               {valueDisplay}
@@ -922,7 +878,7 @@ function SprinklerDensityPage() {
             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View Comments (${itemComments.length})` : "Add Comment / Task"}</span>
+            <span>{hasComments ? `View Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -967,20 +923,7 @@ function SprinklerDensityPage() {
             <div className="flex-1 min-w-0">
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <span>{label}</span>
-                {hasComments && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
-                  >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
-                  </button>
-                )}
+                
               </span>
               <div className="text-[20px] font-extrabold font-mono text-foreground mt-0.5 truncate">
                 {mainValue}
@@ -1018,7 +961,7 @@ function SprinklerDensityPage() {
             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View Comments (${itemComments.length})` : "Add Comment / Task"}</span>
+            <span>{hasComments ? `View Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -1057,23 +1000,11 @@ function SprinklerDensityPage() {
                 : "hover:bg-muted/40"
             }`}
           >
-            <td className={`py-2.5 ${isTotalRow ? "text-foreground" : "text-muted-foreground"}`}>
+            <td className={`py-2.5 relative ${isTotalRow ? "text-foreground" : "text-muted-foreground"}`}>
+              <RowCommentCornerBadge count={itemComments.length} onClick={() => handleOpenComment(id, label)} />
               <span className="flex items-center gap-1.5">
                 <span>{label}</span>
-                {hasComments && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
-                  >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
-                  </button>
-                )}
+                
               </span>
             </td>
             <td className={`py-2.5 text-right font-mono font-bold ${isTotalRow ? "text-red-500 text-[14.5px]" : "text-foreground"}`}>
@@ -1113,7 +1044,7 @@ function SprinklerDensityPage() {
             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View Comments (${itemComments.length})` : "Add Comment / Task"}</span>
+            <span>{hasComments ? `View Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>

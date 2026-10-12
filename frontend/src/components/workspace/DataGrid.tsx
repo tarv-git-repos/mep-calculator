@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { toast } from "sonner";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 
 export interface Column<T> {
   key: keyof T | string;
@@ -64,7 +65,7 @@ export function DataGrid<T extends { id: string }>({
   const onToggleAll = onToggleAllProp;
 
   const ref = useRef<HTMLDivElement>(null);
-   const headerRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(600);
 
@@ -92,7 +93,7 @@ export function DataGrid<T extends { id: string }>({
             return;
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     setColRatios(initialRatios);
@@ -101,7 +102,7 @@ export function DataGrid<T extends { id: string }>({
   const handleMouseDown = (key: string, e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
-    
+
     const colIndex = columns.findIndex((c) => String(c.key) === key);
     if (colIndex === -1 || colIndex === columns.length - 1) return;
 
@@ -248,7 +249,7 @@ export function DataGrid<T extends { id: string }>({
       if (!customEvent || !customEvent.detail) return;
       const { id: itemId, name: targetName } = customEvent.detail;
       const currentHeight = heightRef.current;
-      
+
       const cleanId = itemId ? String(itemId).trim().toLowerCase() : "";
       const cleanIdNorm = cleanId.replace(/[^a-z0-9]/g, "");
       const cleanTarget = targetName ? String(targetName).trim().toLowerCase() : "";
@@ -331,7 +332,7 @@ export function DataGrid<T extends { id: string }>({
           const newScrollTop = Math.max(0, topOffset - (currentHeight / 2) + (ROW_H / 2));
           ref.current.scrollTop = newScrollTop;
           setScrollTop(newScrollTop);
-          
+
           setHighlightedRowId(actualId);
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           highlightTimeoutRef.current = setTimeout(() => {
@@ -345,7 +346,7 @@ export function DataGrid<T extends { id: string }>({
       setTimeout(doScroll, 100);
       setTimeout(doScroll, 300);
     };
-    
+
     window.addEventListener("mep-scroll-to-item", handleScrollToItem);
     window.addEventListener("mep-data-grid-scroll", handleScrollToItem);
     return () => {
@@ -370,12 +371,11 @@ export function DataGrid<T extends { id: string }>({
 
   return (
     <div className={`flex flex-col bg-background w-full ${isSticky ? "h-auto" : "h-full overflow-hidden"}`}>
-      <div 
-        ref={headerRef} 
+      <div
+        ref={headerRef}
         style={isSticky ? { position: "sticky", top: stickyHeaderTop, zIndex: 25 } : undefined}
-        className={`bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong overflow-hidden w-full transition-all duration-300 shadow-2xs ${
-          activeRowId ? "blur-[1px] opacity-35 pointer-events-none" : ""
-        }`}
+        className={`bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong overflow-hidden w-full transition-all duration-300 shadow-2xs ${activeRowId ? "blur-[1px] opacity-35 pointer-events-none" : ""
+          }`}
       >
         <div
           className="grid h-10 items-center text-[11.5px] font-semibold uppercase tracking-wider text-muted-foreground w-full"
@@ -402,10 +402,9 @@ export function DataGrid<T extends { id: string }>({
             return (
               <div
                 key={k}
-                className={`relative px-2 border-r border-border/60 last:border-r-0 hover:border-border transition-colors duration-150 group flex items-center h-full min-w-0 ${
-                  c.align === "right" ? "justify-end text-right" :
+                className={`relative px-2 border-r border-border/60 last:border-r-0 hover:border-border transition-colors duration-150 group flex items-center h-full min-w-0 ${c.align === "right" ? "justify-end text-right" :
                   c.align === "center" ? "justify-center text-center" : ""
-                }`}
+                  }`}
               >
                 <span className="whitespace-pre-line leading-tight">{c.header}</span>
                 {!isLast && (
@@ -432,7 +431,7 @@ export function DataGrid<T extends { id: string }>({
             headerRef.current.scrollLeft = target.scrollLeft;
           }
         } : undefined}
-        className={isSticky ? "w-full relative z-10" : "flex-1 overflow-y-auto overflow-x-auto w-full relative z-10"}
+        className={isSticky ? "w-ful relative z-10" : "flex-1 overflow-y-auto overflow-x-auto w-full relative z-10"}
       >
         <div style={{ height: total * ROW_H, position: "relative", minWidth: "100%" }} className="w-full">
           <div style={{ transform: `translateY(${start * ROW_H}px)`, minWidth: "100%" }} className="w-full">
@@ -470,9 +469,8 @@ export function DataGrid<T extends { id: string }>({
                 const groupContent = (
                   <div
                     onClick={handleGroupClick}
-                    className={`col-span-full h-full bg-primary/5 hover:bg-primary/10 border-b border-border flex items-center border-l-4 border-l-primary pl-1.5 text-[12.5px] font-semibold text-primary select-none cursor-pointer gap-1.5 w-full transition-colors duration-150 ${
-                      isGroupBlurred ? "blur-[1px] opacity-30 pointer-events-none scale-[0.99]" : ""
-                    }`}
+                    className={`col-span-full h-full bg-primary/5 hover:bg-primary/10 border-b border-border flex items-center border-l-4 border-l-primary pl-1.5 text-[12.5px] font-semibold text-primary select-none cursor-pointer gap-1.5 w-full transition-colors duration-150 ${isGroupBlurred ? "blur-[1px] opacity-30 pointer-events-none scale-[0.99]" : ""
+                      }`}
                   >
                     <button
                       onClick={handleToggleCollapse}
@@ -522,7 +520,7 @@ export function DataGrid<T extends { id: string }>({
               const sel = selected.has(row.id);
               const isActiveRow = activeRowId === row.id;
               const isBlurred = activeRowId !== undefined && !isActiveRow;
-              
+
               const blurActiveInput = () => {
                 const activeEl = document.activeElement;
                 if (!activeEl) return;
@@ -541,11 +539,10 @@ export function DataGrid<T extends { id: string }>({
               const renderRowContent = () => (
                 <>
                   <div
-                    className={`px-1 flex items-center justify-center h-full border-r border-border/40 relative group/row-cell select-none cursor-pointer transition-colors duration-150 ${
-                      sel
-                        ? "bg-primary/15 text-primary font-bold shadow-inner"
-                        : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
-                    }`}
+                    className={`px-1 flex items-center justify-center h-full border-r border-border/40 relative group/row-cell select-none cursor-pointer transition-colors duration-150 ${sel
+                      ? "bg-primary/15 text-primary font-bold shadow-inner"
+                      : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
+                      }`}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (isReadOnly) {
@@ -558,44 +555,60 @@ export function DataGrid<T extends { id: string }>({
                     title={sel ? `Row ${rowIndex + 1} selected. Click to deselect.` : `Click to select row ${rowIndex + 1}.`}
                   >
                     {/* Modern Bespoke Curved Corner Comment Indicator */}
-                    {Array.isArray((row as any).comments) && (row as any).comments.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onCommentClick) {
-                            onCommentClick(row);
-                          } else {
-                            window.dispatchEvent(
-                              new CustomEvent("open-mep-row-comment", {
-                                detail: {
-                                  id: row.id,
-                                  name: (row as any).name || (row as any).tag || (row as any).code,
-                                  type: (row as any).tag ? "equipment" : (row as any).zone && !(row as any).area ? "zone" : "space"
-                                }
-                              })
-                            );
-                          }
-                        }}
-                        title={`${(row as any).comments.length} comment(s)/task(s) assigned. Click to view.`}
-                        className="absolute top-0 right-0 p-0 cursor-pointer z-10 hover:scale-120 active:scale-95 transition-all duration-150 focus:outline-none group/comment-mark"
-                      >
-                        <svg width="10" height="10" viewBox="0 0 10 10" className="overflow-visible drop-shadow-[0_1px_2px_rgba(99,102,241,0.35)]">
-                          <defs>
-                            <linearGradient id={`commentGrad-${row.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                              <stop offset="0%" stopColor="#6366f1" />
-                              <stop offset="50%" stopColor="#8b5cf6" />
-                              <stop offset="100%" stopColor="#a855f7" />
-                            </linearGradient>
-                          </defs>
-                          <path
-                            d="M 0 0 H 10 V 10 C 10 5.5 5.5 0 0 0 Z"
-                            fill={`url(#commentGrad-${row.id})`}
-                            className="group-hover/comment-mark:opacity-90 transition-opacity"
-                          />
-                        </svg>
-                      </button>
-                    )}
+                    {(() => {
+                      const rowComments = (Array.isArray((row as any).comments) && (row as any).comments.length > 0)
+                        ? (row as any).comments
+                        : getMergedItemComments(
+                          row.id,
+                          (row as any).name || (row as any).description || (row as any).desc || (row as any).tag || (row as any).ref || (row as any).tapOff,
+                          (row as any).comments,
+                          typeof window !== "undefined" ? window.location.pathname : undefined
+                        );
+
+                      if (!rowComments || rowComments.length === 0) return null;
+
+                      return (
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onCommentClick) {
+                              onCommentClick(row)
+                                ;
+                            } else {
+                              window.dispatchEvent(
+                                new CustomEvent("open-mep-row-comment", {
+                                  detail: {
+                                    id: row.id,
+                                    name: (row as any).name || (row as any).description || (row as any).desc || (row as any).tag || (row as any).code,
+                                    type: (row as any).tag ? "equipment" : (row as any).zone && !(row as any).area ? "zone" : "space"
+                                  }
+                                })
+                              );
+                            }
+                          }}
+                          title={`${rowComments.length} comment(s)/task(s) assigned. Click to view.`}
+                          className="absolute top-0 right-0 w-5 h-5 flex items-start justify-end p-0 cursor-pointer z-20 hover:scale-125 active:scale-95 transition-all duration-150 focus:outline-none group/comment-mark pointer-events-auto"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 10 10" className="overflow-visible drop-shadow-[0_1px_2px_rgba(99,102,241,0.35)]">
+                            <defs>
+                              <linearGradient id={`commentGrad-${row.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stopColor="#6366f1" />
+                                <stop offset="50%" stopColor="#8b5cf6" />
+                                <stop offset="100%" stopColor="#a855f7" />
+                              </linearGradient>
+                            </defs>
+                            <path
+                              d="M 0 0 H 10 V 10 C 10 5.5 5.5 0 0 0 Z"
+                              fill={`url(#commentGrad-${row.id})`}
+                              className="group-hover/comment-mark:opacity-90 transition-opacity"
+                            />
+                          </svg>
+                        </button>
+                      );
+                    })()}
                     <span className="text-[11px] font-mono leading-none tracking-tight">
                       {rowIndex + 1}
                     </span>
@@ -606,10 +619,9 @@ export function DataGrid<T extends { id: string }>({
                     return (
                       <div
                         key={String(c.key)}
-                        className={`px-2 truncate min-w-0 flex items-center h-full ${!isLast ? "border-r border-border/40" : ""} ${
-                          c.align === "right" ? "justify-end text-right" :
+                        className={`px-2 truncate min-w-0 flex items-center h-full ${!isLast ? "border-r border-border/40" : ""} ${c.align === "right" ? "justify-end text-right" :
                           c.align === "center" ? "justify-center text-center w-full" : ""
-                        } ${c.mono ? "font-mono tabular text-[13.5px]" : ""} ${isEditable && !isReadOnly ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors" : ""}`}
+                          } ${c.mono ? "font-mono tabular text-[13.5px]" : ""} ${isEditable && !isReadOnly ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors" : ""}`}
                         title={isEditable && !isReadOnly ? "Double-click to edit" : undefined}
                       >
                         {c.render ? c.render(row) : (row as any)[c.key]}
@@ -658,7 +670,7 @@ export function DataGrid<T extends { id: string }>({
                             target.tagName === "SELECT" ||
                             target.isContentEditable ||
                             target.getAttribute("contenteditable") === "true";
-                          
+
                           const now = Date.now();
                           const isDoubleTap = lastTapRef.current.id === row.id && (now - lastTapRef.current.time) < 350;
                           lastTapRef.current = { id: row.id, time: now };
@@ -691,19 +703,15 @@ export function DataGrid<T extends { id: string }>({
                             }, 0);
                           }
                         }}
-                        className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-colors duration-150 ${
-                          rowClassName && !sel ? rowClassName(row, rowIndex) : ""
-                        } ${
-                          sel ? "bg-row-selected" : ""
-                        } ${
-                          isActiveRow
+                        className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-colors duration-150 ${rowClassName && !sel ? rowClassName(row, rowIndex) : ""
+                          } ${sel ? "bg-row-selected" : ""
+                          } ${isActiveRow
                             ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                             : ""
-                        } ${
-                          highlightedRowId === row.id
+                          } ${highlightedRowId === row.id
                             ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                             : ""
-                        } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
+                          } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
                         style={{ gridTemplateColumns: gridTemplate, height: ROW_H, minWidth: "100%" }}
                       >
                         {renderRowContent()}
@@ -751,7 +759,7 @@ export function DataGrid<T extends { id: string }>({
                       target.tagName === "SELECT" ||
                       target.isContentEditable ||
                       target.getAttribute("contenteditable") === "true";
-                    
+
                     const now = Date.now();
                     const isDoubleTap = lastTapRef.current.id === row.id && (now - lastTapRef.current.time) < 350;
                     lastTapRef.current = { id: row.id, time: now };
@@ -771,19 +779,15 @@ export function DataGrid<T extends { id: string }>({
                   onDoubleClick={() => {
                     onRowDoubleClick?.(row);
                   }}
-                  className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-colors duration-150 ${
-                    rowClassName && !sel ? rowClassName(row, rowIndex) : ""
-                  } ${
-                    sel ? "bg-row-selected" : ""
-                  } ${
-                    isActiveRow
+                  className={`grid items-center text-[13.5px] border-b border-border/60 hover:bg-row-hover cursor-default select-none w-full transition-colors duration-150 ${rowClassName && !sel ? rowClassName(row, rowIndex) : ""
+                    } ${sel ? "bg-row-selected" : ""
+                    } ${isActiveRow
                       ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                       : ""
-                  } ${
-                    highlightedRowId === row.id
+                    } ${highlightedRowId === row.id
                       ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                       : ""
-                  } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
+                    } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
                   style={{ gridTemplateColumns: gridTemplate, height: ROW_H, minWidth: "100%" }}
                 >
                   {renderRowContent()}

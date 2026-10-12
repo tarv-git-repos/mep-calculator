@@ -15,7 +15,9 @@ import { getMergedItemComments } from "@/utils/commentHelpers";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
-import { Plus, Download, Trash, Copy, Trash2, X, Settings, FolderPlus, HelpCircle, Database, Upload, MessageSquare } from "lucide-react";
+import { Plus, Download, Trash, Copy, Trash2, X, Settings, FolderPlus, HelpCircle, Database, Upload, MessageSquare, Sparkles } from "lucide-react";
+import { syncBusbarFrom3DAndLoadSummary, BusbarSyncResult } from "@/lib/calc-busbar-sync";
+import { SyncBusbarModal } from "@/components/workspace/SyncBusbarModal";
 import { ContextMenuItem, ContextMenuSeparator, ContextMenuContent } from "@/components/ui/context-menu";
 import ExcelJS from "exceljs";
 import saveAsPkg from "file-saver";
@@ -59,6 +61,46 @@ function BusbarVoltageDropPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeRowId, setActiveRowId] = useState<string>();
   const [editingRow, setEditingRow] = useState<BusbarVDRow | null>(null);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncResult, setSyncResult] = useState<BusbarSyncResult | null>(null);
+
+  const handleSync3DAndLoadSummary = async () => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    toast.loading("Scanning 3D building storeys & Load Summary active loads...", { id: "busbar-sync" });
+    try {
+      const res = await syncBusbarFrom3DAndLoadSummary(activeProjectId || project?.id);
+      toast.dismiss("busbar-sync");
+      setSyncResult(res);
+      setSyncModalOpen(true);
+    } catch (err) {
+      toast.dismiss("busbar-sync");
+      console.error("Sync error:", err);
+      toast.error("Failed to extract 3D storeys or Load Summary data.");
+    }
+  };
+
+  const handleApplySync = (mode: "replace" | "append") => {
+    if (!syncResult) return;
+    pushToHistory(rows, history, setHistory, setRedoStack);
+    if (mode === "replace") {
+      setRows(syncResult.vdRows);
+    } else {
+      setRows((prev) => [...prev, ...syncResult.vdRows]);
+    }
+    setGlobalRating(syncResult.recommendedRatingLabel);
+    const matched = DEFAULT_RATINGS.find(r => r.rating === syncResult.recommendedRatingLabel);
+    if (matched) {
+      setGlobalR(matched.r);
+      setGlobalX(matched.x);
+    }
+    setSyncModalOpen(false);
+    toast.success(
+      `Generated vertical busduct riser (${syncResult.floors.length} floors) with ${syncResult.recommendedRatingLabel}!`
+    );
+  };
   
   const [history, setHistory] = useState<BusbarVDRow[][]>([]);
   const [redoStack, setRedoStack] = useState<BusbarVDRow[][]>([]);
@@ -558,28 +600,6 @@ function BusbarVoltageDropPage() {
         const idx = rows.findIndex(r => r.id === row.id);
         return (
           <div className="flex items-center gap-1.5 w-full">
-            {(() => {
-              const itemComments = getMergedItemComments(row.id, row.tapOff || row.ref || row.from, row.comments, "/busbar-voltage-drop", project?.id);
-              return itemComments.length > 0 ? (
-                <button
-                  type="button"
-                  className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                  title={`${itemComments.length} comment(s)/task(s) assigned`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCommentTarget({
-                      id: row.id,
-                      name: row.tapOff || row.ref || row.from || `Busbar Row ${row.id}`,
-                      type: 'space'
-                    });
-                    setAssignCommentOpen(true);
-                  }}
-                >
-                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span className="text-[10px] font-bold">{itemComments.length}</span>
-                </button>
-              ) : null;
-            })()}
             <input
               data-row-idx={idx}
               data-col-idx={0}
@@ -877,6 +897,16 @@ function BusbarVoltageDropPage() {
               <div className="w-px h-4 bg-border mx-1" />
               
               <button 
+                onClick={handleSync3DAndLoadSummary}
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 hover:border-primary/50 rounded text-[12.5px] font-semibold shadow-xs transition-all cursor-pointer"
+                title="Automatically generate vertical busduct riser from 3D Studio floor heights & Load Summary active kW"
+              >
+                <Sparkles className="size-3.5 text-primary" /> Sync 3D & Load Summary
+              </button>
+
+              <div className="w-px h-4 bg-border mx-1" />
+
+              <button 
                 onClick={loadDummyData}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-muted-foreground hover:text-foreground hover:bg-surface-2 rounded text-[12.5px] font-medium transition-colors"
               >
@@ -963,6 +993,10 @@ function BusbarVoltageDropPage() {
                     selected={selected}
                     onToggle={handleToggle}
                     onToggleAll={handleToggleAll}
+                    onCommentClick={(row) => {
+                      setCommentTarget({ id: row.id, name: row.description || `Tap Off ${row.tapOff}`, type: "busbar" });
+                      setAssignCommentOpen(true);
+                    }}
                     onRowDoubleClick={(row) => {
                       setActiveRowId(row.id);
                       setSelected(new Set([row.id]));
@@ -1116,6 +1150,13 @@ function BusbarVoltageDropPage() {
             }), globalR, globalX));
             setEditingRow(null);
           }}
+        />
+      )}
+      {syncModalOpen && syncResult && (
+        <SyncBusbarModal
+          syncResult={syncResult}
+          onApply={handleApplySync}
+          onClose={() => setSyncModalOpen(false)}
         />
       )}
     </AppShell>

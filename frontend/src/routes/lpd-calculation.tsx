@@ -7,6 +7,7 @@ import {
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
 import {
   Plus,
@@ -2425,9 +2426,13 @@ function LPDCalculationPage() {
                                       <>
                                         {/* Row Selection Checkbox */}
                                         <td
-                                          className="px-2 py-1.5 text-center border-r border-border/40"
+                                          className="px-2 py-1.5 text-center border-r border-border/40 relative"
                                           rowSpan={space.fixtures.length}
                                         >
+                                          <RowCommentCornerBadge
+                                            count={itemComments.length}
+                                            onClick={() => handleOpenComment(space.id, space.name)}
+                                          />
                                           <input
                                             type="checkbox"
                                             checked={isSelected}
@@ -2447,21 +2452,6 @@ function LPDCalculationPage() {
                                           }}
                                         >
                                           <div className="flex items-center gap-1.5 w-full h-full px-2.5">
-                                            {itemComments.length > 0 && (
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleOpenComment(space.id, space.name);
-                                                }}
-                                                onDoubleClick={(e) => e.stopPropagation()}
-                                                title={`${itemComments.length} comment(s)/task(s) assigned`}
-                                                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                                              >
-                                                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                                <span className="text-[10px] font-bold">{itemComments.length}</span>
-                                              </button>
-                                            )}
                                             <input
                                               className="w-full h-full min-h-[34px] bg-transparent outline-none font-medium text-[13px] text-foreground focus:bg-primary/5 px-1 rounded transition-colors"
                                               value={space.name}
@@ -2953,7 +2943,7 @@ function LPDCalculationPage() {
             }}
           >
             <MessageSquare className="size-3.5" />
-            <span>Add Comment / Task</span>
+            <span>Add Comment</span>
           </button>
 
           <button

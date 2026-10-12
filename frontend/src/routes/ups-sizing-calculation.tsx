@@ -523,32 +523,15 @@ function UpsSizingCalculationPage() {
       header: "Description of Load",
       width: 320,
       editable: true,
-      render: (r) => {
-        const itemComments = getMergedItemComments(r.id, r.description, (r as any).comments, "/ups-sizing-calculation", project?.id);
-        return (
-          <div className="flex items-center gap-1.5 w-full">
-            {itemComments.length > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenComment(r.id, r.description);
-                }}
-                title={`${itemComments.length} comment(s)/task(s) assigned`}
-                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-              >
-                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                <span className="text-[10px] font-bold">{itemComments.length}</span>
-              </button>
-            )}
-            <InlineInput
-              value={r.description}
-              onCommit={(val) => handleUpdateRow(r.id, "description", val)}
-              className="font-medium text-[13px] flex-1"
-            />
-          </div>
-        );
-      }
+      render: (r) => (
+        <div className="flex items-center gap-1.5 w-full">
+          <InlineInput
+            value={r.description}
+            onCommit={(val) => handleUpdateRow(r.id, "description", val)}
+            className="font-medium text-[13px] flex-1"
+          />
+        </div>
+      ),
     },
     {
       key: "unit",
@@ -1080,6 +1063,7 @@ function UpsSizingCalculationPage() {
                     selected={selected}
                     onToggle={handleToggle}
                     onToggleAll={handleToggleAll}
+                    onCommentClick={(r) => handleOpenComment(r.id, r.description)}
                     renderContextMenu={renderRowContextMenu}
                     onRowDoubleClick={(row) => setEditingRow({ ...row })}
                   />

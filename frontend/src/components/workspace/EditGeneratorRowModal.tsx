@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { X, Info, CheckCircle, AlertTriangle, Zap, Calculator, Sliders, Layers, Server } from "lucide-react";
+import { decideStarterAndMultiplier } from "@/lib/calc-generator";
 
 export type StarterType = "DOL" | "SD" | "Soft Starter" | "VFD" | "None";
 
@@ -59,10 +60,10 @@ export function EditGeneratorRowModal({
   onSave,
 }: EditGeneratorRowModalProps) {
   const [desc, setDesc] = useState(row.desc || "");
-  const [unit, setUnit] = useState<number | "">(row.unit ?? 1);
-  const [kwPerUnit, setKwPerUnit] = useState<number | "">(row.kwPerUnit ?? 0);
+  const [unit, setUnit] = useState<number | string>(row.unit ?? 1);
+  const [kwPerUnit, setKwPerUnit] = useState<number | string>(row.kwPerUnit ?? 0);
   const [starter, setStarter] = useState<StarterType>(row.starter || "DOL");
-  const [multiplier, setMultiplier] = useState<number | "">(row.multiplier ?? STARTER_MULTIPLIERS[row.starter || "DOL"]);
+  const [multiplier, setMultiplier] = useState<number | string>(row.multiplier ?? STARTER_MULTIPLIERS[row.starter || "DOL"]);
   const [remark, setRemark] = useState(row.remark || "");
   const [excludeEmergency, setExcludeEmergency] = useState(Boolean(row.excludeEmergency));
 
@@ -189,7 +190,17 @@ export function EditGeneratorRowModal({
                   <input
                     type="text"
                     value={desc}
-                    onChange={(e) => setDesc(e.target.value)}
+                    onChange={(e) => {
+                      const nextDesc = e.target.value;
+                      setDesc(nextDesc);
+                      const kwRaw = Number(kwPerUnit) || 0;
+                      const kwSi = unitSystem === "ip" ? kwRaw * 0.746 : kwRaw;
+                      if (nextDesc.trim() !== "") {
+                        const ai = decideStarterAndMultiplier(nextDesc, kwSi);
+                        setStarter(ai.starter);
+                        setMultiplier(ai.multiplier);
+                      }
+                    }}
                     placeholder="e.g. Fire Pump 1 / AHU-01"
                     className="w-full h-10 px-3.5 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-primary focus:ring-2 focus:ring-primary/10 rounded-xl text-[12.5px] outline-none text-neutral-800 dark:text-neutral-100 font-semibold"
                   />
@@ -231,7 +242,17 @@ export function EditGeneratorRowModal({
                     type="number"
                     step="0.1"
                     value={kwPerUnit}
-                    onChange={(e) => setKwPerUnit(e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
+                    onChange={(e) => {
+                      const nextKw: number | "" = e.target.value === "" ? "" : parseFloat(e.target.value) || 0;
+                      setKwPerUnit(nextKw);
+                      const kwRaw = Number(nextKw) || 0;
+                      const kwSi = unitSystem === "ip" ? kwRaw * 0.746 : kwRaw;
+                      if (desc.trim() !== "" || kwSi > 0) {
+                        const ai = decideStarterAndMultiplier(desc, kwSi);
+                        setStarter(ai.starter);
+                        setMultiplier(ai.multiplier);
+                      }
+                    }}
                     className={inputClass}
                   />
                 </div>

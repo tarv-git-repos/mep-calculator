@@ -18,6 +18,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { exportWaterDemandPDF } from "@/lib/exportWaterDemandPDF";
@@ -1511,7 +1512,7 @@ function WaterDemandPage() {
                                   >
                                     <td 
                                       style={{ width: colWidths.select, minWidth: colWidths.select }} 
-                                      className="py-1.5 px-2 text-center" 
+                                      className="py-1.5 px-2 text-center relative" 
                                       onClick={(e) => e.stopPropagation()}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
@@ -1521,6 +1522,20 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
+                                      <RowCommentCornerBadge
+                                        id={r.id}
+                                        count={r.comments?.length}
+                                        onClick={() =>
+                                          setCommentTarget({
+                                            targetId: String(r.id),
+                                            targetName: r.name,
+                                            targetType: "Domestic Water Load",
+                                            rowId: r.id,
+                                            isIrrigation: false,
+                                            existingComments: r.comments || [],
+                                          })
+                                        }
+                                      />
                                       <div className="flex items-center justify-center gap-1.5">
                                         <input
                                           type="checkbox"
@@ -1537,26 +1552,6 @@ function WaterDemandPage() {
                                           <span title="Flagged for review" className="inline-flex">
                                             <Flag className="size-3 text-amber-500 fill-amber-500" />
                                           </span>
-                                        )}
-                                        {r.comments && r.comments.length > 0 && (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              setCommentTarget({
-                                                targetId: String(r.id),
-                                                targetName: r.name,
-                                                targetType: "Domestic Water Load",
-                                                rowId: r.id,
-                                                isIrrigation: false,
-                                                existingComments: r.comments || [],
-                                              })
-                                            }
-                                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-500/20 transition cursor-pointer"
-                                            title={`${r.comments.length} comment(s) — Click to view`}
-                                          >
-                                            <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                            <span>{r.comments.length}</span>
-                                          </button>
                                         )}
                                       </div>
                                     </td>
@@ -2007,7 +2002,7 @@ function WaterDemandPage() {
                                         >
                                           <td 
                                             style={{ width: colWidths.irr_select, minWidth: colWidths.irr_select }} 
-                                            className="py-1.5 px-2 text-center" 
+                                            className="py-1.5 px-2 text-center relative" 
                                             onClick={(e) => e.stopPropagation()}
                                             onDoubleClick={(e) => {
                                               e.stopPropagation();
@@ -2017,6 +2012,20 @@ function WaterDemandPage() {
                                               setPreviewModalOpen(true);
                                             }}
                                           >
+                                            <RowCommentCornerBadge
+                                              id={r.id}
+                                              count={r.comments?.length}
+                                              onClick={() =>
+                                                setCommentTarget({
+                                                  targetId: String(r.id),
+                                                  targetName: r.vegType,
+                                                  targetType: "Irrigation Plant Area",
+                                                  rowId: r.id,
+                                                  isIrrigation: true,
+                                                  existingComments: r.comments || [],
+                                                })
+                                              }
+                                            />
                                             <div className="flex items-center justify-center gap-1.5">
                                               <input
                                                 type="checkbox"
@@ -2033,26 +2042,6 @@ function WaterDemandPage() {
                                                 <span title="Flagged for review" className="inline-flex">
                                                   <Flag className="size-3 text-amber-500 fill-amber-500" />
                                                 </span>
-                                              )}
-                                              {r.comments && r.comments.length > 0 && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    setCommentTarget({
-                                                      targetId: String(r.id),
-                                                      targetName: r.vegType,
-                                                      targetType: "Irrigation Plant Area",
-                                                      rowId: r.id,
-                                                      isIrrigation: true,
-                                                      existingComments: r.comments || [],
-                                                    })
-                                                  }
-                                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-500/20 transition cursor-pointer"
-                                                  title={`${r.comments.length} comment(s) — Click to view`}
-                                                >
-                                                  <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                                  <span>{r.comments.length}</span>
-                                                </button>
                                               )}
                                             </div>
                                           </td>
@@ -2263,12 +2252,27 @@ function WaterDemandPage() {
                             setPreviewModalOpen(true);
                           }}
                           title="Double-click to open swimming pool makeup calculation breakdown"
-                          className={`bg-card border rounded-2xl p-5 flex flex-col gap-4 shadow-xs transition-colors cursor-pointer select-none ${
+                          className={`bg-card border rounded-2xl p-5 flex flex-col gap-4 shadow-xs transition-colors cursor-pointer select-none relative overflow-hidden ${
                             poolFlagged
                               ? "border-amber-400/80 bg-amber-50/40 dark:bg-amber-950/20"
                               : "border-border hover:border-border/80"
                           }`}
                         >
+                          {poolComments.length > 0 && (
+                            <RowCommentCornerBadge
+                              count={poolComments.length}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCommentTarget({
+                                  targetId: "swimming_pool",
+                                  targetName: "Swimming Pool Makeup",
+                                  targetType: "Swimming Pool",
+                                  isPool: true,
+                                  existingComments: poolComments,
+                                });
+                              }}
+                            />
+                          )}
                           <div className="flex items-center justify-between pb-2 border-b border-border/60">
                             <div className="flex items-center gap-2">
                               <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
@@ -2298,11 +2302,7 @@ function WaterDemandPage() {
                                   title="Add comment & assign task for Swimming Pool"
                                 >
                                   <MessageSquare className="size-3.5" />
-                                  {poolComments.length > 0 && (
-                                    <span className="absolute -top-1 -right-1 size-3.5 bg-blue-600 text-white font-bold text-[9px] rounded-full flex items-center justify-center">
-                                      {poolComments.length}
-                                    </span>
-                                  )}
+                                  
                                 </button>
                                 <button
                                   type="button"
@@ -2450,11 +2450,7 @@ function WaterDemandPage() {
                                   title="Add comment & assign task for Fire Fighting"
                                 >
                                   <MessageSquare className="size-3.5" />
-                                  {fireComments.length > 0 && (
-                                    <span className="absolute -top-1 -right-1 size-3.5 bg-blue-600 text-white font-bold text-[9px] rounded-full flex items-center justify-center">
-                                      {fireComments.length}
-                                    </span>
-                                  )}
+                                  
                                 </button>
                                 <button
                                   type="button"

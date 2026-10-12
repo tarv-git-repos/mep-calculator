@@ -82,7 +82,7 @@ export const exportPreliminaryCoolingLoadPDF = async (
     // 1. Header Title (Matching Ventilation)
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("Preliminary Cooling Load Calculation Report", 14, 14);
+    doc.text("Preliminary Cooling Load Calculation", 14, 14);
 
     // 2. Metadata Block (Exact Ventilation 2-column format)
     doc.setFontSize(9);
@@ -347,7 +347,7 @@ export const exportPreliminaryCoolingLoadPDF = async (
     });
 
     const pdfBuffer = doc.output("arraybuffer");
-    await downloadFile(new Uint8Array(pdfBuffer), `Preliminary_Cooling_Load_Report_${activeProj?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
+    await downloadFile(new Uint8Array(pdfBuffer), `Preliminary_Cooling_Load_Calculation_${activeProj?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
     toast.success("Preliminary Cooling Load PDF exported successfully!");
   } catch (error: any) {
     console.error("exportPreliminaryCoolingLoadPDF error:", error);

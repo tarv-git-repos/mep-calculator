@@ -24,6 +24,7 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
@@ -144,6 +145,24 @@ function ChwPipeSizerPage() {
       currentUserName,
       currentUserId: userData?.id || profile?.id
     }).catch(console.error);
+  };
+
+  const renderCommentBadge = (id: string, name: string) => {
+    const itemComments = getMergedItemComments(
+      id,
+      name,
+      commentsList,
+      "/chw-pipe-sizer",
+      activeProjectId || project?.id || "default"
+    );
+    if (!itemComments || itemComments.length === 0) return null;
+    return (
+      <RowCommentCornerBadge
+        id={id}
+        count={itemComments.length}
+        onClick={() => handleOpenComment(id, name)}
+      />
+    );
   };
 
   const saveParams = (params: typeof sizingParams, unit: "si" | "ip") => {
@@ -306,8 +325,26 @@ function ChwPipeSizerPage() {
     );
   };
 
-  const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs font-normal focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
-  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-normal focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
+  const getInputClass = (id: string, name?: string, isLarger: boolean = false) => {
+    const isHigh = isFieldHighlighted(id, name);
+    const baseStyle = isLarger
+      ? "w-full h-9 px-3 rounded-lg text-xs font-mono font-normal focus:outline-none disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base transition-all duration-150"
+      : "w-full h-8 px-2 rounded font-mono text-xs font-normal focus:outline-none disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base transition-all duration-150";
+
+    return `${baseStyle} bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-foreground focus:border-[#0A7BC7] ${isHigh}`;
+  };
+
+  const getSelectInputClass = (id: string, name?: string) => {
+    const isHigh = isFieldHighlighted(id, name);
+    const baseStyle = "w-full h-8 px-2 rounded text-xs font-normal focus:outline-none cursor-pointer transition-all duration-150";
+
+    return `${baseStyle} bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-foreground focus:border-[#0A7BC7] ${isHigh}`;
+  };
+
+  const getCardCommentClass = (id: string, name: string, baseClass: string) => {
+    const isHigh = isFieldHighlighted(id, name);
+    return `${baseClass} relative ${isHigh}`;
+  };
 
   return (
     <AppShell
@@ -712,35 +749,68 @@ function ChwPipeSizerPage() {
             ) : (
 /* CALCULATOR VIEW SECTION */
               <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
-              <ContextMenu>
-                <ContextMenuTrigger>
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 
                 {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
                 <div className="lg:col-span-5 space-y-5">
-                  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
+                  <div
+                    id="card-params"
+                    data-field-id="card-params"
+                    data-comment-target="card-params"
+                    className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5"
+                  >
                     <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                       <span className="text-xs font-semibold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
                         📥 Sizing Parameters
                       </span>
+                      {renderCommentBadge("card-params", "Sizing Parameters")}
                     </div>
 
                     {/* INPUT 1: Flow Rate */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium text-slate-600 dark:text-zinc-300">
-                          Flow Rate ({isSI ? "L/s" : "GPM"})
-                        </label>
-                      </div>
-                      <input
-                        type="number"
-                        disabled={isEffectiveReadOnly || isApprovedLocked}
-                        value={sizingParams.flowRate}
-                        onChange={(e) => saveParams({ ...sizingParams, flowRate: e.target.value }, unitSystem)}
-                        className={flowInputClass}
-                        placeholder={isSI ? "e.g. 5.0" : "e.g. 80"}
-                      />
-                    </div>
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          id="field-flowRate"
+                          data-field-id="field-flowRate"
+                          data-comment-target="flowRate"
+                          className="space-y-1"
+                        >
+                          <label className="text-xs font-medium text-slate-600 dark:text-zinc-300">
+                            Flow Rate ({isSI ? "L/s" : "GPM"})
+                          </label>
+                          <div className="relative mt-1">
+                            <input
+                              type="number"
+                              disabled={isEffectiveReadOnly || isApprovedLocked}
+                              value={sizingParams.flowRate}
+                              onChange={(e) => saveParams({ ...sizingParams, flowRate: e.target.value }, unitSystem)}
+                              className={getInputClass("flowRate", "Flow Rate", true)}
+                              placeholder={isSI ? "e.g. 5.0" : "e.g. 80"}
+                            />
+                            {renderCommentBadge("flowRate", "Flow Rate")}
+                          </div>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          onClick={() => handleOpenComment("flowRate", "Flow Rate")}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment</span>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => {
+                            navigator.clipboard.writeText(String(sizingParams.flowRate));
+                            toast.success("Copied flow rate");
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                        >
+                          <span>Copy Value</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
 
                     {/* INPUT 2 & 3: Fluid Type & Operating Temp */}
                     <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
@@ -750,31 +820,82 @@ function ChwPipeSizerPage() {
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <label className="text-[11px] text-slate-500 font-medium">Fluid Type</label>
-                          <select
-                            disabled={isEffectiveReadOnly || isApprovedLocked}
-                            value={sizingParams.fluidType}
-                            onChange={(e) => saveParams({ ...sizingParams, fluidType: e.target.value as any }, unitSystem)}
-                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs font-normal focus:outline-none"
-                          >
-                            <option value="chw">Chilled Water</option>
-                            <option value="cw">Condenser Water</option>
-                            <option value="g25">25% Ethylene Glycol</option>
-                            <option value="g40">40% Ethylene Glycol</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[11px] text-slate-500 font-medium">Fluid Temp ({isSI ? "°C" : "°F"})</label>
-                          <input
-                            type="number"
-                            disabled={isEffectiveReadOnly || isApprovedLocked}
-                            value={sizingParams.temperature}
-                            onChange={(e) => saveParams({ ...sizingParams, temperature: e.target.value }, unitSystem)}
-                            className={inputClass}
-                            placeholder={isSI ? "e.g. 6.7" : "e.g. 44"}
-                          />
-                        </div>
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-fluidType"
+                              data-field-id="field-fluidType"
+                              data-comment-target="fluidType"
+                            >
+                              <label className="text-[11px] text-slate-500 font-medium">Fluid Type</label>
+                              <div className="relative mt-1">
+                                <select
+                                  disabled={isEffectiveReadOnly || isApprovedLocked}
+                                  value={sizingParams.fluidType}
+                                  onChange={(e) => saveParams({ ...sizingParams, fluidType: e.target.value as any }, unitSystem)}
+                                  className={getSelectInputClass("fluidType", "Fluid Type")}
+                                >
+                                  <option value="chw">Chilled Water</option>
+                                  <option value="cw">Condenser Water</option>
+                                  <option value="g25">25% Ethylene Glycol</option>
+                                  <option value="g40">40% Ethylene Glycol</option>
+                                </select>
+                                {renderCommentBadge("fluidType", "Fluid Type")}
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("fluidType", "Fluid Type")}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-temperature"
+                              data-field-id="field-temperature"
+                              data-comment-target="temperature"
+                            >
+                              <label className="text-[11px] text-slate-500 font-medium">Fluid Temp ({isSI ? "°C" : "°F"})</label>
+                              <div className="relative mt-1">
+                                <input
+                                  type="number"
+                                  disabled={isEffectiveReadOnly || isApprovedLocked}
+                                  value={sizingParams.temperature}
+                                  onChange={(e) => saveParams({ ...sizingParams, temperature: e.target.value }, unitSystem)}
+                                  className={getInputClass("temperature", "Fluid Temperature")}
+                                  placeholder={isSI ? "e.g. 6.7" : "e.g. 44"}
+                                />
+                                {renderCommentBadge("temperature", "Fluid Temperature")}
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("temperature", "Fluid Temperature")}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => {
+                                navigator.clipboard.writeText(String(sizingParams.temperature));
+                                toast.success("Copied fluid temperature");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <span>Copy Value</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
                       </div>
                     </div>
 
@@ -786,30 +907,81 @@ function ChwPipeSizerPage() {
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <label className="text-[11px] text-slate-500 font-medium">Pipe Material</label>
-                          <select
-                            disabled={isEffectiveReadOnly || isApprovedLocked}
-                            value={sizingParams.pipeMaterial}
-                            onChange={(e) => saveParams({ ...sizingParams, pipeMaterial: e.target.value as any }, unitSystem)}
-                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs font-normal focus:outline-none"
-                          >
-                            {Object.entries(PIPE_MATERIALS).map(([k, m]) => (
-                              <option key={k} value={k}>{m.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[11px] text-slate-500 font-medium">Target ΔP ({isSI ? "Pa/m" : "ft/100ft"})</label>
-                          <input
-                            type="number"
-                            disabled={isEffectiveReadOnly || isApprovedLocked}
-                            value={sizingParams.targetDp}
-                            onChange={(e) => saveParams({ ...sizingParams, targetDp: e.target.value }, unitSystem)}
-                            className={inputClass}
-                            placeholder={isSI ? "e.g. 40" : "e.g. 4.0"}
-                          />
-                        </div>
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-pipeMaterial"
+                              data-field-id="field-pipeMaterial"
+                              data-comment-target="pipeMaterial"
+                            >
+                              <label className="text-[11px] text-slate-500 font-medium">Pipe Material</label>
+                              <div className="relative mt-1">
+                                <select
+                                  disabled={isEffectiveReadOnly || isApprovedLocked}
+                                  value={sizingParams.pipeMaterial}
+                                  onChange={(e) => saveParams({ ...sizingParams, pipeMaterial: e.target.value as any }, unitSystem)}
+                                  className={getSelectInputClass("pipeMaterial", "Pipe Material")}
+                                >
+                                  {Object.entries(PIPE_MATERIALS).map(([k, m]) => (
+                                    <option key={k} value={k}>{m.label}</option>
+                                  ))}
+                                </select>
+                                {renderCommentBadge("pipeMaterial", "Pipe Material")}
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("pipeMaterial", "Pipe Material")}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id="field-targetDp"
+                              data-field-id="field-targetDp"
+                              data-comment-target="targetDp"
+                            >
+                              <label className="text-[11px] text-slate-500 font-medium">Target ΔP ({isSI ? "Pa/m" : "ft/100ft"})</label>
+                              <div className="relative mt-1">
+                                <input
+                                  type="number"
+                                  disabled={isEffectiveReadOnly || isApprovedLocked}
+                                  value={sizingParams.targetDp}
+                                  onChange={(e) => saveParams({ ...sizingParams, targetDp: e.target.value }, unitSystem)}
+                                  className={getInputClass("targetDp", "Target Friction Loss")}
+                                  placeholder={isSI ? "e.g. 40" : "e.g. 4.0"}
+                                />
+                                {renderCommentBadge("targetDp", "Target Friction Loss")}
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("targetDp", "Target Friction Loss")}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => {
+                                navigator.clipboard.writeText(String(sizingParams.targetDp));
+                                toast.success("Copied target friction loss");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <span>Copy Value</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
                       </div>
                     </div>
 
@@ -819,6 +991,9 @@ function ChwPipeSizerPage() {
                 {/* RIGHT COLUMN: CALCULATION RESULTS (lg:col-span-7) */}
                 <div className="lg:col-span-7 space-y-5">
                   <div 
+                    id="card-results"
+                    data-field-id="card-results"
+                    data-comment-target="card-results"
                     onDoubleClick={() => setFormulaModalOpen(true)}
                     title="Double-click to view detailed calculations"
                     className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6 cursor-pointer hover:border-primary/40 transition-colors"
@@ -827,40 +1002,161 @@ function ChwPipeSizerPage() {
                       <span className="text-xs font-semibold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
                         ⚡ Sizing Results Summary
                       </span>
+                      {renderCommentBadge("card-results", "Sizing Results Summary")}
                     </div>
 
                     {/* 4 TOP DISPLAY STAT CARDS */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5">
-                        <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Selected Pipe Size</div>
-                        <div className="text-lg font-semibold font-mono text-foreground mt-1">
-                          {calculatedData.chosen ? `NPS ${calculatedData.chosen.nps}"` : "NaN"}{" "}
-                          <span className="text-xs font-normal text-muted-foreground">{calculatedData.chosen ? `(DN ${calculatedData.chosen.idMm})` : ""}</span>
-                        </div>
-                      </div>
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            id="res-size"
+                            data-field-id="res-size"
+                            data-comment-target="res-size"
+                            className={getCardCommentClass("res-size", "Selected Pipe Size", "bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                          >
+                            <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Selected Pipe Size</div>
+                            <div className="text-lg font-semibold font-mono text-foreground mt-1">
+                              {calculatedData.chosen ? `NPS ${calculatedData.chosen.nps}"` : "NaN"}{" "}
+                              <span className="text-xs font-normal text-muted-foreground">{calculatedData.chosen ? `(DN ${calculatedData.chosen.idMm})` : ""}</span>
+                            </div>
+                            {renderCommentBadge("res-size", "Selected Pipe Size")}
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("res-size", "Selected Pipe Size")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={() => {
+                              const val = calculatedData.chosen ? `NPS ${calculatedData.chosen.nps}" (DN ${calculatedData.chosen.idMm})` : "";
+                              navigator.clipboard.writeText(val);
+                              toast.success("Copied pipe size");
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <span>Copy Value</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
 
-                      <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5">
-                        <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium font-sans">Velocity</div>
-                        <div className="text-lg font-semibold font-mono text-foreground mt-1">
-                          {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.v.toFixed(2)}` : `${calculatedData.chosen.vFps.toFixed(2)}`) : "NaN"}{" "}
-                          <span className="text-xs font-normal text-muted-foreground">{isSI ? "m/s" : "fps"}</span>
-                        </div>
-                      </div>
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            id="res-velocity"
+                            data-field-id="res-velocity"
+                            data-comment-target="res-velocity"
+                            className={getCardCommentClass("res-velocity", "Velocity", "bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                          >
+                            <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium font-sans">Velocity</div>
+                            <div className="text-lg font-semibold font-mono text-foreground mt-1">
+                              {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.v.toFixed(2)}` : `${calculatedData.chosen.vFps.toFixed(2)}`) : "NaN"}{" "}
+                              <span className="text-xs font-normal text-muted-foreground">{isSI ? "m/s" : "fps"}</span>
+                            </div>
+                            {renderCommentBadge("res-velocity", "Velocity")}
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("res-velocity", "Velocity")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={() => {
+                              const val = calculatedData.chosen ? (isSI ? `${calculatedData.chosen.v.toFixed(2)} m/s` : `${calculatedData.chosen.vFps.toFixed(2)} fps`) : "";
+                              navigator.clipboard.writeText(val);
+                              toast.success("Copied velocity");
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <span>Copy Value</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
 
-                      <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5">
-                        <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium font-sans">Pressure Drop</div>
-                        <div className="text-lg font-semibold font-mono text-foreground mt-1">
-                          {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.dpPaM.toFixed(1)}` : `${calculatedData.chosen.dpFt.toFixed(2)}`) : "NaN"}{" "}
-                          <span className="text-xs font-normal text-muted-foreground">{isSI ? "Pa/m" : "ft/100ft"}</span>
-                        </div>
-                      </div>
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            id="res-dp"
+                            data-field-id="res-dp"
+                            data-comment-target="res-dp"
+                            className={getCardCommentClass("res-dp", "Pressure Drop", "bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                          >
+                            <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium font-sans">Pressure Drop</div>
+                            <div className="text-lg font-semibold font-mono text-foreground mt-1">
+                              {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.dpPaM.toFixed(1)}` : `${calculatedData.chosen.dpFt.toFixed(2)}`) : "NaN"}{" "}
+                              <span className="text-xs font-normal text-muted-foreground">{isSI ? "Pa/m" : "ft/100ft"}</span>
+                            </div>
+                            {renderCommentBadge("res-dp", "Pressure Drop")}
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("res-dp", "Pressure Drop")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={() => {
+                              const val = calculatedData.chosen ? (isSI ? `${calculatedData.chosen.dpPaM.toFixed(1)} Pa/m` : `${calculatedData.chosen.dpFt.toFixed(2)} ft/100ft`) : "";
+                              navigator.clipboard.writeText(val);
+                              toast.success("Copied pressure drop");
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <span>Copy Value</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
 
-                      <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5">
-                        <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium font-sans">Reynolds Number</div>
-                        <div className="text-lg font-semibold font-mono text-foreground mt-1">
-                          {calculatedData.chosen ? Math.round(calculatedData.chosen.Re).toLocaleString() : "NaN"}
-                        </div>
-                      </div>
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            id="res-reynolds"
+                            data-field-id="res-reynolds"
+                            data-comment-target="res-reynolds"
+                            className={getCardCommentClass("res-reynolds", "Reynolds Number", "bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                          >
+                            <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium font-sans">Reynolds Number</div>
+                            <div className="text-lg font-semibold font-mono text-foreground mt-1">
+                              {calculatedData.chosen ? Math.round(calculatedData.chosen.Re).toLocaleString() : "NaN"}
+                            </div>
+                            {renderCommentBadge("res-reynolds", "Reynolds Number")}
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("res-reynolds", "Reynolds Number")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={() => {
+                              const val = calculatedData.chosen ? String(Math.round(calculatedData.chosen.Re)) : "";
+                              navigator.clipboard.writeText(val);
+                              toast.success("Copied Reynolds number");
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <span>Copy Value</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
                     </div>
 
                     {/* DETAILED METRICS TABLE */}
@@ -897,14 +1193,37 @@ function ChwPipeSizerPage() {
                 </div>
 
               </div>
-                </ContextMenuTrigger>
-                <ContextMenuContent className="w-48">
-                  <ContextMenuItem onClick={() => handleReset()}>
-                    <RefreshCw className="size-4 mr-2" /> Reset to Defaults
+              <ContextMenu>
+                <ContextMenuTrigger className="block w-full h-4 mt-2" />
+                <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                  <ContextMenuItem
+                    onClick={() => handleOpenComment("chw-pipe-sizer", "CHW Pipe Sizer")}
+                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                  >
+                    <MessageSquare className="size-3.5" />
+                    <span>Add Comment</span>
                   </ContextMenuItem>
-                  <ContextMenuSeparator />
-                  <ContextMenuItem onClick={() => setFormulaModalOpen(true)}>
-                    <Info className="size-4 mr-2" /> View Detailed Calcs
+
+                  <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                  <ContextMenuItem
+                    onClick={() => setFormulaModalOpen(true)}
+                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                  >
+                    <Info className="size-3.5 text-primary" />
+                    <span>View Detailed Calcs</span>
+                  </ContextMenuItem>
+
+                  <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                  <ContextMenuItem
+                    disabled={isEffectiveReadOnly || isApprovedLocked}
+                    onClick={() => handleReset()}
+                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    <span>Reset to Defaults</span>
+                    <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
                   </ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>

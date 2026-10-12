@@ -8,6 +8,7 @@ import { AppShell } from "@/components/workspace/AppShell";
 import { useWorkspace } from "@/lib/workspace-store";
 import { useAuth } from "@/contexts/AuthContext";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
@@ -894,29 +895,19 @@ export function CondensateDrainPage() {
               handleOpenEditModal();
             }}
             title="Double-click to open Edit Parameters Modal (Ventilation style)"
-            className={`flex flex-col gap-1.5 p-2 -mx-2 rounded-xl transition-all duration-200 cursor-pointer group ${
+            className={`flex flex-col gap-1.5 p-2 -mx-2 rounded-xl transition-all duration-200 cursor-pointer group relative ${
               isHighlighted
                 ? "row-highlight-flash item-highlight-pulse ring-2 ring-[#0A7BC7] bg-[#0A7BC7]/10 z-20 font-bold"
                 : "hover:bg-slate-50 dark:hover:bg-slate-900/50"
             }`}
           >
+            <RowCommentCornerBadge
+              count={itemComments.length}
+              onClick={() => handleOpenComment({ id, name: label, type: "input" })}
+            />
             <div className="flex justify-between items-center select-none">
               <label className="font-semibold text-foreground flex items-center gap-1.5 cursor-pointer">
                 <span>{label}</span>
-                {hasComments && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment({ id, name: label, type: "input" });
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 font-bold text-[10.5px] hover:bg-blue-200 dark:hover:bg-blue-900 transition cursor-pointer shadow-xs select-none border border-blue-300/60 dark:border-blue-700/60 shrink-0"
-                    title={`${itemComments.length} comment(s)/task(s) assigned to ${label}`}
-                  >
-                    <MessageSquare className="size-3.5 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span className="text-[10px] font-extrabold">{itemComments.length}</span>
-                  </button>
-                )}
               </label>
               <div className="flex items-center gap-1.5" />
             </div>
@@ -942,21 +933,20 @@ export function CondensateDrainPage() {
           </div>
         </ContextMenuTrigger>
 
-        <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
           <ContextMenuItem
-            onClick={handleOpenEditModal}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-primary/10 text-primary rounded-lg cursor-pointer font-semibold"
+            onClick={() => handleOpenComment({ id, name: label, type: "input" })}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
-            <Edit3 className="size-3.5 text-primary" />
-            <span>Edit Parameters Modal</span>
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
 
           <ContextMenuSeparator className="h-px bg-border my-1" />
 
           <ContextMenuItem
             onClick={() => handleCopyValue(label, value)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <Copy className="size-3.5 text-muted-foreground" />
             <span>Copy Value ({value})</span>
@@ -966,7 +956,7 @@ export function CondensateDrainPage() {
           {!isLocked && (
             <ContextMenuItem
               onClick={() => handlePasteValue(setter, label)}
-              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
             >
               <Clipboard className="size-3.5 text-muted-foreground" />
               <span>Paste Value</span>
@@ -974,28 +964,32 @@ export function CondensateDrainPage() {
             </ContextMenuItem>
           )}
 
-          {!isLocked && (
-            <ContextMenuItem
-              onClick={() => {
-                setter(defaultValue);
-                toast.info(`Reset ${label} to default (${defaultValue})`);
-              }}
-              className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-            >
-              <RotateCcw className="size-3.5 text-muted-foreground" />
-              <span>Reset to Default ({defaultValue})</span>
-            </ContextMenuItem>
-          )}
-
           <ContextMenuSeparator className="h-px bg-border my-1" />
 
           <ContextMenuItem
-            onClick={() => handleOpenComment({ id, name: label, type: "input" })}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+            onClick={handleOpenEditModal}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
-            <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <Edit3 className="size-3.5 text-muted-foreground" />
+            <span>Edit Parameters Modal</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
           </ContextMenuItem>
+
+          {!isLocked && (
+            <>
+              <ContextMenuSeparator className="h-px bg-border my-1" />
+              <ContextMenuItem
+                onClick={() => {
+                  setter(defaultValue);
+                  toast.info(`Reset ${label} to default (${defaultValue})`);
+                }}
+                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+              >
+                <RotateCcw className="size-3.5 text-muted-foreground" />
+                <span>Reset to Default ({defaultValue})</span>
+              </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
     );
@@ -1030,28 +1024,18 @@ export function CondensateDrainPage() {
               handleOpenEditModal();
             }}
             title="Double-click to open Edit Parameters Modal (Ventilation style)"
-            className={`flex justify-between items-center py-2 px-2.5 border-b border-border/40 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 rounded-lg transition-all duration-150 cursor-pointer group select-none ${
+            className={`flex justify-between items-center py-2 px-2.5 border-b border-border/40 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 rounded-lg transition-all duration-150 cursor-pointer group select-none relative ${
               isHighlighted
                 ? "row-highlight-flash item-highlight-pulse ring-2 ring-[#0A7BC7] bg-[#0A7BC7]/10 z-20 font-bold"
                 : ""
             }`}
           >
+            <RowCommentCornerBadge
+              count={itemComments.length}
+              onClick={() => handleOpenComment({ id, name: label, type: "result" })}
+            />
             <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
               <span>{label}</span>
-              {hasComments && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenComment({ id, name: label, type: "result" });
-                  }}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 font-bold text-[10.5px] hover:bg-blue-200 dark:hover:bg-blue-900 transition cursor-pointer shadow-xs select-none border border-blue-300/60 dark:border-blue-700/60 shrink-0"
-                  title={`${itemComments.length} comment(s)/task(s) assigned to ${label}`}
-                >
-                  <MessageSquare className="size-3.5 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                  <span className="text-[10px] font-extrabold">{itemComments.length}</span>
-                </button>
-              )}
             </span>
             <div className="flex items-center gap-2">
               
@@ -1062,21 +1046,20 @@ export function CondensateDrainPage() {
           </div>
         </ContextMenuTrigger>
 
-        <ContextMenuContent className="w-64 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
           <ContextMenuItem
-            onClick={handleOpenEditModal}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-primary/10 text-primary rounded-lg cursor-pointer font-semibold"
+            onClick={() => handleOpenComment({ id, name: label, type: "result" })}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
-            <Edit3 className="size-3.5 text-primary" />
-            <span>Edit Parameters Modal</span>
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
 
           <ContextMenuItem
             onClick={() => setFormulaModalOpen(true)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
-            <HelpCircle className="size-3.5 text-primary" />
+            <HelpCircle className="size-3.5 text-muted-foreground" />
             <span>Formula Breakdown Guide</span>
           </ContextMenuItem>
 
@@ -1084,7 +1067,7 @@ export function CondensateDrainPage() {
 
           <ContextMenuItem
             onClick={() => handleCopyValue(label, valueFormatted)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <Copy className="size-3.5 text-muted-foreground" />
             <span>Copy Value ({valueFormatted})</span>
@@ -1096,7 +1079,7 @@ export function CondensateDrainPage() {
               navigator.clipboard.writeText(`${label}: ${valueFormatted}`);
               toast.success(`Copied full row: "${label}: ${valueFormatted}"`);
             }}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <FileText className="size-3.5 text-muted-foreground" />
             <span>Copy Full Row</span>
@@ -1105,11 +1088,12 @@ export function CondensateDrainPage() {
           <ContextMenuSeparator className="h-px bg-border my-1" />
 
           <ContextMenuItem
-            onClick={() => handleOpenComment({ id, name: label, type: "result" })}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+            onClick={handleOpenEditModal}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
-            <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <Edit3 className="size-3.5 text-muted-foreground" />
+            <span>Edit Parameters Modal</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -1285,19 +1269,19 @@ export function CondensateDrainPage() {
                                     </div>
                                   </div>
                                 </ContextMenuTrigger>
-                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
                                   <ContextMenuItem
                                     onClick={() => setCondMode("tr")}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent rounded-lg cursor-pointer font-medium"
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                                   >
-                                    <Droplets className="size-3.5 text-primary" />
+                                    <Droplets className="size-3.5 text-muted-foreground" />
                                     <span>Switch to Cooling Capacity</span>
                                   </ContextMenuItem>
                                   <ContextMenuItem
                                     onClick={() => setCondMode("lat")}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent rounded-lg cursor-pointer font-medium"
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                                   >
-                                    <Droplets className="size-3.5 text-primary" />
+                                    <Droplets className="size-3.5 text-muted-foreground" />
                                     <span>Switch to Latent Load</span>
                                   </ContextMenuItem>
                                 </ContextMenuContent>
@@ -1345,58 +1329,60 @@ export function CondensateDrainPage() {
                           </div>
                         </ContextMenuTrigger>
 
-                        <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
                           <ContextMenuItem
-                            onClick={handleOpenEditModal}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-primary/10 text-primary rounded-lg cursor-pointer font-semibold"
+                            onClick={() => handleOpenComment({ id: "condensate-inputs", name: "Condensate Sizing Inputs", type: "section" })}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                           >
-                            <Edit3 className="size-3.5 text-primary" />
-                            <span>Edit Parameters Modal</span>
-                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                          </ContextMenuItem>
-
-                          <ContextMenuItem
-                            onClick={() => setFormulaModalOpen(true)}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent rounded-lg cursor-pointer font-medium"
-                          >
-                            <Info className="size-3.5 text-primary" />
-                            <span>Formula Breakdown Guide</span>
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment to Inputs</span>
                           </ContextMenuItem>
 
                           <ContextMenuItem
                             onClick={handleCalculate}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent rounded-lg cursor-pointer font-medium"
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                           >
-                            <Zap className="size-3.5 text-[#0A7BC7]" />
+                            <Zap className="size-3.5 text-muted-foreground" />
                             <span>Size Condensate Drain</span>
+                          </ContextMenuItem>
+
+                          <ContextMenuItem
+                            onClick={() => setFormulaModalOpen(true)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                          >
+                            <Info className="size-3.5 text-muted-foreground" />
+                            <span>Formula Breakdown Guide</span>
                           </ContextMenuItem>
 
                           <ContextMenuSeparator className="h-px bg-border my-1" />
 
                           <ContextMenuItem
-                            onClick={handleResetDefaults}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent rounded-lg cursor-pointer font-medium"
-                          >
-                            <RotateCcw className="size-3.5 text-muted-foreground" />
-                            <span>Reset All Inputs to Defaults</span>
-                          </ContextMenuItem>
-
-                          <ContextMenuItem
                             onClick={handleExportExcel}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent rounded-lg cursor-pointer font-medium"
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                           >
-                            <FileSpreadsheet className="size-3.5 text-emerald-600" />
+                            <FileSpreadsheet className="size-3.5 text-muted-foreground" />
                             <span>Export Excel Document</span>
                           </ContextMenuItem>
 
                           <ContextMenuSeparator className="h-px bg-border my-1" />
 
                           <ContextMenuItem
-                            onClick={() => handleOpenComment({ id: "condensate-inputs", name: "Condensate Sizing Inputs", type: "section" })}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-600 rounded-lg cursor-pointer font-medium"
+                            onClick={handleOpenEditModal}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                           >
-                            <MessageSquare className="size-3.5" />
-                            <span>Add Comment to Inputs</span>
+                            <Edit3 className="size-3.5 text-muted-foreground" />
+                            <span>Edit Parameters Modal</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+                          </ContextMenuItem>
+
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+
+                          <ContextMenuItem
+                            onClick={handleResetDefaults}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
+                          >
+                            <RotateCcw className="size-3.5" />
+                            <span>Reset All Inputs to Defaults</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1452,32 +1438,32 @@ export function CondensateDrainPage() {
                               </div>
                             </ContextMenuTrigger>
 
-                            <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
                               <ContextMenuItem
-                                onClick={handleOpenEditModal}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-primary/10 text-primary rounded-lg cursor-pointer font-semibold"
+                                onClick={() => handleOpenComment({ id: "condensate-results", name: "Sizing Results Summary", type: "result-summary" })}
+                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                               >
-                                <Edit3 className="size-3.5 text-primary" />
-                                <span>Edit Parameters Modal</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+                                <MessageSquare className="size-3.5" />
+                                <span>Add Comment to Results</span>
                               </ContextMenuItem>
 
                               <ContextMenuItem
                                 onClick={() => setFormulaModalOpen(true)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent rounded-lg cursor-pointer font-medium"
+                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                               >
-                                <Info className="size-3.5 text-primary" />
+                                <Info className="size-3.5 text-muted-foreground" />
                                 <span>Formula Breakdown Guide</span>
                               </ContextMenuItem>
 
                               <ContextMenuSeparator className="h-px bg-border my-1" />
 
                               <ContextMenuItem
-                                onClick={() => handleOpenComment({ id: "condensate-results", name: "Sizing Results Summary", type: "result-summary" })}
-                                className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-600 rounded-lg cursor-pointer font-medium"
+                                onClick={handleOpenEditModal}
+                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                               >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment to Results</span>
+                                <Edit3 className="size-3.5 text-muted-foreground" />
+                                <span>Edit Parameters Modal</span>
+                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
                               </ContextMenuItem>
                             </ContextMenuContent>
                           </ContextMenu>

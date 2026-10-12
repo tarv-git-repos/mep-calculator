@@ -8,7 +8,7 @@ import { EditDiffuserSpaceModal } from "@/components/workspace/EditDiffuserSpace
 import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
-  Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, Clipboard,
+  Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, CopyPlus, Clipboard,
   RotateCcw, MessageSquare, Edit3, FileText, CheckCircle2, Sparkles,
   Download, Upload, Gauge, Layers, Plus, Filter, Search, Wind,
   SlidersHorizontal, Check, RefreshCw, Zap, Calculator, Flame, ArrowRight,
@@ -34,11 +34,13 @@ import {
 } from "@/components/ui/popover";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { useAuth } from "@/contexts/AuthContext";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { exportDiffuserSelectorExcel } from "@/lib/exportDiffuserSelectorExcel";
-import { addPdfSignatureBlock } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { exportDiffuserSelectorPDF } from "@/lib/exportDiffuserSelectorPDF";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/diffuser-selector")({
@@ -136,6 +138,17 @@ function DiffuserSelectorPage() {
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+
+  const [projectInfo, setProjectInfo] = useState({
+    projectName: "Air Terminal & Diffuser Selection Study",
+    projectNumber: "MEP-DIF-2026",
+    client: "Prestige Group developers",
+    consultant: "Consistent Engineering Consultants",
+    date: new Date().toISOString().split("T")[0],
+    revision: "Rev 0",
+    calcNumber: "CALC-HVAC-DIF01",
+    notes: "Diffuser sizing and acoustic selection analysis based on ASHRAE 55 and ADPI criteria.",
+  });
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [rows, setRows] = useState<DiffuserRowItem[]>(DEFAULT_ROWS);
@@ -308,33 +321,82 @@ function DiffuserSelectorPage() {
   const handleOpenComment = (idOrObj: { id: string; name: string } | string, nameOptional?: string) => {
     if (typeof idOrObj === "string") {
       setCommentTargetItem({ id: idOrObj, name: nameOptional || idOrObj });
-    } else {
-      setCommentTargetItem(idOrObj);
+    } else if (idOrObj && typeof idOrObj === "object") {
+      setCommentTargetItem({
+        id: (idOrObj as any).id,
+        name: (idOrObj as any).name || (idOrObj as any).label || (idOrObj as any).spaceName || "Space",
+      });
     }
     setCommentModalOpen(true);
   };
+  const handleOpenCommentModal = handleOpenComment;
 
-  const handleSaveComment = (commentText: string, metadata?: any) => {
-    if (!commentText.trim()) return;
+  // Listen for custom event from DataGrid or other comment triggers
+  useEffect(() => {
+    const handleCustomComment = (e: any) => {
+      const detail = e.detail;
+      if (detail && detail.id) {
+        const found = rows.find((r) => String(r.id) === String(detail.id));
+        if (found) {
+          handleOpenComment(found.id, found.name);
+        } else {
+          setCommentTargetItem({ id: String(detail.id), name: detail.name || "Space" });
+          setCommentModalOpen(true);
+        }
+      }
+    };
+    window.addEventListener("open-mep-row-comment", handleCustomComment);
+    return () => window.removeEventListener("open-mep-row-comment", handleCustomComment);
+  }, [rows]);
+
+  const handleSaveComment = (commentData: any, metadata?: any) => {
+    const text = typeof commentData === "string" ? commentData : commentData?.text || commentData?.comment || "";
+    if (!text || !text.trim()) return;
+
     const newComment = {
-      id: "cm_" + Date.now(),
+      id: typeof commentData === "object" && commentData?.id ? commentData.id : "cm_" + Date.now(),
       spaceId: commentTargetItem?.id || "general",
       targetId: commentTargetItem?.id || "general",
       targetName: commentTargetItem?.name || "Diffuser Parameter",
-      user: currentUserName,
-      userId: userData?.id || profile?.id || "user_id",
-      text: commentText.trim(),
-      timestamp: new Date().toISOString(),
+      user: (typeof commentData === "object" && commentData?.user) || currentUserName,
+      userId: (typeof commentData === "object" && (commentData?.userId || commentData?.authorId)) || userData?.id || profile?.id || "user_id",
+      text: text.trim(),
+      timestamp: (typeof commentData === "object" && commentData?.timestamp) || new Date().toISOString(),
       status: "OPEN",
-      tag: metadata?.tag || "general",
-      priority: metadata?.priority || "medium",
-      assignedTo: metadata?.assignedTo || "",
+      tag: (typeof commentData === "object" && commentData?.tag) || metadata?.tag || "general",
+      priority: (typeof commentData === "object" && commentData?.priority) || metadata?.priority || "medium",
+      assignedTo: (typeof commentData === "object" && (commentData?.assignedTo || (commentData?.assignedUsers && commentData.assignedUsers[0]))) || metadata?.assignedTo || "",
+      assignedUsers: (typeof commentData === "object" && commentData?.assignedUsers) || metadata?.assignedUsers || [],
       calculatorPath: "/diffuser-selector",
       projectId: project?.id || "default",
       projectName: project?.name || "Diffuser Selector",
     };
     const updated = [newComment, ...commentsList];
     saveComments(updated);
+
+    if (commentTargetItem?.id) {
+      setRows((prevRows) => {
+        const nextRows = prevRows.map((r) => {
+          if (String(r.id) === String(commentTargetItem.id)) {
+            const currentComments = Array.isArray(r.comments) ? r.comments : [];
+            return { ...r, comments: [...currentComments, newComment] };
+          }
+          return r;
+        });
+        if (project?.id) {
+          try {
+            const currentData = localStorage.getItem(`diffuser_selector_rows_${project.id}`);
+            const parsed = currentData ? JSON.parse(currentData) : {};
+            localStorage.setItem(
+              `diffuser_selector_rows_${project.id}`,
+              JSON.stringify({ ...parsed, rows: nextRows })
+            );
+          } catch (e) {}
+        }
+        return nextRows;
+      });
+    }
+
     toast.success(`Comment / task assigned on "${commentTargetItem?.name || "item"}"`);
     setCommentModalOpen(false);
 
@@ -880,29 +942,19 @@ function DiffuserSelectorPage() {
             id={`field-${id}`}
             data-item-id={id}
             data-field-id={id}
-            className={`flex flex-col gap-1.5 group cursor-context-menu p-2 rounded-xl transition-all ${
+            className={`flex flex-col gap-1.5 group cursor-context-menu p-2 rounded-xl transition-all relative ${
               isHighlighted
                 ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
                 : ""
             }`}
           >
+            <RowCommentCornerBadge
+              count={itemComments.length}
+              onClick={() => handleOpenComment(id, label)}
+            />
             <label className="font-semibold text-foreground flex items-center justify-between gap-2">
               <span className="flex items-center gap-1.5">
                 <span>{label}</span>
-                {hasComments && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
-                  >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
-                  </button>
-                )}
               </span>
               <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
             </label>
@@ -932,10 +984,20 @@ function DiffuserSelectorPage() {
           </div>
         </ContextMenuTrigger>
 
-        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
           <ContextMenuItem
             onClick={() => handleCopyValue(label, value)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <Copy className="size-3.5 text-muted-foreground" />
             <span>Copy Value</span>
@@ -944,7 +1006,7 @@ function DiffuserSelectorPage() {
 
           <ContextMenuItem
             onClick={() => handlePasteValue(label, String(fieldKey))}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <Clipboard className="size-3.5 text-muted-foreground" />
             <span>Paste Value</span>
@@ -955,29 +1017,21 @@ function DiffuserSelectorPage() {
 
           <ContextMenuItem
             onClick={() => handleResetField(label, String(fieldKey), defaultVal)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <RotateCcw className="size-3.5 text-muted-foreground" />
             <span>Reset to Default ({defaultVal !== "" ? defaultVal : "Blank"})</span>
           </ContextMenuItem>
 
-          <ContextMenuItem
-            onClick={() => handleClearField(label, String(fieldKey))}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium text-amber-600 dark:text-amber-400"
-          >
-            <Trash2 className="size-3.5" />
-            <span>Clear Field</span>
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-          </ContextMenuItem>
-
           <ContextMenuSeparator className="h-px bg-border my-1" />
 
           <ContextMenuItem
-            onClick={() => handleOpenComment(id, label)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+            onClick={() => handleClearField(label, String(fieldKey))}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
           >
-            <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <Trash2 className="size-3.5" />
+            <span>Clear Field</span>
+            <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -1009,7 +1063,7 @@ function DiffuserSelectorPage() {
             data-field-id={id}
             onDoubleClick={() => setShowDetailedCalcs(true)}
             title="Double-click to view step-by-step engineering calculation formulas"
-            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 px-2 rounded-lg transition cursor-pointer group ${
+            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 px-2 rounded-lg transition cursor-pointer group relative ${
               colSpanTwo ? "col-span-2" : ""
             } ${
               isHighlighted
@@ -1017,33 +1071,31 @@ function DiffuserSelectorPage() {
                 : ""
             }`}
           >
+            <RowCommentCornerBadge
+              count={itemComments.length}
+              onClick={() => handleOpenComment(id, label)}
+            />
             <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
               <span>{label}</span>
-              {hasComments && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenComment(id, label);
-                  }}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                  title={`${itemComments.length} comment(s)/task(s) assigned`}
-                >
-                  <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                  <span>{itemComments.length}</span>
-                </button>
-              )}
             </span>
             <strong className={`font-bold font-mono ${highlightClass}`}>{valueFormatted}</strong>
           </div>
         </ContextMenuTrigger>
 
-        <ContextMenuContent className="w-60 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
+          </ContextMenuItem>
+
           <ContextMenuItem
             onClick={() => setShowDetailedCalcs(true)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-primary/10 text-primary hover:text-primary rounded-lg cursor-pointer font-semibold"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
-            <HelpCircle className="size-3.5 text-primary" />
+            <HelpCircle className="size-3.5 text-muted-foreground" />
             <span>View Calculation Steps</span>
             <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double-Click</ContextMenuShortcut>
           </ContextMenuItem>
@@ -1052,7 +1104,7 @@ function DiffuserSelectorPage() {
 
           <ContextMenuItem
             onClick={() => handleCopyValue(label, valueFormatted)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <Copy className="size-3.5 text-muted-foreground" />
             <span>Copy Value ({valueFormatted})</span>
@@ -1064,20 +1116,10 @@ function DiffuserSelectorPage() {
               navigator.clipboard.writeText(`${label}: ${valueFormatted}`);
               toast.success(`Copied full line: "${label}: ${valueFormatted}"`);
             }}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <FileText className="size-3.5 text-muted-foreground" />
             <span>Copy Full Line</span>
-          </ContextMenuItem>
-
-          <ContextMenuSeparator className="h-px bg-border my-1" />
-
-          <ContextMenuItem
-            onClick={() => handleOpenComment(id, label)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-          >
-            <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -1244,126 +1286,16 @@ function DiffuserSelectorPage() {
 
   // Export to PDF
   const handlePrintPDF = async () => {
-    try {
-      const jsPDFModule = await import('jspdf');
-      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
-      const autoTableModule = await import('jspdf-autotable');
-      const autoTable = autoTableModule.default || autoTableModule;
-
-      const doc = new jsPDF("p", "pt", "a4");
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.text("AIR TERMINAL & DIFFUSER SELECTION SCHEDULE", 40, 44);
-
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(90);
-      doc.text(`Generated on: ${new Date().toLocaleDateString("en-GB")} | Calculation Ref: TRV-DIF-CAL-01 | Unit System: ${unitSystem.toUpperCase()}`, 40, 58);
-
-      doc.setDrawColor(210);
-      doc.setLineWidth(0.75);
-      doc.line(40, 66, 555, 66);
-
-      const tableMargin = { left: 40, right: 40 };
-
-      // 1. Project Details Table
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(0);
-      doc.text("1. Project Details", 40, 82);
-
-      const projectData = [
-        ["Project Name", project?.name || "MEP Air Distribution Study", "Project Number", project?.code || "P000"],
-        ["Client", project?.client || "-", "Revision", "Rev 0"],
-      ];
-
-      autoTable(doc, {
-        startY: 88,
-        head: [],
-        body: projectData,
-        theme: "grid",
-        styles: { fontSize: 8.5, cellPadding: 3.5, lineColor: [200, 200, 200], lineWidth: 0.5 },
-        margin: tableMargin,
-        columnStyles: {
-          0: { fontStyle: "bold", cellWidth: 100, fillColor: [248, 250, 252] },
-          1: { cellWidth: 157 },
-          2: { fontStyle: "bold", cellWidth: 100, fillColor: [248, 250, 252] },
-          3: { cellWidth: 158 },
-        },
-      });
-
-      // 2. Diffuser Selection Schedule Table
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.text("2. Diffuser Sizing & Acoustic Selection Schedule (Q = mÂ·CpÂ·Î”T)", 40, (doc as any).lastAutoTable.finalY + 14);
-
-      const scheduleHead = [["No.", "Space / Room", "Diffuser Type", `Cooling (kW)`, `Total Flow (${flowUnit})`, "Qty", `Flow/Diff (${flowUnit})`, "Neck Size", `Vel (${velUnit})`, "NC"]];
-      const scheduleBody = computedRows.map((r, idx) => [
-        String(idx + 1),
-        r.name,
-        r.diffType.toUpperCase(),
-        typeof r.coolingKw === "number" ? r.coolingKw.toFixed(2) : "-",
-        typeof r.airflow === "number" ? r.airflow.toFixed(0) : "-",
-        typeof r.count === "number" ? String(r.count) : "1",
-        r.sizing.flowPerDiff.toFixed(1),
-        r.sizing.neckSize,
-        ip ? r.sizing.velocityFpm.toFixed(0) : r.sizing.velocity.toFixed(2),
-        r.sizing.nc
-      ]);
-
-      scheduleBody.push([
-        "Total",
-        `Scheduled Spaces: ${computedRows.length}`,
-        "-",
-        totalCoolingKwSum > 0 ? totalCoolingKwSum.toFixed(2) : "-",
-        totalFlowSum.toFixed(0),
-        String(totalDiffusersSum),
-        "-",
-        "-",
-        "-",
-        "Complies"
-      ]);
-
-      autoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 20,
-        head: scheduleHead,
-        body: scheduleBody,
-        theme: "grid",
-        headStyles: {
-          fillColor: [220, 230, 242],
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          halign: "center",
-          valign: "middle",
-          fontSize: 8,
-        },
-        styles: { fontSize: 8, cellPadding: 3, lineColor: [200, 200, 200], lineWidth: 0.5 },
-        margin: tableMargin,
-        columnStyles: {
-          0: { halign: "center", cellWidth: 25 },
-          1: { fontStyle: "bold", cellWidth: 100 },
-          2: { cellWidth: 55, halign: "center" },
-          3: { halign: "center", cellWidth: 45 },
-          4: { halign: "center", cellWidth: 50 },
-          5: { halign: "center", cellWidth: 25 },
-          6: { halign: "center", cellWidth: 50 },
-          7: { fontStyle: "bold", cellWidth: 65, halign: "center" },
-          8: { halign: "center", cellWidth: 50 },
-          9: { halign: "center", cellWidth: 50 },
-        },
-      });
-
-      const sigFinalY = (doc as any).lastAutoTable?.finalY || 40;
-      addPdfSignatureBlock(doc, sigFinalY, currentUserName, project?.id || "default", "/diffuser-selector", tableMargin);
-
-      const pdfBuffer = doc.output("arraybuffer");
-      downloadFile(new Uint8Array(pdfBuffer), "Diffuser_Selection_Schedule_Report.pdf", "PDF Document", ["pdf"]);
-      toast.success("PDF report generated successfully");
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to generate PDF report");
-    }
+    await exportDiffuserSelectorPDF(computedRows, {
+      projectName: projectInfo.projectName || project?.name,
+      client: projectInfo.client || project?.client,
+      projectNo: projectInfo.projectNumber || project?.code,
+      calcNo: projectInfo.calcNumber,
+      date: projectInfo.date,
+      userName: currentUserName,
+      reviewState: calcReviewState,
+      unitSystem,
+    });
   };
 
   // Available unique floors and types
@@ -1476,7 +1408,7 @@ function DiffuserSelectorPage() {
 
   const renderFloorGroupContextMenu = (floor: string) => {
     return (
-      <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         <ContextMenuItem
           onClick={async () => {
             const newFloor = window.prompt("Enter new floor name:", floor);
@@ -1509,6 +1441,7 @@ function DiffuserSelectorPage() {
         >
           <Trash2 className="size-3.5" />
           <span>Delete Floor</span>
+          <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
     );
@@ -1521,6 +1454,29 @@ function DiffuserSelectorPage() {
 
     return (
       <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        {/* Add Comment */}
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-3.5" />
+          <span>Add Comment</span>
+        </ContextMenuItem>
+
+        {/* Flag Space */}
+        <ContextMenuItem
+          onClick={() => {
+            const anyUnflagged = selectedIds.some((id) => !rows.find((s) => s.id === id)?.flagged);
+            const editSet = new Set(selectedIds);
+            setRows(prev => prev.map((s) => (editSet.has(s.id) ? { ...s, flagged: anyUnflagged } : s)));
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+          <span>{row.flagged ? (isMulti ? "Unflag Selected" : "Unflag Space") : (isMulti ? "Flag Selected" : "Flag Space")}</span>
+        </ContextMenuItem>
+
+        {/* Calculation Breakdown */}
         <ContextMenuItem
           onClick={() => {
             setSelectedDetailRow(row);
@@ -1532,6 +1488,9 @@ function DiffuserSelectorPage() {
           <span>Calculation Breakdown</span>
         </ContextMenuItem>
 
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        {/* Duplicate Space */}
         <ContextMenuItem
           onClick={() => {
             const clones = selectedIds.map((id, index) => {
@@ -1551,34 +1510,14 @@ function DiffuserSelectorPage() {
           }}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
         >
-          <Copy className="size-3.5 text-muted-foreground" />
+          <CopyPlus className="size-3.5 text-muted-foreground" />
           <span>{isMulti ? "Duplicate Selected" : "Duplicate Space"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
         </ContextMenuItem>
 
-        <ContextMenuItem
-          onClick={() => {
-            const anyUnflagged = selectedIds.some((id) => !rows.find((s) => s.id === id)?.flagged);
-            const editSet = new Set(selectedIds);
-            setRows(prev => prev.map((s) => (editSet.has(s.id) ? { ...s, flagged: anyUnflagged } : s)));
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-        >
-          <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
-          <span>{row.flagged ? (isMulti ? "Unflag Selected" : "Unflag Space") : (isMulti ? "Flag Selected" : "Flag Space")}</span>
-        </ContextMenuItem>
-        
         <ContextMenuSeparator className="h-px bg-border my-1" />
 
-        <ContextMenuItem
-          onClick={() => handleOpenComment(row)}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-        >
-          <MessageSquare className="size-3.5" />
-          <span>Add Comment / Assign Task</span>
-        </ContextMenuItem>
-        
-        <ContextMenuSeparator className="h-px bg-border my-1" />
-        
+        {/* Delete */}
         <ContextMenuItem
           onClick={() => {
             const msg = targetsCount === 1 
@@ -1595,7 +1534,7 @@ function DiffuserSelectorPage() {
         >
           <Trash2 className="size-3.5" />
           <span>Delete</span>
-          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
+          <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
     );
@@ -1611,20 +1550,7 @@ function DiffuserSelectorPage() {
         const itemComments = getMergedItemComments(r.id, r.name, r.comments, "/diffuser-selector", project?.id);
         return (
           <div className="flex items-center gap-1.5 w-full pr-1">
-            {itemComments.length > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenComment(r.id, r.name);
-                }}
-                title={`${itemComments.length} comment(s)/task(s) assigned`}
-                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-              >
-                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                <span className="text-[10px] font-bold">{itemComments.length}</span>
-              </button>
-            )}
+            
             <InlineInput
             disabled={isApprovedLocked}
             readOnly={isApprovedLocked}
@@ -1899,9 +1825,9 @@ function DiffuserSelectorPage() {
       intelOpen={intelOpen}
     >
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           {/* Page Header matching Ventilation */}
-          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Diffuser Selector</h1>
@@ -1926,13 +1852,6 @@ function DiffuserSelectorPage() {
                 calculatorPath="/diffuser-selector"
                 calculatorTitle="Diffuser Selection Schedule"
               />
-
-              {commentsList.length > 0 && (
-                <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
-                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Comment(s)</span>
-                </div>
-              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -2254,6 +2173,7 @@ function DiffuserSelectorPage() {
                       selected={selectedRowIds}
                       onToggle={handleToggleSelectRow}
                       onToggleAll={handleToggleSelectAll}
+                      onCommentClick={(r) => handleOpenComment(r.id, r.name)}
                       isReadOnly={isApprovedLocked}
                       onRowDoubleClick={(r) => {
                         setSelectedDetailRow(r);
@@ -2290,200 +2210,296 @@ function DiffuserSelectorPage() {
                 </div>
               </div>
             ) : (
-              /* Printable Report tab view */
-              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                {/* Fixed Toolbar at the top */}
-                <div className="relative flex items-center justify-end gap-2 px-6 h-12 bg-background border-b border-border/60 shrink-0 no-print select-none">
-                  <TBtn onClick={handleExportExcel}><FileSpreadsheet className="size-3.5" /> Export Excel</TBtn>
-                  <TBtn onClick={handlePrintPDF} primary><FileText className="size-3.5" /> Export PDF</TBtn>
-                </div>
-                
-                {/* Scrollable Report Content */}
-                <div className="flex-1 overflow-y-auto p-8 bg-slate-50/30 dark:bg-slate-950/20 font-sans print:p-0">
-                  {/* Results Dashboard Grid */}
-                  <div className="no-print max-w-4xl mx-auto w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10 border border-blue-200/60 dark:border-blue-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
-                      <div className="absolute right-4 top-4 bg-blue-500/10 text-blue-600 rounded-full p-2">
-                        <Wind className="size-4" />
-                      </div>
-                      <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest block mb-1 font-sans">Total Supply Airflow</span>
-                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{totalFlowSum.toLocaleString()} {flowUnit}</strong>
-                      <span className="text-[11px] text-muted-foreground mt-2 block font-sans">Sum of all conditioned space air distribution</span>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-pink-50 to-pink-100/50 dark:from-pink-950/20 dark:to-pink-900/10 border border-pink-200/60 dark:border-pink-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
-                      <div className="absolute right-4 top-4 bg-pink-500/10 text-pink-600 rounded-full p-2">
-                        <Layers className="size-4" />
-                      </div>
-                      <span className="text-[10px] font-bold text-pink-600 dark:text-pink-400 uppercase tracking-widest block mb-1 font-sans">Total Outlets Count</span>
-                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{totalDiffusersSum} Outlets</strong>
-                      <span className="text-[11px] text-muted-foreground mt-2 block font-sans">Avg flow: {(totalFlowSum / Math.max(1, totalDiffusersSum)).toFixed(1)} {flowUnit}/diffuser</span>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/20 dark:to-emerald-900/10 border border-emerald-200/60 dark:border-emerald-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
-                      <div className="absolute right-4 top-4 bg-emerald-500/10 text-emerald-600 rounded-full p-2">
-                        <CheckCircle2 className="size-4" />
-                      </div>
-                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block mb-1 font-sans">Total Spaces Sized</span>
-                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">{rows.length} spaces</strong>
-                      <span className="text-[11px] text-muted-foreground mt-2 block font-sans">Active Floors: {allUniqueFloors.length} levels</span>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-teal-50 to-teal-100/50 dark:from-teal-950/20 dark:to-teal-900/10 border border-teal-200/60 dark:border-teal-800/50 rounded-2xl p-5 shadow-xs relative overflow-hidden">
-                      <div className="absolute right-4 top-4 bg-teal-500/10 text-teal-600 rounded-full p-2">
-                        <ShieldCheck className="size-4" />
-                      </div>
-                      <span className="text-[10px] font-bold text-teal-600 dark:text-teal-400 uppercase tracking-widest block mb-1 font-sans">Acoustic Compliance</span>
-                      <strong className="text-2xl font-black text-slate-900 dark:text-white block font-mono">NC â‰¤ 30</strong>
-                      <span className="text-[11px] text-muted-foreground mt-2 block font-sans">ASHRAE 55 acoustic & sound compliant</span>
-                    </div>
+              /* Printable Report tab view matching exact Preliminary Cooling Load standard layout */
+              <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+                <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
+                  
+                  {/* 1. Title */}
+                  <div className="pb-1">
+                    <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+                      Diffuser Selector Calculation
+                    </h2>
                   </div>
 
-                  {/* Sizing Recommendations & Validation */}
-                  <div className="no-print max-w-4xl mx-auto w-full bg-white/70 dark:bg-slate-900/60 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 rounded-2xl p-5 shadow-sm font-sans mb-6">
-                    <h3 className="font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-white mb-3.5 flex items-center gap-2">
-                      <ShieldCheck className="size-4 text-emerald-600" /> Sizing Validation & Engineering Notes
-                    </h3>
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-start gap-2.5 p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[12.5px]">
-                        <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
-                        <span>All terminal diffusers operate under recommended velocity limits (2.0 - 2.5 m/s) ensuring draft-free room air motion (ADPI â‰¥ 80%).</span>
-                      </div>
-                      <div className="flex items-start gap-2.5 p-3 rounded-xl border border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[12.5px]">
-                        <Info className="size-4 shrink-0 mt-0.5" />
-                        <span>Discharge throw distances (T50) provide uniform thermal mixing without stagnation or excessive velocity in the occupied zone (floor to 1.8m).</span>
-                      </div>
-                    </div>
+                  {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format) */}
+                  <div className="border border-border rounded-xl overflow-hidden text-xs">
+                    <table className="w-full border-collapse">
+                      <tbody>
+                        <tr className="border-b border-border divide-x divide-border">
+                          <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                          <td className="p-2.5 font-mono text-foreground font-medium">{projectInfo.calcNumber || "CALC-HVAC-DIF01"}</td>
+                          <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                          <td className="p-2.5 font-mono font-medium">{projectInfo.date || new Date().toISOString().split("T")[0]}</td>
+                        </tr>
+                        <tr className="border-b border-border divide-x divide-border">
+                          <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                          <td className="p-2.5 font-mono">{projectInfo.projectNumber || project?.code || "MEP-DIF-2026"}</td>
+                          <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                          <td className="p-2.5">{projectInfo.client || project?.client || "Prestige Group developers"}</td>
+                        </tr>
+                        <tr className="divide-x divide-border">
+                          <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                          <td className="p-2.5">{projectInfo.projectName || project?.name || "Air Terminal & Diffuser Selection Study"}</td>
+                          <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                          <td className="p-2.5">{(project as any)?.endUser || "-"}</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
 
-                  {/* Printable Schedule Table */}
-                  <div className="border border-slate-300 dark:border-slate-800 rounded-xl p-8 max-w-4xl mx-auto shadow-sm print:border-none print:shadow-none print:p-0 bg-white dark:bg-slate-900">
-                    {/* 1. Title Banner */}
-                    <div className="bg-[#0A7BC7] text-white py-3 px-4 rounded-t-lg text-center font-bold text-base tracking-wide uppercase">
-                      DIFFUSER SELECTION SCHEDULE REPORT
-                    </div>
+                  {/* 3. Diffuser Sizing Schedule Table (2-Tier Header Table) */}
+                  <div className="border border-border rounded-xl overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                          <th rowSpan={2} className="p-2 border-r border-border w-12 text-center">
+                            Sr.<br />No.
+                          </th>
+                          <th colSpan={3} className="p-2 border-r border-border text-center">
+                            Space Parameters
+                          </th>
+                          <th colSpan={4} className="p-2 border-r border-border text-center">
+                            Airflow & Terminal Sizing
+                          </th>
+                          <th colSpan={4} className="p-2 text-center">
+                            Performance & Sound Metrics
+                          </th>
+                        </tr>
+                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                          <th className="p-2 border-r border-border w-24 text-center">Space Floor</th>
+                          <th className="p-2 border-r border-border text-left min-w-[130px]">Space Name</th>
+                          <th className="p-2 border-r border-border text-left min-w-[140px]">Diffuser Type</th>
+                          <th className="p-2 border-r border-border w-24 text-right">Airflow ({flowUnit})</th>
+                          <th className="p-2 border-r border-border w-16 text-center">Qty</th>
+                          <th className="p-2 border-r border-border w-24 text-right">Flow/Diff ({flowUnit})</th>
+                          <th className="p-2 border-r border-border min-w-[140px] text-left">Recommended Neck</th>
+                          <th className="p-2 border-r border-border w-20 text-center">Velocity ({velUnit})</th>
+                          <th className="p-2 border-r border-border w-20 text-center">Throw</th>
+                          <th className="p-2 border-r border-border w-18 text-center">NC Rating</th>
+                          <th className="p-2 w-20 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {(() => {
+                          const rowsByFloor: { [floor: string]: (DiffuserRowItem & { sizing: any })[] } = {};
+                          const floorList: string[] = [];
 
-                    {/* 2. Company & Date */}
-                    <div className="py-2.5 px-1 flex justify-between items-center text-xs border-b border-border/60">
-                      <span className="font-bold text-foreground">{project?.client || "Prestige Group developers"}</span>
-                      <span className="text-muted-foreground">Date: {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</span>
-                    </div>
+                          const sorted = [...computedRows].sort((a, b) => {
+                            const flA = (a.floor || "GF").toLowerCase();
+                            const flB = (b.floor || "GF").toLowerCase();
+                            if (flA !== flB) return flA.localeCompare(flB);
+                            return (a.name || "").localeCompare(b.name || "");
+                          });
 
-                    {/* 3. Project Summary Stats */}
-                    <div className="mt-4 rounded-lg overflow-hidden border border-border/80 text-xs">
-                      <div className="bg-[#06456F] text-white px-3 py-1.5 font-bold flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
-                        ðŸ“Š PROJECT SUMMARY STATS
-                      </div>
-                      <div className="grid grid-cols-2 divide-x divide-border/60 p-2 bg-slate-50/50 dark:bg-slate-800/30">
-                        <div className="space-y-1.5 pr-3">
-                          <div className="flex justify-between">
-                            <span className="font-semibold text-muted-foreground">Total Spaces:</span>
-                            <span className="font-bold font-mono">{rows.length}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="font-semibold text-muted-foreground">Total Supply Airflow:</span>
-                            <span className="font-bold font-mono text-primary">{totalFlowSum.toLocaleString()} {flowUnit}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="font-semibold text-muted-foreground">Total Outlets Count:</span>
-                            <span className="font-bold font-mono">{totalDiffusersSum} Diffusers</span>
-                          </div>
-                        </div>
-                        <div className="space-y-1.5 pl-3">
-                          <div className="flex justify-between">
-                            <span className="font-semibold text-muted-foreground">Total Cooling Load:</span>
-                            <span className="font-bold font-mono text-primary">{totalCoolingKwSum > 0 ? `${totalCoolingKwSum.toFixed(2)} kW` : "N/A"}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="font-semibold text-muted-foreground">Average Flow / Diffuser:</span>
-                            <span className="font-bold font-mono">{(totalFlowSum / Math.max(1, totalDiffusersSum)).toFixed(1)} {flowUnit}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="font-semibold text-muted-foreground">Acoustic Compliance:</span>
-                            <span className="font-bold font-mono text-emerald-600">PASS (NC â‰¤ 30)</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                          sorted.forEach((r) => {
+                            const fl = r.floor || "GF";
+                            if (!rowsByFloor[fl]) {
+                              rowsByFloor[fl] = [];
+                              floorList.push(fl);
+                            }
+                            rowsByFloor[fl].push(r);
+                          });
 
-                    {/* 4. Diffuser Sizing Schedule Table */}
-                    <div className="mt-6 overflow-x-auto border border-border rounded-lg">
-                      <table className="w-full text-left text-xs border-collapse font-sans">
-                        <thead>
-                          <tr className="bg-slate-100 dark:bg-slate-800/80 text-[11px] font-bold text-foreground border-b border-border">
-                            <th className="p-2 text-center w-10">No.</th>
-                            <th className="p-2">Space / Room</th>
-                            <th className="p-2 text-center">Floor</th>
-                            <th className="p-2 text-center">Diffuser Type</th>
-                            <th className="p-2 text-right">Airflow ({flowUnit})</th>
-                            <th className="p-2 text-center">Qty</th>
-                            <th className="p-2 text-right">Flow/Diff</th>
-                            <th className="p-2">Recommended Neck</th>
-                            <th className="p-2 text-center">Vel (m/s)</th>
-                            <th className="p-2 text-center">Throw</th>
-                            <th className="p-2 text-center">NC</th>
-                            <th className="p-2 text-center">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border/60">
-                          {computedRows.map((r, idx) => (
-                            <tr key={r.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 cursor-pointer" onDoubleClick={() => setEditingRow(r)}>
-                              <td className="p-2 text-center text-muted-foreground font-mono">{idx + 1}</td>
-                              <td className="p-2 font-semibold text-foreground">{r.name}</td>
-                              <td className="p-2 text-center text-muted-foreground font-mono">{r.floor}</td>
-                              <td className="p-2 text-center text-[11px]">{DIFFUSER_NAMES[r.diffType]}</td>
-                              <td className="p-2 text-right font-mono font-bold text-primary">{r.airflow}</td>
-                              <td className="p-2 text-center font-mono">{r.count}</td>
-                              <td className="p-2 text-right font-mono">{r.sizing.flowPerDiff.toFixed(1)}</td>
-                              <td className="p-2 font-mono font-bold text-foreground">{r.sizing.neckSize}</td>
-                              <td className="p-2 text-center font-mono">{r.designVelocity.toFixed(1)}</td>
-                              <td className="p-2 text-center font-mono text-muted-foreground">{r.sizing.throwVal}</td>
-                              <td className="p-2 text-center font-mono font-bold text-emerald-600">{r.sizing.nc}</td>
-                              <td className="p-2 text-center">
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  r.sizing.status === "PASS"
-                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400"
-                                    : "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400"
-                                }`}>
-                                  {r.sizing.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                          <tr className="bg-slate-100/60 dark:bg-slate-800/40 font-bold border-t-2 border-border text-[11.5px]">
-                            <td colSpan={4} className="p-2 text-left">Total ({computedRows.length} spaces)</td>
-                            <td className="p-2 text-right font-mono text-primary">{totalFlowSum.toLocaleString()}</td>
-                            <td className="p-2 text-center font-mono">{totalDiffusersSum}</td>
-                            <td className="p-2 text-right font-mono">-</td>
-                            <td colSpan={4} className="p-2 text-center text-muted-foreground">All Terminals Compliant</td>
-                            <td className="p-2 text-center text-emerald-600">PASS</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
+                          let globalSrNo = 1;
+                          let grandFlow = 0;
+                          let grandCount = 0;
 
-                    {/* Signature Block */}
-                    <div className="mt-10 pt-6 border-t border-border grid grid-cols-3 gap-6 text-xs text-muted-foreground">
-                      <div className="flex flex-col gap-8">
-                        <span className="font-semibold text-foreground">Prepared By:</span>
-                        <div className="border-b border-border/80 pt-4">
-                          <span className="font-mono text-[11px] text-foreground font-semibold">{currentUserName}</span>
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-8">
-                        <span className="font-semibold text-foreground">Checked By:</span>
-                        <div className="border-b border-border/80 pt-4">
-                          <span className="font-mono text-[11px] text-muted-foreground">Senior HVAC Engineer</span>
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-8">
-                        <span className="font-semibold text-foreground">Approver:</span>
-                        <div className="border-b border-border/80 pt-4">
-                          <span className="font-mono text-[11px] text-muted-foreground">Lead Mechanical Coordinator</span>
-                        </div>
-                      </div>
-                    </div>
+                          return (
+                            <>
+                              {floorList.map((floorName) => {
+                                const floorRows = rowsByFloor[floorName];
+                                let floorFlow = 0;
+                                let floorCount = 0;
+
+                                return (
+                                  <React.Fragment key={floorName}>
+                                    {floorRows.map((r) => {
+                                      const flowVal = typeof r.airflow === "number" ? r.airflow : (parseFloat(String(r.airflow)) || 0);
+                                      const countVal = typeof r.count === "number" && r.count > 0 ? r.count : (parseInt(String(r.count)) || 1);
+                                      const flowPerDiff = r.sizing?.flowPerDiff ?? (flowVal / countVal);
+                                      const neck = r.sizing?.neckSize || "-";
+                                      const vel = ip ? (r.sizing?.velocityFpm?.toFixed(0) || "-") : (r.sizing?.velocity?.toFixed(1) || "-");
+                                      const throwDist = r.sizing?.throwVal || "-";
+                                      const nc = r.sizing?.nc || "-";
+                                      const status = r.sizing?.status || "PASS";
+                                      const diffName = DIFFUSER_NAMES[r.diffType] || r.diffType;
+
+                                      floorFlow += flowVal;
+                                      floorCount += countVal;
+                                      grandFlow += flowVal;
+                                      grandCount += countVal;
+
+                                      return (
+                                        <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                                          <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">
+                                            {globalSrNo++}
+                                          </td>
+                                          <td className="p-2 border-r border-border text-center font-medium">
+                                            {r.floor || "GF"}
+                                          </td>
+                                          <td className="p-2 border-r border-border font-medium text-foreground">
+                                            {r.name || "-"}
+                                          </td>
+                                          <td className="p-2 border-r border-border text-muted-foreground">
+                                            {diffName}
+                                          </td>
+                                          <td className="p-2 border-r border-border text-right font-mono font-bold text-primary">
+                                            {Math.round(flowVal).toLocaleString()}
+                                          </td>
+                                          <td className="p-2 border-r border-border text-center font-mono">
+                                            {countVal}
+                                          </td>
+                                          <td className="p-2 border-r border-border text-right font-mono">
+                                            {flowPerDiff.toFixed(1)}
+                                          </td>
+                                          <td className="p-2 border-r border-border font-mono font-bold text-foreground">
+                                            {neck}
+                                          </td>
+                                          <td className="p-2 border-r border-border text-center font-mono">
+                                            {vel}
+                                          </td>
+                                          <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">
+                                            {throwDist}
+                                          </td>
+                                          <td className="p-2 border-r border-border text-center font-mono font-bold text-emerald-600">
+                                            {nc}
+                                          </td>
+                                          <td className="p-2 text-center">
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                              status === "PASS"
+                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400"
+                                                : "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400"
+                                            }`}>
+                                              {status}
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+
+                                    {/* Floor Total Row matching Preliminary format */}
+                                    <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t border-b border-border">
+                                      <td className="p-2 border-r border-border text-center"></td>
+                                      <td className="p-2 border-r border-border text-center font-bold">
+                                        {floorName}
+                                      </td>
+                                      <td className="p-2 border-r border-border font-bold">
+                                        TOTAL ({floorName})
+                                      </td>
+                                      <td className="p-2 border-r border-border"></td>
+                                      <td className="p-2 border-r border-border text-right font-mono font-bold text-primary">
+                                        {Math.round(floorFlow).toLocaleString()}
+                                      </td>
+                                      <td className="p-2 border-r border-border text-center font-mono font-bold">
+                                        {floorCount}
+                                      </td>
+                                      <td className="p-2 border-r border-border text-right font-mono font-bold">
+                                        {floorCount > 0 ? (floorFlow / floorCount).toFixed(1) : "-"}
+                                      </td>
+                                      <td className="p-2 border-r border-border font-medium text-muted-foreground">
+                                        All Terminals Sized
+                                      </td>
+                                      <td className="p-2 border-r border-border"></td>
+                                      <td className="p-2 border-r border-border"></td>
+                                      <td className="p-2 border-r border-border text-center font-mono font-bold text-emerald-600">
+                                        NC ≤ 30
+                                      </td>
+                                      <td className="p-2 text-center font-bold text-emerald-600">
+                                        PASS
+                                      </td>
+                                    </tr>
+                                  </React.Fragment>
+                                );
+                              })}
+
+                              {/* Grand Total Row if multiple floors */}
+                              {floorList.length > 1 && (
+                                <tr className="bg-slate-100 dark:bg-zinc-800 font-black border-t-2 border-border">
+                                  <td className="p-2 border-r border-border text-center"></td>
+                                  <td className="p-2 border-r border-border text-center font-bold">ALL</td>
+                                  <td className="p-2 border-r border-border font-bold">OVERALL TOTAL</td>
+                                  <td className="p-2 border-r border-border"></td>
+                                  <td className="p-2 border-r border-border text-right font-mono font-bold text-primary">
+                                    {Math.round(grandFlow).toLocaleString()}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-center font-mono font-bold">
+                                    {grandCount}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-right font-mono font-bold">
+                                    {grandCount > 0 ? (grandFlow / grandCount).toFixed(1) : "-"}
+                                  </td>
+                                  <td className="p-2 border-r border-border font-bold text-muted-foreground">
+                                    All Terminals Compliant
+                                  </td>
+                                  <td className="p-2 border-r border-border"></td>
+                                  <td className="p-2 border-r border-border"></td>
+                                  <td className="p-2 border-r border-border text-center font-mono font-bold text-emerald-600">
+                                    NC ≤ 30
+                                  </td>
+                                  <td className="p-2 text-center font-bold text-emerald-600">
+                                    PASS
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
                   </div>
+
+                  {/* 4. 3-Tier Signature Sign-Off Block (Exact #FFE6CC Header) */}
+                  {(() => {
+                    const sig = getSignatureBlockDetails(
+                      project?.id || activeProjectId || "default",
+                      "/diffuser-selector",
+                      currentUserName,
+                      calcReviewState
+                    );
+                    return (
+                      <div className="pt-2">
+                        <div className="border border-border rounded-xl overflow-hidden text-xs">
+                          <table className="w-full border-collapse">
+                            <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
+                              <tr className="divide-x divide-border">
+                                <th className="p-2.5 w-28 text-center"></th>
+                                <th className="p-2.5 text-center w-1/3">Originator</th>
+                                <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                                <th className="p-2.5 text-center w-1/3">Approver</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                              <tr className="divide-x divide-border">
+                                <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                                <td className="p-2.5 text-center font-medium">
+                                  {sig.originatedName || currentUserName || "Design Engineer"}
+                                </td>
+                                <td className="p-2.5 text-center font-medium">
+                                  {sig.reviewerName || ""}
+                                </td>
+                                <td className="p-2.5 text-center font-medium">
+                                  {sig.approverName || ""}
+                                </td>
+                              </tr>
+                              <tr className="divide-x divide-border">
+                                <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                                <td className="p-2.5 text-center font-mono">
+                                  {sig.originatedDate || formatDateStr(new Date().toISOString())}
+                                </td>
+                                <td className="p-2.5 text-center font-mono">
+                                  {sig.reviewerDate || ""}
+                                </td>
+                                <td className="p-2.5 text-center font-mono">
+                                  {sig.approverDate || ""}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                 </div>
               </div>
             )}
@@ -3366,9 +3382,27 @@ function DiffuserSelectorPage() {
         {/* Assign Comment Modal */}
         {commentModalOpen && (
           <AssignCommentModal
+            isOpen={commentModalOpen}
             open={commentModalOpen}
-            onClose={() => setCommentModalOpen(false)}
+            onClose={() => {
+              setCommentModalOpen(false);
+              setCommentTargetItem(null);
+            }}
+            targetId={commentTargetItem?.id}
+            targetName={commentTargetItem?.name}
+            targetType="space"
+            spaceId={commentTargetItem?.id}
+            spaceName={commentTargetItem?.name}
+            calculatorTitle="Diffuser Quick Selector"
+            calculatorPath="/diffuser-selector"
             targetItem={commentTargetItem || { id: "diffuser-selector", name: "Diffuser Selection" }}
+            existingComments={getMergedItemComments(
+              commentTargetItem?.id || "general",
+              commentTargetItem?.name,
+              rows.find(r => String(r.id) === String(commentTargetItem?.id))?.comments || commentsList.filter(c => c.spaceId === commentTargetItem?.id || c.targetId === commentTargetItem?.id || c.itemId === commentTargetItem?.id),
+              "/diffuser-selector",
+              project?.id
+            )}
             onSave={handleSaveComment}
           />
         )}

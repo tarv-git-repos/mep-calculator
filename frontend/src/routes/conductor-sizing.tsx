@@ -960,21 +960,7 @@ function ConductorSizingPage() {
         const itemComments = getMergedItemComments(row.id, row.description, row.comments, "/conductor-sizing", project?.id);
         return (
           <div className="flex items-center gap-1.5 w-full">
-            {itemComments.length > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCommentTarget({ id: row.id, name: row.description || `Circuit ${row.srNo}`, type: "Conductor Circuit" });
-                  setCommentModalOpen(true);
-                }}
-                title={`${itemComments.length} comment(s)/task(s) assigned`}
-                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-              >
-                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                <span className="text-[10px] font-bold">{itemComments.length}</span>
-              </button>
-            )}
+            
             <InlineInput
               value={row.description}
               onCommit={(val) => handleUpdateRow(row.id, "description", val)}
@@ -1174,7 +1160,7 @@ function ConductorSizingPage() {
         className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
       >
         <MessageSquare className="size-3.5" />
-        <span>Add Comment / Task</span>
+        <span>Add Comment</span>
       </ContextMenuItem>
       <ContextMenuItem onClick={() => handleToggleFlag(row.id)} className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer">
         <Flag className={`size-3.5 ${row.flagged ? "text-red-500 fill-red-500" : ""}`} />
@@ -1561,6 +1547,10 @@ function ConductorSizingPage() {
                         selected={selected}
                         onToggle={handleToggle}
                         onToggleAll={handleToggleAll}
+                        onCommentClick={(row) => {
+                          setCommentTarget({ id: row.id, name: row.description || `Circuit ${row.srNo}`, type: "Conductor Circuit" });
+                          setCommentModalOpen(true);
+                        }}
                         onRowDoubleClick={(row) => setPreviewRow(row)}
                         renderContextMenu={renderRowContextMenu}
                       />

@@ -1,3 +1,4 @@
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
@@ -1127,9 +1128,18 @@ function CapacitorBankSizingPage() {
                   key={p.id} 
                   onContextMenu={(e) => handlePanelContextMenu(e, p.id)}
                   onDoubleClick={(e) => handlePanelDoubleClick(p, e)}
-                  className={`flex flex-col bg-white/60 dark:bg-black/40 backdrop-blur-xl border rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] transition-all overflow-hidden cursor-pointer ${isActive ? 'border-white/80 dark:border-white/30 shadow-lg' : 'border-white/50 dark:border-white/10 hover:border-white/80 dark:hover:border-white/30'}`}
+                  className={`flex flex-col bg-white/60 dark:bg-black/40 backdrop-blur-xl border rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.1)] transition-all overflow-hidden cursor-pointer relative ${isActive ? 'border-white/80 dark:border-white/30 shadow-lg' : 'border-white/50 dark:border-white/10 hover:border-white/80 dark:hover:border-white/30'}`}
                   title="Double click to edit panel details"
                 >
+                  {commentCount > 0 && (
+                    <RowCommentCornerBadge
+                      count={commentCount}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenCommentModal(p, e);
+                      }}
+                    />
+                  )}
                   {/* Accordion Header */}
                   <div 
                     onClick={() => setActivePanelId(isActive ? null : p.id)}
@@ -1172,18 +1182,7 @@ function CapacitorBankSizingPage() {
                       </div>
 
                       <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
-                        <button
-                          onClick={(e) => handleOpenCommentModal(p, e)}
-                          className={`p-1 px-1.5 rounded-full flex items-center gap-1 text-[11px] font-bold transition-colors ${
-                            commentCount > 0
-                              ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25 border border-amber-500/30"
-                              : "hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400"
-                          }`}
-                          title={commentCount > 0 ? `${commentCount} comment(s) - Click to add/view` : "Add comment / task"}
-                        >
-                          <MessageSquare className="size-3.5" />
-                          {commentCount > 0 && <span>{commentCount}</span>}
-                        </button>
+                        
 
                         <button 
                           onClick={(e) => removePanel(p.id, e)}
@@ -1500,7 +1499,7 @@ function CapacitorBankSizingPage() {
             }}
           >
             <MessageSquare className="size-3.5 text-primary" />
-            <span>Add Comment / Task</span>
+            <span>Add Comment</span>
           </button>
 
           <button

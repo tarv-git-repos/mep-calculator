@@ -13,11 +13,14 @@ import { EditBusbarRowModal } from "@/components/workspace/EditBusbarRowModal";
 import { TBtn } from "@/components/workspace/Button";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
-import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare, Flag, Filter, SlidersHorizontal, Lock } from "lucide-react";
+import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare, Flag, Filter, SlidersHorizontal, Lock, Sparkles } from "lucide-react";
+import { syncBusbarFrom3DAndLoadSummary, BusbarSyncResult } from "@/lib/calc-busbar-sync";
+import { SyncBusbarModal } from "@/components/workspace/SyncBusbarModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useConfirm } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
@@ -171,6 +174,40 @@ function BusbarCalculationPage() {
   }, [project?.id]);
 
   const [editingRow, setEditingRow] = useState<{ row: BusbarRow; panelId: string; sectionId: string } | null>(null);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncResult, setSyncResult] = useState<BusbarSyncResult | null>(null);
+
+  const handleSync3DAndLoadSummary = async () => {
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    toast.loading("Scanning 3D building storeys & Load Summary active loads...", { id: "busbar-sync" });
+    try {
+      const res = await syncBusbarFrom3DAndLoadSummary(activeProjectId || project?.id);
+      toast.dismiss("busbar-sync");
+      setSyncResult(res);
+      setSyncModalOpen(true);
+    } catch (err) {
+      toast.dismiss("busbar-sync");
+      console.error("Sync error:", err);
+      toast.error("Failed to extract 3D storeys or Load Summary data.");
+    }
+  };
+
+  const handleApplySync = (mode: "replace" | "append") => {
+    if (!syncResult) return;
+    pushToUndo(panels);
+    if (mode === "replace") {
+      setPanels([syncResult.panel]);
+    } else {
+      setPanels((prev) => [...prev, syncResult.panel]);
+    }
+    setSyncModalOpen(false);
+    toast.success(
+      `Generated vertical busduct riser (${syncResult.floors.length} floors) with ${syncResult.recommendedRatingLabel}!`
+    );
+  };
 
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -1770,6 +1807,20 @@ function BusbarCalculationPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+            <button
+              disabled={isApproved}
+              onClick={handleSync3DAndLoadSummary}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-primary/30 bg-primary/10 text-primary transition-all shadow-xs ${
+                isApproved
+                  ? "opacity-50 cursor-not-allowed pointer-events-none"
+                  : "cursor-pointer hover:bg-primary/20 hover:border-primary/50"
+              }`}
+              title="Automatically generate vertical busduct riser from 3D Studio floor heights & Load Summary active kW"
+            >
+              <Sparkles className="size-3.5" />
+              <span>Sync 3D & Load Summary</span>
+            </button>
+
             <label className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground transition-all ${isApproved ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer hover:bg-surface-3"}`}>
               <Download className="size-3.5" /> Import Ratings
               <input type="file" disabled={isApproved} accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
@@ -2142,26 +2193,22 @@ function BusbarCalculationPage() {
                                              />
                                            </div>
                                          </td>
-                                         <td style={{ width: busbarColWidths.no, minWidth: busbarColWidths.no, maxWidth: busbarColWidths.no }} className="text-center text-muted-foreground font-medium px-0.5 text-[11.5px]">{idx + 1}</td>
+                                         <td style={{ width: busbarColWidths.no, minWidth: busbarColWidths.no, maxWidth: busbarColWidths.no }} className="text-center text-muted-foreground font-medium px-0.5 text-[11.5px] relative">
+                                           {(() => {
+                                             const itemComments = getMergedItemComments(r.id, r.desc || r.from || `Tap Off ${r.ref || r.id}`, r.comments, "/busbar-calculation", project?.id);
+                                             return (
+                                               <RowCommentCornerBadge
+                                                 id={r.id}
+                                                 count={itemComments.length}
+                                                 onClick={() => handleOpenComment(r)}
+                                                 title={`${itemComments.length} comment(s)/task(s) assigned to "${r.desc || r.from || `Tap Off ${r.ref || r.id}`}"`}
+                                               />
+                                             );
+                                           })()}
+                                           {idx + 1}
+                                         </td>
                                          <td style={{ width: busbarColWidths.desc, minWidth: busbarColWidths.desc, maxWidth: busbarColWidths.desc }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
                                           <div className="flex items-center gap-1.5 w-full px-1">
-                                            {(() => {
-        const itemComments = getMergedItemComments(r.id, r.desc || r.from || `Tap Off ${r.ref || r.id}`, r.comments, "/busbar-calculation", project?.id);
-        return itemComments.length > 0 ? (
-          <button
-            type="button"
-            className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-            title={`${itemComments.length} comment(s)/task(s) assigned to "${r.desc || r.from || `Tap Off ${r.ref || r.id}`}"`}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenComment(r);
-            }}
-          >
-            <MessageSquare className="size-3.5 fill-blue-500/20" />
-            <span className="text-[10px] font-bold">{itemComments.length}</span>
-          </button>
-        ) : null;
-      })()}
                                             <input 
                                               disabled={isApproved}
                                               data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} 
@@ -2325,7 +2372,7 @@ function BusbarCalculationPage() {
             className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-blue-600 dark:text-blue-400 rounded"
           >
             <MessageSquare className="size-3.5" />
-            <span>Add Comment / Assign Task</span>
+            <span>Add Comment</span>
           </button>
           <button
             onClick={() => {
@@ -2464,6 +2511,13 @@ function BusbarCalculationPage() {
           />
         );
       })()}
+      {syncModalOpen && syncResult && (
+        <SyncBusbarModal
+          syncResult={syncResult}
+          onApply={handleApplySync}
+          onClose={() => setSyncModalOpen(false)}
+        />
+      )}
     </AppShell>
   );
 }

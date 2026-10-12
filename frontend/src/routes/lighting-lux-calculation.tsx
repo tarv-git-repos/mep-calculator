@@ -12,7 +12,7 @@ import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { 
   Plus, Download, Trash, Copy, Trash2, X, FileText, FileSpreadsheet, 
   MessageSquare, Search, Filter, ArrowUpDown, Sparkles, Check, Sun, Edit3, Layers, Flag,
-  Box, HelpCircle, Info, CheckCircle2, AlertTriangle, ArrowRight
+  Box, HelpCircle, Info, CheckCircle2, AlertTriangle, ArrowRight, Zap
 } from "lucide-react";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
@@ -1034,20 +1034,7 @@ function LightingLuxCalculationPage() {
             >
               <Sun className="size-3.5" />
             </button>
-            {itemComments.length > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenCommentModal(row);
-                }}
-                title={`${itemComments.length} comment(s)/task(s) assigned`}
-                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-              >
-                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                <span className="text-[10px] font-bold">{itemComments.length}</span>
-              </button>
-            )}
+            
             <input 
               value={row.location}
               onChange={(e) => updateRow(row.id, { location: e.target.value })}
@@ -1818,6 +1805,7 @@ function LightingLuxCalculationPage() {
                   selected={selected}
                   onToggle={handleToggle}
                   onToggleAll={handleToggleAll}
+                  onCommentClick={handleOpenCommentModal}
                   onRowDoubleClick={(row) => setPreviewRow(row)}
                   rowClassName={(r) => r.flagged ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]" : ""}
                   renderContextMenu={renderContextMenu}

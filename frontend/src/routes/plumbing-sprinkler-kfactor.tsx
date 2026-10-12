@@ -915,7 +915,7 @@ function SprinklerKFactorPage() {
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
         >
           <MessageSquare className="size-3.5" />
-          <span>Add Comment / Assign Task</span>
+          <span>Add Comment</span>
         </ContextMenuItem>
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -1284,20 +1284,7 @@ function SprinklerKFactorPage() {
 
         return (
           <div className="flex items-center gap-1.5 w-full">
-            {Array.isArray(row.comments) && row.comments.length > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenComment(row);
-                }}
-                title={`${row.comments.length} comment(s)/task(s) assigned to "${row.label}"`}
-                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-              >
-                <MessageSquare className="size-3.5 fill-blue-100" />
-                <span className="text-[10px] font-bold">{row.comments.length}</span>
-              </button>
-            )}
+            
             <InlineInput
               value={row.label}
               onCommit={(val) => updateRow(row.id, "label", val)}
@@ -1993,6 +1980,7 @@ function SprinklerKFactorPage() {
                       selected={selected}
                       onToggle={toggleSelect}
                       onToggleAll={toggleSelectAll}
+                      onCommentClick={handleOpenComment}
                       isReadOnly={isLocked}
                       renderContextMenu={renderSprinklerContextMenu}
                       onRowDoubleClick={(row) => {

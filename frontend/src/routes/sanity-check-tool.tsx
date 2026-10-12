@@ -19,6 +19,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { dirtyStore } from "@/lib/dirty-store";
 import { CalculationPreviewModal, CalculationPreviewData } from "@/components/calculator-framework/CalculationPreviewModal";
 import { useCalculatorFramework } from "@/components/calculator-framework";
@@ -134,12 +135,11 @@ function SanityCheckToolPage() {
     const unresolvedCount = existing.filter(c => c.status !== "resolved").length;
     if (unresolvedCount === 0) return null;
     return (
-      <button 
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleOpenComment(id, name); }}
-        className="ml-2 inline-flex items-center justify-center size-4 bg-primary text-primary-foreground rounded-full text-[9px] font-bold shadow-sm"
-      >
-        {unresolvedCount}
-      </button>
+      <RowCommentCornerBadge
+        id={id}
+        count={unresolvedCount}
+        onClick={() => handleOpenComment(id, name)}
+      />
     );
   };
 
@@ -328,6 +328,18 @@ function SanityCheckToolPage() {
 
   const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
 
+  const getInputClass = (id: string, name?: string) => {
+    const isHigh = isFieldHighlighted(id, name);
+    const baseStyle = "w-full h-8 px-2 rounded font-mono focus:outline-none disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base transition-all duration-150";
+
+    return `${baseStyle} bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-foreground focus:border-primary ${isHigh}`;
+  };
+
+  const getCardCommentClass = (id: string, name: string, baseClass: string) => {
+    const isHigh = isFieldHighlighted(id, name);
+    return `${baseClass} relative ${isHigh}`;
+  };
+
   return (
     <AppShell
       title="Sanity Check Tool"
@@ -514,7 +526,7 @@ function SanityCheckToolPage() {
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                         >
                           <MessageSquare className="size-3.5" />
-                          <span>Add Comment / Assign Task</span>
+                          <span>Add Comment</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>
@@ -603,7 +615,7 @@ function SanityCheckToolPage() {
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                         >
                           <MessageSquare className="size-3.5" />
-                          <span>Add Comment / Assign Task</span>
+                          <span>Add Comment</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>
@@ -692,7 +704,7 @@ function SanityCheckToolPage() {
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                         >
                           <MessageSquare className="size-3.5" />
-                          <span>Add Comment / Assign Task</span>
+                          <span>Add Comment</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>
@@ -799,7 +811,7 @@ function SanityCheckToolPage() {
                         className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                       >
                         <MessageSquare className="size-3.5" />
-                        <span>Add Comment / Assign Task</span>
+                        <span>Add Comment</span>
                       </ContextMenuItem>
                     </ContextMenuContent>
                   </ContextMenu>

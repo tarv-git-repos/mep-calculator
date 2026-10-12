@@ -30,6 +30,7 @@ import { dirtyStore } from "@/lib/dirty-store";
 import { useAuth } from "@/contexts/AuthContext";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { EditPsychrometricModal, type PsychrometricFormData } from "@/components/workspace/EditPsychrometricModal";
 import { CalculationPreviewModal, CalculationPreviewData } from "@/components/calculator-framework/CalculationPreviewModal";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
@@ -222,12 +223,11 @@ function PsychrometricPage() {
     const unresolvedCount = existing.filter(c => c.status !== "resolved").length;
     if (unresolvedCount === 0) return null;
     return (
-      <button 
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleOpenComment(id, name); }}
-        className="ml-2 inline-flex items-center justify-center size-4 bg-primary text-primary-foreground rounded-full text-[9px] font-medium shadow-sm"
-      >
-        {unresolvedCount}
-      </button>
+      <RowCommentCornerBadge
+        id={id}
+        count={unresolvedCount}
+        onClick={() => handleOpenComment(id, name)}
+      />
     );
   };
 
@@ -654,6 +654,18 @@ function PsychrometricPage() {
   const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono font-normal focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
   const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-normal focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
 
+  const getInputClass = (id: string, name?: string) => {
+    const isHigh = isFieldHighlighted(id, name);
+    const baseStyle = "w-full h-9 px-3 rounded-lg text-xs font-mono font-medium focus:outline-none disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base transition-all duration-150";
+
+    return `${baseStyle} bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-foreground focus:border-[#0A7BC7] ${isHigh}`;
+  };
+
+  const getCardCommentClass = (id: string, name: string, baseClass: string) => {
+    const isHigh = isFieldHighlighted(id, name);
+    return `${baseClass} relative ${isHigh}`;
+  };
+
   const renderChart = () => {
     const valDbt = ip ? cToF(calculatedData.dbt) : calculatedData.dbt + 273.15;
     const valDp = ip ? cToF(calculatedData.dp) : calculatedData.dp + 273.15;
@@ -738,21 +750,21 @@ function PsychrometricPage() {
             </svg>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
           <ContextMenuItem
-            onClick={() => setEditModalOpen(true)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            onClick={() => handleOpenComment(chartId, chartLabel)}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
-            <Edit3 className="size-3.5 text-muted-foreground" />
-            <span>Edit Parameters</span>
+            <MessageSquare className="size-3.5" />
+            <span>Add Comment</span>
           </ContextMenuItem>
           <ContextMenuSeparator className="h-px bg-border my-1" />
           <ContextMenuItem
-            onClick={() => handleOpenComment(chartId, chartLabel)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+            onClick={() => setEditModalOpen(true)}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
-            <MessageSquare className="size-3.5" />
-            <span>Add Comment / Assign Task</span>
+            <Edit3 className="size-3.5 text-muted-foreground" />
+            <span>Edit Parameters</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -885,29 +897,37 @@ function PsychrometricPage() {
                             className={`p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("psych-dbt", "Dry Bulb Temperature")}`}
                           >
                             <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <label className="text-xs font-medium text-slate-700 dark:text-zinc-300">
-                                  Dry Bulb Temperature ({isSI ? "°C" : "°F"})
-                                </label>
+                              <label className="text-xs font-medium text-slate-700 dark:text-zinc-300">
+                                Dry Bulb Temperature ({isSI ? "°C" : "°F"})
+                              </label>
+                              <div className="relative mt-1">
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  disabled={framework.isReadOnly || isApprovedLocked}
+                                  value={dbtInput}
+                                  onChange={(e) => {
+                                    if (isApprovedLocked) return;
+                                    setDbtInput(e.target.value === "" ? "" : Number(e.target.value));
+                                    setHasCalculated(true);
+                                    dirtyStore.set(true);
+                                  }}
+                                  className={getInputClass("psych-dbt", "Dry Bulb Temperature")}
+                                />
                                 {renderCommentBadge("psych-dbt", "Dry Bulb Temperature")}
                               </div>
-                              <input
-                                type="number"
-                                step="0.1"
-                                disabled={framework.isReadOnly || isApprovedLocked}
-                                value={dbtInput}
-                                onChange={(e) => {
-                                  if (isApprovedLocked) return;
-                                  setDbtInput(e.target.value === "" ? "" : Number(e.target.value));
-                                  setHasCalculated(true);
-                                  dirtyStore.set(true);
-                                }}
-                                className={flowInputClass}
-                              />
                             </div>
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("psych-dbt", "Dry Bulb Temperature")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
                           <ContextMenuItem
                             disabled={framework.isReadOnly || isApprovedLocked}
                             onClick={() => {
@@ -919,14 +939,6 @@ function PsychrometricPage() {
                           >
                             <RotateCcw className="size-3.5 text-muted-foreground" />
                             <span>Reset Dry Bulb Temp</span>
-                          </ContextMenuItem>
-                          <ContextMenuSeparator className="h-px bg-border my-1" />
-                          <ContextMenuItem
-                            onClick={() => handleOpenComment("psych-dbt", "Dry Bulb Temperature")}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                          >
-                            <MessageSquare className="size-3.5" />
-                            <span>Add Comment / Assign Task</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -940,42 +952,42 @@ function PsychrometricPage() {
                             data-comment-target="psych-second-param"
                             className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("psych-second-param", "Known Second Parameter")}`}
                           >
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                                Select Known 2nd Property
-                              </span>
+                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                              Select Known 2nd Property
+                            </span>
+                            <div className="relative mt-1">
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                {(["rh", "wb", "dp", "w"] as SecondParam[]).map((param) => {
+                                  const active = secondParam === param;
+                                  const labelMap: Record<SecondParam, string> = {
+                                    rh: "Rel. Humidity",
+                                    wb: "Wet Bulb",
+                                    dp: "Dew Point",
+                                    w: "Hum. Ratio"
+                                  };
+                                  return (
+                                    <button
+                                      key={param}
+                                      type="button"
+                                      disabled={framework.isReadOnly || isApprovedLocked}
+                                      onClick={() => {
+                                        if (isApprovedLocked || framework.isReadOnly) return;
+                                        setSecondParam(param);
+                                        setHasCalculated(true);
+                                        dirtyStore.set(true);
+                                      }}
+                                      className={`py-2 px-3 rounded-xl border text-center font-medium transition-all text-xs cursor-pointer ${
+                                        active
+                                          ? "bg-primary/10 border-primary text-primary shadow-xs font-semibold"
+                                          : "bg-slate-50 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 hover:bg-slate-100 text-muted-foreground"
+                                      }`}
+                                    >
+                                      {labelMap[param]}
+                                    </button>
+                                  );
+                                })}
+                              </div>
                               {renderCommentBadge("psych-second-param", "Known Second Parameter")}
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                              {(["rh", "wb", "dp", "w"] as SecondParam[]).map((param) => {
-                                const active = secondParam === param;
-                                const labelMap: Record<SecondParam, string> = {
-                                  rh: "Rel. Humidity",
-                                  wb: "Wet Bulb",
-                                  dp: "Dew Point",
-                                  w: "Hum. Ratio"
-                                };
-                                return (
-                                  <button
-                                    key={param}
-                                    type="button"
-                                    disabled={framework.isReadOnly || isApprovedLocked}
-                                    onClick={() => {
-                                      if (isApprovedLocked || framework.isReadOnly) return;
-                                      setSecondParam(param);
-                                      setHasCalculated(true);
-                                      dirtyStore.set(true);
-                                    }}
-                                    className={`py-2 px-3 rounded-xl border text-center font-medium transition-all text-xs cursor-pointer ${
-                                      active
-                                        ? "bg-primary/10 border-primary text-primary shadow-xs font-semibold"
-                                        : "bg-slate-50 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 hover:bg-slate-100 text-muted-foreground"
-                                    }`}
-                                  >
-                                    {labelMap[param]}
-                                  </button>
-                                );
-                              })}
                             </div>
                           </div>
                         </ContextMenuTrigger>
@@ -985,7 +997,7 @@ function PsychrometricPage() {
                             className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                           >
                             <MessageSquare className="size-3.5" />
-                            <span>Add Comment / Assign Task</span>
+                            <span>Add Comment</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -999,34 +1011,42 @@ function PsychrometricPage() {
                             data-comment-target="psych-param-value"
                             className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("psych-param-value", "Parameter Value")}`}
                           >
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-medium text-slate-700 dark:text-zinc-300">
-                                {secondParam === "rh"
-                                  ? "Relative Humidity (%)"
-                                  : secondParam === "wb"
-                                  ? `Wet Bulb Temperature (${isSI ? "°C" : "°F"})`
-                                  : secondParam === "dp"
-                                  ? `Dew Point Temperature (${isSI ? "°C" : "°F"})`
-                                  : `Humidity Ratio (${isSI ? "g/kg" : "gr/lb"})`}
-                              </label>
+                            <label className="text-xs font-medium text-slate-700 dark:text-zinc-300">
+                              {secondParam === "rh"
+                                ? "Relative Humidity (%)"
+                                : secondParam === "wb"
+                                ? `Wet Bulb Temperature (${isSI ? "°C" : "°F"})`
+                                : secondParam === "dp"
+                                ? `Dew Point Temperature (${isSI ? "°C" : "°F"})`
+                                : `Humidity Ratio (${isSI ? "g/kg" : "gr/lb"})`}
+                            </label>
+                            <div className="relative mt-1">
+                              <input
+                                type="number"
+                                step="any"
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={paramValue}
+                                onChange={(e) => {
+                                  if (isApprovedLocked) return;
+                                  setParamValue(e.target.value === "" ? "" : Number(e.target.value));
+                                  setHasCalculated(true);
+                                  dirtyStore.set(true);
+                                }}
+                                className={getInputClass("psych-param-value", "Parameter Value")}
+                              />
                               {renderCommentBadge("psych-param-value", "Parameter Value")}
                             </div>
-                            <input
-                              type="number"
-                              step="any"
-                              disabled={framework.isReadOnly || isApprovedLocked}
-                              value={paramValue}
-                              onChange={(e) => {
-                                if (isApprovedLocked) return;
-                                setParamValue(e.target.value === "" ? "" : Number(e.target.value));
-                                setHasCalculated(true);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                            />
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("psych-param-value", "Parameter Value")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
                           <ContextMenuItem
                             disabled={framework.isReadOnly || isApprovedLocked}
                             onClick={() => {
@@ -1038,14 +1058,6 @@ function PsychrometricPage() {
                           >
                             <RotateCcw className="size-3.5 text-muted-foreground" />
                             <span>Reset Value</span>
-                          </ContextMenuItem>
-                          <ContextMenuSeparator className="h-px bg-border my-1" />
-                          <ContextMenuItem
-                            onClick={() => handleOpenComment("psych-param-value", "Parameter Value")}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                          >
-                            <MessageSquare className="size-3.5" />
-                            <span>Add Comment / Assign Task</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1059,28 +1071,36 @@ function PsychrometricPage() {
                             data-comment-target="psych-atm-pressure"
                             className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("psych-atm-pressure", "Atmospheric Pressure")}`}
                           >
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-medium text-slate-700 dark:text-zinc-300">
-                                Atmospheric Pressure (kPa)
-                              </label>
+                            <label className="text-xs font-medium text-slate-700 dark:text-zinc-300">
+                              Atmospheric Pressure (kPa)
+                            </label>
+                            <div className="relative mt-1">
+                              <input
+                                type="number"
+                                step="0.001"
+                                disabled={framework.isReadOnly || isApprovedLocked}
+                                value={atmPressure}
+                                onChange={(e) => {
+                                  if (isApprovedLocked) return;
+                                  setAtmPressure(e.target.value === "" ? "" : Number(e.target.value));
+                                  setHasCalculated(true);
+                                  dirtyStore.set(true);
+                                }}
+                                className={getInputClass("psych-atm-pressure", "Atmospheric Pressure")}
+                              />
                               {renderCommentBadge("psych-atm-pressure", "Atmospheric Pressure")}
                             </div>
-                            <input
-                              type="number"
-                              step="0.001"
-                              disabled={framework.isReadOnly || isApprovedLocked}
-                              value={atmPressure}
-                              onChange={(e) => {
-                                if (isApprovedLocked) return;
-                                setAtmPressure(e.target.value === "" ? "" : Number(e.target.value));
-                                setHasCalculated(true);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                            />
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("psych-atm-pressure", "Atmospheric Pressure")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
                           <ContextMenuItem
                             disabled={framework.isReadOnly || isApprovedLocked}
                             onClick={() => {
@@ -1092,14 +1112,6 @@ function PsychrometricPage() {
                           >
                             <RotateCcw className="size-3.5 text-muted-foreground" />
                             <span>Reset Atmospheric Pressure</span>
-                          </ContextMenuItem>
-                          <ContextMenuSeparator className="h-px bg-border my-1" />
-                          <ContextMenuItem
-                            onClick={() => handleOpenComment("psych-atm-pressure", "Atmospheric Pressure")}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                          >
-                            <MessageSquare className="size-3.5" />
-                            <span>Add Comment / Assign Task</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1128,33 +1140,149 @@ function PsychrometricPage() {
 
                           {/* DISPLAY STAT CARDS */}
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Dry Bulb Temp</div>
-                              <div className="text-xl font-semibold font-mono text-foreground mt-1">
-                                {isSI ? `${dbtC.toFixed(1)}` : `${dbtF.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "°C" : "°F"}</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-dbt"
+                                  data-field-id="res-dbt"
+                                  data-comment-target="res-dbt"
+                                  className={getCardCommentClass("res-dbt", "Dry Bulb Temp", "bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                                >
+                                  <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Dry Bulb Temp</div>
+                                  <div className="text-xl font-semibold font-mono text-foreground mt-1">
+                                    {isSI ? `${dbtC.toFixed(1)}` : `${dbtF.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "°C" : "°F"}</span>
+                                  </div>
+                                  {renderCommentBadge("res-dbt", "Dry Bulb Temp")}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-dbt", "Dry Bulb Temp")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(`${isSI ? dbtC.toFixed(1) : dbtF.toFixed(1)} ${isSI ? "°C" : "°F"}`);
+                                    toast.success("Copied Dry Bulb Temp");
+                                  }}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                            <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Relative Humidity</div>
-                              <div className="text-xl font-semibold font-mono text-foreground mt-1">
-                                {rhVal.toFixed(1)} <span className="text-xs font-normal text-muted-foreground">%</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-rh"
+                                  data-field-id="res-rh"
+                                  data-comment-target="res-rh"
+                                  className={getCardCommentClass("res-rh", "Relative Humidity", "bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                                >
+                                  <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Relative Humidity</div>
+                                  <div className="text-xl font-semibold font-mono text-foreground mt-1">
+                                    {rhVal.toFixed(1)} <span className="text-xs font-normal text-muted-foreground">%</span>
+                                  </div>
+                                  {renderCommentBadge("res-rh", "Relative Humidity")}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-rh", "Relative Humidity")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(`${rhVal.toFixed(1)} %`);
+                                    toast.success("Copied Relative Humidity");
+                                  }}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                            <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Specific Enthalpy</div>
-                              <div className="text-xl font-semibold font-mono text-foreground mt-1">
-                                {isSI ? `${hKjKg.toFixed(2)}` : `${hBtuLb.toFixed(2)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "kJ/kg" : "BTU/lb"}</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-enthalpy"
+                                  data-field-id="res-enthalpy"
+                                  data-comment-target="res-enthalpy"
+                                  className={getCardCommentClass("res-enthalpy", "Specific Enthalpy", "bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                                >
+                                  <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Specific Enthalpy</div>
+                                  <div className="text-xl font-semibold font-mono text-foreground mt-1">
+                                    {isSI ? `${hKjKg.toFixed(2)}` : `${hBtuLb.toFixed(2)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "kJ/kg" : "BTU/lb"}</span>
+                                  </div>
+                                  {renderCommentBadge("res-enthalpy", "Specific Enthalpy")}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-enthalpy", "Specific Enthalpy")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(`${isSI ? hKjKg.toFixed(2) : hBtuLb.toFixed(2)} ${isSI ? "kJ/kg" : "BTU/lb"}`);
+                                    toast.success("Copied Specific Enthalpy");
+                                  }}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                            <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Dew Point Temp</div>
-                              <div className="text-xl font-semibold font-mono text-foreground mt-1">
-                                {isSI ? `${dpC.toFixed(1)}` : `${dpF.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "°C" : "°F"}</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-dewpoint"
+                                  data-field-id="res-dewpoint"
+                                  data-comment-target="res-dewpoint"
+                                  className={getCardCommentClass("res-dewpoint", "Dew Point Temp", "bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                                >
+                                  <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Dew Point Temp</div>
+                                  <div className="text-xl font-semibold font-mono text-foreground mt-1">
+                                    {isSI ? `${dpC.toFixed(1)}` : `${dpF.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "°C" : "°F"}</span>
+                                  </div>
+                                  {renderCommentBadge("res-dewpoint", "Dew Point Temp")}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-dewpoint", "Dew Point Temp")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(`${isSI ? dpC.toFixed(1) : dpF.toFixed(1)} ${isSI ? "°C" : "°F"}`);
+                                    toast.success("Copied Dew Point Temp");
+                                  }}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
                           </div>
 
                           {/* DETAILED METRICS TABLE */}
@@ -1188,20 +1316,20 @@ function PsychrometricPage() {
                       </ContextMenuTrigger>
                       <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
                         <ContextMenuItem
+                          onClick={() => handleOpenComment("card-hero-results", "Solved Air State Summary")}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment</span>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
                           onClick={() => framework.openPreviewModal(calculationPreviewData)}
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
                         >
                           <Eye className="size-3.5 text-primary" />
                           <span>Calculation Preview</span>
                           <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator className="h-px bg-border my-1" />
-                        <ContextMenuItem
-                          onClick={() => handleOpenComment("card-hero-results", "Solved Air State Summary")}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                        >
-                          <MessageSquare className="size-3.5" />
-                          <span>Add Comment / Assign Task</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>

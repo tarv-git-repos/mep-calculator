@@ -21,6 +21,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
@@ -1474,8 +1475,21 @@ function CableTraySizingPage() {
               id={`tray-card-${tray.id}`}
               data-tray-id={tray.id}
               data-row-id={tray.id}
-              className="bg-card border border-border rounded-2xl shadow-xs flex flex-col overflow-hidden shrink-0 transition-all"
+              className="bg-card border border-border rounded-2xl shadow-xs flex flex-col overflow-hidden shrink-0 transition-all relative"
             >
+              <RowCommentCornerBadge
+                id={tray.id}
+                count={tray.comments?.length}
+                onClick={() => {
+                  setCommentTarget({
+                    id: tray.id,
+                    name: tray.name,
+                    type: "tray",
+                  });
+                  setAssignCommentOpen(true);
+                }}
+                title={`${tray.comments?.length || 0} comment(s)/task(s) assigned`}
+              />
               
               {/* Tray Header */}
               <div 
@@ -1520,24 +1534,6 @@ function CableTraySizingPage() {
                 </div>
 
                 <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                  {tray.comments && tray.comments.length > 0 && (
-                    <span
-                      className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer text-xs font-medium gap-1"
-                      title={`${tray.comments.length} comment(s):\n${tray.comments.map((cm: any) => `${cm.authorName || 'User'}: ${cm.text}`).join('\n')}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCommentTarget({
-                          id: tray.id,
-                          name: tray.name,
-                          type: "tray",
-                        });
-                        setAssignCommentOpen(true);
-                      }}
-                    >
-                      <MessageSquare className="size-3.5" />
-                      <span>{tray.comments.length}</span>
-                    </span>
-                  )}
                   <TBtn onClick={(e) => {
                     e.stopPropagation();
                     setCommentTarget({
@@ -1692,26 +1688,23 @@ function CableTraySizingPage() {
                                     />
                                   </div>
                                 </td>
-                                <td style={{ width: colWidths.no, minWidth: colWidths.no }} className="text-center text-muted-foreground px-1">
-                                  <div className="flex items-center justify-center gap-1">
+                                <td style={{ width: colWidths.no, minWidth: colWidths.no }} className="text-center text-muted-foreground px-1 relative">
+                                  {c.comments && c.comments.length > 0 && (
+                                    <RowCommentCornerBadge
+                                      count={c.comments.length}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCommentTarget({
+                                          id: c.id,
+                                          name: `Cable ${idx + 1} (${c.cores} ${c.size || ''})`,
+                                          type: "cable",
+                                        });
+                                        setAssignCommentOpen(true);
+                                      }}
+                                    />
+                                  )}
+                                  <div className="flex items-center justify-center">
                                     <span>{idx + 1}</span>
-                                    {c.comments && c.comments.length > 0 && (
-                                      <span
-                                        className="inline-flex items-center justify-center p-0.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
-                                        title={`${c.comments.length} comment(s):\n${c.comments.map((cm: any) => `${cm.authorName || 'User'}: ${cm.text}`).join('\n')}`}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setCommentTarget({
-                                            id: c.id,
-                                            name: `Cable ${idx + 1} (${c.cores} ${c.size || ''})`,
-                                            type: "cable",
-                                          });
-                                          setAssignCommentOpen(true);
-                                        }}
-                                      >
-                                        <MessageSquare className="size-3 text-blue-600 dark:text-blue-300" />
-                                      </span>
-                                    )}
                                   </div>
                                 </td>
                                 <td style={{ width: colWidths.type, minWidth: colWidths.type }} className="p-0">

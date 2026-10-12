@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/context-menu";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { computeSmokeExtractFanData } from "@/lib/calc-smoke-extract-fan";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 
@@ -392,29 +393,21 @@ function SmokeExtractFanPage() {
             id={`field-${id}`}
             data-item-id={id}
             data-field-id={id}
-            className={`flex flex-col gap-1.5 group cursor-context-menu p-2 rounded-xl transition-all ${
+            className={`flex flex-col gap-1.5 group cursor-context-menu p-2 rounded-xl transition-all relative ${
               isHighlighted
                 ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20 font-bold"
                 : ""
             }`}
           >
+            <RowCommentCornerBadge
+              id={id}
+              count={itemComments.length}
+              onClick={() => handleOpenComment(id, label)}
+              title={`${itemComments.length} comment(s)/task(s) assigned`}
+            />
             <label className="font-semibold text-foreground flex items-center justify-between gap-2">
               <span className="flex items-center gap-1.5">
                 <span>{label}</span>
-                {hasComments && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
-                  >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
-                  </button>
-                )}
               </span>
               <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
             </label>
@@ -431,10 +424,20 @@ function SmokeExtractFanPage() {
           </div>
         </ContextMenuTrigger>
 
-        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
           <ContextMenuItem
             onClick={() => handleCopyValue(label, value)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <Copy className="size-3.5 text-muted-foreground" />
             <span>Copy Value</span>
@@ -443,7 +446,7 @@ function SmokeExtractFanPage() {
 
           <ContextMenuItem
             onClick={() => handlePasteValue(label, setter)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <Clipboard className="size-3.5 text-muted-foreground" />
             <span>Paste Value</span>
@@ -454,7 +457,7 @@ function SmokeExtractFanPage() {
 
           <ContextMenuItem
             onClick={() => handleResetValue(label, setter, defaultVal)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <RotateCcw className="size-3.5 text-muted-foreground" />
             <span>Reset to Default ({defaultVal !== "" ? defaultVal : "Blank"})</span>
@@ -462,21 +465,11 @@ function SmokeExtractFanPage() {
 
           <ContextMenuItem
             onClick={() => handleClearValue(label, setter)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium text-amber-600 dark:text-amber-400"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
           >
             <Trash2 className="size-3.5" />
             <span>Clear Field</span>
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Delete</ContextMenuShortcut>
-          </ContextMenuItem>
-
-          <ContextMenuSeparator className="h-px bg-border my-1" />
-
-          <ContextMenuItem
-            onClick={() => handleOpenComment(id, label)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-          >
-            <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -506,7 +499,7 @@ function SmokeExtractFanPage() {
             id={`res-${id}`}
             data-item-id={id}
             data-field-id={id}
-            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/40 dark:hover:bg-slate-800/30 px-2 rounded-lg transition cursor-context-menu group ${
+            className={`flex justify-between items-center py-1.5 border-b border-border/40 hover:bg-slate-100/40 dark:hover:bg-slate-800/30 px-2 rounded-lg transition cursor-context-menu group relative ${
               colSpanTwo ? "col-span-2" : ""
             } ${
               isHighlighted
@@ -514,31 +507,33 @@ function SmokeExtractFanPage() {
                 : ""
             }`}
           >
+            <RowCommentCornerBadge
+              id={id}
+              count={itemComments.length}
+              onClick={() => handleOpenComment(id, label)}
+              title={`${itemComments.length} comment(s)/task(s) assigned`}
+            />
             <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
               <span>{label}</span>
-              {hasComments && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenComment(id, label);
-                  }}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                  title={`${itemComments.length} comment(s)/task(s) assigned`}
-                >
-                  <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                  <span>{itemComments.length}</span>
-                </button>
-              )}
             </span>
             <strong className={`font-bold font-mono ${highlightClass}`}>{valueFormatted}</strong>
           </div>
         </ContextMenuTrigger>
 
-        <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+          <ContextMenuItem
+            onClick={() => handleOpenComment(id, label)}
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+          >
+            <MessageSquare className="size-3.5" />
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
+          </ContextMenuItem>
+
+          <ContextMenuSeparator className="h-px bg-border my-1" />
+
           <ContextMenuItem
             onClick={() => handleCopyValue(label, valueFormatted)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <Copy className="size-3.5 text-muted-foreground" />
             <span>Copy Value ({valueFormatted})</span>
@@ -550,20 +545,10 @@ function SmokeExtractFanPage() {
               navigator.clipboard.writeText(`${label}: ${valueFormatted}`);
               toast.success(`Copied full line: "${label}: ${valueFormatted}"`);
             }}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
             <FileText className="size-3.5 text-muted-foreground" />
             <span>Copy Full Line</span>
-          </ContextMenuItem>
-
-          <ContextMenuSeparator className="h-px bg-border my-1" />
-
-          <ContextMenuItem
-            onClick={() => handleOpenComment(id, label)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-          >
-            <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -783,27 +768,18 @@ function SmokeExtractFanPage() {
                               id={stepId}
                               data-item-id={stepId}
                               data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
                                 isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
                               }`}
                             >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
                               <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">1</div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-bold text-foreground flex items-center justify-between">
                                   <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
                                 </div>
                                 <div className="font-mono text-primary my-1">V = Area × Height</div>
                                 <div className="font-mono text-[10.5px] text-muted-foreground">V = {area || 100} m² × {height || 3.0} m</div>
@@ -811,14 +787,22 @@ function SmokeExtractFanPage() {
                               </div>
                             </div>
                           </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 1 Volume", `${calculatedData.volume.toFixed(2)} m³`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 1 Result</span>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
                             </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 1 Volume", `${calculatedData.volume.toFixed(2)} m³`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 1 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
@@ -838,27 +822,18 @@ function SmokeExtractFanPage() {
                               id={stepId}
                               data-item-id={stepId}
                               data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
                                 isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
                               }`}
                             >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
                               <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">2</div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-bold text-foreground flex items-center justify-between">
                                   <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
                                 </div>
                                 <div className="font-mono text-primary my-1">Q_smoke = (Volume × ACPH) / 3600</div>
                                 <div className="font-mono text-[10.5px] text-muted-foreground">Q_smoke = ({calculatedData.volume.toFixed(2)} m³ × {acph || 10} ACPH) / 3600</div>
@@ -866,14 +841,22 @@ function SmokeExtractFanPage() {
                               </div>
                             </div>
                           </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 2 Extract Rate", `${calculatedData.smokeExtractRate.toFixed(3)} m³/s`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 2 Result</span>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
                             </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 2 Extract Rate", `${calculatedData.smokeExtractRate.toFixed(3)} m³/s`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 2 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
@@ -893,27 +876,18 @@ function SmokeExtractFanPage() {
                               id={stepId}
                               data-item-id={stepId}
                               data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
                                 isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
                               }`}
                             >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
                               <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">3</div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-bold text-foreground flex items-center justify-between">
                                   <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
                                 </div>
                                 <div className="font-mono text-primary my-1">Q_each = Ceiling( (Q_smoke / fanQty × 1000) / 5 ) * 5</div>
                                 <div className="font-mono text-[10.5px] text-muted-foreground">Q_each = Ceiling( ({calculatedData.smokeExtractRate.toFixed(3)} / {fanQty || 1} × 1000) / 5 ) * 5</div>
@@ -921,14 +895,22 @@ function SmokeExtractFanPage() {
                               </div>
                             </div>
                           </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 3 Flow per Fan", `${calculatedData.flowEachLsRound} L/s`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 3 Result</span>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
                             </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 3 Flow per Fan", `${calculatedData.flowEachLsRound} L/s`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 3 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
@@ -948,27 +930,18 @@ function SmokeExtractFanPage() {
                               id={stepId}
                               data-item-id={stepId}
                               data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
                                 isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
                               }`}
                             >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
                               <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">4</div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-bold text-foreground flex items-center justify-between">
                                   <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
                                 </div>
                                 <div className="font-mono text-primary my-1">Eq. Length = DuctLength × 1.6 | frictionLoss = Eq. Length × frictionFactor</div>
                                 <div className="font-mono text-[10.5px] text-muted-foreground">Eq. Length = {calculatedData.totalEqLen.toFixed(1)} m | frictionLoss = {calculatedData.totalEqLen.toFixed(1)} m × {frictionFactor || 1.0} Pa/m</div>
@@ -976,14 +949,22 @@ function SmokeExtractFanPage() {
                               </div>
                             </div>
                           </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 4 Friction Loss", `${calculatedData.frictionLoss.toFixed(2)} Pa`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 4 Result</span>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
                             </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 4 Friction Loss", `${calculatedData.frictionLoss.toFixed(2)} Pa`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 4 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
@@ -1003,27 +984,18 @@ function SmokeExtractFanPage() {
                               id={stepId}
                               data-item-id={stepId}
                               data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
                                 isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
                               }`}
                             >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
                               <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">5</div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-bold text-foreground flex items-center justify-between">
                                   <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
                                 </div>
                                 <div className="font-mono text-primary my-1">Total Head = Round( (frictionLoss + LouverDrop + FanDrop) × 1.1 ) to nearest 10</div>
                                 <div className="font-mono text-[10.5px] text-muted-foreground">Total Head = Round( ({calculatedData.frictionLoss.toFixed(2)} + {louverLoss || 50} + {fanLoss || 20}) × 1.1 ) to nearest 10</div>
@@ -1031,14 +1003,22 @@ function SmokeExtractFanPage() {
                               </div>
                             </div>
                           </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 5 Static Head", `${calculatedData.headRound} Pa`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 5 Result</span>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
                             </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 5 Static Head", `${calculatedData.headRound} Pa`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 5 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
@@ -1058,27 +1038,18 @@ function SmokeExtractFanPage() {
                               id={stepId}
                               data-item-id={stepId}
                               data-field-id={stepId}
-                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
                                 isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
                               }`}
                             >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
                               <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">6</div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-bold text-foreground flex items-center justify-between">
                                   <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
                                 </div>
                                 <div className="font-mono text-primary my-1">Power = (FlowEachM3s × HeadRound) / (Eff_Motor × Eff_Fan × 1000)</div>
                                 <div className="font-mono text-[10.5px] text-muted-foreground">Power = ({calculatedData.flowEachM3s.toFixed(4)} m³/s × {calculatedData.headRound} Pa) / ({(Number(effMotor) || 90) / 100} × {(Number(effFan) || 75) / 100} × 1000)</div>
@@ -1086,14 +1057,22 @@ function SmokeExtractFanPage() {
                               </div>
                             </div>
                           </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 6 Power per Fan", `${calculatedData.powerEachRound.toFixed(2)} kW`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 6 Result</span>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
                             </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 6 Power per Fan", `${calculatedData.powerEachRound.toFixed(2)} kW`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 6 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
@@ -1113,27 +1092,18 @@ function SmokeExtractFanPage() {
                               id={stepId}
                               data-item-id={stepId}
                               data-field-id={stepId}
-                              className={`flex gap-3 items-start cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition ${
+                              className={`flex gap-3 items-start cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
                                 isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
                               }`}
                             >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
                               <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">7</div>
                               <div className="flex-1 min-w-0">
                                 <div className="font-bold text-foreground flex items-center justify-between">
                                   <span>{stepLabel}</span>
-                                  {stepComments.length > 0 && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenComment(stepId, stepLabel);
-                                      }}
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                                    >
-                                      <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                      <span>{stepComments.length}</span>
-                                    </button>
-                                  )}
                                 </div>
                                 <div className="font-mono text-primary my-1">Total Power = PowerEach × 1.1 × qtyFans (Motor calculation)</div>
                                 <div className="font-mono text-[10.5px] text-muted-foreground">Total Power = {calculatedData.powerEachRound.toFixed(2)} kW × 1.1 × {numFansMotor || 1}</div>
@@ -1141,14 +1111,22 @@ function SmokeExtractFanPage() {
                               </div>
                             </div>
                           </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem onClick={() => handleCopyValue("Step 7 Total Motor Power", `${calculatedData.totalMotorPower.toFixed(2)} kW`)}>
-                              <Copy className="size-3.5 text-muted-foreground mr-2" />
-                              <span>Copy Step 7 Result</span>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
                             </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleOpenComment(stepId, stepLabel)}>
-                              <MessageSquare className="size-3.5 text-blue-600 mr-2" />
-                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment / Assign Task"}</span>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 7 Total Motor Power", `${calculatedData.totalMotorPower.toFixed(2)} kW`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 7 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>

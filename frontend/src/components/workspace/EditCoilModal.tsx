@@ -5,11 +5,11 @@ import { cToF, fToC, lpsToCfm, cfmToLps, lpsToGpm } from "@/utils/conversions";
 export interface CoilRow {
   id: string;
   name: string;
-  dbIn: number;
-  wbIn: number;
-  dbOut: number;
-  wbOut: number;
-  flow: number;
+  dbIn: number | "";
+  wbIn: number | "";
+  dbOut: number | "";
+  wbOut: number | "";
+  flow: number | "";
   comments?: any[];
   flagged?: boolean;
 }

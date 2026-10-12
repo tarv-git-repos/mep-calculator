@@ -1,4 +1,5 @@
-import { calculateGeneratorSizing, getGenRowValidation, STANDARD_SIZES, STARTER_MULTIPLIERS, type GenRow, type StarterType } from "@/lib/calc-generator";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
+import { calculateGeneratorSizing, getGenRowValidation, STANDARD_SIZES, STARTER_MULTIPLIERS, decideStarterAndMultiplier, inferStandbyLoad, autoCollectGeneratorLoads, type GenRow, type StarterType } from "@/lib/calc-generator";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
@@ -246,6 +247,53 @@ function GeneratorSizingPage() {
 
   const activeProject = workspaceStore.getState().project;
 
+  // Load saved generator sizing state for active project
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const pKey = `mep_gen_projects_${project?.id || activeProjectId || "default"}`;
+    const stored = localStorage.getItem(pKey);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.projects) {
+          setProjects(parsed.projects);
+          const curProj = parsed.currentProject || "Default Project";
+          setCurrentProject(curProj);
+          if (parsed.pf !== undefined) setPf(parsed.pf);
+          if (parsed.lf !== undefined) setLf(parsed.lf);
+          if (parsed.userSelectedSize !== undefined) setUserSelectedSize(parsed.userSelectedSize);
+          if (parsed.unitSystem) setUnitSystem(parsed.unitSystem);
+          if (parsed.manualOverrides) setManualOverrides(parsed.manualOverrides);
+          if (parsed.projects[curProj]) {
+            pushState(parsed.projects[curProj]);
+          }
+        } else if (parsed && parsed["Default Project"]) {
+          setProjects(parsed);
+          pushState(parsed["Default Project"]);
+        }
+      } catch (err) {}
+    }
+    setIsLoaded(true);
+  }, [project?.id, activeProjectId]);
+
+  // Persist generator sizing state on change
+  useEffect(() => {
+    if (!isLoaded || typeof window === "undefined") return;
+    const pKey = `mep_gen_projects_${project?.id || activeProjectId || "default"}`;
+    try {
+      const payload = {
+        projects: { ...projects, [currentProject]: rows },
+        currentProject,
+        pf,
+        lf,
+        userSelectedSize,
+        unitSystem,
+        manualOverrides,
+      };
+      localStorage.setItem(pKey, JSON.stringify(payload));
+    } catch (err) {}
+  }, [isLoaded, rows, projects, currentProject, pf, lf, userSelectedSize, unitSystem, manualOverrides, project?.id, activeProjectId]);
+
   // Version History Restore Listener
   useEffect(() => {
     const handleVersionRestored = (e: any) => {
@@ -389,17 +437,43 @@ function GeneratorSizingPage() {
 
       const newRow = { ...row, [field]: val };
 
+      // Stage 2: Manual Starter selection -> exact multiplier (including None = 0x)
       if (field === "starter") {
-        newRow.multiplier = STARTER_MULTIPLIERS[val as StarterType] || 1;
+        newRow.multiplier = STARTER_MULTIPLIERS[val as StarterType] ?? 0;
       }
 
-      if (field === "kwPerUnit" || field === "unit" || field === "standby") {
+      // Stage 2: AI Starter & Multiplier decision when description or kW/unit changes
+      if (field === "desc" || field === "kwPerUnit") {
+        const descStr = String(newRow.desc || "");
+        const kwRaw = Number(newRow.kwPerUnit) || 0;
+        const kwInSi = unitSystem === "ip" ? kwRaw * 0.746 : kwRaw;
+        if (descStr.trim() !== "" || kwInSi > 0) {
+          const aiDecision = decideStarterAndMultiplier(descStr, kwInSi);
+          newRow.starter = aiDecision.starter;
+          newRow.multiplier = aiDecision.multiplier;
+        }
+      }
+
+      // Stage 3: Duty / Standby auto-deduction when description, unit, or kW/unit changes
+      if (field === "desc" || field === "unit" || field === "kwPerUnit") {
+        const inferredSb = inferStandbyLoad(
+          String(newRow.desc || ""),
+          Number(newRow.unit) || 0,
+          Number(newRow.kwPerUnit) || 0
+        );
+        if (inferredSb !== null) {
+          newRow.standby = inferredSb;
+        }
+      }
+
+      // Stage 3 & 5: Recompute ACL & Emergency load
+      if (field === "desc" || field === "kwPerUnit" || field === "unit" || field === "standby") {
         const u = Number(newRow.unit) || 0;
         const kw = Number(newRow.kwPerUnit) || 0;
         const sb = Number(newRow.standby) || 0;
         const tc = u * kw;
-        const ac = tc - sb;
-        newRow.emergency = ac > 0 ? ac : "";
+        const ac = Math.max(0, Number((tc - sb).toFixed(2)));
+        newRow.emergency = ac > 0 ? ac : (u > 0 && kw > 0 ? 0 : "");
       }
 
       return newRow;
@@ -436,19 +510,64 @@ function GeneratorSizingPage() {
   };
 
   const handleImportExcelRows = (mappedRows: any[]) => {
-    const newGenRows: GenRow[] = mappedRows.map(mr => ({
-      id: `gen_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
-      desc: mr.desc || "",
-      unit: mr.unit || "",
-      kwPerUnit: mr.kwPerUnit || "",
-      starter: (mr.starter as StarterType) || "DOL",
-      multiplier: mr.multiplier || "",
-      standby: mr.standby || "",
-      emergency: mr.emergency || "",
-      powerFail: mr.powerFail || "",
-      remark: mr.remark || "",
-    }));
+    const newGenRows: GenRow[] = mappedRows.map((mr, idx) => {
+      const desc = String(mr.desc || "");
+      const unit = mr.unit !== undefined && mr.unit !== "" ? Number(mr.unit) : "";
+      const kwPerUnit = mr.kwPerUnit !== undefined && mr.kwPerUnit !== "" ? Number(mr.kwPerUnit) : "";
+      const kwSi = unitSystem === "ip" ? (Number(kwPerUnit) || 0) * 0.746 : (Number(kwPerUnit) || 0);
+      const aiStarter = decideStarterAndMultiplier(desc, kwSi);
+      const starter: StarterType = (mr.starter as StarterType) || aiStarter.starter;
+      const multiplier =
+        mr.multiplier !== undefined && mr.multiplier !== ""
+          ? Number(mr.multiplier)
+          : STARTER_MULTIPLIERS[starter] ?? aiStarter.multiplier;
+      const inferredSb = inferStandbyLoad(desc, Number(unit) || 0, Number(kwPerUnit) || 0);
+      const standby =
+        mr.standby !== undefined && mr.standby !== ""
+          ? Number(mr.standby)
+          : inferredSb !== null
+          ? inferredSb
+          : 0;
+      const acl = Math.max(0, Number(((Number(unit) || 0) * (Number(kwPerUnit) || 0) - Number(standby)).toFixed(2)));
+      const emergency =
+        mr.emergency !== undefined && mr.emergency !== "" ? Number(mr.emergency) : acl > 0 ? acl : "";
+      const powerFail =
+        mr.powerFail !== undefined && mr.powerFail !== "" ? Number(mr.powerFail) : emergency;
+
+      return {
+        id: `gen_${Date.now()}_${idx}_${Math.floor(Math.random() * 100000)}`,
+        desc,
+        unit,
+        kwPerUnit,
+        starter,
+        multiplier,
+        standby,
+        emergency,
+        powerFail,
+        remark: mr.remark || "",
+      };
+    });
     pushState([...rows, ...newGenRows]);
+  };
+
+  const handleAutoCollectLoads = () => {
+    if (isApprovedLocked || isLocked) {
+      toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to auto-collect loads.", { id: "readonly-notice" });
+      return;
+    }
+    const pId = project?.id || activeProjectId || "default";
+    const { rows: collectedRows, sources } = autoCollectGeneratorLoads(
+      pId,
+      unitSystem,
+      (project as any)?.workspace_data
+    );
+    clearOverrides();
+    setUserSelectedSize(null);
+    pushState(collectedRows);
+    const summaryCalc = calculateGeneratorSizing(collectedRows, pf, lf, unitSystem, null, {});
+    toast.success(
+      `5-Stage Automation complete: ${collectedRows.length} essential loads collected (${sources.join(", ")}) → Recommended DG: ${summaryCalc.selectedSize} kVA`
+    );
   };
 
   const deleteSelectedRows = () => {
@@ -489,92 +608,9 @@ function GeneratorSizingPage() {
 
   const handleDrop = () => setDraggedRowIndex(null);
 
-  // Calculations
+  // Stage 4 & Stage 5: Dual-Base Sizing & Motor Analysis
   const calc = useMemo(() => {
-    let totalAcl = 0;
-    let totalEmergency = 0;
-    let maxStartCur = 0;
-    let largestMotorKw = 0;
-    let largestMotorStarter = "-";
-
-    (rows || []).forEach((r) => {
-      const rKw = Number(r.kwPerUnit) || 0;
-      const rSb = Number(r.standby) || 0;
-      const rEm = r.excludeEmergency ? 0 : Number(r.emergency) || 0;
-      const rUnit = Number(r.unit) || 0;
-      const rMult = Number(r.multiplier) || 0;
-
-      const kwPerUnit = unitSystem === "ip" ? rKw * 0.746 : rKw;
-      const standby = unitSystem === "ip" ? rSb * 0.746 : rSb;
-      const emergency = unitSystem === "ip" ? rEm * 0.746 : rEm;
-
-      const totalKw = rUnit * kwPerUnit;
-      const actualKw = totalKw - standby;
-      totalAcl += actualKw;
-      totalEmergency += emergency;
-
-      const startCur = kwPerUnit * 1.739 * rMult;
-
-      if (startCur > maxStartCur) {
-        maxStartCur = startCur;
-      }
-
-      if (kwPerUnit > largestMotorKw) {
-        largestMotorKw = kwPerUnit;
-        largestMotorStarter = r.starter;
-      }
-    });
-
-    const getEffective = (key: string, computed: number) => {
-      if (manualOverrides[key] !== undefined && manualOverrides[key] !== "") {
-        return parseFloat(manualOverrides[key]) || 0;
-      }
-      return computed;
-    };
-
-    const baseAcl = getEffective("acl", unitSystem === "ip" ? totalAcl / 0.746 : totalAcl);
-    const baseEm = getEffective(
-      "em",
-      unitSystem === "ip" ? totalEmergency / 0.746 : totalEmergency,
-    );
-
-    const aclKw = unitSystem === "ip" ? baseAcl * 0.746 : baseAcl;
-    const emKw = unitSystem === "ip" ? baseEm * 0.746 : baseEm;
-
-    const demandLoadAcl = getEffective("demandAcl", aclKw / pf);
-    const demandLoadEm = getEffective("demandEm", emKw / pf);
-
-    const calcSizeAcl = getEffective("calcAcl", demandLoadAcl / lf);
-    const calcSizeEm = getEffective("calcEm", demandLoadEm / lf);
-
-    const effectiveMaxStart = getEffective("maxStart", maxStartCur);
-
-    const maxCalcSize = Math.max(calcSizeAcl, calcSizeEm);
-    let autoSize: number;
-    const matchingStandard = STANDARD_SIZES.find((size) => size >= maxCalcSize);
-    if (matchingStandard) {
-      autoSize = matchingStandard;
-    } else if (maxCalcSize > 0) {
-      autoSize = Math.ceil(maxCalcSize / 50) * 50;
-    } else {
-      autoSize = STANDARD_SIZES[0] || 5;
-    }
-
-    const selectedSize = userSelectedSize !== null ? userSelectedSize : autoSize;
-
-    return {
-      totalAcl: baseAcl,
-      totalEmergency: baseEm,
-      demandLoadAcl,
-      demandLoadEm,
-      calcSizeAcl,
-      calcSizeEm,
-      autoSize,
-      selectedSize,
-      maxStartCur: effectiveMaxStart,
-      largestMotorKw,
-      largestMotorStarter,
-    };
+    return calculateGeneratorSizing(rows || [], pf, lf, unitSystem, userSelectedSize, manualOverrides);
   }, [rows, pf, lf, unitSystem, userSelectedSize, manualOverrides]);
 
   const exportExcel = async () => {
@@ -721,7 +757,10 @@ function GeneratorSizingPage() {
       const rUnit = Number(r.unit) || 0;
       const rKw = Number(r.kwPerUnit) || 0;
       const rSb = Number(r.standby) || 0;
-      const rMult = Number(r.multiplier) || 1;
+      const rMult =
+        r.multiplier !== "" && r.multiplier !== undefined && r.multiplier !== null
+          ? Number(r.multiplier)
+          : (STARTER_MULTIPLIERS[r.starter] ?? 0);
       const startCur = rKw * 1.739 * rMult;
       const totalKw = rUnit * rKw;
       const actualKw = totalKw - rSb;
@@ -922,7 +961,10 @@ function GeneratorSizingPage() {
         const pwrFail = !isNaN(pwrFailNum) && r.powerFail !== "" && r.powerFail !== null && r.powerFail !== undefined
           ? pwrFailNum.toFixed(2)
           : (r.powerFail ? String(r.powerFail) : "0.00");
-        const mult = Number(r.multiplier) || 1;
+        const mult =
+          r.multiplier !== "" && r.multiplier !== undefined && r.multiplier !== null
+            ? Number(r.multiplier)
+            : (STARTER_MULTIPLIERS[r.starter] ?? 0);
         const startCur = kwPerUnit * 1.739 * mult;
 
         const remarkVal = r.remark || (r as any).remarks || "";
@@ -1425,6 +1467,15 @@ function GeneratorSizingPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-start sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={handleAutoCollectLoads}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-all cursor-pointer shadow-2xs"
+                    title="Stage 1–5 Automation: Auto-collect essential & life-safety loads, assign AI starter & multiplier, deduct standby loads, and size DG set"
+                  >
+                    <Sparkles className="size-3.5" /> Auto-Collect
+                  </button>
+
                   <ImportExcelBtn
                     columnMapping={{
                       "Description": "desc",
@@ -1517,7 +1568,7 @@ function GeneratorSizingPage() {
                             <th style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className="px-3 py-1.5 text-center relative group/col select-none">
                               <span
                                 className="flex items-center gap-1 justify-center w-full cursor-help"
-                                title="Multiplication factor for starting current. Typically 7 for DOL, 3.5 for Star Delta/Soft Starter, 1 for VFD."
+                                title="Multiplication factor for starting current. Typically 7 for DOL, 3 for Star Delta, 2 for Soft Starter, 1 for VFD, 0 for None."
                               >
                                 Mult. <Info className="size-3" />
                               </span>
@@ -1584,7 +1635,7 @@ function GeneratorSizingPage() {
                                 colSpan={14}
                                 className="text-center py-10 text-muted-foreground italic"
                               >
-                                {showFlaggedOnly ? "No flagged loads found." : "No loads added. Click \"+ Add Load\" to begin."}
+                                {showFlaggedOnly ? "No flagged loads found." : "No loads added. Click \"Auto-Collect\" or \"+ New Row\" to begin."}
                               </td>
                             </tr>
                           ) : (
@@ -1592,7 +1643,10 @@ function GeneratorSizingPage() {
                               const rKw = Number(r.kwPerUnit) || 0;
                               const rSb = Number(r.standby) || 0;
                               const rUnit = Number(r.unit) || 0;
-                              const rMult = Number(r.multiplier) || 0;
+                              const rMult =
+                                r.multiplier !== "" && r.multiplier !== undefined && r.multiplier !== null
+                                  ? Number(r.multiplier)
+                                  : STARTER_MULTIPLIERS[r.starter] ?? 0;
 
                               const startCur = rKw * 1.739 * rMult;
                               const totalKw = rUnit * rKw;
@@ -1639,7 +1693,21 @@ function GeneratorSizingPage() {
                                         }
                                       }}
                                     >
-                                      <td style={{ width: `${colWidths.select}px`, minWidth: `${colWidths.select}px` }} className="p-0">
+                                      <td style={{ width: `${colWidths.select}px`, minWidth: `${colWidths.select}px` }} className="p-0 relative">
+                                        {r.comments && r.comments.length > 0 && (
+                                          <RowCommentCornerBadge
+                                            count={r.comments.length}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setCommentTarget({
+                                                id: r.id,
+                                                name: r.desc || `Row ${rowIndex + 1}`,
+                                                type: "space",
+                                              });
+                                              setAssignCommentOpen(true);
+                                            }}
+                                          />
+                                        )}
                                         <div className="flex items-center justify-center h-full px-1">
                                           <input
                                             type="checkbox"
@@ -1655,23 +1723,7 @@ function GeneratorSizingPage() {
                                       </td>
                                       <td style={{ width: `${colWidths.desc}px`, minWidth: `${colWidths.desc}px` }} className="p-0">
                                         <div className="flex items-center gap-1.5 w-full h-full px-2">
-                                          {r.comments && r.comments.length > 0 && (
-                                            <span
-                                              className="inline-flex items-center justify-center p-1 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/60 dark:text-blue-300 shrink-0 cursor-pointer"
-                                              title={`${r.comments.length} comment(s):\n${r.comments.map((c: any) => `${c.authorName}: ${c.text}`).join('\n')}`}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setCommentTarget({
-                                                  id: r.id,
-                                                  name: r.desc || `Row ${rowIndex + 1}`,
-                                                  type: "space",
-                                                });
-                                                setAssignCommentOpen(true);
-                                              }}
-                                            >
-                                              <MessageSquare className="size-3.5" />
-                                            </span>
-                                          )}
+                                          
                                           <input
                                             data-row={rowIndex}
                                             data-col={0}
@@ -2299,7 +2351,7 @@ function GeneratorSizingPage() {
                 let wdata = (project as any)?.workspace_data || {};
                 if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
                 wdata.generator_calc = { ...(wdata.generator_calc || {}), rows: newRows };
-                api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
+                (api as any).updateProject?.(project.id, { workspace_data: wdata })?.catch(console.error);
               } catch(e) {}
             }
 
@@ -2338,20 +2390,26 @@ function GeneratorSizingPage() {
           onClose={() => setEditingRow(null)}
           onSave={(updated) => {
             const targetId = editingRow.row.id;
-            const newRows = rows.map((r) =>
-              r.id === targetId
-                ? {
-                    ...r,
-                    desc: updated.desc,
-                    unit: updated.unit,
-                    kwPerUnit: updated.kwPerUnit,
-                    starter: updated.starter,
-                    multiplier: updated.multiplier,
-                    remark: updated.remark,
-                    excludeEmergency: updated.excludeEmergency,
-                  }
-                : r
-            );
+            const newRows = rows.map((r) => {
+              if (r.id !== targetId) return r;
+              const u = Number(updated.unit) || 0;
+              const kw = Number(updated.kwPerUnit) || 0;
+              const inferredSb = inferStandbyLoad(updated.desc, u, kw);
+              const sb = inferredSb !== null ? inferredSb : Number(r.standby) || 0;
+              const ac = Math.max(0, Number((u * kw - sb).toFixed(2)));
+              return {
+                ...r,
+                desc: updated.desc,
+                unit: updated.unit,
+                kwPerUnit: updated.kwPerUnit,
+                starter: updated.starter,
+                multiplier: updated.multiplier,
+                standby: inferredSb !== null ? inferredSb : r.standby,
+                emergency: ac > 0 ? ac : (u > 0 && kw > 0 ? 0 : ""),
+                remark: updated.remark,
+                excludeEmergency: updated.excludeEmergency,
+              };
+            });
             pushState(newRows);
             setEditingRow(null);
             toast.success(`Updated "${updated.desc || 'Load Item'}" parameters.`);

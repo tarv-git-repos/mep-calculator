@@ -5,6 +5,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
@@ -2278,7 +2279,8 @@ function FixtureUnitPage() {
                                         : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
                                     }`}
                                   >
-                                    <td className="p-1 text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                    <td className="p-1 text-center relative" onDoubleClick={(e) => e.stopPropagation()}>
+                                         <RowCommentCornerBadge count={Array.isArray(s.comments) ? s.comments.length : 0} onClick={() => { setCommentTarget({ id: String(s.id), name: s.desc, type: 'space' }); setAssignCommentOpen(true); }} />
                                       <div className="flex items-center justify-center gap-1">
                                         <input
                                           type="checkbox"
@@ -2288,21 +2290,7 @@ function FixtureUnitPage() {
                                           className="size-3.5 accent-primary cursor-pointer rounded shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                                         />
                                         
-                                        {Array.isArray(s.comments) && s.comments.length > 0 && (
-                                          <button 
-                                            type="button"
-                                            title={`${s.comments.length} comment(s)/task(s) assigned`} 
-                                            className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[9px] hover:bg-blue-500/20 transition cursor-pointer shrink-0"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setCommentTarget({ id: String(s.id), name: s.desc, type: 'space' });
-                                              setAssignCommentOpen(true);
-                                            }}
-                                          >
-                                            <MessageSquare className="size-2.5 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                                            <span>{s.comments.length}</span>
-                                          </button>
-                                        )}
+                                        
                                       </div>
                                     </td>
 

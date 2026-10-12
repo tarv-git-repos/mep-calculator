@@ -27,11 +27,13 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuShortcut,
 } from "@/components/ui/context-menu";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { notifyCommentAssigned, dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
 import { formatDateStr, getSignatureBlockDetails } from "@/lib/pdfHelpers";
@@ -432,19 +434,11 @@ export function FreshAirCoolingLoadPage() {
     );
     if (!itemComments || itemComments.length === 0) return null;
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleOpenComment(id, name);
-        }}
-        title={`${itemComments.length} comment(s)/task(s) on ${name}. Click to view & reply.`}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 ml-2 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 dark:hover:bg-blue-900 transition cursor-pointer shadow-xs select-none border border-blue-300/60 dark:border-blue-700/60 shrink-0 animate-in fade-in"
-      >
-        <MessageSquare className="size-3.5 fill-blue-500/25 text-blue-600 dark:text-blue-400" />
-        <span className="text-[10px] font-extrabold">{itemComments.length}</span>
-      </button>
+      <RowCommentCornerBadge
+        id={id}
+        count={itemComments.length}
+        onClick={() => handleOpenComment(id, name)}
+      />
     );
   };
 
@@ -811,6 +805,21 @@ export function FreshAirCoolingLoadPage() {
   // Exact inputClass format matching pump sizing
   const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
 
+  const getInputClass = (id: string, name?: string) => {
+    const comments = getMergedItemComments(
+      id,
+      name,
+      commentsList,
+      "/fresh-air-cooling-load",
+      activeProjectId || project?.id || "default"
+    );
+    const isHigh = isFieldHighlighted(id, name);
+
+    const baseStyle = "w-full h-8 px-2 rounded font-mono focus:outline-none disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base transition-all duration-150";
+
+    return `${baseStyle} bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-foreground focus:border-primary ${isHigh}`;
+  };
+
   return (
     <AppShell
       title="Fresh Air Cooling Load"
@@ -1008,34 +1017,81 @@ export function FreshAirCoolingLoadPage() {
                             </div>
                             
                             <div className="grid grid-cols-2 gap-2 text-xs">
-                              <div>
-                                <label className="text-[11px] text-slate-500">Dry Bulb ({uT})</label>
-                                <input
-                                  type="number" step="any"
-                                  disabled={isEffectiveReadOnly}
-                                  value={dbIn}
-                                  onChange={(e) => {
-                                    setDbIn(e.target.value === "" ? "" : Number(e.target.value));
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder="35.0"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[11px] text-slate-500">Wet Bulb ({uT})</label>
-                                <input
-                                  type="number" step="any"
-                                  disabled={isEffectiveReadOnly}
-                                  value={wbIn}
-                                  onChange={(e) => {
-                                    setWbIn(e.target.value === "" ? "" : Number(e.target.value));
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder="26.0"
-                                />
-                              </div>
+                              <ContextMenu>
+                                <ContextMenuTrigger asChild>
+                                  <div
+                                    id="field-dbIn"
+                                    data-field-id="dbIn"
+                                    data-comment-target="dbIn"
+                                    className={`space-y-1 p-1 -m-1 rounded-lg transition-colors ${isFieldHighlighted("dbIn", "Entering Dry Bulb")}`}
+                                  >
+                                    <div className="flex justify-between items-center select-none">
+                                      <label className="text-[11px] text-slate-500 font-medium">Dry Bulb ({uT})</label>
+                                    </div>
+                                    <div className="relative mt-1">
+                                      <input
+                                        type="number" step="any"
+                                        disabled={isEffectiveReadOnly}
+                                        value={dbIn}
+                                        onChange={(e) => {
+                                          setDbIn(e.target.value === "" ? "" : Number(e.target.value));
+                                          dirtyStore.set(true);
+                                        }}
+                                        className={getInputClass("dbIn", "Entering Dry Bulb")}
+                                        placeholder="35.0"
+                                      />
+                                      {renderCommentBadge("dbIn", "Entering Dry Bulb")}
+                                    </div>
+                                  </div>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                  <ContextMenuItem
+                                    onClick={() => handleOpenComment("dbIn", "Entering Dry Bulb")}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                  >
+                                    <MessageSquare className="size-3.5" />
+                                    <span>Add Comment</span>
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
+
+                              <ContextMenu>
+                                <ContextMenuTrigger asChild>
+                                  <div
+                                    id="field-wbIn"
+                                    data-field-id="wbIn"
+                                    data-comment-target="wbIn"
+                                    className={`space-y-1 p-1 -m-1 rounded-lg transition-colors ${isFieldHighlighted("wbIn", "Entering Wet Bulb")}`}
+                                  >
+                                    <div className="flex justify-between items-center select-none">
+                                      <label className="text-[11px] text-slate-500 font-medium">Wet Bulb ({uT})</label>
+                                    </div>
+                                    <div className="relative mt-1">
+                                      <input
+                                        type="number" step="any"
+                                        disabled={isEffectiveReadOnly}
+                                        value={wbIn}
+                                        onChange={(e) => {
+                                          setWbIn(e.target.value === "" ? "" : Number(e.target.value));
+                                          dirtyStore.set(true);
+                                        }}
+                                        className={getInputClass("wbIn", "Entering Wet Bulb")}
+                                        placeholder="26.0"
+                                      />
+                                      {renderCommentBadge("wbIn", "Entering Wet Bulb")}
+                                    </div>
+                                  </div>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                  <ContextMenuItem
+                                    onClick={() => handleOpenComment("wbIn", "Entering Wet Bulb")}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                  >
+                                    <MessageSquare className="size-3.5" />
+                                    <span>Add Comment</span>
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
                             </div>
                           </div>
                         </ContextMenuTrigger>
@@ -1047,7 +1103,27 @@ export function FreshAirCoolingLoadPage() {
                             <MessageSquare className="size-3.5" />
                             <span>Add Comment</span>
                           </ContextMenuItem>
+
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => applyClimatePreset("gulf_extreme")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Flame className="size-3.5 text-muted-foreground" />
+                            <span>Apply Gulf Peak (46/29°C)</span>
+                          </ContextMenuItem>
+
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => applyClimatePreset("tropical_humid")}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Droplets className="size-3.5 text-muted-foreground" />
+                            <span>Apply Tropical (38/31°C)</span>
+                          </ContextMenuItem>
+
                           <ContextMenuSeparator className="h-px bg-border my-1" />
+
                           <ContextMenuItem
                             disabled={isEffectiveReadOnly}
                             onClick={() => {
@@ -1060,22 +1136,6 @@ export function FreshAirCoolingLoadPage() {
                           >
                             <RotateCcw className="size-3.5 text-muted-foreground" />
                             <span>Reset Entering Air</span>
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            disabled={isEffectiveReadOnly}
-                            onClick={() => applyClimatePreset("gulf_extreme")}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                          >
-                            <Flame className="size-3.5 text-amber-500" />
-                            <span>Apply Gulf Peak (46/29°C)</span>
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            disabled={isEffectiveReadOnly}
-                            onClick={() => applyClimatePreset("tropical_humid")}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                          >
-                            <Droplets className="size-3.5 text-blue-500" />
-                            <span>Apply Tropical (38/31°C)</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1102,34 +1162,81 @@ export function FreshAirCoolingLoadPage() {
                             </div>
                             
                             <div className="grid grid-cols-2 gap-2 text-xs">
-                              <div>
-                                <label className="text-[11px] text-slate-500">Dry Bulb ({uT})</label>
-                                <input
-                                  type="number" step="any"
-                                  disabled={isEffectiveReadOnly}
-                                  value={dbOut}
-                                  onChange={(e) => {
-                                    setDbOut(e.target.value === "" ? "" : Number(e.target.value));
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder="13.0"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[11px] text-slate-500">Wet Bulb ({uT})</label>
-                                <input
-                                  type="number" step="any"
-                                  disabled={isEffectiveReadOnly}
-                                  value={wbOut}
-                                  onChange={(e) => {
-                                    setWbOut(e.target.value === "" ? "" : Number(e.target.value));
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder="12.0"
-                                />
-                              </div>
+                              <ContextMenu>
+                                <ContextMenuTrigger asChild>
+                                  <div
+                                    id="field-dbOut"
+                                    data-field-id="dbOut"
+                                    data-comment-target="dbOut"
+                                    className={`space-y-1 p-1 -m-1 rounded-lg transition-colors ${isFieldHighlighted("dbOut", "Leaving Dry Bulb")}`}
+                                  >
+                                    <div className="flex justify-between items-center select-none">
+                                      <label className="text-[11px] text-slate-500 font-medium">Dry Bulb ({uT})</label>
+                                    </div>
+                                    <div className="relative mt-1">
+                                      <input
+                                        type="number" step="any"
+                                        disabled={isEffectiveReadOnly}
+                                        value={dbOut}
+                                        onChange={(e) => {
+                                          setDbOut(e.target.value === "" ? "" : Number(e.target.value));
+                                          dirtyStore.set(true);
+                                        }}
+                                        className={getInputClass("dbOut", "Leaving Dry Bulb")}
+                                        placeholder="13.0"
+                                      />
+                                      {renderCommentBadge("dbOut", "Leaving Dry Bulb")}
+                                    </div>
+                                  </div>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                  <ContextMenuItem
+                                    onClick={() => handleOpenComment("dbOut", "Leaving Dry Bulb")}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                  >
+                                    <MessageSquare className="size-3.5" />
+                                    <span>Add Comment</span>
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
+
+                              <ContextMenu>
+                                <ContextMenuTrigger asChild>
+                                  <div
+                                    id="field-wbOut"
+                                    data-field-id="wbOut"
+                                    data-comment-target="wbOut"
+                                    className={`space-y-1 p-1 -m-1 rounded-lg transition-colors ${isFieldHighlighted("wbOut", "Leaving Wet Bulb")}`}
+                                  >
+                                    <div className="flex justify-between items-center select-none">
+                                      <label className="text-[11px] text-slate-500 font-medium">Wet Bulb ({uT})</label>
+                                    </div>
+                                    <div className="relative mt-1">
+                                      <input
+                                        type="number" step="any"
+                                        disabled={isEffectiveReadOnly}
+                                        value={wbOut}
+                                        onChange={(e) => {
+                                          setWbOut(e.target.value === "" ? "" : Number(e.target.value));
+                                          dirtyStore.set(true);
+                                        }}
+                                        className={getInputClass("wbOut", "Leaving Wet Bulb")}
+                                        placeholder="12.0"
+                                      />
+                                      {renderCommentBadge("wbOut", "Leaving Wet Bulb")}
+                                    </div>
+                                  </div>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                  <ContextMenuItem
+                                    onClick={() => handleOpenComment("wbOut", "Leaving Wet Bulb")}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                  >
+                                    <MessageSquare className="size-3.5" />
+                                    <span>Add Comment</span>
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
                             </div>
                           </div>
                         </ContextMenuTrigger>
@@ -1141,7 +1248,23 @@ export function FreshAirCoolingLoadPage() {
                             <MessageSquare className="size-3.5" />
                             <span>Add Comment</span>
                           </ContextMenuItem>
+
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => {
+                              setDbOut(ip ? 50 : 10);
+                              setWbOut(ip ? 49.1 : 9.5);
+                              dirtyStore.set(true);
+                              toast.success("Set deep dehumidification off-coil (10°C / 9.5°C)");
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <Thermometer className="size-3.5 text-muted-foreground" />
+                            <span>Deep Dehumid (10/9.5°C)</span>
+                          </ContextMenuItem>
+
                           <ContextMenuSeparator className="h-px bg-border my-1" />
+
                           <ContextMenuItem
                             disabled={isEffectiveReadOnly}
                             onClick={() => {
@@ -1154,19 +1277,6 @@ export function FreshAirCoolingLoadPage() {
                           >
                             <RotateCcw className="size-3.5 text-muted-foreground" />
                             <span>Reset Leaving Air</span>
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            disabled={isEffectiveReadOnly}
-                            onClick={() => {
-                              setDbOut(ip ? 50 : 10);
-                              setWbOut(ip ? 49.1 : 9.5);
-                              dirtyStore.set(true);
-                              toast.success("Set deep dehumidification off-coil (10°C / 9.5°C)");
-                            }}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                          >
-                            <Thermometer className="size-3.5 text-indigo-500" />
-                            <span>Deep Dehumid (10/9.5°C)</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1193,34 +1303,81 @@ export function FreshAirCoolingLoadPage() {
                             </div>
                             
                             <div className="grid grid-cols-2 gap-2 text-xs">
-                              <div>
-                                <label className="text-[11px] text-slate-500">Airflow Rate ({uFlow})</label>
-                                <input
-                                  type="number" step="any"
-                                  disabled={isEffectiveReadOnly}
-                                  value={flowRate}
-                                  onChange={(e) => {
-                                    setFlowRate(e.target.value === "" ? "" : Number(e.target.value));
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder={ip ? "1000" : "0.472"}
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[11px] text-slate-500">Safety Factor (%)</label>
-                                <input
-                                  type="number" step="1" min="0" max="30"
-                                  disabled={isEffectiveReadOnly}
-                                  value={safetyFactor}
-                                  onChange={(e) => {
-                                    setSafetyFactor(Number(e.target.value) || 0);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder="5"
-                                />
-                              </div>
+                              <ContextMenu>
+                                <ContextMenuTrigger asChild>
+                                  <div
+                                    id="field-flowRate"
+                                    data-field-id="flowRate"
+                                    data-comment-target="flowRate"
+                                    className={`space-y-1 p-1 -m-1 rounded-lg transition-colors ${isFieldHighlighted("flowRate", "Airflow Rate")}`}
+                                  >
+                                    <div className="flex justify-between items-center select-none">
+                                      <label className="text-[11px] text-slate-500 font-medium">Airflow Rate ({uFlow})</label>
+                                    </div>
+                                    <div className="relative mt-1">
+                                      <input
+                                        type="number" step="any"
+                                        disabled={isEffectiveReadOnly}
+                                        value={flowRate}
+                                        onChange={(e) => {
+                                          setFlowRate(e.target.value === "" ? "" : Number(e.target.value));
+                                          dirtyStore.set(true);
+                                        }}
+                                        className={getInputClass("flowRate", "Airflow Rate")}
+                                        placeholder={ip ? "1000" : "0.472"}
+                                      />
+                                      {renderCommentBadge("flowRate", "Airflow Rate")}
+                                    </div>
+                                  </div>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                  <ContextMenuItem
+                                    onClick={() => handleOpenComment("flowRate", "Airflow Rate")}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                  >
+                                    <MessageSquare className="size-3.5" />
+                                    <span>Add Comment</span>
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
+
+                              <ContextMenu>
+                                <ContextMenuTrigger asChild>
+                                  <div
+                                    id="field-safetyFactor"
+                                    data-field-id="safetyFactor"
+                                    data-comment-target="safetyFactor"
+                                    className={`space-y-1 p-1 -m-1 rounded-lg transition-colors ${isFieldHighlighted("safetyFactor", "Safety Factor")}`}
+                                  >
+                                    <div className="flex justify-between items-center select-none">
+                                      <label className="text-[11px] text-slate-500 font-medium">Safety Factor (%)</label>
+                                    </div>
+                                    <div className="relative mt-1">
+                                      <input
+                                        type="number" step="1" min="0" max="30"
+                                        disabled={isEffectiveReadOnly}
+                                        value={safetyFactor}
+                                        onChange={(e) => {
+                                          setSafetyFactor(Number(e.target.value) || 0);
+                                          dirtyStore.set(true);
+                                        }}
+                                        className={getInputClass("safetyFactor", "Safety Factor")}
+                                        placeholder="5"
+                                      />
+                                      {renderCommentBadge("safetyFactor", "Safety Factor")}
+                                    </div>
+                                  </div>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                  <ContextMenuItem
+                                    onClick={() => handleOpenComment("safetyFactor", "Safety Factor")}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                  >
+                                    <MessageSquare className="size-3.5" />
+                                    <span>Add Comment</span>
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
                             </div>
                           </div>
                         </ContextMenuTrigger>
@@ -1232,7 +1389,35 @@ export function FreshAirCoolingLoadPage() {
                             <MessageSquare className="size-3.5" />
                             <span>Add Comment</span>
                           </ContextMenuItem>
+
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => {
+                              setFlowRate(ip ? 2118 : 1.0);
+                              dirtyStore.set(true);
+                              toast.success("Set airflow to 1,000 L/s (1.0 m³/s / 2,118 CFM)");
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                          >
+                            <Wind className="size-3.5 text-muted-foreground" />
+                            <span>Set 1,000 L/s (2,118 CFM)</span>
+                          </ContextMenuItem>
+
+                          <ContextMenuItem
+                            disabled={isEffectiveReadOnly}
+                            onClick={() => {
+                              setFlowRate(ip ? 5300 : 2.5);
+                              dirtyStore.set(true);
+                              toast.success("Set airflow to 2,500 L/s (2.5 m³/s / 5,300 CFM)");
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                          >
+                            <Wind className="size-3.5 text-muted-foreground" />
+                            <span>Set 2,500 L/s (5,300 CFM)</span>
+                          </ContextMenuItem>
+
                           <ContextMenuSeparator className="h-px bg-border my-1" />
+
                           <ContextMenuItem
                             disabled={isEffectiveReadOnly}
                             onClick={() => {
@@ -1241,34 +1426,10 @@ export function FreshAirCoolingLoadPage() {
                               dirtyStore.set(true);
                               toast.success("Airflow & Safety Margin reset to default");
                             }}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                           >
                             <RotateCcw className="size-3.5 text-muted-foreground" />
                             <span>Reset Airflow & Margin</span>
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            disabled={isEffectiveReadOnly}
-                            onClick={() => {
-                              setFlowRate(ip ? 2118 : 1.0);
-                              dirtyStore.set(true);
-                              toast.success("Set airflow to 1,000 L/s (1.0 m³/s / 2,118 CFM)");
-                            }}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                          >
-                            <Wind className="size-3.5 text-primary" />
-                            <span>Set 1,000 L/s (2,118 CFM)</span>
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            disabled={isEffectiveReadOnly}
-                            onClick={() => {
-                              setFlowRate(ip ? 5300 : 2.5);
-                              dirtyStore.set(true);
-                              toast.success("Set airflow to 2,500 L/s (2.5 m³/s / 5,300 CFM)");
-                            }}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                          >
-                            <Wind className="size-3.5 text-primary" />
-                            <span>Set 2,500 L/s (5,300 CFM)</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1314,33 +1475,89 @@ export function FreshAirCoolingLoadPage() {
 
                           {/* DISPLAY STAT CARDS (4-card grid format matching pump sizing) */}
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Coil Capacity</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {calc.capacityTons.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">TR</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div className="relative bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 transition-all">
+                                  {renderCommentBadge("res-capacity", "Coil Capacity")}
+                                  <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Coil Capacity</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {calc.capacityTons.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">TR</span>
+                                  </div>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-capacity", "Coil Capacity")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                            <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Total Load</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {calc.totKw.toFixed(1)} <span className="text-xs font-normal text-muted-foreground">{uL}</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div className="relative bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 transition-all">
+                                  {renderCommentBadge("res-totLoad", "Total Load")}
+                                  <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Total Load</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {calc.totKw.toFixed(1)} <span className="text-xs font-normal text-muted-foreground">{uL}</span>
+                                  </div>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-totLoad", "Total Load")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                            <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Condensate</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {calc.condensateKgH.toFixed(1)} <span className="text-xs font-normal text-muted-foreground">{ip ? "GPH" : "L/h"}</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div className="relative bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 transition-all">
+                                  {renderCommentBadge("res-condensate", "Condensate Flow")}
+                                  <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Condensate</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {calc.condensateKgH.toFixed(1)} <span className="text-xs font-normal text-muted-foreground">{ip ? "GPH" : "L/h"}</span>
+                                  </div>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-condensate", "Condensate Flow")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                            <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Sensible Ratio</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {calc.shr.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">SHR</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div className="relative bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 transition-all">
+                                  {renderCommentBadge("res-shr", "Sensible Heat Ratio")}
+                                  <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Sensible Ratio</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {calc.shr.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">SHR</span>
+                                  </div>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-shr", "Sensible Heat Ratio")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
                           </div>
 
                           {/* DETAILED METRICS TABLE (matching pump sizing layout) */}
@@ -1378,28 +1595,33 @@ export function FreshAirCoolingLoadPage() {
                           <MessageSquare className="size-3.5" />
                           <span>Add Comment</span>
                         </ContextMenuItem>
-                        <ContextMenuSeparator className="h-px bg-border my-1" />
+
                         <ContextMenuItem
                           onClick={() => setShowFormulaPanel(true)}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                         >
-                          <Info className="size-3.5 text-primary" />
+                          <Info className="size-3.5 text-muted-foreground" />
                           <span>Formula Breakdown</span>
                         </ContextMenuItem>
+
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+
                         <ContextMenuItem
                           onClick={() => {
                             const summary = `Fresh Air Cooling Load: ${calc.capacityTons.toFixed(2)} TR (${calc.totKw.toFixed(2)} kW) | Sensible: ${calc.sensKw.toFixed(2)} kW | Latent: ${calc.latKw.toFixed(2)} kW | SHR: ${calc.shr.toFixed(2)} | Condensate: ${calc.condensateKgH.toFixed(2)} L/h`;
                             navigator.clipboard.writeText(summary);
                             toast.success("Thermal sizing summary copied to clipboard!");
                           }}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                         >
                           <Copy className="size-3.5 text-muted-foreground" />
                           <span>Copy Thermal Summary</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                         </ContextMenuItem>
+
                         <ContextMenuItem
                           onClick={handlePrintPDF}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                         >
                           <FileText className="size-3.5 text-muted-foreground" />
                           <span>Export PDF Report</span>
@@ -1474,7 +1696,9 @@ export function FreshAirCoolingLoadPage() {
                           <MessageSquare className="size-3.5" />
                           <span>Add Comment</span>
                         </ContextMenuItem>
+
                         <ContextMenuSeparator className="h-px bg-border my-1" />
+
                         <ContextMenuItem
                           onClick={() => {
                             const matrix = `Psychrometric State Points:
@@ -1485,10 +1709,11 @@ export function FreshAirCoolingLoadPage() {
                             navigator.clipboard.writeText(matrix);
                             toast.success("Psychrometric state matrix copied to clipboard!");
                           }}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                         >
                           <Copy className="size-3.5 text-muted-foreground" />
                           <span>Copy State Matrix</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
                         </ContextMenuItem>
                       </ContextMenuContent>
                     </ContextMenu>

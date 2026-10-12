@@ -14,7 +14,7 @@ import {
   AlertTriangle, Info, Printer, Plus, Trash2,
   ChevronDown, ChevronUp, Edit3, Settings, HelpCircle, Sparkles,
   Wind, Layers, Gauge, Zap, Activity, FileText, X, Flag,
-  Copy, Scissors, Clipboard, Flame, CheckCircle2, RefreshCw, Check,
+  Copy, CopyPlus, Scissors, Clipboard, Flame, CheckCircle2, RefreshCw, Check,
   Box, Upload, Filter, ArrowUpDown, Search, MessageSquare, ShieldCheck,
   Building2, LayoutGrid, SplitSquareVertical, Eye
 } from "lucide-react";
@@ -990,46 +990,52 @@ function LobbyPressurisationPage() {
     const matchingIds = matching.map(r => r.id);
 
     return (
-      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         <ContextMenuItem
           onClick={() => handleOpenComment(groupValue, groupValue, "level")}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
         >
-          <MessageSquare className="size-3.5 text-blue-600" />
-          <span>Add Comment to {groupValue}</span>
+          <MessageSquare className="size-3.5 shrink-0" />
+          <span className="whitespace-nowrap">Add Comment to {groupValue}</span>
         </ContextMenuItem>
-        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
-          onClick={() => handleOpenBulkEdit(matchingIds)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          onClick={() => handleAddZoneToLevel(groupValue)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
         >
-          <Edit3 className="size-3.5 text-primary" />
-          <span>Bulk Edit {matchingIds.length} Spaces</span>
+          <Plus className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="whitespace-nowrap">Add Space to {groupValue}</span>
         </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         {grp && (
           <ContextMenuItem
             onClick={() => handleOpenEditLevelModal(grp)}
-            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
           >
-            <Edit3 className="size-3.5 text-primary" />
-            <span>Edit Group Parameters</span>
+            <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+            <span className="whitespace-nowrap">Edit Group Parameters</span>
           </ContextMenuItem>
         )}
-        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
-          onClick={() => handleAddZoneToLevel(groupValue)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          onClick={() => handleOpenBulkEdit(matchingIds)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
         >
-          <Plus className="size-3.5 text-emerald-600" />
-          <span>Add Space to {groupValue}</span>
+          <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="whitespace-nowrap">Bulk Edit {matchingIds.length} Spaces</span>
         </ContextMenuItem>
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
           onClick={() => handleDeleteLevel(groupValue, matchingIds)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
         >
-          <Trash2 className="size-3.5" />
-          <span>Delete Entire {groupValue}</span>
+          <Trash2 className="size-3.5 shrink-0" />
+          <span className="whitespace-nowrap">Delete Entire {groupValue}</span>
+          <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto pl-3 whitespace-nowrap text-right">Delete</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
     );
@@ -1037,36 +1043,44 @@ function LobbyPressurisationPage() {
 
   const renderRowContextMenu = (row: typeof calculatedRows[0]) => {
     return (
-      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         <ContextMenuItem
           onClick={() => handleOpenComment(row.id, row.name || row.zoneName, "space")}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
         >
-          <MessageSquare className="size-3.5 text-blue-600" />
-          <span>Add Comment to {row.name || row.zoneName}</span>
+          <MessageSquare className="size-3.5 shrink-0" />
+          <span className="whitespace-nowrap">Add Comment</span>
         </ContextMenuItem>
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
           onClick={() => handleOpenBulkEdit([row.id])}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
         >
-          <Edit3 className="size-3.5 text-primary" />
-          <span>Bulk Edit Space</span>
+          <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="whitespace-nowrap">Bulk Edit Space</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
         </ContextMenuItem>
+
         <ContextMenuItem
           onClick={() => handleDuplicateZone(row)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
         >
-          <Copy className="size-3.5 text-muted-foreground" />
-          <span>Duplicate Space</span>
+          <CopyPlus className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="whitespace-nowrap">Duplicate Space</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Ctrl+D</ContextMenuShortcut>
         </ContextMenuItem>
+
         <ContextMenuSeparator className="h-px bg-border my-1" />
+
         <ContextMenuItem
           onClick={() => handleDeleteFloor(row.id)}
-          className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
         >
-          <Trash2 className="size-3.5" />
-          <span>Delete Space</span>
+          <Trash2 className="size-3.5 shrink-0" />
+          <span className="whitespace-nowrap">Delete Space</span>
+          <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto pl-3 whitespace-nowrap text-right">Delete</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
     );
@@ -1099,20 +1113,6 @@ function LobbyPressurisationPage() {
         const itemComments = getMergedItemComments(r.id, r.zoneName || r.name, commentsList, "/lobby-pressurisation", project?.id);
         return (
           <div className="flex items-center gap-1.5 w-full">
-            {itemComments.length > 0 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenComment(r.id, r.zoneName || r.name, "space");
-                }}
-                title={`${itemComments.length} comment(s)/task(s) assigned`}
-                className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-              >
-                <MessageSquare className="size-3.5 fill-blue-500/20" />
-                <span className="text-[10px] font-bold">{`${itemComments.length}`}</span>
-              </button>
-            )}
             <input
               disabled={isApprovedLocked}
               type="text"
@@ -1491,10 +1491,10 @@ function LobbyPressurisationPage() {
       intelOpen={intelOpen}
     >
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           
           {/* Page Header & Actions */}
-          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Lobby Pressurisation</h1>
@@ -1518,13 +1518,6 @@ function LobbyPressurisationPage() {
                 calculatorPath="/lobby-pressurisation" 
                 calculatorTitle="Lobby Pressurisation" 
               />
-
-              {commentsList.length > 0 && (
-                <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
-                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Active {commentsList.length === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
-                </div>
-              )}
             </div>
             
             <div className="flex items-center gap-2">
@@ -1945,6 +1938,7 @@ function LobbyPressurisationPage() {
                       selected={selectedRowIds}
                       onToggle={toggle}
                       onToggleAll={toggleAll}
+                      onCommentClick={(r) => handleOpenComment(r.id, r.zoneName || (r as any).name || 'Lobby')}
                       renderContextMenu={renderRowContextMenu}
                       groupBy={(r) => (groupByMode === "zone" ? ((r.zoneName || "Lift Lobby 1").trim() || "Lift Lobby 1") : ((r.basementLevel || "Level 1").trim() || "Level 1"))}
                       groupOrder={groupOrder}
@@ -2215,28 +2209,34 @@ function LobbyPressurisationPage() {
                             )}
                           </div>
                         </ContextMenuTrigger>
-                        <ContextMenuContent className="w-48 bg-popover border border-border rounded-xl shadow-xl p-1.5 text-xs text-popover-foreground z-50">
-                          <ContextMenuItem
-                            onClick={() => handleDuplicateFanSystem(fs)}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
-                          >
-                            <Copy className="size-3.5 text-muted-foreground" />
-                            <span>Duplicate System</span>
-                          </ContextMenuItem>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
                           <ContextMenuItem
                             onClick={() => handleOpenEditFS(fs)}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded-lg cursor-pointer font-medium"
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
                           >
-                            <Edit3 className="size-3.5 text-primary" />
+                            <Edit3 className="size-3.5 text-muted-foreground" />
                             <span>Edit System</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
                           </ContextMenuItem>
+
+                          <ContextMenuItem
+                            onClick={() => handleDuplicateFanSystem(fs)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                          >
+                            <CopyPlus className="size-3.5 text-muted-foreground" />
+                            <span>Duplicate System</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
+                          </ContextMenuItem>
+
                           <ContextMenuSeparator className="h-px bg-border my-1" />
+
                           <ContextMenuItem
                             onClick={() => setFanSystems(fanSystems.filter(x => x.id !== fs.id))}
-                            className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-red-500/10 text-red-600 dark:text-red-400 rounded-lg cursor-pointer font-medium"
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
                           >
                             <Trash2 className="size-3.5" />
                             <span>Delete System</span>
+                            <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>

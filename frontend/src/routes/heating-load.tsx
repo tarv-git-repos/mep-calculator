@@ -18,11 +18,13 @@ import {
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { notifyCommentAssigned, dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import jsPDF from "jspdf";
@@ -279,6 +281,7 @@ function HeatingLoadPage() {
     setCommentsList(newList);
     const pId = project?.id || "default";
     localStorage.setItem(`mep_calc_comments_${pId}_/heating-load`, JSON.stringify(newList));
+    localStorage.setItem(`mep_calc_comments_${pId}_heating-load`, JSON.stringify(newList));
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("mep_notif_tick"));
       window.dispatchEvent(new CustomEvent("mep_notification_received"));
@@ -343,8 +346,22 @@ function HeatingLoadPage() {
     setCommentModalOpen(false);
   };
 
-  const getItemComments = (id: string) => {
+  const getItemComments = (id: string, name?: string) => {
     if (!id) return [];
+
+    // 1. First get comments from getMergedItemComments which checks localStorage keys & global coordination
+    const merged = getMergedItemComments(
+      id,
+      name,
+      commentsList,
+      "/heating-load",
+      activeProjectId || project?.id || "default"
+    );
+
+    if (merged && merged.length > 0) {
+      return merged.filter((c: any) => c && c.status !== "RESOLVED");
+    }
+
     const clean = id.toLowerCase().trim();
     const cleanRaw = clean.replace(/^(field-|card-)/, "");
 
@@ -353,6 +370,7 @@ function HeatingLoadPage() {
       if (c.status === "RESOLVED") return false;
       const tId = String(c.targetId || c.spaceId || c.itemId || c.targetItemId || c.id || "").toLowerCase().trim();
       const tIdRaw = tId.replace(/^(field-|card-)/, "");
+      const tName = String(c.targetName || c.spaceName || c.name || "").toLowerCase().trim();
 
       if (
         tId === clean ||
@@ -360,7 +378,8 @@ function HeatingLoadPage() {
         `field-${tId}` === clean ||
         tId === `card-${clean}` ||
         `card-${tId}` === clean ||
-        (cleanRaw && tIdRaw === cleanRaw)
+        (cleanRaw && tIdRaw === cleanRaw) ||
+        (name && tName && (tName === name.toLowerCase().trim() || tName.includes(name.toLowerCase().trim())))
       ) {
         return true;
       }
@@ -387,22 +406,14 @@ function HeatingLoadPage() {
   };
 
   const renderCommentBadge = (id: string, name: string) => {
-    const itemComments = getItemComments(id);
+    const itemComments = getItemComments(id, name);
     if (itemComments.length === 0) return null;
-
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleOpenComment(id, name);
-        }}
-        title={`${itemComments.length} comment(s)/task(s) on ${name}`}
-        className="ml-2 inline-flex items-center justify-center size-4 bg-primary text-primary-foreground rounded-full text-[9px] font-bold shadow-sm"
-      >
-        {itemComments.length}
-      </button>
+      <RowCommentCornerBadge
+        id={id}
+        count={itemComments.length}
+        onClick={() => handleOpenComment(id, name)}
+      />
     );
   };
 
@@ -798,7 +809,7 @@ function HeatingLoadPage() {
         id="card-breakdown-chart"
         data-field-id="breakdownChart"
         data-comment-target="breakdownChart"
-        className={`p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-800/50 border border-slate-200/80 dark:border-zinc-800 transition-all duration-200 ${isFieldHighlighted("breakdownChart", "Heat Loss Breakdown")}`}
+        className={`p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-800/50 border border-slate-200/80 dark:border-zinc-800 transition-all duration-200 relative ${isFieldHighlighted("breakdownChart", "Heat Loss Breakdown")}`}
       >
         <div 
           onClick={() => !isReportPreview && setBreakdownCollapsed(prev => !prev)}
@@ -886,8 +897,15 @@ function HeatingLoadPage() {
     );
   };
 
-  const inputClass = "w-full h-8 px-2.5 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
-  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-medium focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
+  const getInputClass = (id: string, name?: string) => {
+    const isHigh = isFieldHighlighted(id, name);
+    const baseClass = "w-full h-8 px-2.5 rounded font-mono text-xs focus:outline-none disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base transition-all duration-150";
+
+    return `${baseClass} bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-foreground focus:border-primary ${isHigh}`;
+  };
+
+  const inputClass = "w-full h-8 px-2.5 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
+  const flowInputClass = "w-full h-9 px-3 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-medium focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
 
   const totalCondLossKw = calcResults.kwWall + calcResults.kwRoof + calcResults.kwSlab;
   const totalCondLossBtu = calcResults.qWall + calcResults.qRoof + calcResults.qSlab;
@@ -1074,7 +1092,7 @@ function HeatingLoadPage() {
                       id="card-spaceEnvelopeCard"
                       data-field-id="spaceEnvelopeCard"
                       data-comment-target="spaceEnvelopeCard"
-                      className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4 md:p-5 space-y-4 ${isFieldHighlighted("spaceEnvelopeCard", "Sizing Parameters")}`}
+                      className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4 md:p-5 space-y-4 relative ${isFieldHighlighted("spaceEnvelopeCard", "Sizing Parameters")}`}
                     >
                       <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
                         <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
@@ -1096,16 +1114,18 @@ function HeatingLoadPage() {
                               <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                                 Building Application Preset
                               </label>
+                            </div>
+                            <div className="relative">
+                              <HeatingProfileSelect
+                                value={preset}
+                                customProfileName={customProfileName}
+                                onChange={handleApplyPreset}
+                                onOpenCustomModal={() => setCustomModalOpen(true)}
+                                unitSystem={unitSystem}
+                                disabled={isEffectiveReadOnly}
+                              />
                               {renderCommentBadge("presetParams", "Building Application Preset")}
                             </div>
-                            <HeatingProfileSelect
-                              value={preset}
-                              customProfileName={customProfileName}
-                              onChange={handleApplyPreset}
-                              onOpenCustomModal={() => setCustomModalOpen(true)}
-                              unitSystem={unitSystem}
-                              disabled={isEffectiveReadOnly}
-                            />
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1150,22 +1170,24 @@ function HeatingLoadPage() {
                               >
                                 <div className="flex justify-between items-center">
                                   <label className="text-[11px] text-slate-500">Floor Area ({isSI ? "m²" : "sq.ft"})</label>
+                                </div>
+                                <div className="relative mt-1">
+                                  <input
+                                    type="number"
+                                    disabled={isEffectiveReadOnly}
+                                    value={isSI && typeof area === "number" ? parseFloat((area * SQFT_TO_SQM).toFixed(1)) : area}
+                                    onChange={(e) => {
+                                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                      if (val === "") setArea("");
+                                      else if (isSI) setArea(val * SQM_TO_SQFT);
+                                      else setArea(val);
+                                      dirtyStore.set(true);
+                                    }}
+                                    className={getInputClass("area", "Floor Area")}
+                                    placeholder={isSI ? "e.g. 185" : "e.g. 2000"}
+                                  />
                                   {renderCommentBadge("area", "Floor Area")}
                                 </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={isSI && typeof area === "number" ? parseFloat((area * SQFT_TO_SQM).toFixed(1)) : area}
-                                  onChange={(e) => {
-                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                    if (val === "") setArea("");
-                                    else if (isSI) setArea(val * SQM_TO_SQFT);
-                                    else setArea(val);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder={isSI ? "e.g. 185" : "e.g. 2000"}
-                                />
                               </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1225,22 +1247,24 @@ function HeatingLoadPage() {
                               >
                                 <div className="flex justify-between items-center">
                                   <label className="text-[11px] text-slate-500">Ceiling Height ({isSI ? "m" : "ft"})</label>
+                                </div>
+                                <div className="relative mt-1">
+                                  <input
+                                    type="number"
+                                    disabled={isEffectiveReadOnly}
+                                    value={isSI && typeof height === "number" ? parseFloat((height * FT_TO_M).toFixed(2)) : height}
+                                    onChange={(e) => {
+                                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                      if (val === "") setHeight("");
+                                      else if (isSI) setHeight(val * M_TO_FT);
+                                      else setHeight(val);
+                                      dirtyStore.set(true);
+                                    }}
+                                    className={getInputClass("height", "Ceiling Height")}
+                                    placeholder={isSI ? "e.g. 3.0" : "e.g. 10"}
+                                  />
                                   {renderCommentBadge("height", "Ceiling Height")}
                                 </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={isSI && typeof height === "number" ? parseFloat((height * FT_TO_M).toFixed(2)) : height}
-                                  onChange={(e) => {
-                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                    if (val === "") setHeight("");
-                                    else if (isSI) setHeight(val * M_TO_FT);
-                                    else setHeight(val);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder={isSI ? "e.g. 3.0" : "e.g. 10"}
-                                />
                               </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1310,22 +1334,24 @@ function HeatingLoadPage() {
                               >
                                 <div className="flex justify-between items-center">
                                   <label className="text-[11px] text-slate-500">Outdoor Design Temp</label>
+                                </div>
+                                <div className="relative mt-1">
+                                  <input
+                                    type="number"
+                                    disabled={isEffectiveReadOnly}
+                                    value={isSI && typeof oat === "number" ? parseFloat(((oat - 32) / 1.8).toFixed(1)) : oat}
+                                    onChange={(e) => {
+                                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                      if (val === "") setOat("");
+                                      else if (isSI) setOat(val * 1.8 + 32);
+                                      else setOat(val);
+                                      dirtyStore.set(true);
+                                    }}
+                                    className={getInputClass("oat", "Outdoor Design Temp")}
+                                    placeholder={isSI ? "e.g. -6.7" : "e.g. 20"}
+                                  />
                                   {renderCommentBadge("oat", "Outdoor Design Temp")}
                                 </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={isSI && typeof oat === "number" ? parseFloat(((oat - 32) / 1.8).toFixed(1)) : oat}
-                                  onChange={(e) => {
-                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                    if (val === "") setOat("");
-                                    else if (isSI) setOat(val * 1.8 + 32);
-                                    else setOat(val);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder={isSI ? "e.g. -6.7" : "e.g. 20"}
-                                />
                               </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1385,22 +1411,24 @@ function HeatingLoadPage() {
                               >
                                 <div className="flex justify-between items-center">
                                   <label className="text-[11px] text-slate-500">Indoor Setpoint</label>
+                                </div>
+                                <div className="relative mt-1">
+                                  <input
+                                    type="number"
+                                    disabled={isEffectiveReadOnly}
+                                    value={isSI && typeof iat === "number" ? parseFloat(((iat - 32) / 1.8).toFixed(1)) : iat}
+                                    onChange={(e) => {
+                                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                      if (val === "") setIat("");
+                                      else if (isSI) setIat(val * 1.8 + 32);
+                                      else setIat(val);
+                                      dirtyStore.set(true);
+                                    }}
+                                    className={getInputClass("iat", "Indoor Setpoint")}
+                                    placeholder={isSI ? "e.g. 21.1" : "e.g. 70"}
+                                  />
                                   {renderCommentBadge("iat", "Indoor Setpoint")}
                                 </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={isSI && typeof iat === "number" ? parseFloat(((iat - 32) / 1.8).toFixed(1)) : iat}
-                                  onChange={(e) => {
-                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                    if (val === "") setIat("");
-                                    else if (isSI) setIat(val * 1.8 + 32);
-                                    else setIat(val);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder={isSI ? "e.g. 21.1" : "e.g. 70"}
-                                />
                               </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1470,22 +1498,24 @@ function HeatingLoadPage() {
                               >
                                 <div className="flex justify-between items-center">
                                   <label className="text-[11px] text-slate-500">Glazing Area ({isSI ? "m²" : "sq.ft"})</label>
+                                </div>
+                                <div className="relative mt-1">
+                                  <input
+                                    type="number"
+                                    disabled={isEffectiveReadOnly}
+                                    value={isSI && typeof glazArea === "number" ? parseFloat((glazArea * SQFT_TO_SQM).toFixed(1)) : glazArea}
+                                    onChange={(e) => {
+                                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                      if (val === "") setGlazArea("");
+                                      else if (isSI) setGlazArea(val * SQM_TO_SQFT);
+                                      else setGlazArea(val);
+                                      dirtyStore.set(true);
+                                    }}
+                                    className={getInputClass("glazArea", "Glazing Area")}
+                                    placeholder={isSI ? "e.g. 55.7" : "e.g. 600"}
+                                  />
                                   {renderCommentBadge("glazArea", "Glazing Area")}
                                 </div>
-                                <input
-                                  type="number"
-                                  disabled={isEffectiveReadOnly}
-                                  value={isSI && typeof glazArea === "number" ? parseFloat((glazArea * SQFT_TO_SQM).toFixed(1)) : glazArea}
-                                  onChange={(e) => {
-                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                    if (val === "") setGlazArea("");
-                                    else if (isSI) setGlazArea(val * SQM_TO_SQFT);
-                                    else setGlazArea(val);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder={isSI ? "e.g. 55.7" : "e.g. 600"}
-                                />
                               </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1545,23 +1575,25 @@ function HeatingLoadPage() {
                               >
                                 <div className="flex justify-between items-center">
                                   <label className="text-[11px] text-slate-500">Glazing U-value ({isSI ? "W/m²K" : "BTU/h·ft²·°F"})</label>
+                                </div>
+                                <div className="relative mt-1">
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    disabled={isEffectiveReadOnly}
+                                    value={isSI && typeof uGlaz === "number" ? parseFloat((uGlaz * U_IP_TO_SI).toFixed(2)) : uGlaz}
+                                    onChange={(e) => {
+                                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                      if (val === "") setUGlaz("");
+                                      else if (isSI) setUGlaz(val * U_SI_TO_IP);
+                                      else setUGlaz(val);
+                                      dirtyStore.set(true);
+                                    }}
+                                    className={getInputClass("uGlaz", "Glazing U-value")}
+                                    placeholder={isSI ? "e.g. 1.82" : "e.g. 0.32"}
+                                  />
                                   {renderCommentBadge("uGlaz", "Glazing U-value")}
                                 </div>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  disabled={isEffectiveReadOnly}
-                                  value={isSI && typeof uGlaz === "number" ? parseFloat((uGlaz * U_IP_TO_SI).toFixed(2)) : uGlaz}
-                                  onChange={(e) => {
-                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                    if (val === "") setUGlaz("");
-                                    else if (isSI) setUGlaz(val * U_SI_TO_IP);
-                                    else setUGlaz(val);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder={isSI ? "e.g. 1.82" : "e.g. 0.32"}
-                                />
                               </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1621,23 +1653,25 @@ function HeatingLoadPage() {
                               >
                                 <div className="flex justify-between items-center">
                                   <label className="text-[11px] text-slate-500">Wall+Roof U-value ({isSI ? "W/m²K" : "BTU/h·ft²·°F"})</label>
+                                </div>
+                                <div className="relative mt-1">
+                                  <input
+                                    type="number"
+                                    step="0.005"
+                                    disabled={isEffectiveReadOnly}
+                                    value={isSI && typeof uWall === "number" ? parseFloat((uWall * U_IP_TO_SI).toFixed(2)) : uWall}
+                                    onChange={(e) => {
+                                      const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                      if (val === "") setUWall("");
+                                      else if (isSI) setUWall(val * U_SI_TO_IP);
+                                      else setUWall(val);
+                                      dirtyStore.set(true);
+                                    }}
+                                    className={getInputClass("uWall", "Wall + Roof U-value")}
+                                    placeholder={isSI ? "e.g. 0.37" : "e.g. 0.065"}
+                                  />
                                   {renderCommentBadge("uWall", "Wall + Roof U-value")}
                                 </div>
-                                <input
-                                  type="number"
-                                  step="0.005"
-                                  disabled={isEffectiveReadOnly}
-                                  value={isSI && typeof uWall === "number" ? parseFloat((uWall * U_IP_TO_SI).toFixed(2)) : uWall}
-                                  onChange={(e) => {
-                                    const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                    if (val === "") setUWall("");
-                                    else if (isSI) setUWall(val * U_SI_TO_IP);
-                                    else setUWall(val);
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder={isSI ? "e.g. 0.37" : "e.g. 0.065"}
-                                />
                               </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1697,20 +1731,22 @@ function HeatingLoadPage() {
                               >
                                 <div className="flex justify-between items-center">
                                   <label className="text-[11px] text-slate-500">Infiltration (ACH)</label>
+                                </div>
+                                <div className="relative mt-1">
+                                  <input
+                                    type="number"
+                                    step="0.05"
+                                    disabled={isEffectiveReadOnly}
+                                    value={ach}
+                                    onChange={(e) => {
+                                      setAch(e.target.value === "" ? "" : parseFloat(e.target.value));
+                                      dirtyStore.set(true);
+                                    }}
+                                    className={getInputClass("ach", "Infiltration (ACH)")}
+                                    placeholder="e.g. 0.35"
+                                  />
                                   {renderCommentBadge("ach", "Infiltration (ACH)")}
                                 </div>
-                                <input
-                                  type="number"
-                                  step="0.05"
-                                  disabled={isEffectiveReadOnly}
-                                  value={ach}
-                                  onChange={(e) => {
-                                    setAch(e.target.value === "" ? "" : parseFloat(e.target.value));
-                                    dirtyStore.set(true);
-                                  }}
-                                  className={inputClass}
-                                  placeholder="e.g. 0.35"
-                                />
                               </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1774,9 +1810,8 @@ function HeatingLoadPage() {
                               <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                                 Design Safety Margin (%)
                               </label>
-                              {renderCommentBadge("safetyParams", "Safety Margin")}
                             </div>
-                            <div>
+                            <div className="relative mt-1">
                               <input
                                 type="number"
                                 disabled={isEffectiveReadOnly}
@@ -1785,9 +1820,10 @@ function HeatingLoadPage() {
                                   setSafetyMargin(e.target.value === "" ? "" : parseFloat(e.target.value));
                                   dirtyStore.set(true);
                                 }}
-                                className={inputClass}
+                                className={getInputClass("safetyParams", "Safety Margin")}
                                 placeholder="e.g. 15"
                               />
+                              {renderCommentBadge("safetyParams", "Safety Margin")}
                             </div>
                           </div>
                         </ContextMenuTrigger>
@@ -1848,7 +1884,7 @@ function HeatingLoadPage() {
                           id="card-hero-results"
                           data-field-id="card-hero-results"
                           data-comment-target="card-hero-results"
-                          className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4 md:p-5 space-y-4 transition-colors ${isFieldHighlighted("card-hero-results", "Sizing Results Summary")}`}
+                          className={`relative bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-4 md:p-5 space-y-4 transition-colors ${isFieldHighlighted("card-hero-results", "Sizing Results Summary")}`}
                         >
                           <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-zinc-800">
                             <div className="flex items-center gap-2">

@@ -1,6 +1,7 @@
 import { CalculationReviewBar, useCalculationLock, type CalculationReviewState, useCalculationReviewState, useCalculationEffectiveReadOnly } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { EditBuildingModal } from "@/components/workspace/EditBuildingModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
@@ -514,18 +515,13 @@ export function FireWaterDemandPage() {
     if (itemComments.length === 0) return null;
 
     return (
-      <button
-        type="button"
+      <RowCommentCornerBadge
+        count={itemComments.length}
         onClick={(e) => {
           e.stopPropagation();
           handleOpenComment(id, name);
         }}
-        title={`${itemComments.length} comment(s)/task(s) assigned to "${name}"`}
-        className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-      >
-        <MessageSquare className="size-3.5 fill-blue-500/20" />
-        <span className="text-[10px] font-bold">{itemComments.length}</span>
-      </button>
+      />
     );
   };
 
@@ -1156,7 +1152,7 @@ export function FireWaterDemandPage() {
     );
 
     return (
-      <ContextMenuContent className="w-56 bg-popover border border-border rounded-xl shadow-xl p-1 text-xs text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
+      <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-xl shadow-xl p-1 text-xs text-popover-foreground z-50 animate-in fade-in zoom-in-95 duration-100">
         {/* 1. Edit Parameters / Bulk Edit */}
         <ContextMenuItem
           disabled={isEffectiveReadOnly}
@@ -1173,9 +1169,9 @@ export function FireWaterDemandPage() {
           }}
           className="flex items-center gap-2 p-1.5 font-medium cursor-pointer"
         >
-          <Edit3 className="size-3.5 text-muted-foreground" />
-          <span>{isMulti ? `Bulk Edit Selected (${targetsCount})` : "Edit Parameters"}</span>
-          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">
+          <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="whitespace-nowrap">{isMulti ? `Bulk Edit Selected (${targetsCount})` : "Edit Parameters"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">
             {isMulti ? "" : "Double-click"}
           </ContextMenuShortcut>
         </ContextMenuItem>
@@ -1290,13 +1286,13 @@ export function FireWaterDemandPage() {
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
 
-        {/* 9. Add Comment / Assign Task */}
+        {/* 9. Add Comment */}
         <ContextMenuItem
           onClick={() => handleOpenComment(b.id, b.name)}
           className="flex items-center gap-2 p-1.5 font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer"
         >
           <MessageSquare className="size-3.5" />
-          <span>Add Comment / Assign Task</span>
+          <span>Add Comment</span>
         </ContextMenuItem>
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -1686,7 +1682,20 @@ export function FireWaterDemandPage() {
                                   title={isLocked ? undefined : "Right-click for options • Double-click to view calculations & rules • Ctrl+Click to select"}
                                 >
                                   {/* 1. Selection Checkbox */}
-                                  <td className="py-1.5 px-2 text-center" onClick={(e) => toggleSelectRow(b.id, e)}>
+                                  <td className="py-1.5 px-2 text-center" relative onClick={(e) => toggleSelectRow(b.id, e)}>
+                                     {(() => {
+                                       const comments = getItemComments(b.id, b.name);
+                                       if (comments.length === 0) return null;
+                                       return (
+                                         <RowCommentCornerBadge
+                                           count={comments.length}
+                                           onClick={(e) => {
+                                             e.stopPropagation();
+                                             handleOpenComment(b.id, b.name);
+                                           }}
+                                         />
+                                       );
+                                     })()}
                                     <input
                                       type="checkbox"
                                       disabled={isLocked}
@@ -1706,7 +1715,7 @@ export function FireWaterDemandPage() {
                                       >
                                         <ChevronDown className={`size-3.5 transition-transform ${expandedRowId === b.id ? "rotate-180" : ""}`} />
                                       </button>
-                                      {renderCommentBadge(b.id, b.name)}
+                                      
                                       <input
                                         type="text"
                                         value={b.name}

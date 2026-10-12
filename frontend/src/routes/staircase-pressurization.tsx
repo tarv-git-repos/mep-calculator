@@ -11,9 +11,9 @@ import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
-import { Plus, Trash2, MessageSquare, FileSpreadsheet, FileText, Check, X, Wrench, Sparkles, Search, CheckCircle2, Info, ChevronDown, AlertTriangle, Upload, Edit3, Copy, Scissors } from "lucide-react";
+import { Plus, Trash2, MessageSquare, FileSpreadsheet, FileText, Check, X, Wrench, Sparkles, Search, CheckCircle2, Info, ChevronDown, AlertTriangle, Upload, Edit3, Copy, CopyPlus, Scissors } from "lucide-react";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
-import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu";
+import { ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut } from "@/components/ui/context-menu";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -141,6 +141,14 @@ function StaircasePressurizationPage() {
       next.delete(id);
       return next;
     });
+  };
+
+  const duplicateItem = (row: StaircaseItem) => {
+    if (isEffectiveReadOnly) return;
+    const newName = `${row.name} (Copy)`;
+    const clone = { ...row, id: generateId(), name: newName };
+    saveItems([...items, clone]);
+    toast.success(`Duplicated "${row.name}"`);
   };
 
   const toggleSelect = (id: string) => {
@@ -453,21 +461,6 @@ function StaircasePressurizationPage() {
                 WARN
               </span>
             )}
-            {hasComments && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCommentTargetItem(row);
-                  setCommentModalOpen(true);
-                }}
-                className="flex items-center justify-center size-5 rounded-md hover:bg-blue-100 text-blue-500 transition-colors cursor-pointer"
-                title="View/Add Comments"
-              >
-                <MessageSquare className="size-3.5 fill-blue-50/50" />
-                <span className="text-[10px] font-bold ml-0.5">{(row as any).comments.length}</span>
-              </button>
-            )}
           </div>
         );
       }
@@ -475,7 +468,7 @@ function StaircasePressurizationPage() {
   ], [unitSystem, isEffectiveReadOnly, items]);
 
   const renderStaircaseContextMenu = (row: StaircaseItem) => (
-    <ContextMenuContent className="w-48 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+    <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
       <ContextMenuItem
         onClick={() => {
           if (isEffectiveReadOnly) {
@@ -485,19 +478,34 @@ function StaircasePressurizationPage() {
           setCommentTargetItem(row);
           setCommentModalOpen(true);
         }}
-        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 text-blue-600 rounded cursor-pointer"
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
       >
         <MessageSquare className="size-3.5" />
         <span>Add Comment</span>
       </ContextMenuItem>
+
       <ContextMenuItem
         onClick={() => setPreviewRow(row)}
-        className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted text-foreground rounded cursor-pointer"
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
       >
-        <Sparkles className="size-3.5" />
+        <Sparkles className="size-3.5 text-muted-foreground" />
         <span>Calculation Preview</span>
       </ContextMenuItem>
+
       <ContextMenuSeparator className="h-px bg-border my-1" />
+
+      <ContextMenuItem
+        onClick={() => duplicateItem(row)}
+        disabled={isEffectiveReadOnly}
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+      >
+        <CopyPlus className="size-3.5 text-muted-foreground" />
+        <span>Duplicate Staircase</span>
+        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
+      </ContextMenuItem>
+
+      <ContextMenuSeparator className="h-px bg-border my-1" />
+
       <ContextMenuItem
         onClick={() => {
           if (!isEffectiveReadOnly) {
@@ -505,10 +513,11 @@ function StaircasePressurizationPage() {
           }
         }}
         disabled={isEffectiveReadOnly}
-        className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 text-destructive rounded cursor-pointer"
+        className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
       >
         <Trash2 className="size-3.5" />
         <span>Delete</span>
+        <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
       </ContextMenuItem>
     </ContextMenuContent>
   );
@@ -552,9 +561,9 @@ function StaircasePressurizationPage() {
       intelOpen={intelOpen}
     >
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           {/* Page Header & Actions */}
-          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Staircase Pressurization</h1>
@@ -578,13 +587,6 @@ function StaircasePressurizationPage() {
                 calculatorPath="/staircase-pressurization" 
                 calculatorTitle="Staircase Pressurization" 
               />
-
-              {commentsList.length > 0 && (
-                <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
-                  <MessageSquare className="size-3.5 fill-blue-500/20" />
-                  <span>{commentsList.length} Active {commentsList.length === 1 ? "Comment/Task" : "Comments/Tasks"}</span>
-                </div>
-              )}
             </div>
             
             <div className="flex items-center gap-2">
@@ -721,6 +723,7 @@ function StaircasePressurizationPage() {
                         selected={selectedItems}
                         onToggle={toggleSelect}
                         onToggleAll={toggleSelectAll}
+                        onCommentClick={(r) => handleOpenComment(r.id, r.name)}
                         onRowDoubleClick={(row) => setEditingStaircase(row)}
                         isReadOnly={isEffectiveReadOnly}
                         renderContextMenu={renderStaircaseContextMenu}

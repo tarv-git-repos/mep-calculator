@@ -1,6 +1,7 @@
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
@@ -332,20 +333,11 @@ function FM200SizerPage() {
   const renderCommentBadge = (id: string, name: string) => {
     const itemComments = getItemComments(id);
     if (itemComments.length === 0) return null;
-
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          handleOpenComment(id, name);
-        }}
-        title={`${itemComments.length} comment(s)/task(s) on ${name}`}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer shadow-2xs"
-      >
-        <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-        <span>{itemComments.length}</span>
-      </button>
+      <RowCommentCornerBadge
+        count={itemComments.length}
+        onClick={() => handleOpenComment(id, name)}
+      />
     );
   };
 
@@ -423,23 +415,11 @@ function FM200SizerPage() {
               : ""
               }`}
           >
+            <RowCommentCornerBadge count={itemComments.length} onClick={() => handleOpenComment(id, label)} />
             <label className="font-semibold text-foreground flex items-center justify-between gap-2 text-xs">
               <span className="flex items-center gap-1.5">
                 <span>{displayLabel}</span>
-                {hasComments && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenComment(id, label);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 transition cursor-pointer"
-                    title={`${itemComments.length} comment(s)/task(s) assigned`}
-                  >
-                    <MessageSquare className="size-3 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-                    <span>{itemComments.length}</span>
-                  </button>
-                )}
+                
               </span>
               <span className="text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition">Right-click for options</span>
             </label>
@@ -471,7 +451,7 @@ function FM200SizerPage() {
             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment / Assign Task"}</span>
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -790,7 +770,7 @@ function FM200SizerPage() {
                             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                           >
                             <MessageSquare className="size-3.5" />
-                            <span>Add Comment / Assign Task</span>
+                            <span>Add Comment</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -857,7 +837,7 @@ function FM200SizerPage() {
                             className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                           >
                             <MessageSquare className="size-3.5" />
-                            <span>Add Comment / Assign Task</span>
+                            <span>Add Comment</span>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>

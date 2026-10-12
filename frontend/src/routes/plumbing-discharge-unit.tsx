@@ -47,6 +47,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { exportDischargeUnitPDF } from "@/lib/exportDischargeUnitPDF";
@@ -1429,7 +1430,10 @@ function DischargeUnitPage() {
                                       }`}
                                     >
                                       {/* 1. Checkbox */}
-                                      <td className="p-1 text-center border-r border-border/40" onDoubleClick={() => handleOpenSpaceModal(s)} onClick={(e) => e.stopPropagation()}>
+                                      <td className="p-1 text-center border-r border-border/40 relative" onDoubleClick={() => handleOpenSpaceModal(s)} onClick={(e) => e.stopPropagation()}>
+                                        {itemComments.length > 0 && (
+                                          <RowCommentCornerBadge count={itemComments.length} onClick={() => handleOpenComment(String(s.id), s.desc)} />
+                                        )}
                                         <div className="flex items-center justify-center gap-1">
                                           <input
                                             type="checkbox"
@@ -1444,20 +1448,7 @@ function DischargeUnitPage() {
                                       {/* 2. Description */}
                                       <td className="p-0.5 px-2 truncate min-w-0 border-r border-border/40" onDoubleClick={() => handleOpenSpaceModal(s)}>
                                         <div className="flex items-center gap-1.5 w-full min-w-0">
-                                          {itemComments.length > 0 && (
-                                            <button
-                                              type="button"
-                                              title={`${itemComments.length} comment(s)/task(s) assigned`}
-                                              className="p-0.5 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer flex items-center gap-1"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleOpenComment(String(s.id), s.desc);
-                                              }}
-                                            >
-                                              <MessageSquare className="size-3.5 fill-blue-500/20" />
-                                              <span className="text-[10px] font-bold">{itemComments.length}</span>
-                                            </button>
-                                          )}
+                                          
                                           <input
                                             type="text"
                                             disabled={isApprovedLocked}
@@ -1658,7 +1649,7 @@ function DischargeUnitPage() {
                                     className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded-lg cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                                   >
                                     <MessageSquare className="size-3.5" />
-                                    <span>Add Comment / Assign Task</span>
+                                    <span>Add Comment</span>
                                   </ContextMenuItem>
 
                                   <ContextMenuSeparator className="h-px bg-border my-1" />

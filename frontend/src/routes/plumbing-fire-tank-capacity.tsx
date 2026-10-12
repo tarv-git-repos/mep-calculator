@@ -26,6 +26,7 @@ import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import {
   ContextMenu,
@@ -462,20 +463,11 @@ function FireTankCapacityPage() {
   const renderCommentBadge = (id: string, name: string) => {
     const itemComments = getItemComments(id);
     if (itemComments.length === 0) return null;
-
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          handleOpenComment(id, name);
-        }}
-        title={`${itemComments.length} comment(s)/task(s) on ${name}`}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 dark:hover:bg-blue-900 transition cursor-pointer shadow-2xs select-none border border-blue-300/40 dark:border-blue-700/40"
-      >
-        <MessageSquare className="size-3.5 fill-blue-500/20 text-blue-600 dark:text-blue-400" />
-        <span className="text-[10px] font-bold">{itemComments.length}</span>
-      </button>
+      <RowCommentCornerBadge
+        count={itemComments.length}
+        onClick={() => handleOpenComment(id, name)}
+      />
     );
   };
 
@@ -579,7 +571,7 @@ function FireTankCapacityPage() {
             className="flex items-center gap-2 cursor-pointer py-1.5 px-2.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>Add Comment / Assign Task</span>
+            <span>Add Comment</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>

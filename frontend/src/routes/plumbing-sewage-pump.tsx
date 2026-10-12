@@ -41,6 +41,7 @@ import { CustomSewagePumpConfigModal } from "@/components/workspace/CustomSewage
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
@@ -524,17 +525,10 @@ export function SewagePumpPage() {
     const count = (commentsMap[id] || []).length;
     if (count === 0) return null;
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setActiveCommentTarget({ id, label: name });
-        }}
-        className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline ml-1.5 cursor-pointer"
-      >
-        <MessageSquare className="size-3 fill-primary/20" />
-        <span>{count}</span>
-      </button>
+      <RowCommentCornerBadge
+        count={count}
+        onClick={() => setActiveCommentTarget({ id, label: name })}
+      />
     );
   };
 
@@ -563,22 +557,13 @@ export function SewagePumpPage() {
               : "bg-slate-50/70 dark:bg-slate-900/50 border-border/80 hover:border-slate-300 dark:hover:border-slate-700"
               }`}
           >
+            <RowCommentCornerBadge count={comments.length} onClick={() => setActiveCommentTarget({ id: fieldId, label })} />
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-foreground tracking-tight">
                 {label}
               </label>
               <div className="flex items-center gap-1">
-                {comments.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveCommentTarget({ id: fieldId, label })}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
-                    title={`${comments.length} comment(s)`}
-                  >
-                    <MessageSquare className="size-3 fill-primary/20" />
-                    <span>{comments.length}</span>
-                  </button>
-                )}
+                
               </div>
             </div>
 
@@ -666,19 +651,7 @@ export function SewagePumpPage() {
               <label className="text-xs font-semibold text-foreground tracking-tight">
                 {label}
               </label>
-              <div className="flex items-center gap-1">
-                {comments.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveCommentTarget({ id: fieldId, label })}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
-                    title={`${comments.length} comment(s)`}
-                  >
-                    <MessageSquare className="size-3 fill-primary/20" />
-                    <span>{comments.length}</span>
-                  </button>
-                )}
-              </div>
+              
             </div>
 
             <select
@@ -751,16 +724,7 @@ export function SewagePumpPage() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-foreground block">Pumping Arrangement</span>
-                {comments.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveCommentTarget({ id: "pumpingArrangement", label: "Pumping Arrangement" })}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"
-                  >
-                    <MessageSquare className="size-3 fill-primary/20" />
-                    <span>{comments.length}</span>
-                  </button>
-                )}
+                
               </div>
               <span className="text-[10px] text-muted-foreground">100% Standby redundancy mode</span>
             </div>
@@ -1077,7 +1041,7 @@ export function SewagePumpPage() {
                               className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                             >
                               <MessageSquare className="size-3.5" />
-                              <span>Add Comment / Assign Task</span>
+                              <span>Add Comment</span>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
@@ -1204,7 +1168,7 @@ export function SewagePumpPage() {
                               className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                             >
                               <MessageSquare className="size-3.5" />
-                              <span>Add Comment / Assign Task</span>
+                              <span>Add Comment</span>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
@@ -1311,7 +1275,7 @@ export function SewagePumpPage() {
                               className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                             >
                               <MessageSquare className="size-3.5" />
-                              <span>Add Comment / Assign Task</span>
+                              <span>Add Comment</span>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>

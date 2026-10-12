@@ -35,6 +35,7 @@ import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditPclSpaceModal } from "@/components/workspace/EditPclSpaceModal";
 import { PclCategorySelect } from "@/components/workspace/PclCategorySelect";
 import { exportPreliminaryCoolingLoadPDF } from "@/lib/exportPreliminaryCoolingLoadPDF";
+import { getMergedItemComments } from "@/utils/commentHelpers";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import {
   checkIfPclMissingData,
@@ -78,20 +79,28 @@ interface InlineInputProps {
 }
 
 function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled, readOnly }: InlineInputProps) {
-  const [localVal, setLocalVal] = useState(value === "" ? "" : String(value));
+  const isReadOnly = typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly);
+  const isEffectiveDisabled = Boolean(disabled || readOnly || isReadOnly);
+
+  const getCleanVal = (val: any) => {
+    if (val === undefined || val === null || val === "undefined" || val === "null") {
+      return "";
+    }
+    return String(val);
+  };
+
+  const [localVal, setLocalVal] = useState(getCleanVal(value));
 
   useEffect(() => {
-    setLocalVal(value === "" ? "" : String(value));
+    const clean = getCleanVal(value);
+    setLocalVal((prev) => (prev === clean ? prev : clean));
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
-      if (localVal !== (value === "" ? "" : String(value))) {
-        onCommit(localVal);
-      }
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
-      setLocalVal(value === "" ? "" : String(value));
+      setLocalVal(getCleanVal(value));
       e.currentTarget.blur();
     }
   };
@@ -101,20 +110,38 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       type={type}
       step={step}
       min={min}
-      value={localVal}
+      disabled={isEffectiveDisabled}
+      readOnly={isEffectiveDisabled}
       placeholder={placeholder}
-      disabled={disabled}
-      readOnly={readOnly}
-      onChange={(e) => setLocalVal(e.target.value)}
+      value={localVal}
+      onChange={(e) => {
+        if (isEffectiveDisabled) return;
+        setLocalVal(e.target.value);
+      }}
+      onKeyDown={handleKeyDown}
       onBlur={() => {
-        if (localVal !== (value === "" ? "" : String(value))) {
+        if (isEffectiveDisabled) {
+          setLocalVal(getCleanVal(value));
+          return;
+        }
+        if (localVal !== getCleanVal(value)) {
           onCommit(localVal);
         }
       }}
-      onKeyDown={handleKeyDown}
-      onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text placeholder:text-muted-foreground/45 placeholder:font-normal ${className}`}
+      onClick={(e) => {
+        e.stopPropagation();
+      }}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+      }}
+      className={`bg-transparent w-full border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${
+        isEffectiveDisabled
+          ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent"
+          : "hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 cursor-text"
+      } ${className}`}
     />
   );
 }
@@ -654,9 +681,27 @@ function PreliminaryCoolingLoadPage() {
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string; type: "space" | "zone" | "equipment" } | null>(null);
 
   const handleOpenComment = (row: PclRow) => {
-    setCommentTargetItem({ id: row.id, name: row.name, type: "space" });
+    setCommentTargetItem({ id: String(row.id), name: row.name || "Space", type: "space" });
     setCommentModalOpen(true);
   };
+
+  // Listen for custom event from DataGrid or other comment triggers
+  useEffect(() => {
+    const handleCustomComment = (e: any) => {
+      const detail = e.detail;
+      if (detail && detail.id) {
+        const found = rows.find((r) => String(r.id) === String(detail.id));
+        if (found) {
+          handleOpenComment(found);
+        } else {
+          setCommentTargetItem({ id: String(detail.id), name: detail.name || "Space", type: "space" });
+          setCommentModalOpen(true);
+        }
+      }
+    };
+    window.addEventListener("open-mep-row-comment", handleCustomComment);
+    return () => window.removeEventListener("open-mep-row-comment", handleCustomComment);
+  }, [rows]);
 
   // Sync with project changes
   useEffect(() => {
@@ -1798,18 +1843,6 @@ function PreliminaryCoolingLoadPage() {
       editable: true,
       render: (r) => (
         <div className="flex items-center gap-1.5 w-full">
-          {Array.isArray(r.comments) && r.comments.length > 0 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleOpenComment(r);
-              }}
-              title={`${r.comments.length} comment(s)/task(s) assigned to space "${r.name}"`}
-              className="p-1 rounded hover:bg-blue-50 text-blue-600 dark:hover:bg-blue-950/40 dark:text-blue-400 shrink-0 cursor-pointer"
-            >
-              <MessageSquare className="size-3.5 fill-blue-500/20" />
-            </button>
-          )}
           <InlineInput disabled={isApprovedLocked} readOnly={isApprovedLocked}
             value={r.name}
             onCommit={(newName) => {
@@ -2103,7 +2136,7 @@ function PreliminaryCoolingLoadPage() {
     const targetRows = rows.filter((s) => selectedIds.includes(s.id));
 
     return (
-      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+      <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
         {/* Add Comment */}
         <ContextMenuItem
           onClick={() => handleOpenComment(row)}
@@ -2214,8 +2247,8 @@ function PreliminaryCoolingLoadPage() {
             }}
             className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
           >
-            <Edit3 className="size-3.5 text-muted-foreground" />
-            <span>Bulk Edit ({targetsCount} spaces)</span>
+            <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+            <span className="whitespace-nowrap">Bulk Edit ({targetsCount} spaces)</span>
           </ContextMenuItem>
         ) : (
           <ContextMenuItem
@@ -2228,9 +2261,9 @@ function PreliminaryCoolingLoadPage() {
             }}
             className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
           >
-            <Edit3 className="size-3.5 text-muted-foreground" />
-            <span>Edit Space</span>
-            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
+            <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+            <span className="whitespace-nowrap">Edit Space</span>
+            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
           </ContextMenuItem>
         )}
 
@@ -2735,6 +2768,7 @@ function PreliminaryCoolingLoadPage() {
                           onToggleAll={toggleAll}
                           isReadOnly={isApprovedLocked}
                           onRowDoubleClick={(r) => setEditingSpace(r)}
+                          onCommentClick={handleOpenComment}
                           renderContextMenu={renderSpaceContextMenu}
                           groupBy={(r) => r.floor}
                           groupOrder={sortedFloorsForGrid}
@@ -2781,7 +2815,7 @@ function PreliminaryCoolingLoadPage() {
                       {/* 1. Title */}
                       <div className="pb-1">
                         <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
-                          Preliminary Cooling Load Calculation Report
+                          Preliminary Cooling Load Calculation
                         </h2>
                       </div>
 
@@ -3463,19 +3497,33 @@ function PreliminaryCoolingLoadPage() {
       {commentModalOpen && commentTargetItem && (
         <AssignCommentModal
           isOpen={commentModalOpen}
-          onClose={() => setCommentModalOpen(false)}
+          onClose={() => {
+            setCommentModalOpen(false);
+            setCommentTargetItem(null);
+          }}
           targetId={commentTargetItem.id}
           targetName={commentTargetItem.name}
-          targetType="Cooling Space"
+          targetType="space"
+          spaceId={commentTargetItem.id}
+          spaceName={commentTargetItem.name}
           calculatorTitle="Preliminary Cooling Load"
           calculatorPath="/preliminary-cooling-load"
-          existingComments={rows.find(r => r.id === commentTargetItem.id)?.comments || []}
+          existingComments={getMergedItemComments(
+            commentTargetItem.id,
+            commentTargetItem.name,
+            rows.find(r => String(r.id) === String(commentTargetItem.id))?.comments || [],
+            "/preliminary-cooling-load",
+            project?.id
+          )}
           onSave={(comment) => {
-            const updatedRows = rows.map(r => r.id === commentTargetItem.id ? {
+            const updatedRows = rows.map(r => String(r.id) === String(commentTargetItem.id) ? {
               ...r,
               comments: [...(r.comments || []), comment]
             } : r);
             saveRows(updatedRows);
+            try {
+              workspaceStore.addCommentToTarget(commentTargetItem.id, 'space', comment);
+            } catch (e) {}
             if (project?.id) {
               localStorage.setItem(`mep_pcl_rows_${project.id}`, JSON.stringify(updatedRows));
             }

@@ -1,3 +1,4 @@
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState, getCalculationStatusBorderClass, type CalculationReviewState } from "@/components/workspace/CalculationReviewBar";
 import { useConfirm } from "@/hooks/use-confirm";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
@@ -2171,7 +2172,20 @@ function DrainagePage() {
                                             : "bg-white dark:bg-zinc-950 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/40"
                                         }`}
                                     >
-                                      <td className="p-1 text-center w-[36px] min-w-[36px] border-r border-border/40" onDoubleClick={e => e.stopPropagation()}>
+                                      <td className="p-1 text-center w-[36px] min-w-[36px] border-r border-border/40 relative" onDoubleClick={e => e.stopPropagation()}>
+                                        {(() => {
+                                          const spaceComments = getSpaceComments(space);
+                                          if (spaceComments.length === 0) return null;
+                                          return (
+                                            <RowCommentCornerBadge
+                                              count={spaceComments.length}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleOpenComment(space.id, space.desc);
+                                              }}
+                                            />
+                                          );
+                                        })()}
                                         <input
                                           type="checkbox"
                                           disabled={isLocked}
@@ -2212,24 +2226,6 @@ function DrainagePage() {
                                             className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1.5 py-0.5 text-xs font-medium text-foreground outline-none transition-all truncate cursor-text"
                                             title={space.desc || "Untitled Space"}
                                           />
-                                          {(() => {
-                                            const spaceComments = getSpaceComments(space);
-                                            if (spaceComments.length === 0) return null;
-                                            return (
-                                              <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleOpenComment(space.id, space.desc);
-                                                }}
-                                                className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[9.5px] font-bold border border-blue-500/20 hover:bg-blue-500/20 transition-colors cursor-pointer shrink-0"
-                                                title={`${spaceComments.length} comment(s) / task(s)`}
-                                              >
-                                                <MessageSquare className="size-2.5 text-blue-500" />
-                                                <span>{spaceComments.length}</span>
-                                              </button>
-                                            );
-                                          })()}
                                         </div>
                                       </td>
 
@@ -2375,7 +2371,7 @@ function DrainagePage() {
                                     <ContextMenuSeparator className="h-px bg-border my-1" />
                                     <ContextMenuItem onClick={() => handleOpenComment(space.id, space.desc)} className="flex items-center gap-2 p-1.5 cursor-pointer text-blue-600 font-medium">
                                       <MessageSquare className="size-3.5" />
-                                      <span>{getSpaceComments(space).length > 0 ? `Comments / Tasks (${getSpaceComments(space).length})` : "Add Comment / Task"}</span>
+                                      <span>{getSpaceComments(space).length > 0 ? `Comments / Tasks (${getSpaceComments(space).length})` : "Add Comment"}</span>
                                     </ContextMenuItem>
                                     <ContextMenuItem
                                       disabled={isLocked}

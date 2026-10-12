@@ -1158,32 +1158,6 @@ function LoadSummaryPage() {
               onDoubleClick={() => setPreviewRow(row)}
               className="text-[12.5px] font-medium min-w-0 flex-1"
             />
-            {rowComments.length > 0 ? (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenComment(row.id, cleanSpaceName(row.description) || `Load ${index}`);
-                }}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-[10.5px] font-bold shrink-0 cursor-pointer transition-colors"
-                title={`${rowComments.length} comment(s) / task(s). Click to view or reply.`}
-              >
-                <MessageSquare className="size-3 fill-blue-500/20" />
-                <span>{rowComments.length}</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenComment(row.id, cleanSpaceName(row.description) || `Load ${index}`);
-                }}
-                className="opacity-0 group-hover:opacity-100 hover:opacity-100 text-muted-foreground hover:text-primary transition-opacity p-0.5 cursor-pointer shrink-0"
-                title="Add Comment / Assign Task"
-              >
-                <MessageSquare className="size-3.5" />
-              </button>
-            )}
           </div>
         );
       }
@@ -1733,6 +1707,7 @@ function LoadSummaryPage() {
                         selected={selected}
                         onToggle={handleToggle}
                         onToggleAll={handleToggleAll}
+                        onCommentClick={(row) => handleOpenComment(row.id, row.name || (row as any).spaceName || 'Space')}
                         onRowDoubleClick={(row) => setPreviewRow(row)}
                         rowClassName={(row) => (row.flagged ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]" : "")}
                         groupBy={(row) => extractFloorName(row)}
@@ -1827,7 +1802,7 @@ function LoadSummaryPage() {
                               <ContextMenuSeparator />
                               <ContextMenuItem onClick={() => handleOpenComment(row.id, row.description || `Load ${row.id}`)}>
                                 <MessageSquare className="size-4 mr-2 text-blue-500" />
-                                <span>{rowComments.length > 0 ? `Comments (${rowComments.length})` : "Add Comment / Assign Task"}</span>
+                                <span>{rowComments.length > 0 ? `Comments (${rowComments.length})` : "Add Comment"}</span>
                               </ContextMenuItem>
                               <ContextMenuSeparator />
                               <ContextMenuItem onClick={() => {

@@ -3,6 +3,7 @@ import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOn
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { useAuth } from "@/contexts/AuthContext";
 import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
@@ -436,19 +437,11 @@ function DuctSizerPage() {
     );
     if (!itemComments || itemComments.length === 0) return null;
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleOpenComment(id, name);
-        }}
-        title={`${itemComments.length} comment(s)/task(s) on ${name}. Click to view & reply.`}
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 ml-2 rounded-full bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 font-bold text-[10px] hover:bg-blue-200 dark:hover:bg-blue-900 transition cursor-pointer shadow-xs select-none border border-blue-300/60 dark:border-blue-700/60 shrink-0 animate-in fade-in"
-      >
-        <MessageSquare className="size-3.5 fill-blue-500/25 text-blue-600 dark:text-blue-400" />
-        <span className="text-[10px] font-extrabold">{itemComments.length}</span>
-      </button>
+      <RowCommentCornerBadge
+        id={id}
+        count={itemComments.length}
+        onClick={() => handleOpenComment(id, name)}
+      />
     );
   };
 
@@ -870,7 +863,24 @@ function DuctSizerPage() {
     }
   };
 
-  const flowInputClass = "w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:border-[#0A7BC7] disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
+  const getInputClass = (id: string, name?: string) => {
+    const isHigh = isFieldHighlighted(id, name);
+    const baseStyle = "w-full h-9 px-3 rounded-lg text-xs font-mono font-semibold focus:outline-none disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base transition-all duration-150";
+
+    return `${baseStyle} bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-foreground focus:border-[#0A7BC7] ${isHigh}`;
+  };
+
+  const getSelectInputClass = (id: string, name?: string) => {
+    const isHigh = isFieldHighlighted(id, name);
+    const baseStyle = "appearance-none w-full h-9 px-3 pr-8 rounded-lg text-xs font-semibold focus:outline-none cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800/50 disabled:text-slate-400 dark:disabled:text-zinc-500 transition-all duration-150";
+
+    return `${baseStyle} bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-800 dark:text-zinc-200 focus:border-primary ${isHigh}`;
+  };
+
+  const getCardCommentClass = (id: string, name: string, baseClass: string) => {
+    const isHigh = isFieldHighlighted(id, name);
+    return `${baseClass} relative ${isHigh}`;
+  };
 
   return (
     <AppShell
@@ -996,13 +1006,10 @@ function DuctSizerPage() {
                             data-comment-target="preset"
                             className={`space-y-1 pb-1 p-1.5 -m-1.5 transition-all ${isFieldHighlighted("preset", "Duct Application Preset")}`}
                           >
-                            <div className="flex justify-between items-center">
-                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Application Preset Profile
-                              </label>
-                              {renderCommentBadge("preset", "Duct Application Preset")}
-                            </div>
-                            <div className="w-full">
+                            <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                              Application Preset Profile
+                            </label>
+                            <div className="relative mt-1">
                               <DuctPresetSelect
                                 value={preset}
                                 customProfileName={customProfileName}
@@ -1010,7 +1017,9 @@ function DuctSizerPage() {
                                 onOpenCustomModal={() => setCustomModalOpen(true)}
                                 unitSystem={unitSystem}
                                 disabled={isEffectiveReadOnly}
+                                triggerClassName={getInputClass("preset", "Duct Application Preset")}
                               />
+                              {renderCommentBadge("preset", "Duct Application Preset")}
                             </div>
                           </div>
                         </ContextMenuTrigger>
@@ -1076,28 +1085,28 @@ function DuctSizerPage() {
                             data-comment-target="airflow"
                             className={`space-y-1 p-1.5 -m-1.5 transition-all ${isFieldHighlighted("airflow", "Airflow (Q)")}`}
                           >
-                            <div className="flex justify-between items-center">
-                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Airflow (Q) ({isSI ? "L/s" : "CFM"})
-                              </label>
+                            <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                              Airflow (Q) ({isSI ? "L/s" : "CFM"})
+                            </label>
+                            <div className="relative mt-1">
+                              <input
+                                type="number"
+                                min="1"
+                                step="any"
+                                disabled={isEffectiveReadOnly}
+                                value={isSI && typeof airflow === "number" ? Math.round(airflow * CFM_TO_LPS) : airflow}
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                  if (val === "") setAirflow("");
+                                  else if (isSI) setAirflow(val * LPS_TO_CFM);
+                                  else setAirflow(val);
+                                  dirtyStore.set(true);
+                                }}
+                                className={getInputClass("airflow", "Airflow (Q)")}
+                                placeholder={isSI ? "e.g. 1180" : "e.g. 2500"}
+                              />
                               {renderCommentBadge("airflow", "Airflow (Q)")}
                             </div>
-                            <input
-                              type="number"
-                              min="1"
-                              step="any"
-                              disabled={isEffectiveReadOnly}
-                              value={isSI && typeof airflow === "number" ? Math.round(airflow * CFM_TO_LPS) : airflow}
-                              onChange={(e) => {
-                                const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                if (val === "") setAirflow("");
-                                else if (isSI) setAirflow(val * LPS_TO_CFM);
-                                else setAirflow(val);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder={isSI ? "e.g. 1180" : "e.g. 2500"}
-                            />
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1141,10 +1150,11 @@ function DuctSizerPage() {
                           <ContextMenuItem
                             disabled={isEffectiveReadOnly}
                             onClick={() => handleClearField("Airflow", "airflow")}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer disabled:opacity-50"
                           >
-                            <Trash2 className="size-3.5 text-muted-foreground" />
+                            <Trash2 className="size-3.5" />
                             <span>Clear Input</span>
+                            <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1158,28 +1168,28 @@ function DuctSizerPage() {
                             data-comment-target="targetFr"
                             className={`space-y-1 pt-2 border-t border-slate-100 dark:border-zinc-800 p-1.5 -mx-1.5 transition-all ${isFieldHighlighted("targetFr", "Target Friction Rate")}`}
                           >
-                            <div className="flex justify-between items-center">
-                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Target Friction Rate ({isSI ? "Pa/m" : "in w.g./100ft"})
-                              </label>
+                            <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                              Target Friction Rate ({isSI ? "Pa/m" : "in w.g./100ft"})
+                            </label>
+                            <div className="relative mt-1">
+                              <input
+                                type="number"
+                                min="0.001"
+                                step="any"
+                                disabled={isEffectiveReadOnly}
+                                value={isSI && typeof targetFr === "number" ? Number((targetFr * INWG_TO_PAM).toFixed(2)) : targetFr}
+                                onChange={(e) => {
+                                  const val = e.target.value === "" ? "" : parseFloat(e.target.value);
+                                  if (val === "") setTargetFr("");
+                                  else if (isSI) setTargetFr(val * PAM_TO_INWG);
+                                  else setTargetFr(val);
+                                  dirtyStore.set(true);
+                                }}
+                                className={getInputClass("targetFr", "Target Friction Rate")}
+                                placeholder={isSI ? "e.g. 0.65" : "e.g. 0.08"}
+                              />
                               {renderCommentBadge("targetFr", "Target Friction Rate")}
                             </div>
-                            <input
-                              type="number"
-                              min="0.001"
-                              step="any"
-                              disabled={isEffectiveReadOnly}
-                              value={isSI && typeof targetFr === "number" ? Number((targetFr * INWG_TO_PAM).toFixed(2)) : targetFr}
-                              onChange={(e) => {
-                                const val = e.target.value === "" ? "" : parseFloat(e.target.value);
-                                if (val === "") setTargetFr("");
-                                else if (isSI) setTargetFr(val * PAM_TO_INWG);
-                                else setTargetFr(val);
-                                dirtyStore.set(true);
-                              }}
-                              className={flowInputClass}
-                              placeholder={isSI ? "e.g. 0.65" : "e.g. 0.08"}
-                            />
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
@@ -1223,10 +1233,11 @@ function DuctSizerPage() {
                           <ContextMenuItem
                             disabled={isEffectiveReadOnly}
                             onClick={() => handleClearField("Target Friction Rate", "targetFr")}
-                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer disabled:opacity-50"
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer disabled:opacity-50"
                           >
-                            <Trash2 className="size-3.5 text-muted-foreground" />
+                            <Trash2 className="size-3.5" />
                             <span>Clear Input</span>
+                            <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</ContextMenuShortcut>
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -1240,37 +1251,37 @@ function DuctSizerPage() {
                             data-comment-target="ductShape"
                             className={`space-y-2 pt-2 border-t border-slate-100 dark:border-zinc-800 p-1.5 -mx-1.5 transition-all ${isFieldHighlighted("ductShape", "Duct Shape")}`}
                           >
-                            <div className="flex justify-between items-center">
-                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                Duct Cross-Section Shape
-                              </label>
+                            <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                              Duct Cross-Section Shape
+                            </label>
+                            <div className="relative mt-1">
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  disabled={isEffectiveReadOnly}
+                                  onClick={() => { setDuctShape("round"); dirtyStore.set(true); }}
+                                  className={`h-9 text-xs font-bold rounded-lg transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
+                                    ductShape === "round"
+                                      ? "bg-primary text-white border-primary shadow-xs"
+                                      : "bg-slate-50 dark:bg-zinc-800/80 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  <Cylinder className="size-3.5" /> Round Spiral
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isEffectiveReadOnly}
+                                  onClick={() => { setDuctShape("rect"); dirtyStore.set(true); }}
+                                  className={`h-9 text-xs font-bold rounded-lg transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
+                                    ductShape === "rect"
+                                      ? "bg-primary text-white border-primary shadow-xs"
+                                      : "bg-slate-50 dark:bg-zinc-800/80 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  <Layers className="size-3.5" /> Rectangular
+                                </button>
+                              </div>
                               {renderCommentBadge("ductShape", "Duct Shape")}
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              <button
-                                type="button"
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => { setDuctShape("round"); dirtyStore.set(true); }}
-                                className={`h-9 text-xs font-bold rounded-lg transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
-                                  ductShape === "round"
-                                    ? "bg-primary text-white border-primary shadow-xs"
-                                    : "bg-slate-50 dark:bg-zinc-800/80 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:bg-slate-100"
-                                }`}
-                              >
-                                <Cylinder className="size-3.5" /> Round Spiral
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isEffectiveReadOnly}
-                                onClick={() => { setDuctShape("rect"); dirtyStore.set(true); }}
-                                className={`h-9 text-xs font-bold rounded-lg transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
-                                  ductShape === "rect"
-                                    ? "bg-primary text-white border-primary shadow-xs"
-                                    : "bg-slate-50 dark:bg-zinc-800/80 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:bg-slate-100"
-                                }`}
-                              >
-                                <Layers className="size-3.5" /> Rectangular
-                              </button>
                             </div>
                           </div>
                         </ContextMenuTrigger>
@@ -1315,19 +1326,16 @@ function DuctSizerPage() {
                               <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                                 Aspect Ratio (W:H)
                               </label>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[11px] font-mono text-primary font-bold">
-                                  {ductShape === "round" ? "1.0:1 (Fixed)" : `${aspectRatio.toFixed(1)}:1`}
-                                </span>
-                                {renderCommentBadge("aspectRatio", "Aspect Ratio")}
-                              </div>
+                              <span className="text-[11px] font-mono text-primary font-bold">
+                                {ductShape === "round" ? "1.0:1 (Fixed)" : `${aspectRatio.toFixed(1)}:1`}
+                              </span>
                             </div>
-                            <div className="relative">
+                            <div className="relative mt-1">
                               <select
                                 disabled={isEffectiveReadOnly || ductShape === "round"}
                                 value={ductShape === "round" ? 1.0 : aspectRatio}
                                 onChange={(e) => { setAspectRatio(Number(e.target.value)); dirtyStore.set(true); }}
-                                className="appearance-none w-full h-9 px-3 pr-8 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-semibold focus:outline-none focus:border-primary text-slate-800 dark:text-zinc-200 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800/50 disabled:text-slate-400 dark:disabled:text-zinc-500"
+                                className={getSelectInputClass("aspectRatio", "Aspect Ratio")}
                               >
                                 {ductShape === "round" ? (
                                   <option value="1.0">1.0:1 - Circular (Fixed 1:1)</option>
@@ -1342,6 +1350,7 @@ function DuctSizerPage() {
                                 )}
                               </select>
                               <ChevronsUpDown className="absolute right-2.5 top-1/2 -translate-y-1/2 size-3 text-muted-foreground pointer-events-none opacity-55" />
+                              {renderCommentBadge("aspectRatio", "Aspect Ratio")}
                             </div>
                           </div>
                         </ContextMenuTrigger>
@@ -1427,33 +1436,141 @@ function DuctSizerPage() {
 
                           {/* DISPLAY STAT CARDS (Multi-Color Vibrant Theme from Pump Sizing) */}
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Recommended Size</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {calcResults.sizeDisplay}
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-size"
+                                  data-field-id="res-size"
+                                  data-comment-target="res-size"
+                                  className={getCardCommentClass("res-size", "Recommended Size", "bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                                >
+                                  <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Recommended Size</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {calcResults.sizeDisplay}
+                                  </div>
+                                  {renderCommentBadge("res-size", "Recommended Size")}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-size", "Recommended Size")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => handleCopyValue("Recommended Size", calcResults.sizeDisplay)}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <Copy className="size-3.5 text-muted-foreground" />
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                            <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Air Velocity</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {isSI ? `${calcResults.velocityMs.toFixed(2)}` : `${Math.round(calcResults.velocityFpm)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "m/s" : "FPM"}</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-velocity"
+                                  data-field-id="res-velocity"
+                                  data-comment-target="res-velocity"
+                                  className={getCardCommentClass("res-velocity", "Air Velocity", "bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                                >
+                                  <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Air Velocity</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {isSI ? `${calcResults.velocityMs.toFixed(2)}` : `${Math.round(calcResults.velocityFpm)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "m/s" : "FPM"}</span>
+                                  </div>
+                                  {renderCommentBadge("res-velocity", "Air Velocity")}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-velocity", "Air Velocity")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => handleCopyValue("Air Velocity", isSI ? `${calcResults.velocityMs.toFixed(2)} m/s` : `${Math.round(calcResults.velocityFpm)} FPM`)}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <Copy className="size-3.5 text-muted-foreground" />
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                            <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Friction Loss</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {isSI ? `${calcResults.actualFrPaM.toFixed(2)}` : `${calcResults.actualFrInWg.toFixed(3)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "Pa/m" : "in/100ft"}</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-friction"
+                                  data-field-id="res-friction"
+                                  data-comment-target="res-friction"
+                                  className={getCardCommentClass("res-friction", "Friction Loss", "bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                                >
+                                  <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Friction Loss</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {isSI ? `${calcResults.actualFrPaM.toFixed(2)}` : `${calcResults.actualFrInWg.toFixed(3)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "Pa/m" : "in/100ft"}</span>
+                                  </div>
+                                  {renderCommentBadge("res-friction", "Friction Loss")}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-friction", "Friction Loss")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => handleCopyValue("Friction Loss", isSI ? `${calcResults.actualFrPaM.toFixed(2)} Pa/m` : `${calcResults.actualFrInWg.toFixed(3)} in/100ft`)}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <Copy className="size-3.5 text-muted-foreground" />
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                            <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5">
-                              <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Equiv. Dia (Deq)</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {isSI ? `${Math.round(calcResults.deqMm)}` : `${calcResults.deqIn.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "mm" : "in"}</span>
-                              </div>
-                            </div>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-deq"
+                                  data-field-id="res-deq"
+                                  data-comment-target="res-deq"
+                                  className={getCardCommentClass("res-deq", "Equiv. Dia (Deq)", "bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
+                                >
+                                  <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Equiv. Dia (Deq)</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {isSI ? `${Math.round(calcResults.deqMm)}` : `${calcResults.deqIn.toFixed(1)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "mm" : "in"}</span>
+                                  </div>
+                                  {renderCommentBadge("res-deq", "Equiv. Dia (Deq)")}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment("res-deq", "Equiv. Dia (Deq)")}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => handleCopyValue("Equiv. Dia (Deq)", isSI ? `${Math.round(calcResults.deqMm)} mm` : `${calcResults.deqIn.toFixed(1)} in`)}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <Copy className="size-3.5 text-muted-foreground" />
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
                           </div>
 
                           {/* DETAILED AERODYNAMIC METRICS TABLE (Matching Pump Sizing) */}

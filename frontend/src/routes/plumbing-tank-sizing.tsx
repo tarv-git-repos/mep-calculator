@@ -41,6 +41,7 @@ import {
   type CalculationReviewState
 } from "@/components/workspace/CalculationReviewBar";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
+import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 
 export const Route = createFileRoute("/plumbing-tank-sizing")({
@@ -380,17 +381,12 @@ function TankSizingPage() {
     const count = (commentsMap[id] || []).length;
     if (count === 0) return null;
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setActiveCommentTarget({ id, label: name });
-        }}
-        className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline ml-1.5 cursor-pointer"
-      >
-        <MessageSquare className="size-3 fill-primary/20" />
-        <span>{count}</span>
-      </button>
+      <RowCommentCornerBadge
+        id={id}
+        count={count}
+        onClick={() => setActiveCommentTarget({ id, label: name })}
+        title={`${count} comment(s)/task(s) assigned`}
+      />
     );
   };
 
@@ -831,7 +827,7 @@ function TankSizingPage() {
                               className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                             >
                               <MessageSquare className="size-3.5" />
-                              <span>Add Comment / Assign Task</span>
+                              <span>Add Comment</span>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
@@ -921,7 +917,7 @@ function TankSizingPage() {
                               className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                             >
                               <MessageSquare className="size-3.5" />
-                              <span>Add Comment / Assign Task</span>
+                              <span>Add Comment</span>
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>

@@ -488,6 +488,7 @@ export function StandardCalculatorLayout<T extends { id: string; name?: string; 
             selected={selectedIds}
             onToggle={onToggle}
             onToggleAll={onToggleAll}
+            onCommentClick={handleOpenComment}
             groupBy={groupBy}
             groupOrder={groupOrder}
             renderGroupHeader={renderGroupHeader}
