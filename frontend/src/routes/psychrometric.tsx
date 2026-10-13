@@ -779,16 +779,16 @@ function PsychrometricPage() {
       intelOpen={intelOpen}
     >
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           {/* Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
-                <h1 className="text-[26px] font-semibold tracking-tight text-foreground">Psychrometric Calculator</h1>
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Psychrometric Calculator</h1>
               </div>
               <button
                 onClick={() => setIntelOpen(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-medium border cursor-pointer shrink-0 ${intelOpen
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
                   }`}
@@ -854,19 +854,13 @@ function PsychrometricPage() {
                 </TBtn>
               </div>
 
-              {/* Action buttons on the right of tabs */}
-              <div className="flex items-center gap-2">
+              {/* Right Side Action Button: Export */}
+              <div className="flex items-center gap-2 select-none shrink-0">
                 <TBtn
                   onClick={handleExportPDF}
-                  title="Export PDF Report"
+                  title="Export PDF Calculation"
                 >
-                  <FileText className="size-3.5" /> PDF Report
-                </TBtn>
-                <TBtn
-                  onClick={handleExportExcel}
-                  title="Export Excel Spreadsheet"
-                >
-                  <FileSpreadsheet className="size-3.5" /> Excel
+                  <FileText className="size-3.5" /> Export
                 </TBtn>
               </div>
             </div>
@@ -1341,56 +1335,44 @@ function PsychrometricPage() {
               {tab === "report" && (
                 <div className="flex-1 min-h-0 overflow-y-auto space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
                   <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
-                    <div className="flex justify-between items-start pb-4 border-b border-border">
-                      <div>
-                        <h2 className="text-xl font-semibold text-foreground uppercase tracking-wide">
-                          Psychrometric State Calculation Report
-                        </h2>
-                        <p className="text-[12px] text-muted-foreground mt-0.5">
-                          Design Standards: ASHRAE Handbook Fundamentals (Hyland-Wexler Formulation) & ASHRAE Standard 55
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <TBtn primary onClick={handleExportPDF}>
-                          <FileText className="size-3.5" /> PDF Report
-                        </TBtn>
-                        <TBtn onClick={handleExportExcel}>
-                          <FileSpreadsheet className="size-3.5" /> Excel
-                        </TBtn>
-                      </div>
+                    {/* 1. Title */}
+                    <div className="pb-1">
+                      <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+                        Psychrometric Calculation
+                      </h2>
                     </div>
 
                     {/* Enclosed Project Metadata Grid */}
                     <div className="border border-border rounded-xl overflow-hidden text-[12px] bg-card">
                       <div className="grid grid-cols-2 divide-x divide-border border-b border-border bg-muted/20">
                         <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-medium text-foreground">Calculation No.:</span>
-                          <span className="text-muted-foreground font-mono">
+                          <span className="font-bold text-foreground">Calculation No.:</span>
+                          <span className="text-foreground font-mono font-medium">
                             {(project as any)?.calcNo || `TRV-CAL-PSY-${(project?.id || "0000").slice(-4).toUpperCase()}`}
                           </span>
                         </div>
                         <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-medium text-foreground">Date:</span>
-                          <span className="text-muted-foreground">{formatDateStr(new Date().toISOString())}</span>
+                          <span className="font-bold text-foreground">Date:</span>
+                          <span className="text-foreground font-mono font-medium">{formatDateStr(new Date().toISOString())}</span>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
                         <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-medium text-foreground">Project No.:</span>
-                          <span className="text-muted-foreground">{project?.code || project?.id?.substring(0, 8) || "P000"}</span>
+                          <span className="font-bold text-foreground">Project No.:</span>
+                          <span className="text-muted-foreground font-mono">{project?.code || project?.id?.substring(0, 8) || "P000"}</span>
                         </div>
                         <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-medium text-foreground">Client:</span>
+                          <span className="font-bold text-foreground">Client:</span>
                           <span className="text-muted-foreground">{project?.client || "-"}</span>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 divide-x divide-border">
                         <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-medium text-foreground">Project Name:</span>
-                          <span className="text-muted-foreground">{project?.name || "MEP Project"}</span>
+                          <span className="font-bold text-foreground">Project Name:</span>
+                          <span className="text-muted-foreground">{project?.name || "Psychrometric Calculation"}</span>
                         </div>
                         <div className="p-2.5 px-3 flex justify-between">
-                          <span className="font-medium text-foreground">End User:</span>
+                          <span className="font-bold text-foreground">End User:</span>
                           <span className="text-muted-foreground">{(project as any)?.endUser || (project as any)?.location || "-"}</span>
                         </div>
                       </div>
@@ -1401,12 +1383,12 @@ function PsychrometricPage() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-[11px] border-collapse">
                           <thead>
-                            <tr className="bg-[#D9D9D9] text-black font-semibold border-b border-border text-center">
-                              <th className="py-2 px-2.5 w-10">Sr.</th>
-                              <th className="py-2 px-3 text-left">Design Input Parameter</th>
-                              <th className="py-2 px-3 text-left">Governing Rule / Basis</th>
-                              <th className="py-2 px-3 text-right">Specified Value</th>
-                              <th className="py-2 px-3 text-left">Engineering Notes</th>
+                            <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                              <th className="py-2.5 px-2.5 w-10">Sr.</th>
+                              <th className="py-2.5 px-3 text-left">Design Input Parameter</th>
+                              <th className="py-2.5 px-3 text-left">Governing Rule / Basis</th>
+                              <th className="py-2.5 px-3 text-right">Specified Value</th>
+                              <th className="py-2.5 px-3 text-left">Engineering Notes</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/60 font-sans">
@@ -1450,13 +1432,13 @@ function PsychrometricPage() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-[11px] border-collapse">
                           <thead>
-                            <tr className="bg-[#D9D9D9] text-black font-semibold border-b border-border text-center">
-                              <th className="py-2 px-2.5 w-10">Sr.</th>
-                              <th className="py-2 px-3 text-left">Psychrometric Property</th>
-                              <th className="py-2 px-2 text-center">Symbol</th>
-                              <th className="py-2 px-3 text-right">SI Metric</th>
-                              <th className="py-2 px-3 text-right">IP Imperial</th>
-                              <th className="py-2 px-3 text-left">Engineering Definition</th>
+                            <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                              <th className="py-2.5 px-2.5 w-10">Sr.</th>
+                              <th className="py-2.5 px-3 text-left">Psychrometric Property</th>
+                              <th className="py-2.5 px-2 text-center">Symbol</th>
+                              <th className="py-2.5 px-3 text-right">SI Metric</th>
+                              <th className="py-2.5 px-3 text-right">IP Imperial</th>
+                              <th className="py-2.5 px-3 text-left">Engineering Definition</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border/60 font-sans">

@@ -15,6 +15,7 @@ import {
 import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { toast } from "sonner";
 import { exportSanityCheckPDF } from "@/lib/exportSanityCheckPDF";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOnly, useCalculationReviewState } from "@/components/workspace/CalculationReviewBar";
@@ -52,8 +53,13 @@ function SanityCheckToolPage() {
   const calcReviewState = useCalculationReviewState("/sanity-check-tool", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/sanity-check-tool", activeProjectId || project?.id);
 
+  const sigDetails = useMemo(() => {
+    return getSignatureBlockDetails(activeProjectId || project?.id || "default", "/sanity-check-tool", currentUserName, calcReviewState);
+  }, [activeProjectId, project?.id, currentUserName, calcReviewState]);
+
   // States
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+  const [tab, setTab] = useState<"calculator" | "report">("calculator");
   const [intelOpen, setIntelOpen] = useState<boolean>(false);
   const [activePreset, setActivePreset] = useState<string>("commercial_office");
 
@@ -75,6 +81,8 @@ function SanityCheckToolPage() {
   const [commentsList, setCommentsList] = useState<any[]>([]);
   const [commentModalOpen, setCommentModalOpen] = useState<boolean>(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<any>(null);
 
   const getItemComments = (itemId: string) => commentsList.filter(c => c.targetId === itemId || c.spaceId === itemId || c.itemId === itemId);
 
@@ -328,6 +336,101 @@ function SanityCheckToolPage() {
 
   const inputClass = "w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono focus:outline-none focus:border-primary disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base";
 
+  useEffect(() => {
+    const handleScrollTarget = (targetId?: string, targetName?: string) => {
+      if (!targetId && !targetName) return;
+      const cleanRaw = String(targetId || "").toLowerCase().trim();
+      const cleanId = cleanRaw.replace(/^(field-|card-|metric-|res-)/, "");
+      const cleanName = String(targetName || "").toLowerCase().trim();
+
+      setHighlightedTargetId(targetId || cleanRaw || cleanId || targetName || "");
+
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = setTimeout(() => {
+        setHighlightedTargetId(null);
+        highlightTimeoutRef.current = null;
+      }, 4500);
+
+      requestAnimationFrame(() => {
+        let el =
+          document.getElementById(targetId || "") ||
+          document.getElementById(`field-${cleanRaw}`) ||
+          document.getElementById(`card-${cleanRaw}`) ||
+          document.getElementById(`metric-${cleanRaw}`) ||
+          document.getElementById(`res-${cleanRaw}`) ||
+          document.getElementById(`field-card-${cleanRaw}`) ||
+          document.getElementById(`field-card-${cleanId}`) ||
+          document.getElementById(`card-${cleanId}`) ||
+          document.getElementById(cleanRaw) ||
+          document.getElementById(cleanId) ||
+          document.querySelector(`[data-comment-target="${cleanRaw}"]`) ||
+          document.querySelector(`[data-comment-target="${targetId}"]`) ||
+          document.querySelector(`[data-field-id="${cleanRaw}"]`) ||
+          document.querySelector(`[data-field-id="${cleanId}"]`);
+
+        if (!el && cleanName) {
+          const allFields = document.querySelectorAll("[data-comment-target]");
+          for (let i = 0; i < allFields.length; i++) {
+            const targetAttr = allFields[i].getAttribute("data-comment-target")?.toLowerCase() || "";
+            if (targetAttr.includes(cleanName) || cleanName.includes(targetAttr)) {
+              el = allFields[i] as HTMLElement;
+              break;
+            }
+          }
+        }
+
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
+    };
+
+    const handleScrollEvent = (e: any) => {
+      const targetId = e?.detail?.id || e?.detail?.targetItemId || e?.detail?.targetId;
+      const targetName = e?.detail?.name || e?.detail?.fieldName || e?.detail?.targetName;
+      if (targetId || targetName) handleScrollTarget(targetId, targetName);
+    };
+
+    if (typeof window !== "undefined") {
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlTargetId = searchParams.get("commentTargetId") || searchParams.get("targetId") || searchParams.get("itemId") || searchParams.get("spaceId");
+      if (urlTargetId) {
+        setTimeout(() => handleScrollTarget(urlTargetId, searchParams.get("commentTargetName") || searchParams.get("targetName") || ""), 500);
+      }
+    }
+
+    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
+    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
+    window.addEventListener("mep_scroll_to_comment_target", handleScrollEvent);
+    window.addEventListener("mep-comment-notification-clicked", handleScrollEvent);
+    window.addEventListener("mep-highlight-item", handleScrollEvent);
+
+    return () => {
+      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
+      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
+      window.removeEventListener("mep_scroll_to_comment_target", handleScrollEvent);
+      window.removeEventListener("mep-comment-notification-clicked", handleScrollEvent);
+      window.removeEventListener("mep-highlight-item", handleScrollEvent);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, []);
+
+  const isFieldHighlighted = (id: string, name?: string) => {
+    if (!highlightedTargetId) return "";
+    const cleanHigh = highlightedTargetId.toLowerCase().trim().replace(/^(field-|card-|metric-|res-)/, "");
+    const cleanId = id.toLowerCase().trim().replace(/^(field-|card-|metric-|res-)/, "");
+    const cleanName = (name || "").toLowerCase().trim();
+    const cleanHighFull = highlightedTargetId.toLowerCase().trim();
+
+    const isMatch =
+      cleanHigh === cleanId ||
+      cleanHighFull === id.toLowerCase().trim() ||
+      (cleanName && cleanHigh.includes(cleanName)) ||
+      (cleanName && cleanName.includes(cleanHigh));
+
+    return isMatch ? "ring-2 ring-primary ring-offset-2 border-primary shadow-lg animate-pulse" : "";
+  };
+
   const getInputClass = (id: string, name?: string) => {
     const isHigh = isFieldHighlighted(id, name);
     const baseStyle = "w-full h-8 px-2 rounded font-mono focus:outline-none disabled:bg-transparent disabled:border-transparent disabled:shadow-none disabled:pl-0 disabled:opacity-100 disabled:text-foreground disabled:text-base transition-all duration-150";
@@ -348,10 +451,10 @@ function SanityCheckToolPage() {
       intelOpen={intelOpen}
     >
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           
-          {/* Header matching Pump Sizing */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+          {/* Header matching Ventilation exactly */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Sanity Check Tool</h1>
@@ -387,46 +490,68 @@ function SanityCheckToolPage() {
                 : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
             }`}>
 
-            {/* Top Tabs Selector Row matching Pump Sizing */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print modal-blur-bg border-b border-border/50">
-              <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Top Tabs Selector Row matching Preliminary */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/60 modal-blur-bg">
+              <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
-                  {Object.entries(SANITY_PRESETS).map(([key, p]) => {
-                    const active = activePreset === key;
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => applyPreset(key)}
-                        className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${active
-                          ? "bg-background text-foreground shadow-sm font-bold"
-                          : "text-muted-foreground hover:text-foreground"
-                          }`}
-                      >
-                        {p.label}
-                      </button>
-                    );
-                  })}
+                  <button
+                    type="button"
+                    onClick={() => setTab("calculator")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "calculator"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Sizing Calculator
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTab("report")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "report"
+                        ? "bg-background text-foreground shadow-sm font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Report
+                  </button>
                 </div>
 
-                <TBtn
-                  onClick={() => framework.openPreviewModal(calculationPreviewData)}
-                  title="View Step-by-Step Formula Breakdown"
-                >
-                  <Info className="size-3.5 text-primary" /> Formula Breakdown
-                </TBtn>
+                {tab === "calculator" && (
+                  <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                    {Object.entries(SANITY_PRESETS).map(([key, p]) => {
+                      const active = activePreset === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => applyPreset(key)}
+                          className={`px-3 py-1 text-xs font-medium rounded-full transition-all duration-150 cursor-pointer ${active
+                            ? "bg-background text-foreground shadow-sm font-bold"
+                            : "text-muted-foreground hover:text-foreground"
+                            }`}
+                        >
+                          {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 select-none shrink-0">
                 <TBtn
                   onClick={handleExportPDF}
-                  title="Export PDF Report"
+                  title="Export PDF Calculation"
                 >
-                  <FileText className="size-3.5" /> Export PDF
+                  <FileText className="size-3.5" /> Export
                 </TBtn>
               </div>
             </div>
 
             {/* Scrollable Content Workspace */}
+            {tab === "calculator" && (
             <div
               ref={scrollContainerRef}
               className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20"
@@ -819,6 +944,231 @@ function SanityCheckToolPage() {
 
               </div>
             </div>
+            )}
+
+            {tab === "report" && (
+              <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+                <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
+                  
+                  {/* 1. Title */}
+                  <div className="pb-1">
+                    <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+                      Sanity Check Tool Calculation
+                    </h2>
+                  </div>
+
+                  {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format) */}
+                  <div className="border border-border rounded-xl overflow-hidden text-xs">
+                    <table className="w-full border-collapse">
+                      <tbody>
+                        <tr className="border-b border-border divide-x divide-border">
+                          <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                          <td className="p-2.5 font-mono text-foreground font-medium">{(project as any)?.calcNo || `TRV-CAL-SNT-${((activeProjectId || project?.id) || "0000").slice(-4).toUpperCase()}`}</td>
+                          <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                          <td className="p-2.5 font-mono font-medium">{formatDateStr(new Date().toISOString())}</td>
+                        </tr>
+                        <tr className="border-b border-border divide-x divide-border">
+                          <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                          <td className="p-2.5 font-mono">{project?.code || (project as any)?.projectNo || (activeProjectId !== "default" ? activeProjectId?.slice(0, 8) : "P000")}</td>
+                          <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                          <td className="p-2.5">{project?.client || "-"}</td>
+                        </tr>
+                        <tr className="divide-x divide-border">
+                          <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                          <td className="p-2.5">{project?.name || "Sanity Check Evaluation"}</td>
+                          <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                          <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Summary / Audit status bar */}
+                  <div className="border border-border rounded-xl overflow-hidden text-xs p-3 bg-muted/10 flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-4">
+                      <span className="font-semibold text-foreground">Standards: ASHRAE / SMACNA / Carrier</span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="text-muted-foreground">Units: {unitSystem === "ip" ? "Imperial (IP)" : "Metric (SI)"}</span>
+                    </div>
+                    <div className={`font-bold px-2.5 py-1 rounded-full text-xs ${warnCount === 0 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"}`}>
+                      Audit: {passCount}/{results.length} Passed ({scorePct}% Compliance)
+                    </div>
+                  </div>
+
+                  {/* Table 1: System Design Input Parameters */}
+                  <div className="border border-border rounded-xl overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                          <th className="p-2.5 w-12 text-center border-r border-border">No.</th>
+                          <th className="p-2.5 text-left border-r border-border">System Design Parameter</th>
+                          <th className="p-2.5 w-32 text-center border-r border-border">Input Value</th>
+                          <th className="p-2.5 w-24 text-center border-r border-border">Unit</th>
+                          <th className="p-2.5 text-left">Engineering Context / Subsystem</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">1</td>
+                          <td className="p-2 border-r border-border font-medium">Supply Main Duct Velocity</td>
+                          <td className="p-2 text-center border-r border-border font-mono">{ductVel}</td>
+                          <td className="p-2 text-center border-r border-border">{isSI ? "m/s" : "FPM"}</td>
+                          <td className="p-2 text-muted-foreground">Primary supply air riser / trunk velocity</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">2</td>
+                          <td className="p-2 border-r border-border font-medium">Duct Friction Gradient Rate</td>
+                          <td className="p-2 text-center border-r border-border font-mono">{ductFr}</td>
+                          <td className="p-2 text-center border-r border-border">{isSI ? "Pa/m" : "in.wg/100ft"}</td>
+                          <td className="p-2 text-muted-foreground">Linear friction loss rate per unit duct length</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">3</td>
+                          <td className="p-2 border-r border-border font-medium">Fan External Static Pressure (ESP)</td>
+                          <td className="p-2 text-center border-r border-border font-mono">{esp}</td>
+                          <td className="p-2 text-center border-r border-border">{isSI ? "Pa" : "in.wg"}</td>
+                          <td className="p-2 text-muted-foreground">External resistance across duct, dampers & terminal units</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">4</td>
+                          <td className="p-2 border-r border-border font-medium">CHW Main Header Pipe Velocity</td>
+                          <td className="p-2 text-center border-r border-border font-mono">{pipeVel}</td>
+                          <td className="p-2 text-center border-r border-border">{isSI ? "m/s" : "fps"}</td>
+                          <td className="p-2 text-muted-foreground">Hydronic flow velocity in chilled water header mains</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">5</td>
+                          <td className="p-2 border-r border-border font-medium">Chilled Water Pump Total Dynamic Head</td>
+                          <td className="p-2 text-center border-r border-border font-mono">{pumpHead}</td>
+                          <td className="p-2 text-center border-r border-border">{isSI ? "kPa" : "ft w.g."}</td>
+                          <td className="p-2 text-muted-foreground">Total pump head requirement for hydronic distribution</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">6</td>
+                          <td className="p-2 border-r border-border font-medium">Specific Airflow Volume Index</td>
+                          <td className="p-2 text-center border-r border-border font-mono">{cfmTr}</td>
+                          <td className="p-2 text-center border-r border-border">{isSI ? "L/s/kW" : "CFM/TR"}</td>
+                          <td className="p-2 text-muted-foreground">Supply airflow normalized by cooling tonnage capacity</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">7</td>
+                          <td className="p-2 border-r border-border font-medium">Supply Air Dry-Bulb Temperature</td>
+                          <td className="p-2 text-center border-r border-border font-mono">{supTemp}</td>
+                          <td className="p-2 text-center border-r border-border">{isSI ? "°C" : "°F"}</td>
+                          <td className="p-2 text-muted-foreground">Cooling coil off-coil supply air design temperature</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">8</td>
+                          <td className="p-2 border-r border-border font-medium">CHW Supply/Return Temperature Differential (ΔT)</td>
+                          <td className="p-2 text-center border-r border-border font-mono">{chwDt}</td>
+                          <td className="p-2 text-center border-r border-border">{isSI ? "°C" : "°F"}</td>
+                          <td className="p-2 text-muted-foreground">Design chilled water loop temperature delta</td>
+                        </tr>
+                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">9</td>
+                          <td className="p-2 border-r border-border font-medium">Chiller Operating Efficiency</td>
+                          <td className="p-2 text-center border-r border-border font-mono">{chillerEff}</td>
+                          <td className="p-2 text-center border-r border-border">{isSI ? "COP" : "kW/TR"}</td>
+                          <td className="p-2 text-muted-foreground">Full-load chiller coefficient of performance</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Table 2: Rules of Thumb & Compliance Audit Results (Highlighted Rows matching Preliminary) */}
+                  <div className="border border-border rounded-xl overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                          <th className="p-2.5 w-12 text-center border-r border-border">Sr. No.</th>
+                          <th className="p-2.5 text-left border-r border-border">Design Parameter</th>
+                          <th className="p-2.5 w-28 text-center border-r border-border">Design Value</th>
+                          <th className="p-2.5 w-32 text-center border-r border-border">Standard Range</th>
+                          <th className="p-2.5 w-28 text-center border-r border-border">Compliance</th>
+                          <th className="p-2.5 text-left">Engineering Guideline / Reference</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {results.map((r, idx) => {
+                          const isPass = r.status === "pass";
+                          return (
+                            <tr
+                              key={r.label}
+                              className={isPass 
+                                ? "bg-[#DAE9F8] dark:bg-blue-950/40 font-bold border-y border-blue-200 dark:border-blue-900"
+                                : "hover:bg-amber-50 dark:hover:bg-amber-950/20"
+                              }
+                            >
+                              <td className={`p-2 text-center border-r ${isPass ? "border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200" : "border-border text-muted-foreground font-mono"}`}>
+                                {idx + 1}
+                              </td>
+                              <td className={`p-2 border-r ${isPass ? "border-blue-200 dark:border-blue-900 text-blue-950 dark:text-blue-100" : "border-border font-medium text-foreground"}`}>
+                                {r.label}
+                              </td>
+                              <td className={`p-2 text-center border-r font-mono ${isPass ? "border-blue-200 dark:border-blue-900 text-blue-950 dark:text-blue-100 font-bold" : "border-border font-bold text-foreground"}`}>
+                                {r.value}
+                              </td>
+                              <td className={`p-2 text-center border-r ${isPass ? "border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200" : "border-border text-muted-foreground font-mono"}`}>
+                                {r.range}
+                              </td>
+                              <td className={`p-2 text-center border-r ${isPass ? "border-blue-200 dark:border-blue-900 text-emerald-700 dark:text-emerald-400 font-bold" : "border-border text-amber-600 dark:text-amber-400 font-bold"}`}>
+                                {isPass ? "IN RANGE" : "CHECK VALUE"}
+                              </td>
+                              <td className={`p-2 ${isPass ? "text-blue-900 dark:text-blue-200" : "text-muted-foreground"}`}>
+                                {r.desc}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* 3-Tier Signature Sign-Off Block (#FFE6CC Header) */}
+                  <div className="pt-2">
+                    <div className="border border-border rounded-xl overflow-hidden text-xs">
+                      <table className="w-full border-collapse">
+                        <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
+                          <tr className="divide-x border-b border-border">
+                            <th className="p-2.5 w-28 text-center"></th>
+                            <th className="p-2.5 text-center w-1/3">Originator</th>
+                            <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                            <th className="p-2.5 text-center w-1/3">Approver</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          <tr className="divide-x divide-border">
+                            <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                            <td className="p-2.5 text-center font-medium">
+                              {sigDetails?.originatedName || currentUserName || "Abubakar Chanda"}
+                            </td>
+                            <td className="p-2.5 text-center font-medium">
+                              {sigDetails?.reviewerName || ""}
+                            </td>
+                            <td className="p-2.5 text-center font-medium">
+                              {sigDetails?.approverName || ""}
+                            </td>
+                          </tr>
+                          <tr className="divide-x divide-border">
+                            <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                            <td className="p-2.5 text-center font-mono">
+                              {sigDetails?.originatedDate || formatDateStr(new Date().toISOString())}
+                            </td>
+                            <td className="p-2.5 text-center font-mono">
+                              {sigDetails?.reviewerDate || ""}
+                            </td>
+                            <td className="p-2.5 text-center font-mono">
+                              {sigDetails?.approverDate || ""}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            )}
 
           </div>
         </div>

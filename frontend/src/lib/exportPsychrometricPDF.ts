@@ -65,7 +65,7 @@ export const exportPsychrometricPDF = async (
     doc.setFont("helvetica", "bold");
     doc.setFontSize(13);
     doc.setTextColor(20, 20, 20);
-    doc.text("Psychrometric State Calculation Report", 14, 13);
+    doc.text("Psychrometric Calculation", 14, 13);
 
     // Title underline
     doc.setDrawColor(200, 200, 200);
@@ -163,7 +163,7 @@ export const exportPsychrometricPDF = async (
         minCellHeight: 4.2,
       },
       headStyles: {
-        fillColor: [217, 217, 217], // Standard #D9D9D9
+        fillColor: [229, 231, 235], // Standard #E5E7EB
         textColor: [0, 0, 0],
         fontStyle: "bold",
         halign: "center",
@@ -228,7 +228,7 @@ export const exportPsychrometricPDF = async (
         minCellHeight: 4.1,
       },
       headStyles: {
-        fillColor: [217, 217, 217], // Standard #D9D9D9
+        fillColor: [229, 231, 235], // Standard #E5E7EB
         textColor: [0, 0, 0],
         fontStyle: "bold",
         halign: "center",
@@ -291,7 +291,7 @@ export const exportPsychrometricPDF = async (
         minCellHeight: 4.1,
       },
       headStyles: {
-        fillColor: [217, 217, 217], // Standard #D9D9D9
+        fillColor: [229, 231, 235], // Standard #E5E7EB
         textColor: [0, 0, 0],
         fontStyle: "bold",
         halign: "center",
@@ -374,9 +374,9 @@ export const exportPsychrometricPDF = async (
     // 7. Download PDF with standardized filename
     const pdfBlob = doc.output("blob");
     const projCode = projectNo || activeProj?.code || "P000";
-    const fileName = `Psychrometric_Report_${projCode}.pdf`;
+    const fileName = `Psychrometric_Calculation_${projCode}.pdf`;
     downloadFile(pdfBlob, fileName, "application/pdf");
-    toast.success("Psychrometric calculation PDF report exported successfully!");
+    toast.success("Psychrometric calculation PDF exported successfully!");
   } catch (error) {
     console.error("Failed to export Psychrometric PDF:", error);
     toast.error("Failed to generate calculation PDF report.");

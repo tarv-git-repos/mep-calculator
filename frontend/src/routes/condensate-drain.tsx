@@ -487,7 +487,7 @@ export function CondensateDrainPage() {
       doc.setFontSize(14);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(0, 0, 0);
-      doc.text("Condensate Drain Sizing Calculation Report", 14, 14);
+      doc.text("Condensate Drain Sizer Calculation", 14, 14);
 
       // Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm, height 18mm: y=18 to y=36)
       doc.setFontSize(9);
@@ -532,8 +532,8 @@ export function CondensateDrainPage() {
       doc.setFont("helvetica", "normal");
       doc.text(endUser, 125, 34);
 
-      // Styling tokens matching Ventilation PDF
-      const primaryFill = [217, 217, 217] as [number, number, number]; // Standard header gray (#D9D9D9)
+      // Styling tokens matching Preliminary PDF
+      const primaryFill = [229, 231, 235] as [number, number, number]; // Standard header gray (#E5E7EB)
       const blueFill = [218, 233, 248] as [number, number, number]; // Result highlight blue (#DAE9F8)
       const orangeFill = [255, 230, 204] as [number, number, number]; // Signature header orange (#FFE6CC)
 
@@ -858,8 +858,8 @@ export function CondensateDrainPage() {
       });
 
       const pdfBuffer = doc.output("arraybuffer");
-      await downloadFile(new Uint8Array(pdfBuffer), `Condensate_Drain_Report_${project?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
-      toast.success("Condensate Drain PDF exported successfully!");
+      await downloadFile(new Uint8Array(pdfBuffer), `Condensate_Drain_Sizer_Calculation_${project?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
+      toast.success("Condensate Drain Sizer PDF exported successfully!");
     } catch (err: any) {
       console.error(err);
       toast.error(`Export failed: ${err.message || err}`);
@@ -906,7 +906,7 @@ export function CondensateDrainPage() {
               onClick={() => handleOpenComment({ id, name: label, type: "input" })}
             />
             <div className="flex justify-between items-center select-none">
-              <label className="font-semibold text-foreground flex items-center gap-1.5 cursor-pointer">
+              <label className="text-xs font-medium text-slate-600 dark:text-zinc-300 flex items-center gap-1.5 cursor-pointer">
                 <span>{label}</span>
               </label>
               <div className="flex items-center gap-1.5" />
@@ -926,7 +926,7 @@ export function CondensateDrainPage() {
                 e.stopPropagation();
                 handleOpenEditModal();
               }}
-              className={`w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs outline-none font-bold transition-all focus:border-[#0A7BC7] focus:ring-1 focus:ring-[#0A7BC7]/50 ${
+              className={`w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono focus:outline-none focus:border-primary text-xs font-bold transition ${
                 isLocked ? "cursor-not-allowed opacity-75" : "cursor-text"
               }`}
             />
@@ -939,7 +939,7 @@ export function CondensateDrainPage() {
             className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
+            <span>Add Comment</span>
           </ContextMenuItem>
 
           <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -1052,7 +1052,7 @@ export function CondensateDrainPage() {
             className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
+            <span>Add Comment</span>
           </ContextMenuItem>
 
           <ContextMenuItem
@@ -1108,10 +1108,10 @@ export function CondensateDrainPage() {
       intelOpen={intelOpen}
       intelLabel="Intelligence"
     >
-      <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           {/* Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Condensate Drain Sizer</h1>
@@ -1134,7 +1134,7 @@ export function CondensateDrainPage() {
                 calculatorTitle="Condensate Drain Sizing"
               />
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2">
               <UnitToggle
                 unitSystem={unitSystem}
                 onChange={handleUnitSystemChange}
@@ -1207,27 +1207,24 @@ export function CondensateDrainPage() {
               {tab === "solver" && (
                 <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar">
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    {/* Left Inputs Card */}
-                    <div className="lg:col-span-5 flex flex-col gap-5">
+                    {/* Left Inputs Card (lg:col-span-5) */}
+                    <div className="lg:col-span-5 space-y-5">
                       <ContextMenu>
                         <ContextMenuTrigger asChild>
                           <div
                             onDoubleClick={handleOpenEditModal}
-                            className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs cursor-pointer transition-all hover:border-border/80"
+                            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5 cursor-pointer transition-all hover:border-border/80"
                           >
-                            <div className="flex items-center justify-between pb-2 border-b border-border/60 select-none">
-                              <div className="flex items-center gap-2">
-                                <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                                  Inputs
-                                </h3>
-                              </div>
+                            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800 select-none">
+                              <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                                📥 Sizing Parameters
+                              </span>
                               <span className="text-[11px] text-muted-foreground font-mono">
                                 {ip ? "IP Units" : "SI Units"}
                               </span>
                             </div>
 
-                            <div className="flex flex-col gap-3.5 text-xs">
+                            <div className="space-y-3">
                               {/* Sizing Method Switch */}
                               <ContextMenu>
                                 <ContextMenuTrigger asChild>
@@ -1335,7 +1332,7 @@ export function CondensateDrainPage() {
                             className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                           >
                             <MessageSquare className="size-3.5" />
-                            <span>Add Comment to Inputs</span>
+                            <span>Add Comment</span>
                           </ContextMenuItem>
 
                           <ContextMenuItem
@@ -1397,8 +1394,8 @@ export function CondensateDrainPage() {
                       </button>
                     </div>
 
-                    {/* Right Results Card */}
-                    <div className="lg:col-span-7 flex flex-col gap-5">
+                    {/* Right Results Card (lg:col-span-7) STICKY matching Pump Sizing */}
+                    <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
                       {!hasCalculated ? (
                         <div className="bg-card border border-border border-dashed rounded-2xl p-8 flex flex-col items-center justify-center min-h-[300px] text-center shadow-xs">
                           <div className="size-12 rounded-full bg-slate-50 dark:bg-slate-800/40 flex items-center justify-center text-muted-foreground text-xl mb-4 border border-border/40 select-none">
@@ -1410,63 +1407,209 @@ export function CondensateDrainPage() {
                           </p>
                         </div>
                       ) : (
-                        <div className="flex flex-col gap-5 animate-fade-in">
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div
-                                onDoubleClick={handleOpenEditModal}
-                                className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3.5 shadow-xs cursor-pointer transition-all hover:border-border/80"
-                              >
-                                <div className="flex items-center justify-between pb-2 border-b border-border/60 select-none">
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
-                                    <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">
-                                      Sizing Results
-                                    </h3>
+                        <div
+                          id="card-results"
+                          data-field-id="card-results"
+                          data-comment-target="card-results"
+                          className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6"
+                        >
+                          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800 select-none">
+                            <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                              ⚡ Sizing Results Summary
+                            </span>
+                            <RowCommentCornerBadge
+                              count={getMergedItemComments("condensate-results", "Sizing Results Summary", commentsList, "/condensate-drain", activeProjectId || project?.id).length}
+                              onClick={() => handleOpenComment({ id: "condensate-results", name: "Sizing Results Summary", type: "result-summary" })}
+                            />
+                          </div>
+
+                          {/* 4 Stat Cards in a Grid */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            {/* Card 1: Blue - Recommended Pipe Size */}
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-pipe-size"
+                                  data-field-id="res-pipe-size"
+                                  data-comment-target="res-pipe-size"
+                                  className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 transition-all cursor-context-menu relative"
+                                >
+                                  <RowCommentCornerBadge
+                                    count={getMergedItemComments("res-pipe-size", "Recommended Pipe Size", commentsList, "/condensate-drain", activeProjectId || project?.id).length}
+                                    onClick={() => handleOpenComment({ id: "res-pipe-size", name: "Recommended Pipe Size", type: "result" })}
+                                  />
+                                  <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Pipe Size</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {calculatedData.pipeSize}
                                   </div>
-                                  <span className="text-[10.5px] text-muted-foreground italic">
-                                    Tip: Double-click any row to edit parameters (Ventilation style)
-                                  </span>
                                 </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment({ id: "res-pipe-size", name: "Recommended Pipe Size", type: "result" })}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => handleCopyValue("Recommended Pipe Size", calculatedData.pipeSize)}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 font-sans text-xs">
-                                  {renderResultRow("flow-rate", "Condensate Flow Rate", calculatedData.flowRateDisplay, 3)}
-                                  {renderResultRow("pipe-size", "Recommended Pipe Size", calculatedData.pipeSize, 4, true)}
-                                  {renderResultRow("minimum-slope", "Minimum Slope", calculatedData.minSlope, 5)}
-                                  {renderResultRow("total-drop", "Total Drop Over Run", calculatedData.totalDrop, 5)}
+                            {/* Card 2: Amber - Condensate Flow Rate */}
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-flow-rate"
+                                  data-field-id="res-flow-rate"
+                                  data-comment-target="res-flow-rate"
+                                  className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 transition-all cursor-context-menu relative"
+                                >
+                                  <RowCommentCornerBadge
+                                    count={getMergedItemComments("res-flow-rate", "Condensate Flow Rate", commentsList, "/condensate-drain", activeProjectId || project?.id).length}
+                                    onClick={() => handleOpenComment({ id: "res-flow-rate", name: "Condensate Flow Rate", type: "result" })}
+                                  />
+                                  <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Flow Rate</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {calculatedData.flowRateDisplay}
+                                  </div>
                                 </div>
-                              </div>
-                            </ContextMenuTrigger>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment({ id: "res-flow-rate", name: "Condensate Flow Rate", type: "result" })}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => handleCopyValue("Condensate Flow Rate", calculatedData.flowRateDisplay)}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                            <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                              <ContextMenuItem
-                                onClick={() => handleOpenComment({ id: "condensate-results", name: "Sizing Results Summary", type: "result-summary" })}
-                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                              >
-                                <MessageSquare className="size-3.5" />
-                                <span>Add Comment to Results</span>
-                              </ContextMenuItem>
+                            {/* Card 3: Emerald - Minimum Slope */}
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-min-slope"
+                                  data-field-id="res-min-slope"
+                                  data-comment-target="res-min-slope"
+                                  className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 transition-all cursor-context-menu relative"
+                                >
+                                  <RowCommentCornerBadge
+                                    count={getMergedItemComments("res-min-slope", "Minimum Slope", commentsList, "/condensate-drain", activeProjectId || project?.id).length}
+                                    onClick={() => handleOpenComment({ id: "res-min-slope", name: "Minimum Slope", type: "result" })}
+                                  />
+                                  <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Min Slope</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {calculatedData.minSlope}
+                                  </div>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment({ id: "res-min-slope", name: "Minimum Slope", type: "result" })}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => handleCopyValue("Minimum Slope", calculatedData.minSlope)}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
 
-                              <ContextMenuItem
-                                onClick={() => setFormulaModalOpen(true)}
-                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
-                              >
-                                <Info className="size-3.5 text-muted-foreground" />
-                                <span>Formula Breakdown Guide</span>
-                              </ContextMenuItem>
+                            {/* Card 4: Purple - Total Drop Over Run */}
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  id="res-total-drop"
+                                  data-field-id="res-total-drop"
+                                  data-comment-target="res-total-drop"
+                                  className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 transition-all cursor-context-menu relative"
+                                >
+                                  <RowCommentCornerBadge
+                                    count={getMergedItemComments("res-total-drop", "Total Drop Over Run", commentsList, "/condensate-drain", activeProjectId || project?.id).length}
+                                    onClick={() => handleOpenComment({ id: "res-total-drop", name: "Total Drop Over Run", type: "result" })}
+                                  />
+                                  <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Total Drop</div>
+                                  <div className="text-xl font-bold font-mono text-foreground mt-1">
+                                    {calculatedData.totalDrop}
+                                  </div>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                <ContextMenuItem
+                                  onClick={() => handleOpenComment({ id: "res-total-drop", name: "Total Drop Over Run", type: "result" })}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                                >
+                                  <MessageSquare className="size-3.5" />
+                                  <span>Add Comment</span>
+                                </ContextMenuItem>
+                                <ContextMenuSeparator className="h-px bg-border my-1" />
+                                <ContextMenuItem
+                                  onClick={() => handleCopyValue("Total Drop Over Run", calculatedData.totalDrop)}
+                                  className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                                >
+                                  <span>Copy Value</span>
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          </div>
 
-                              <ContextMenuSeparator className="h-px bg-border my-1" />
+                          {/* DETAILED METRICS TABLE */}
+                          <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs">
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Sizing Methodology:</span>
+                              <span className="font-mono font-bold">{condMode === "tr" ? "From Cooling Capacity" : "From Latent Heat Load"}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">{condMode === "tr" ? "Cooling Capacity Rating:" : "Latent Heat Load:"}</span>
+                              <span className="font-mono font-bold">{condMode === "tr" ? `${trLoad} ${ip ? "TR" : "kW"}` : `${latentLoad} ${ip ? "BTU/hr" : "kW"}`}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Connected Equipment Quantity:</span>
+                              <span className="font-mono font-bold">{unitsQty} Units</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Total Drain Run Piping Length:</span>
+                              <span className="font-mono font-bold">{drainLength} {ip ? "ft" : "m"}</span>
+                            </div>
+                            <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                              <span className="text-slate-600 dark:text-zinc-400">Hourly Total Condensate Flow:</span>
+                              <span className="font-mono font-bold">{calculatedData.galPerHr.toFixed(2)} gal/hr ({calculatedData.lPerMin.toFixed(3)} L/min)</span>
+                            </div>
+                            <div className="flex justify-between py-1 font-bold text-foreground">
+                              <span>Optimal Recommended Pipe Size:</span>
+                              <span className="font-mono font-bold text-[#0A7BC7]">{calculatedData.pipeSize}</span>
+                            </div>
+                          </div>
 
-                              <ContextMenuItem
-                                onClick={handleOpenEditModal}
-                                className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
-                              >
-                                <Edit3 className="size-3.5 text-muted-foreground" />
-                                <span>Edit Parameters Modal</span>
-                                <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
+                          {/* Advisory Note */}
+                          <div className="bg-slate-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-800 rounded-xl p-4 text-xs text-muted-foreground leading-relaxed flex items-start gap-2.5">
+                            <Info className="size-4 text-[#0A7BC7] shrink-0 mt-0.5" />
+                            <span>
+                              <strong>ASHRAE &amp; Plumbing Code Standard:</strong> Condensate drainage lines must maintain a continuous minimum slope without sagging or air locks. Traps should be installed on draw-through coil units with a water seal depth calculated from total fan static pressure.
+                            </span>
+                          </div>
+
                         </div>
                       )}
                     </div>
@@ -1483,7 +1626,7 @@ export function CondensateDrainPage() {
                       <div className="flex justify-between items-start border-b border-border pb-4">
                         <div>
                           <h2 className="text-xl font-black uppercase tracking-wide text-foreground">
-                            Condensate Drain Pipe Sizing Calculation Report
+                            Condensate Drain Sizer Calculation
                           </h2>
                           <p className="text-[12px] text-muted-foreground mt-0.5">
                             IPC Section 307.2.2 &amp; ASHRAE Standard Gravity Condensate Drainage Analysis
@@ -1492,21 +1635,12 @@ export function CondensateDrainPage() {
                         <div className="flex items-center gap-2 no-print">
                           <button
                             type="button"
-                            onClick={() => window.print()}
-                            className="px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-card hover:bg-accent text-foreground flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
-                            title="Print Sizing Calculation Report"
-                          >
-                            <Printer className="size-3.5 text-muted-foreground" />
-                            <span>Print</span>
-                          </button>
-                          <button
-                            type="button"
                             onClick={exportPdf}
-                            className="px-3 py-1.5 text-xs font-semibold rounded-full border border-border bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
-                            title="Export PDF Report Document"
+                            className="px-4 py-1.5 text-xs font-semibold rounded-full border border-border bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
+                            title="Export PDF Calculation Document"
                           >
                             <FileText className="size-3.5" />
-                            <span>Download PDF</span>
+                            <span>Export</span>
                           </button>
                         </div>
                       </div>
@@ -1545,7 +1679,7 @@ export function CondensateDrainPage() {
                           1. Design Parameters &amp; Input Sizing Criteria
                         </h3>
                         <table className="w-full text-[12px] border-collapse border border-border">
-                          <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                          <thead className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold">
                             <tr>
                               <th className="border border-border p-2 text-center w-12">Sr. No.</th>
                               <th className="border border-border p-2 text-left">Design Parameter Description</th>
@@ -1606,7 +1740,7 @@ export function CondensateDrainPage() {
                           2. Condensate Load &amp; Pipe Sizing Output Summary
                         </h3>
                         <table className="w-full text-[12px] border-collapse border border-border">
-                          <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                          <thead className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold">
                             <tr>
                               <th className="border border-border p-2 text-center w-12">Item</th>
                               <th className="border border-border p-2 text-left">Sizing Output Description</th>
@@ -1673,7 +1807,7 @@ export function CondensateDrainPage() {
                           3. IPC Table 307.2.2 Condensate Drain Sizing Schedule
                         </h3>
                         <table className="w-full text-[12px] border-collapse border border-border">
-                          <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+                          <thead className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold">
                             <tr>
                               <th className="border border-border p-2 text-center w-12">No.</th>
                               <th className="border border-border p-2 text-left">Equipment Capacity Bracket</th>

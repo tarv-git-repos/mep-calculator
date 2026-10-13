@@ -110,14 +110,14 @@ export const exportCHWPipePDF = async (
     const tempUnit = isSI ? "°C" : "°F";
     const velUnit = isSI ? "m/s" : "fps";
 
-    const primaryFill: [number, number, number] = [217, 217, 217]; // Uniform gray #D9D9D9 (Matching Ventilation)
+    const primaryFill: [number, number, number] = [229, 231, 235]; // Uniform gray #E5E7EB (Matching Ventilation & Preliminary)
     const blueFill: [number, number, number] = [218, 233, 248];    // Soft Blue highlight #DAE9F8 (Matching Ventilation)
 
     // 1. Header Title matching Ventilation standard
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(0, 0, 0);
-    doc.text("Chilled Water Pipe Sizing Calculation Report", 14, 14);
+    doc.text("CHW Pipe Sizer Calculation", 14, 14);
 
     // 2. Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
     doc.setFontSize(9);
@@ -364,8 +364,8 @@ export const exportCHWPipePDF = async (
     });
 
     const pdfBuffer = doc.output("arraybuffer");
-    await downloadFile(new Uint8Array(pdfBuffer), `CHW_Pipe_Sizing_${projectNo}.pdf`, "PDF Document", ["pdf"]);
-    toast.success("PDF exported successfully!");
+    await downloadFile(new Uint8Array(pdfBuffer), `CHW_Pipe_Sizer_Calculation_${projectNo}.pdf`, "PDF Document", ["pdf"]);
+    toast.success("CHW Pipe Sizer calculation PDF exported successfully!");
 
   } catch (err: any) {
     console.error("PDF export error:", err);

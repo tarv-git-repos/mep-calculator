@@ -60,11 +60,11 @@ export const exportSanityCheckPDF = async ({
     const clientName = meta.client || activeProj?.client || "-";
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "-";
 
-    // 1. Header Title (Matching Ventilation Standard)
+    // 1. Header Title (Matching Preliminary Standard)
     doc.setFontSize(13);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(20, 20, 20);
-    doc.text("Engineering Sanity Check Report", 14, 13);
+    doc.text("Sanity Check Tool Calculation", 14, 13);
 
     // Title underline
     doc.setDrawColor(200, 200, 200);
@@ -184,7 +184,7 @@ export const exportSanityCheckPDF = async ({
         minCellHeight: 4.2,
       },
       headStyles: {
-        fillColor: [217, 217, 217], // Standard #D9D9D9 grey
+        fillColor: [229, 231, 235], // Standard #E5E7EB grey
         textColor: [0, 0, 0],
         fontStyle: "bold",
         halign: "center",
@@ -285,9 +285,9 @@ export const exportSanityCheckPDF = async ({
     // 6. Download PDF with standardized filename
     const pdfBlob = doc.output("blob");
     const safeProjectCode = activeProj?.code || projectNo || "P000";
-    const fileName = `Sanity_Check_Report_${safeProjectCode}.pdf`;
+    const fileName = `Sanity_Check_Tool_Calculation_${safeProjectCode}.pdf`;
     await downloadFile(pdfBlob, fileName, "application/pdf");
-    toast.success("Engineering Sanity Check PDF report exported successfully!");
+    toast.success("Sanity Check Tool Calculation exported successfully!");
   } catch (error: any) {
     console.error("exportSanityCheckPDF error:", error);
     toast.error(`Export PDF failed: ${error?.message || String(error)}`);
