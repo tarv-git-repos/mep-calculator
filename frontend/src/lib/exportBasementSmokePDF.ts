@@ -111,14 +111,14 @@ export const exportBasementSmokePDF = async (
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "";
 
     const ip = unitSystem === "ip";
-    const areaUnit = ip ? "ftÂ²" : "mÂ²";
+    const areaUnit = ip ? "sq.ft" : "sq.m";
     const heightUnit = ip ? "ft" : "m";
     const flowUnit = ip ? "CFM" : "L/s";
 
     // Header Title
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("Smoke Ventilation Report", 14, 14);
+    doc.text("Basement Smoke Extract Schedule Calculation", 14, 14);
 
     // Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
     doc.setFontSize(9);
@@ -453,8 +453,8 @@ export const exportBasementSmokePDF = async (
     });
 
     const pdfBuffer = doc.output("arraybuffer");
-    await downloadFile(new Uint8Array(pdfBuffer), `Smoke_Ventilation_Report_${activeProj?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
-    toast.success("Smoke Ventilation PDF exported successfully!");
+    await downloadFile(new Uint8Array(pdfBuffer), `Basement_Smoke_Extract_Schedule_Calculation_${activeProj?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
+    toast.success("Basement Smoke Extract Schedule Calculation PDF exported successfully!");
   } catch (error: any) {
     console.error("exportBasementSmokePDF error:", error);
     toast.error(`Export PDF failed: ${error?.message || String(error)}`);

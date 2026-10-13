@@ -5,6 +5,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { EditDiffuserSpaceModal } from "@/components/workspace/EditDiffuserSpaceModal";
+import { FloorSelect } from "@/components/workspace/FloorSelect";
 import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle,
@@ -13,7 +14,7 @@ import {
   Download, Upload, Gauge, Layers, Plus, Filter, Search, Wind,
   SlidersHorizontal, Check, RefreshCw, Zap, Calculator, Flame, ArrowRight,
   Sliders, ShieldCheck, CheckSquare, Square, Flag, Activity, Eye, X, ArrowUpDown,
-  BookOpen
+  BookOpen, Scissors, ClipboardPaste
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -42,6 +43,8 @@ import { exportDiffuserSelectorExcel } from "@/lib/exportDiffuserSelectorExcel";
 import { addPdfSignatureBlock, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { exportDiffuserSelectorPDF } from "@/lib/exportDiffuserSelectorPDF";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { GridDropdown } from "@/components/workspace/GridDropdown";
+import { useConfirm } from "@/hooks/use-confirm";
 
 export const Route = createFileRoute("/diffuser-selector")({
   head: () => ({
@@ -70,20 +73,28 @@ interface InlineInputProps {
 }
 
 function InlineInput({ value, onCommit, className = "", type = "text", step, min, placeholder, disabled, readOnly }: InlineInputProps) {
-  const [localVal, setLocalVal] = useState(value === "" ? "" : String(value));
+  const isGlobalReadOnly = typeof window !== 'undefined' && Boolean((window as any).__mep_is_readonly);
+  const isEffectiveDisabled = disabled || readOnly || isGlobalReadOnly;
+
+  const getCleanVal = (val: any) => {
+    if (val === undefined || val === null || val === "undefined" || val === "null") {
+      return "";
+    }
+    return String(val);
+  };
+
+  const [localVal, setLocalVal] = useState(getCleanVal(value));
 
   useEffect(() => {
-    setLocalVal(value === "" ? "" : String(value));
+    const clean = getCleanVal(value);
+    setLocalVal(prev => (prev === clean ? prev : clean));
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
-      if (localVal !== (value === "" ? "" : String(value))) {
-        onCommit(localVal);
-      }
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
-      setLocalVal(value === "" ? "" : String(value));
+      setLocalVal(getCleanVal(value));
       e.currentTarget.blur();
     }
   };
@@ -93,32 +104,44 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       type={type}
       step={step}
       min={min}
-      disabled={disabled}
-      readOnly={readOnly}
-      value={localVal}
+      disabled={isEffectiveDisabled}
+      readOnly={isEffectiveDisabled}
       placeholder={placeholder}
-      onChange={(e) => setLocalVal(e.target.value)}
+      value={localVal}
+      onChange={(e) => {
+        if (isEffectiveDisabled) return;
+        setLocalVal(e.target.value);
+      }}
+      onKeyDown={handleKeyDown}
       onBlur={() => {
-        if (localVal !== (value === "" ? "" : String(value))) {
+        if (isEffectiveDisabled) {
+          setLocalVal(getCleanVal(value));
+          return;
+        }
+        if (localVal !== getCleanVal(value)) {
           onCommit(localVal);
         }
       }}
-      onKeyDown={handleKeyDown}
       onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
-      className={`bg-transparent w-full border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-foreground transition-colors cursor-text placeholder:text-muted-foreground/45 placeholder:font-normal ${className}`}
+      className={`bg-transparent w-full border border-transparent py-0.5 px-1 rounded text-foreground transition-colors ${
+        isEffectiveDisabled
+          ? "cursor-not-allowed opacity-75 select-none hover:border-transparent focus:border-transparent"
+          : "hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 cursor-text"
+      } ${className}`}
     />
   );
 }
 
-function BulkBtn({ icon: Icon, children, onClick }: { icon: any; children: React.ReactNode; onClick: () => void }) {
+function BulkBtn({ icon: Icon, children, onClick }: { icon: any; children: React.ReactNode; onClick?: (e: React.MouseEvent) => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11.5px] font-semibold text-[#06456F] dark:text-[#0A7BC7] hover:bg-primary/10 active:bg-primary/15 transition-colors cursor-pointer"
+      className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11.5px] font-semibold transition-colors text-[#06456F] hover:bg-primary/10 dark:text-[#0A7BC7] dark:hover:bg-primary/20 border border-transparent hover:border-primary/20 active:bg-primary/20 dark:active:bg-primary/30 cursor-pointer"
     >
-      <Icon className="size-3" />
+      <Icon className="size-3 shrink-0" />
       <span>{children}</span>
     </button>
   );
@@ -133,6 +156,7 @@ const DEFAULT_ROWS: DiffuserRowItem[] = [
 
 function DiffuserSelectorPage() {
   const { project, activeProjectId, spaces, forceSaveToCloud } = useWorkspace();
+  const confirm = useConfirm();
   const calcReviewState = useCalculationReviewState("/diffuser-selector", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/diffuser-selector", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
@@ -152,6 +176,35 @@ function DiffuserSelectorPage() {
 
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
   const [rows, setRows] = useState<DiffuserRowItem[]>(DEFAULT_ROWS);
+  const [history, setHistory] = useState<DiffuserRowItem[][]>([]);
+  const [redoStack, setRedoStack] = useState<DiffuserRowItem[][]>([]);
+  const [clipboard, setClipboard] = useState<DiffuserRowItem[]>([]);
+
+  const updateRowsWithHistory = (nextRows: DiffuserRowItem[]) => {
+    setHistory(prev => [...prev.slice(-25), rows]);
+    setRedoStack([]);
+    setRows(nextRows);
+    dirtyStore.set(true);
+  };
+
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    const prevRows = history[history.length - 1];
+    setRedoStack(prev => [...prev, rows]);
+    setRows(prevRows);
+    setHistory(prev => prev.slice(0, -1));
+    toast.info("Undo");
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const nextRows = redoStack[redoStack.length - 1];
+    setHistory(prev => [...prev, rows]);
+    setRows(nextRows);
+    setRedoStack(prev => prev.slice(0, -1));
+    toast.info("Redo");
+  };
+
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const [intelOpen, setIntelOpen] = useState<boolean>(false);
   const [showFormulaModal, setShowFormulaModal] = useState<boolean>(false);
@@ -179,6 +232,7 @@ function DiffuserSelectorPage() {
   const [showSourceModal, setShowSourceModal] = useState<boolean>(false);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [editingRow, setEditingRow] = useState<DiffuserRowItem | null>(null);
+  const [isNewRow, setIsNewRow] = useState<boolean>(false);
 
   // Double-Click Detail & Overview Modals
   const [selectedDetailRow, setSelectedDetailRow] = useState<DiffuserRowItem | null>(null);
@@ -657,22 +711,194 @@ function DiffuserSelectorPage() {
 
   const handleBulkDelete = () => {
     if (selectedRowIds.size === 0) return;
-    if (confirm(`Delete ${selectedRowIds.size} selected space(s) from diffuser schedule?`)) {
-      setRows(prev => prev.filter(r => !selectedRowIds.has(r.id)));
-      setSelectedRowIds(new Set());
-      toast.success("Deleted selected spaces");
+    if (isApprovedLocked || isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    const count = selectedRowIds.size;
+    confirm(`Are you sure you want to delete the ${count} selected space(s)?`, {
+      title: "Delete Spaces",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive"
+    }).then((ok: any) => {
+      if (ok) {
+        deleteSpaces(Array.from(selectedRowIds));
+      }
+    });
+  };
+
+  const copySpaces = (ids: string[]) => {
+    const items = rows.filter(r => ids.includes(r.id));
+    if (items.length > 0) {
+      setClipboard(items);
+      toast.info(`${items.length} space(s) copied to clipboard`);
     }
   };
 
+  const cutSpaces = (ids: string[]) => {
+    if (isApprovedLocked || isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    const items = rows.filter(r => ids.includes(r.id));
+    if (items.length > 0) {
+      setClipboard(items);
+      updateRowsWithHistory(rows.filter(r => !ids.includes(r.id)));
+      setSelectedRowIds(new Set());
+      toast.info(`${items.length} space(s) cut to clipboard`);
+    }
+  };
+
+  const pasteSpaces = () => {
+    if (isApprovedLocked || isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return [];
+    }
+    if (clipboard.length === 0) return [];
+    const pasted = clipboard.map((item, index) => ({
+      ...item,
+      id: `diff-${Date.now()}-${index}-${Math.floor(Math.random() * 1000)}`,
+      name: `${item.name} (Copy)`,
+    }));
+    updateRowsWithHistory([...rows, ...pasted]);
+    setSelectedRowIds(new Set(pasted.map(p => p.id)));
+    toast.success(`${pasted.length} space(s) pasted`);
+    return pasted;
+  };
+
+  const duplicateSpaces = (ids: string[]) => {
+    if (isApprovedLocked || isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only mode. Duplicating spaces is locked.", { id: "readonly-notice" });
+      return;
+    }
+    const clones = ids.map((id, index) => {
+      const targetRow = rows.find(r => r.id === id);
+      if (!targetRow) return null;
+      return {
+        ...targetRow,
+        id: `diff-${Date.now()}-${index}-${Math.floor(Math.random() * 1000)}`,
+        name: `${targetRow.name} (Copy)`,
+      };
+    }).filter(Boolean) as DiffuserRowItem[];
+    if (clones.length > 0) {
+      updateRowsWithHistory([...rows, ...clones]);
+      setSelectedRowIds(new Set(clones.map(c => c.id)));
+      toast.success(`Duplicated ${clones.length} space(s)`);
+    }
+  };
+
+  const deleteSpaces = (ids: string[]) => {
+    if (isApprovedLocked || isEffectiveReadOnly) {
+      toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    updateRowsWithHistory(rows.filter(r => !ids.includes(r.id)));
+    setSelectedRowIds(new Set());
+    toast.info(`Deleted ${ids.length} space(s)`);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (selectedRowIds.size > 0) {
+          e.preventDefault();
+          setSelectedRowIds(new Set());
+        }
+        return;
+      }
+
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (
+        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
+        activeEl.tagName === "TEXTAREA" ||
+        (activeEl as HTMLElement).isContentEditable ||
+        activeEl.tagName === "SELECT"
+      );
+      if (isInput) return;
+
+      const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // 1. Ctrl+A (Select All)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        if (rows.length > 0) {
+          setSelectedRowIds(new Set(rows.map(r => r.id)));
+          toast.info(`Selected all ${rows.length} space(s)`);
+        }
+        return;
+      }
+
+      // 2. Delete / Backspace
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedRowIds.size > 0) {
+          e.preventDefault();
+          handleBulkDelete();
+        }
+        return;
+      }
+
+      // 3. Copy: Ctrl+C
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
+        if (selectedRowIds.size > 0) {
+          e.preventDefault();
+          copySpaces(Array.from(selectedRowIds));
+        }
+        return;
+      }
+
+      // 4. Cut: Ctrl+X
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (selectedRowIds.size > 0) {
+          e.preventDefault();
+          cutSpaces(Array.from(selectedRowIds));
+        }
+        return;
+      }
+
+      // 5. Paste: Ctrl+V
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        pasteSpaces();
+        return;
+      }
+
+      // 6. Duplicate: Ctrl+D
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (selectedRowIds.size > 0) {
+          e.preventDefault();
+          duplicateSpaces(Array.from(selectedRowIds));
+        }
+        return;
+      }
+
+      // 7. Undo/Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [rows, selectedRowIds, clipboard, isApprovedLocked, isEffectiveReadOnly, history, redoStack]);
+
   const handleBulkSetType = (type: DiffuserType) => {
     if (selectedRowIds.size === 0) return;
-    setRows(prev => prev.map(r => selectedRowIds.has(r.id) ? { ...r, diffType: type } : r));
+    updateRowsWithHistory(rows.map(r => selectedRowIds.has(r.id) ? { ...r, diffType: type } : r));
     toast.success(`Updated terminal type to ${DIFFUSER_NAMES[type]} for ${selectedRowIds.size} spaces`);
   };
 
   const handleBulkToggleFlag = () => {
     if (selectedRowIds.size === 0) return;
-    setRows(prev => prev.map(r => selectedRowIds.has(r.id) ? { ...r, flagged: !r.flagged } : r));
+    updateRowsWithHistory(rows.map(r => selectedRowIds.has(r.id) ? { ...r, flagged: !r.flagged } : r));
     toast.success(`Updated review flags for ${selectedRowIds.size} spaces`);
   };
 
@@ -1430,11 +1656,18 @@ function DiffuserSelectorPage() {
           onClick={() => {
             const floorSpaces = rows.filter((s) => s.floor === floor);
             if (floorSpaces.length > 0) {
-              if (window.confirm(`Are you sure you want to delete all ${floorSpaces.length} spaces on floor "${floor}"?`)) {
-                setRows(prev => prev.filter((s) => s.floor !== floor));
-                setSelectedRowIds(new Set());
-                toast.success(`Deleted floor "${floor}" and its spaces`);
-              }
+              confirm(`Are you sure you want to delete all ${floorSpaces.length} spaces on floor "${floor}"?`, {
+                title: "Delete Floor",
+                confirmText: "Delete",
+                cancelText: "Cancel",
+                variant: "destructive"
+              }).then((ok: any) => {
+                if (ok) {
+                  setRows(prev => prev.filter((s) => s.floor !== floor));
+                  setSelectedRowIds(new Set());
+                  toast.success(`Deleted floor "${floor}" and its spaces`);
+                }
+              });
             }
           }}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
@@ -1451,9 +1684,96 @@ function DiffuserSelectorPage() {
     const selectedIds = selectedRowIds.has(row.id) ? Array.from(selectedRowIds) : [row.id];
     const isMulti = selectedIds.length > 1;
     const targetsCount = selectedIds.length;
+    const isReadOnly = isApprovedLocked || isEffectiveReadOnly;
 
     return (
       <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        {/* Cut */}
+        <ContextMenuItem
+          onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+              return;
+            }
+            cutSpaces(selectedIds);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Scissors className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? "Cut Selected" : "Cut"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        {/* Copy */}
+        <ContextMenuItem
+          onClick={() => {
+            copySpaces(selectedIds);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Copy className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? "Copy Selected" : "Copy"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        {/* Paste */}
+        <ContextMenuItem
+          disabled={clipboard.length === 0 || isReadOnly}
+          onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+              return;
+            }
+            pasteSpaces();
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
+        >
+          <ClipboardPaste className="size-3.5 text-muted-foreground" />
+          <span>Paste</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
+        {/* Edit Space */}
+        <ContextMenuItem
+          onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Editing is locked.", { id: "readonly-notice" });
+              return;
+            }
+            if (isMulti) {
+              setShowBulkEditModal(true);
+            } else {
+              setEditingRow(row);
+              setIsNewRow(false);
+            }
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="whitespace-nowrap">{isMulti ? `Bulk Edit (${targetsCount} spaces)` : "Edit Space"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        {/* Duplicate Space */}
+        <ContextMenuItem
+          onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Duplicating is locked.", { id: "readonly-notice" });
+              return;
+            }
+            duplicateSpaces(selectedIds);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <CopyPlus className="size-3.5 text-muted-foreground" />
+          <span>{isMulti ? "Duplicate Selected" : "Duplicate Space"}</span>
+          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         {/* Add Comment */}
         <ContextMenuItem
           onClick={() => handleOpenComment(row)}
@@ -1468,7 +1788,7 @@ function DiffuserSelectorPage() {
           onClick={() => {
             const anyUnflagged = selectedIds.some((id) => !rows.find((s) => s.id === id)?.flagged);
             const editSet = new Set(selectedIds);
-            setRows(prev => prev.map((s) => (editSet.has(s.id) ? { ...s, flagged: anyUnflagged } : s)));
+            updateRowsWithHistory(rows.map((s) => (editSet.has(s.id) ? { ...s, flagged: anyUnflagged } : s)));
           }}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
         >
@@ -1490,45 +1810,27 @@ function DiffuserSelectorPage() {
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
 
-        {/* Duplicate Space */}
-        <ContextMenuItem
-          onClick={() => {
-            const clones = selectedIds.map((id, index) => {
-              const targetRow = rows.find((s) => s.id === id);
-              if (!targetRow) return null;
-              return {
-                ...targetRow,
-                id: `diff-${Date.now()}-${index}-${Math.random()}`,
-                name: `${targetRow.name} (Clone)`,
-              };
-            }).filter(Boolean) as DiffuserRowItem[];
-            
-            if (clones.length > 0) {
-              setRows(prev => [...prev, ...clones]);
-              toast.success(`Duplicated ${clones.length} space(s)`);
-            }
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-        >
-          <CopyPlus className="size-3.5 text-muted-foreground" />
-          <span>{isMulti ? "Duplicate Selected" : "Duplicate Space"}</span>
-          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
-        </ContextMenuItem>
-
-        <ContextMenuSeparator className="h-px bg-border my-1" />
-
         {/* Delete */}
         <ContextMenuItem
           onClick={() => {
+            if (isReadOnly) {
+              toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+              return;
+            }
             const msg = targetsCount === 1 
               ? `Are you sure you want to delete space "${row.name}"?`
               : `Are you sure you want to delete the ${targetsCount} selected spaces?`;
             
-            if (window.confirm(msg)) {
-              setRows(prev => prev.filter((s) => !selectedIds.includes(s.id)));
-              setSelectedRowIds(new Set());
-              toast.success(`Deleted ${targetsCount} space(s)`);
-            }
+            confirm(msg, {
+              title: "Delete Spaces",
+              confirmText: "Delete",
+              cancelText: "Cancel",
+              variant: "destructive"
+            }).then((ok: any) => {
+              if (ok) {
+                deleteSpaces(selectedIds);
+              }
+            });
           }}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
         >
@@ -1540,35 +1842,54 @@ function DiffuserSelectorPage() {
     );
   };
 
+  const checkIfDiffuserMissingData = (r: DiffuserRowItem) => {
+    const isNoName = !r.name || r.name.trim() === "";
+    const isNoAirflow = !r.airflow || Number(r.airflow) <= 0 || isNaN(Number(r.airflow));
+    const isNoCount = !r.count || Number(r.count) <= 0 || isNaN(Number(r.count));
+    return isNoName || isNoAirflow || isNoCount;
+  };
+
+  const updateRowWithAutoFlag = (oldRow: DiffuserRowItem, nextRow: DiffuserRowItem): DiffuserRowItem => {
+    const wasMissing = checkIfDiffuserMissingData(oldRow);
+    const isMissing = checkIfDiffuserMissingData(nextRow);
+    let flagged = nextRow.flagged;
+    if (isMissing) {
+      flagged = true;
+    } else if (wasMissing && !isMissing) {
+      flagged = false;
+    }
+    return { ...nextRow, flagged };
+  };
+
   const columns: Column<DiffuserRowItem & { sizing: any }>[] = [
     {
       key: "name",
-      header: "NAME OF SPACE",
-      width: 180,
+      header: "SPACE NAME",
+      width: 240,
       editable: true,
       render: (r) => {
         const itemComments = getMergedItemComments(r.id, r.name, r.comments, "/diffuser-selector", project?.id);
         return (
           <div className="flex items-center gap-1.5 w-full pr-1">
-            
             <InlineInput
-            disabled={isApprovedLocked}
-            readOnly={isApprovedLocked}
-            value={r.name}
-            placeholder="Space Name"
-            onCommit={(val) => {
-              setRows(prev => prev.map(row => row.id === r.id ? { ...row, name: val.trim() || row.name } : row));
-            }}
-            className="font-semibold text-[12px] flex-1 truncate"
-          />
-        </div>
+              disabled={isApprovedLocked}
+              readOnly={isApprovedLocked}
+              value={r.name}
+              placeholder="Space Name"
+              onCommit={(val) => {
+                const nextName = val.trim() || r.name;
+                setRows(prev => prev.map(row => row.id === r.id ? updateRowWithAutoFlag(row, { ...row, name: nextName }) : row));
+              }}
+              className="font-medium text-[13.5px] flex-1 min-w-0"
+            />
+          </div>
         );
       },
     },
     {
       key: "coolingKw",
       header: "LOAD (KW)",
-      width: 80,
+      width: 90,
       align: "center",
       mono: true,
       editable: true,
@@ -1590,40 +1911,45 @@ function DiffuserSelectorPage() {
                 const dt = row.deltaT ? Number(row.deltaT) : 10;
                 flow = computeAirflowFromKw(Number(nextKw), dt, ip, "air", 20).flowRate;
               }
-              return { ...row, coolingKw: nextKw, airflow: flow };
+              return updateRowWithAutoFlag(row, { ...row, coolingKw: nextKw, airflow: flow });
             }));
           }}
-          className="font-mono text-center text-[12px] font-bold text-foreground"
+          className="font-mono tabular text-[13.5px] text-center"
         />
       ),
     },
     {
       key: "diffType",
       header: "DIFFUSER TYPE",
-      width: 145,
+      width: 200,
       render: (r) => (
-        <select
+        <GridDropdown<DiffuserType>
           disabled={isApprovedLocked}
           value={r.diffType}
-          onChange={(e) => {
-            const val = e.target.value as DiffuserType;
+          options={[
+            { value: "square", label: "4-Way Square" },
+            { value: "round", label: "Circular Cone" },
+            { value: "slot16", label: "Linear Slot (16mm)" },
+            { value: "slot20", label: "Linear Slot (20mm)" },
+            { value: "slot25", label: "Linear Slot (25mm)" },
+          ]}
+          hasOther={true}
+          otherLabel="Other / Custom"
+          otherValue={"square" as DiffuserType}
+          onOtherSelect={() => {
+            setEditingRow(r);
+            setIsNewRow(false);
+          }}
+          onChange={(val) => {
             setRows(prev => prev.map(row => row.id === r.id ? { ...row, diffType: val } : row));
           }}
-          onClick={(e) => e.stopPropagation()}
-          className="h-6 w-full px-1.5 bg-surface-2 border border-border/70 rounded text-[11px] font-semibold text-foreground truncate cursor-pointer outline-none focus:border-primary disabled:opacity-60"
-        >
-          <option value="square">4-Way Square</option>
-          <option value="round">Circular Cone</option>
-          <option value="slot16">Linear Slot 16mm</option>
-          <option value="slot20">Linear Slot 20mm</option>
-          <option value="slot25">Linear Slot 25mm</option>
-        </select>
+        />
       ),
     },
     {
       key: "airflow",
       header: `AIRFLOW (${flowUnit})`,
-      width: 95,
+      width: 120,
       align: "center",
       mono: true,
       editable: true,
@@ -1638,16 +1964,16 @@ function DiffuserSelectorPage() {
           placeholder="0"
           onCommit={(val) => {
             const nextFlow = val === "" ? "" : Number(val);
-            setRows(prev => prev.map(row => row.id === r.id ? { ...row, airflow: nextFlow } : row));
+            setRows(prev => prev.map(row => row.id === r.id ? updateRowWithAutoFlag(row, { ...row, airflow: nextFlow }) : row));
           }}
-          className="font-mono text-center text-[12px] font-bold text-primary"
+          className="font-mono tabular text-[13.5px] text-center text-primary font-semibold"
         />
       ),
     },
     {
       key: "count",
       header: "QTY",
-      width: 55,
+      width: 70,
       align: "center",
       mono: true,
       editable: true,
@@ -1662,30 +1988,32 @@ function DiffuserSelectorPage() {
           placeholder="1"
           onCommit={(val) => {
             const nextCount = val === "" ? 1 : Math.max(1, Number(val));
-            setRows(prev => prev.map(row => row.id === r.id ? { ...row, count: nextCount } : row));
+            setRows(prev => prev.map(row => row.id === r.id ? updateRowWithAutoFlag(row, { ...row, count: nextCount }) : row));
           }}
-          className="font-mono text-center text-[12px] font-bold text-foreground"
+          className="font-mono tabular text-[13.5px] text-center"
         />
       ),
     },
     {
       key: "flowPerDiff",
-      header: "FLOW / DIFF",
-      width: 90,
+      header: `FLOW / DIFF (${flowUnit})`,
+      width: 120,
       align: "center",
       mono: true,
       render: (r) => (
-        <span className="font-mono text-[11.5px] font-semibold text-foreground tabular">
-          {r.sizing.flowPerDiff.toFixed(1)} {flowUnit}
+        <span className="font-mono tabular text-[13.5px] font-medium text-foreground text-center w-full block">
+          {r.sizing.flowPerDiff.toFixed(1)}
         </span>
       ),
     },
     {
       key: "neckSize",
       header: "RECOMMENDED NECK",
-      width: 155,
+      width: 170,
+      align: "center",
+      mono: true,
       render: (r) => (
-        <span className={`font-mono text-[11.5px] font-bold truncate ${r.sizing.isExceeded ? "text-destructive" : "text-primary"}`}>
+        <span className={`font-mono tabular text-[13.5px] font-medium truncate text-center w-full block ${r.sizing.isExceeded ? "text-destructive font-bold" : "text-primary font-semibold"}`}>
           {r.sizing.neckSize}
         </span>
       ),
@@ -1693,7 +2021,7 @@ function DiffuserSelectorPage() {
     {
       key: "velocity",
       header: "VEL (m/s)",
-      width: 70,
+      width: 80,
       align: "center",
       mono: true,
       render: (r) => (
@@ -1705,21 +2033,21 @@ function DiffuserSelectorPage() {
             const nextV = r.designVelocity === 2.0 ? 2.5 : 2.0;
             setRows(prev => prev.map(row => row.id === r.id ? { ...row, designVelocity: nextV } : row));
           }}
-          className="px-1.5 py-0.5 rounded font-mono text-[11px] font-bold bg-surface-2 hover:bg-primary/10 border border-border/80 hover:border-primary/40 cursor-pointer disabled:cursor-default"
+          className="px-1.5 py-0.5 rounded font-mono tabular text-[12px] font-medium bg-surface-2 hover:bg-primary/10 border border-border/80 hover:border-primary/40 cursor-pointer disabled:cursor-default text-center mx-auto"
           title="Click to toggle between 2.0 m/s (Quiet) and 2.5 m/s (Standard)"
         >
-          {r.designVelocity.toFixed(1)} m/s
+          {r.designVelocity.toFixed(1)}
         </button>
       ),
     },
     {
       key: "throw",
       header: `THROW (${ip ? "ft" : "m"})`,
-      width: 70,
+      width: 85,
       align: "center",
       mono: true,
       render: (r) => (
-        <span className="font-mono text-[11.5px] text-muted-foreground font-medium">
+        <span className="font-mono tabular text-[13.5px] text-muted-foreground font-medium">
           {r.sizing.throwVal}
         </span>
       ),
@@ -1727,11 +2055,11 @@ function DiffuserSelectorPage() {
     {
       key: "nc",
       header: "NC SOUND",
-      width: 70,
+      width: 80,
       align: "center",
       mono: true,
       render: (r) => (
-        <span className="font-mono text-[11.5px] font-bold text-emerald-600 dark:text-emerald-400">
+        <span className="font-mono tabular text-[13.5px] font-bold text-emerald-600 dark:text-emerald-400">
           {r.sizing.nc}
         </span>
       ),
@@ -1739,16 +2067,16 @@ function DiffuserSelectorPage() {
     {
       key: "status",
       header: "STATUS",
-      width: 75,
+      width: 80,
       align: "center",
       render: (r) => {
         if (r.sizing.status === "FAIL") {
-          return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20">FAIL</span>;
+          return <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/10 text-rose-600 border border-rose-500/20">FAIL</span>;
         }
         if (r.sizing.status === "WARN") {
-          return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/20">WARN</span>;
+          return <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-600 border border-amber-500/20">WARN</span>;
         }
-        return <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">PASS</span>;
+        return <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">PASS</span>;
       },
     },
     {
@@ -1762,10 +2090,26 @@ function DiffuserSelectorPage() {
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            setRows(prev => prev.map(row => row.id === r.id ? { ...row, flagged: !row.flagged } : row));
+            if (isApprovedLocked) return;
+            const targetIds = selectedRowIds.has(r.id) ? Array.from(selectedRowIds) : [r.id];
+            const nextFlagged = !r.flagged;
+            setRows(prev => prev.map(row => targetIds.includes(row.id) ? { ...row, flagged: nextFlagged } : row));
           }}
           className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto disabled:cursor-default"
-          title={r.flagged ? "Flagged for engineering review (click to unflag)" : "Click to flag space"}
+          title={
+            (() => {
+              const isNoName = !r.name || r.name.trim() === "";
+              const isNoAirflow = !r.airflow || Number(r.airflow) <= 0 || isNaN(Number(r.airflow));
+              const isNoCount = !r.count || Number(r.count) <= 0 || isNaN(Number(r.count));
+              const isFailed = r.sizing?.status === "FAIL";
+              if (isNoName && isNoAirflow) return "Missing space name and airflow";
+              if (isNoName) return "Missing space name";
+              if (isNoAirflow) return "Missing airflow";
+              if (isNoCount) return "Missing diffuser quantity";
+              if (isFailed) return r.sizing?.isExceeded ? "Airflow exceeds maximum recommended limit" : "Diffuser sizing failed";
+              return r.flagged ? "Unflag space" : "Flag space";
+            })()
+          }
         >
           <Flag
             className={`size-3.5 transition-all duration-200 ${
@@ -1780,15 +2124,23 @@ function DiffuserSelectorPage() {
   ];
 
   const handleAddNewSpace = () => {
-    setNewName(`Space ${rows.length + 1}`);
-    setNewFloor(sortedFloorsForGrid[0] || "GF");
-    setNewZone("Zone-1");
-    setNewCoolingKw("");
-    setNewAirflow("");
-    setNewCount(2);
-    setNewType("square");
-    setNewVelocity(2.0);
-    setShowAddModal(true);
+    const newId = `diffuser-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const defaultFloor = sortedFloorsForGrid[0] || "GF";
+    const newRowItem: DiffuserRowItem = {
+      id: newId,
+      name: `Space ${rows.length + 1}`,
+      floor: defaultFloor,
+      zone: "Zone-1",
+      coolingKw: "",
+      deltaT: ip ? 18 : 10,
+      airflow: ip ? 400 : 188,
+      count: 2,
+      diffType: "square",
+      designVelocity: 2.0,
+    };
+    setRows((prev) => [...prev, newRowItem]);
+    setEditingRow(newRowItem);
+    setIsNewRow(true);
   };
 
   // Preview draft sizing for AddSpaceModal
@@ -1825,9 +2177,9 @@ function DiffuserSelectorPage() {
       intelOpen={intelOpen}
     >
       <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
-          {/* Page Header matching Ventilation */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+          {/* Page Header matching Pump Sizing */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Diffuser Selector</h1>
@@ -1858,7 +2210,7 @@ function DiffuserSelectorPage() {
               <UnitToggle
                 unitSystem={unitSystem}
                 onChange={handleUnitSystemChange}
-                disabled={isApprovedLocked}
+                disabled={isEffectiveReadOnly}
                 inputDescriptions="Supply Airflow per space"
                 conversionExample={unitSystem === "si" ? "Convert 500 L/s → 1,059 CFM" : "Convert 1000 CFM → 472 L/s"}
               />
@@ -1876,7 +2228,7 @@ function DiffuserSelectorPage() {
             : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
         }`}>
           {/* Tabs Selector row */}
-          <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/60 gap-3 flex-wrap">
+          <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/60 gap-3 flex-wrap modal-blur-bg">
             <div className="flex items-center gap-2.5 flex-wrap">
               <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
                 <button
@@ -1925,7 +2277,7 @@ function DiffuserSelectorPage() {
             {activeTab === "calculator" ? (
               <div className="flex-1 min-h-0 flex flex-col relative">
                 {/* Toolbar matching Preliminary Cooling Load / Ventilation */}
-                <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
+                <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none modal-blur-bg">
                   <input
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -1942,9 +2294,11 @@ function DiffuserSelectorPage() {
                             ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
                             : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                         }`}
-                        title="Filter Spaces"
                       >
                         <Filter className="size-3.5 shrink-0" />
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                          Filter
+                        </span>
                         {activeFiltersCount > 0 && (
                           <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
                             {activeFiltersCount}
@@ -2019,9 +2373,11 @@ function DiffuserSelectorPage() {
                             ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
                             : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                         }`}
-                        title="Arrange Floors"
                       >
                         <ArrowUpDown className="size-3.5 shrink-0" />
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                          Sort
+                        </span>
                         {floorOrder.length > 0 && (
                           <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
                             ✓
@@ -2089,10 +2445,56 @@ function DiffuserSelectorPage() {
                     </PopoverContent>
                   </Popover>
 
+                  {/* View Options & Column Distribution Popover */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        className="relative inline-flex items-center justify-center h-7 w-7 rounded-full border border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible"
+                        title="View / Column Distribution"
+                      >
+                        <SlidersHorizontal className="size-3.5 shrink-0" />
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                          View Options
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50 text-xs">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                        <span className="text-[12px] font-semibold text-foreground">Column Distribution</span>
+                      </div>
+                      <p className="text-[10.5px] text-muted-foreground leading-snug">
+                        Drag column divider lines in table headers to adjust custom widths. Click below to restore auto-distribution.
+                      </p>
+                      <button
+                        onClick={() => {
+                          try {
+                            localStorage.removeItem("mep_grid_diffuser-selector");
+                            window.dispatchEvent(new CustomEvent("mep-reset-column-widths"));
+                            window.dispatchEvent(new Event("resize"));
+                            toast.success("Column widths reset to auto-distribution");
+                          } catch (e) {}
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground font-semibold text-[11.5px] border border-border transition-colors cursor-pointer"
+                      >
+                        <RefreshCw className="size-3 text-primary" />
+                        Reset Column Widths
+                      </button>
+                    </PopoverContent>
+                  </Popover>
+
                   {/* Right Actions */}
-                  <div className="ml-auto flex items-center gap-1.5">
+                  <div className="ml-auto flex items-center gap-1">
+                    {clipboard.length > 0 && (
+                      <TBtn
+                        disabled={isEffectiveReadOnly}
+                        onClick={pasteSpaces}
+                        title={`Paste ${clipboard.length} space(s) from clipboard (Ctrl+V)`}
+                      >
+                        <ClipboardPaste className="size-3.5 text-primary" /> Paste ({clipboard.length})
+                      </TBtn>
+                    )}
                     <TBtn
-                      disabled={isApprovedLocked}
+                      disabled={isEffectiveReadOnly}
                       onClick={() => setShowSourceModal(true)}
                     >
                       <Download className="size-3.5" /> Import
@@ -2101,7 +2503,7 @@ function DiffuserSelectorPage() {
                       <FileSpreadsheet className="size-3.5" /> Export
                     </TBtn>
                     <TBtn
-                      disabled={isApprovedLocked}
+                      disabled={isEffectiveReadOnly}
                       primary
                       onClick={handleAddNewSpace}
                     >
@@ -2113,7 +2515,10 @@ function DiffuserSelectorPage() {
                   {!isApprovedLocked && selectedRowIds.size > 0 && (
                     <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
                       <span className="font-semibold">{selectedRowIds.size} selected</span>
-                      <span className="text-primary/30">Â·</span>
+                      <span className="text-primary/30">·</span>
+                      <BulkBtn icon={Scissors} onClick={() => cutSpaces(Array.from(selectedRowIds))}>Cut</BulkBtn>
+                      <BulkBtn icon={Copy} onClick={() => copySpaces(Array.from(selectedRowIds))}>Copy</BulkBtn>
+                      <BulkBtn icon={CopyPlus} onClick={() => duplicateSpaces(Array.from(selectedRowIds))}>Duplicate</BulkBtn>
                       <BulkBtn icon={Edit3} onClick={() => {
                         setBulkEditFloor("");
                         setBulkEditType("");
@@ -2175,9 +2580,10 @@ function DiffuserSelectorPage() {
                       onToggleAll={handleToggleSelectAll}
                       onCommentClick={(r) => handleOpenComment(r.id, r.name)}
                       isReadOnly={isApprovedLocked}
+                      activeRowId={editingRow?.id}
                       onRowDoubleClick={(r) => {
-                        setSelectedDetailRow(r);
-                        setShowDetailModal(true);
+                        setEditingRow(r);
+                        setIsNewRow(false);
                       }}
                       renderContextMenu={renderSpaceContextMenu}
                       groupBy={(r) => r.floor}
@@ -2185,17 +2591,12 @@ function DiffuserSelectorPage() {
                       renderGroupHeader={renderFloorGroupHeader}
                       renderGroupContextMenu={renderFloorGroupContextMenu}
                       onToggleGroup={handleToggleGroup}
-                      rowClassName={(row, index) =>
-                        index % 2 === 0
-                          ? "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebee] dark:hover:bg-[#25252b]"
-                          : "bg-card hover:bg-[#ebebee] dark:hover:bg-[#25252b]"
-                      }
                     />
                   )}
                 </div>
 
                 {/* Bottom Stats Summary Bar */}
-                <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none">
+                <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none modal-blur-bg">
                   <div>
                     Showing <span className="text-foreground font-medium tabular">{filteredRows.length.toLocaleString()}</span> of {rows.length.toLocaleString()} spaces
                   </div>
@@ -2602,12 +3003,12 @@ function DiffuserSelectorPage() {
               <div className="flex flex-col gap-3 text-xs">
                 <div className="flex flex-col gap-1">
                   <label className="font-semibold text-muted-foreground">Floor Level</label>
-                  <input
-                    type="text"
+                  <FloorSelect
                     value={bulkEditFloor}
-                    onChange={(e) => setBulkEditFloor(e.target.value)}
+                    onChange={(fl) => setBulkEditFloor(fl)}
+                    availableFloors={sortedFloorsForGrid}
                     placeholder="Leave blank to keep unchanged"
-                    className="h-8 px-3 rounded-lg border border-border bg-surface-2 text-xs font-medium text-foreground outline-none focus:border-primary"
+                    triggerClassName="h-8 rounded-lg text-xs"
                   />
                 </div>
 
@@ -3216,12 +3617,11 @@ function DiffuserSelectorPage() {
 
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs font-semibold text-foreground">Floor Level</label>
-                  <input
-                    type="text"
+                  <FloorSelect
                     value={newFloor}
-                    onChange={e => setNewFloor(e.target.value)}
-                    placeholder="GF"
-                    className="h-9 px-3 rounded-xl border border-border bg-surface-2/60 text-xs font-medium text-foreground focus:ring-1 focus:ring-primary focus:outline-hidden"
+                    onChange={(fl) => setNewFloor(fl)}
+                    availableFloors={sortedFloorsForGrid}
+                    triggerClassName="h-9 rounded-xl text-xs bg-surface-2/60"
                   />
                 </div>
 
@@ -3436,21 +3836,26 @@ function DiffuserSelectorPage() {
         <DiffuserFormulaModal
           onClose={() => setShowFormulaModal(false)}
           unitSystem={unitSystem}
+          activeRow={(selectedRowIds.size > 0 ? rows.find(r => selectedRowIds.has(r.id)) : null) || rows[0]}
         />
       )}
       {editingRow && (
         <EditDiffuserSpaceModal
           space={editingRow}
-          availableFloors={floorOrder}
-          onClose={() => setEditingRow(null)}
-          onPreviewCalculations={() => {
-            const computed = computeRowSizing(editingRow, unitSystem);
-            setActiveSizer(computed);
-            setShowFormulaModal(true);
+          isNew={isNewRow}
+          availableFloors={sortedFloorsForGrid}
+          unitSystem={unitSystem}
+          onClose={() => {
+            if (isNewRow) {
+              setRows((prev) => prev.filter((r) => r.id !== editingRow.id));
+            }
+            setEditingRow(null);
+            setIsNewRow(false);
           }}
           onSave={(updated) => {
-            setRows(prev => prev.map(r => r.id === updated.id ? updated : r));
+            setRows((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
             setEditingRow(null);
+            setIsNewRow(false);
             if (!isApprovedLocked) dirtyStore.getState().markDirty();
           }}
         />
@@ -3639,154 +4044,538 @@ function DiffuserIntelligenceDrawer({
   );
 }
 
-// Diffuser Sizing & Aerodynamic Formula Breakdown Modal
+// SUB-COMPONENT: FORMULA BREAKDOWN & AERODYNAMIC DERIVATION MODAL (MATCHING FRESH AIR COOLING LOAD STANDARD)
 function DiffuserFormulaModal({
   onClose,
   unitSystem,
+  activeRow,
 }: {
   onClose: () => void;
   unitSystem: "si" | "ip";
+  activeRow?: any;
 }) {
+  const [activeTab, setActiveTab] = React.useState<"trace" | "formulas" | "variables">("trace");
+  const [copied, setCopied] = React.useState(false);
+
+  // Esc key listener
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   const isSI = unitSystem === "si";
+  const ip = !isSI;
+
+  const row = activeRow || {
+    name: "Sample Space",
+    flowRate: 250,
+    diffType: "4way",
+    targetNc: 30,
+    aspectRatio: 1.0,
+    diffuserCount: 2,
+    selectedSize: "300x300",
+    neckVel: 2.2,
+    actualNc: 26,
+    throwDist: 3.4,
+    pressureDrop: 18,
+  };
+
+  const flowLps = isSI ? (Number(row.flowRate) || 250) : (Number(row.flowRate) || 530) / 2.11888;
+  const flowCfm = isSI ? flowLps * 2.11888 : (Number(row.flowRate) || 530);
+  const qM3s = flowLps / 1000;
+  const count = Math.max(1, Number(row.diffuserCount) || 1);
+  const qPerDiffLps = flowLps / count;
+  const qPerDiffM3s = qPerDiffLps / 1000;
+  const qPerDiffCfm = flowCfm / count;
+
+  // Neck area calculation based on size or estimated
+  const neckVelMs = Number(row.neckVel) || (qPerDiffM3s / 0.05).toFixed(2);
+  const neckVelFpm = Math.round(Number(neckVelMs) * 196.85);
+  const effAreaM2 = Math.max(0.01, qPerDiffM3s / Math.max(0.1, Number(neckVelMs)));
+  const effAreaSqFt = effAreaM2 * 10.7639;
+
+  // Velocity pressure
+  const velPressPa = 0.5 * 1.204 * Math.pow(Number(neckVelMs), 2);
+  const velPressInWg = velPressPa / 249.0889;
+
+  // Static pressure drop
+  const staticPressPa = Number(row.pressureDrop) || Math.round(velPressPa * 1.4);
+  const staticPressInWg = staticPressPa / 249.0889;
+
+  // Throw
+  const throwM = Number(row.throwDist) || (Math.sqrt(qPerDiffLps) * 0.22).toFixed(1);
+  const throwFt = (Number(throwM) * 3.28084).toFixed(1);
+
+  // Noise criteria
+  const actualNc = Number(row.actualNc) || 26;
+  const targetNc = Number(row.targetNc) || 30;
+  const diffTypeName = DIFFUSER_NAMES[row.diffType as DiffuserType] || "4-Way Square Ceiling Diffuser";
+
+  const handleCopySummary = () => {
+    const text = `=== AIR TERMINAL & DIFFUSER FORMULA BREAKDOWN ===
+Governing Design Standards: ASHRAE Standard 70, ASHRAE Fundamentals (Ch. 20) & EN 12238
+Unit System: ${isSI ? "SI Metric (L/s, m/s, Pa, m)" : "IP Imperial (CFM, FPM, in.wg, ft)"}
+Space Selected: ${row.name || "Active Room"}
+Terminal Type: ${diffTypeName}
+
+--- 1. ACTIVE SIZING PARAMETERS ---
+• Total Required Airflow: ${isSI ? `${Math.round(flowLps).toLocaleString()} L/s` : `${Math.round(flowCfm).toLocaleString()} CFM`} (${qM3s.toFixed(4)} m³/s)
+• Number of Terminals: ${count} unit(s)
+• Per-Terminal Airflow: ${isSI ? `${Math.round(qPerDiffLps).toLocaleString()} L/s` : `${Math.round(qPerDiffCfm).toLocaleString()} CFM`}
+• Target NC Acoustic Limit: NC ${targetNc}
+
+--- 2. STEP-BY-STEP CALCULATION TRACE ---
+[1] Volumetric Airflow Rate:
+    Q_room = ${isSI ? `${Math.round(flowLps)} L/s` : `${Math.round(flowCfm)} CFM`} (${qM3s.toFixed(4)} m³/s)
+
+[2] Flow Division per Terminal:
+    Q_diff = Q_room / ${count} = ${isSI ? `${Math.round(qPerDiffLps)} L/s` : `${Math.round(qPerDiffCfm)} CFM`} (${qPerDiffM3s.toFixed(4)} m³/s)
+
+[3] Effective Discharge Area (A_eff):
+    A_eff = Q_diff / V_neck = ${effAreaM2.toFixed(4)} m² (${effAreaSqFt.toFixed(2)} sq.ft)
+
+[4] Terminal Neck Velocity:
+    V_neck = Q_diff / A_eff = ${Number(neckVelMs).toFixed(2)} m/s (${neckVelFpm} FPM) [Target ≤ 2.5 m/s]
+
+[5] Dynamic Velocity Pressure:
+    P_v = 0.5 · ρ · V² = 0.5 × 1.204 × (${Number(neckVelMs).toFixed(2)})² = ${velPressPa.toFixed(1)} Pa (${velPressInWg.toFixed(4)} in.wg)
+
+[6] Terminal Static Pressure Drop:
+    ΔP_s = C_k · P_v = ${staticPressPa} Pa (${staticPressInWg.toFixed(3)} in.wg)
+
+[7] Isothermal Jet Throw Envelope (T50):
+    T_50 = ${throwM} m (${throwFt} ft) to 0.25 m/s (50 FPM) terminal velocity
+
+[8] Acoustic Noise Criteria Compliance:
+    Actual NC: NC ${actualNc} vs Design Limit: NC ${targetNc} -> ${actualNc <= targetNc ? "COMPLIANT PASS" : "ATTENUATION REQUIRED"}
+`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    toast.success("Diffuser calculation breakdown copied to clipboard!");
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-150">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden text-xs">
-        
-        {/* Modal Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-header-bg shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="size-8 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-              <BookOpen className="size-4" />
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 md:p-6 overflow-y-auto animate-in fade-in duration-150 select-none font-sans"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-2xl shadow-2xl max-w-xl w-full max-h-[86vh] flex flex-col overflow-hidden text-xs animate-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header matching Fresh Air Cooling Load & Duct Sizer standard */}
+        <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-muted/30 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 pr-2">
+            <div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+              <BookOpen className="size-3.5" />
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-foreground">Air Terminal &amp; Diffuser Formula Breakdown</h2>
-              <p className="text-[11px] text-muted-foreground">Governing ASHRAE Fundamentals and CIBSE Guide B2 air distribution equations</p>
+            <div className="truncate">
+              <h2 className="text-[13px] font-bold text-foreground truncate">
+                Diffuser &amp; Terminal Formula Breakdown
+              </h2>
             </div>
+            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[10px] font-mono font-semibold shrink-0">
+              ASHRAE 70 / EN 12238
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border text-[10px] font-mono font-medium shrink-0">
+              {ip ? "IP" : "SI"}
+            </span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="size-7 rounded-lg hover:bg-surface-2 flex items-center justify-center text-muted-foreground hover:text-foreground transition cursor-pointer"
+            className="size-7 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title="Close modal (Esc)"
           >
-            <X className="size-4" />
+            <X className="size-3.5" />
+          </button>
+        </div>
+
+        {/* Navigation Tabs Bar */}
+        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border bg-muted/10 shrink-0 select-none">
+          <button
+            type="button"
+            onClick={() => setActiveTab("trace")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "trace"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <Activity className="size-3" />
+            <span>Calculation Steps</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("formulas")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "formulas"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <BookOpen className="size-3" />
+            <span>Master Formulas</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("variables")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "variables"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <Layers className="size-3" />
+            <span>Variables Reference</span>
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 overflow-y-auto space-y-5 flex-1 custom-scrollbar">
-
-          {/* Section 1: Airflow from Sensible Cooling Load */}
-          <div className="p-4 rounded-xl border border-border bg-surface-2/60 space-y-3">
-            <div className="flex items-center justify-between border-b border-border pb-2">
-              <div className="flex items-center gap-2">
-                <span className="flex items-center justify-center size-5 rounded-full bg-primary text-primary-foreground font-bold text-[10px]">1</span>
-                <span className="font-bold text-foreground uppercase tracking-wider text-[11.5px]">Volumetric Supply Airflow from Sensible Heat Load</span>
+        <div className="p-4 overflow-y-auto space-y-3 flex-1 custom-scrollbar">
+          {/* TAB 1: CALCULATION TRACE */}
+          {activeTab === "trace" && (
+            <div className="space-y-2.5">
+              {/* Active Sizing Parameters Banner */}
+              <div className="p-2.5 bg-muted/40 rounded-xl border border-border">
+                <div className="flex items-center justify-between text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider pb-1.5 mb-1.5 border-b border-border/60">
+                  <span className="flex items-center gap-1 text-foreground">
+                    <SlidersHorizontal className="size-3 text-primary" /> Active Terminal Parameters
+                  </span>
+                  <span className="font-mono text-primary normal-case font-bold">
+                    {row.name || "Selected Room"} | {isSI ? `${Math.round(flowLps)} L/s` : `${Math.round(flowCfm)} CFM`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="bg-background rounded p-1.5 border border-border/60">
+                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Diffuser Type &amp; Qty</span>
+                    <span className="font-mono font-bold text-foreground">{count} × {diffTypeName}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono ml-1">({isSI ? `${Math.round(qPerDiffLps)} L/s ea` : `${Math.round(qPerDiffCfm)} CFM ea`})</span>
+                  </div>
+                  <div className="bg-background rounded p-1.5 border border-border/60">
+                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Acoustic &amp; Velocity Target</span>
+                    <span className="font-mono font-bold text-foreground">Limit NC {targetNc}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono ml-1">(Neck ≤ 2.5 m/s)</span>
+                  </div>
+                </div>
               </div>
-              <span className="text-[10.5px] font-semibold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">ASHRAE Fundamentals Ch. 18</span>
-            </div>
 
-            <p className="text-muted-foreground text-[11px] leading-relaxed">
-              Required supply airflow is determined from sensible room heat gains and supply-to-room temperature differential (&Delta;T).
-            </p>
+              {/* STEP 1: SUPPLY AIRFLOW REQUIREMENT */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-primary/10 text-primary text-[10px] font-mono font-bold flex items-center justify-center">
+                      1
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Space Airflow Requirement (Q_room)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                    {isSI ? `${Math.round(flowLps)} L/s` : `${Math.round(flowCfm)} CFM`}
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: Q_supply = Q_sensible / (ρ · c_p · ΔT)</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">Governing room sensible cooling demand</span>
+                    <span className="text-primary font-bold">= {qM3s.toFixed(4)} m³/s ({isSI ? `${Math.round(flowLps)} L/s` : `${Math.round(flowCfm)} CFM`})</span>
+                  </div>
+                </div>
+              </div>
 
-            <div className="p-3 bg-card rounded-lg font-mono border border-border/80 space-y-2">
-              <span className="text-[10px] font-bold text-muted-foreground uppercase block font-sans">Governing Heat Balance Equations</span>
-              <div className="text-primary font-bold text-xs space-y-1">
-                <div>Q_sensible = m_dot_air × Cp_air × (T_room - T_supply)</div>
-                <div>Q_airflow (L/s) = [ Q_sensible (kW) × 1000 ] / [ 1.204 kg/m³ × 1.005 kJ/kg·K × ΔT (K) ]</div>
-                <div>Q_airflow (CFM) = Q_sensible (BTU/hr) / [ 1.08 × ΔT (°F) ]</div>
+              {/* STEP 2: FLOW PER TERMINAL */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      2
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Flow Division per Terminal (Q_diff)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
+                    {isSI ? `${Math.round(qPerDiffLps)} L/s` : `${Math.round(qPerDiffCfm)} CFM`}
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: Q_diff = Q_room / Number_of_Diffusers</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{isSI ? `${Math.round(flowLps)} L/s` : `${Math.round(flowCfm)} CFM`} / {count} terminal(s)</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-bold">= {isSI ? `${Math.round(qPerDiffLps)} L/s` : `${Math.round(qPerDiffCfm)} CFM`} ({qPerDiffM3s.toFixed(4)} m³/s)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 3: EFFECTIVE DISCHARGE AREA */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      3
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Effective Discharge Core Area (A_eff)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                    {effAreaM2.toFixed(4)} m²
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: A_eff = Q_diff / V_neck (ASHRAE 70 Effective Core Area)</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">Standard selected neck size {row.selectedSize || "300×300"}</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">= {effAreaM2.toFixed(4)} m² ({effAreaSqFt.toFixed(2)} sq.ft)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 4: NECK VELOCITY */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      4
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Terminal Neck Velocity (V_neck)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-purple-600 dark:text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">
+                    {Number(neckVelMs).toFixed(2)} m/s
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: V_neck = Q_diff / A_eff (Continuity)</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{qPerDiffM3s.toFixed(4)} m³/s / {effAreaM2.toFixed(4)} m²</span>
+                    <span className="text-purple-600 dark:text-purple-400 font-bold">= {Number(neckVelMs).toFixed(2)} m/s ({neckVelFpm} FPM)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 5: VELOCITY & STATIC PRESSURE DROP */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      5
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Terminal Static Pressure Drop (ΔP_s)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
+                    {staticPressPa} Pa
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: ΔP_s = C_k · (0.5 · ρ · V²) | P_v = {velPressPa.toFixed(1)} Pa</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">Manufacturer aerodynamic loss coefficient C_k ≈ 1.4</span>
+                    <span className="text-amber-600 dark:text-amber-400 font-bold">= {staticPressPa} Pa ({staticPressInWg.toFixed(3)} in.wg)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 6: JET THROW & ACOUSTIC NC */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-teal-500/10 text-teal-600 dark:text-teal-400 text-[10px] font-mono font-bold flex items-center justify-center">
+                      6
+                    </span>
+                    <span className="font-bold text-[11.5px] text-foreground">
+                      Throw Envelope (T50) &amp; Acoustic NC Rating
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-teal-600 dark:text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded">
+                    NC {actualNc} (Pass)
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="flex justify-between text-foreground">
+                    <span className="text-muted-foreground">Isothermal Jet Throw (T50 @ 0.25 m/s):</span>
+                    <span className="font-bold text-teal-600 dark:text-teal-400">{throwM} m ({throwFt} ft)</span>
+                  </div>
+                  <div className="flex justify-between text-foreground pt-1 border-t border-border/40">
+                    <span className="text-muted-foreground">Acoustic Sound Level vs Design Limit:</span>
+                    <span className="font-bold text-foreground">NC {actualNc} ≤ NC {targetNc} limit (OK)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sizing Outcome Card */}
+              <div className="bg-primary/5 border border-primary/20 rounded-xl p-2.5 flex items-center justify-between">
+                <div>
+                  <div className="text-[9.5px] uppercase font-bold text-muted-foreground">Recommended Selection</div>
+                  <div className="text-[11.5px] font-bold text-foreground mt-0.5">{count} × {row.selectedSize || "300×300"} {diffTypeName}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-base font-bold font-mono text-primary leading-tight">{Number(neckVelMs).toFixed(2)} <span className="text-xs font-normal">m/s</span></div>
+                  <div className="text-[9.5px] text-muted-foreground font-mono">T50: {throwM}m | NC {actualNc}</div>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Section 2: Flow Distribution & Neck Velocity */}
-          <div className="p-4 rounded-xl border border-border bg-surface-2/60 space-y-3">
-            <div className="flex items-center justify-between border-b border-border pb-2">
-              <div className="flex items-center gap-2">
-                <span className="flex items-center justify-center size-5 rounded-full bg-primary text-primary-foreground font-bold text-[10px]">2</span>
-                <span className="font-bold text-foreground uppercase tracking-wider text-[11.5px]">Terminal Flow Division &amp; Neck Velocity</span>
+          {/* TAB 2: MASTER FORMULAS */}
+          {activeTab === "formulas" && (
+            <div className="space-y-2">
+              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
+                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-primary" /> Supply Airflow Continuity Equation
+                </div>
+                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
+                  <div>Q_airflow (L/s) = [ Q_sensible (kW) × 1000 ] / [ ρ_air × c_p × ΔT ]</div>
+                  <div>Q_airflow (CFM) = Q_sensible (BTU/hr) / [ 1.08 × ΔT (°F) ]</div>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Where standard air density ρ = 1.204 kg/m³ and specific heat capacity c_p = 1.005 kJ/kg·K. Supply-to-room temperature difference ΔT typically ranges between 8 K and 11 K.
+                </p>
               </div>
-              <span className="text-[10.5px] font-semibold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">Continuity Equation</span>
-            </div>
 
-            <div className="p-3 bg-card rounded-lg font-mono border border-border/80 space-y-2">
-              <span className="text-[10px] font-bold text-muted-foreground uppercase block font-sans">Formulas: Neck Sizing &amp; Velocity</span>
-              <div className="text-primary font-bold text-xs space-y-1">
-                <div>Q_diff (L/s) = Q_total_room / Number_of_Diffusers</div>
-                <div>v_neck (m/s) = Q_diff (m³/s) / A_neck_eff (m²)</div>
-                <div>Standard Target: v_neck ≤ 2.0 m/s (Quiet NC ≤ 25) to 2.5 m/s (Standard NC ≤ 30)</div>
+              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
+                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-blue-500" /> Terminal Neck Velocity (V_neck)
+                </div>
+                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
+                  <div>V_neck (m/s) = Q_terminal (m³/s) / A_effective_neck (m²)</div>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Maximum recommended neck velocity for quiet commercial office spaces is 2.0 to 2.5 m/s (400 to 500 FPM) to avoid acoustic noise regeneration.
+                </p>
+              </div>
+
+              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
+                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-emerald-500" /> Jet Throw Distance &amp; ADPI Comfort (ASHRAE 55)
+                </div>
+                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
+                  <div>ADPI Ideal Throw Ratio: 1.0 ≤ T_50 / L_room ≤ 1.5</div>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  T_50 is distance from terminal to where jet velocity drops to 0.25 m/s (50 FPM). Values below 1.0 cause stagnant hot/cold air drops; values above 1.5 cause high velocity drafts down walls.
+                </p>
+              </div>
+
+              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
+                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-amber-500" /> Noise Criteria (NC) Acoustic Limits
+                </div>
+                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
+                  <div>Offices / Conference: NC 25–30 | Lobbies: NC 35–40</div>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Sound power level regenerated in octave bands 63 Hz through 8000 Hz evaluated against ASHRAE standard NC curves with standard 10 dB room acoustic attenuation.
+                </p>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Section 3: Throw Distance & ADPI */}
-          <div className="p-4 rounded-xl border border-border bg-surface-2/60 space-y-3">
-            <div className="flex items-center justify-between border-b border-border pb-2">
-              <div className="flex items-center gap-2">
-                <span className="flex items-center justify-center size-5 rounded-full bg-primary text-primary-foreground font-bold text-[10px]">3</span>
-                <span className="font-bold text-foreground uppercase tracking-wider text-[11.5px]">Jet Throw Distance &amp; ADPI Comfort Criteria</span>
+          {/* TAB 3: VARIABLES REFERENCE */}
+          {activeTab === "variables" && (
+            <div className="space-y-2.5">
+              <div className="border border-border rounded-xl overflow-hidden bg-card">
+                <table className="w-full text-left text-[10.5px]">
+                  <thead>
+                    <tr className="bg-muted/60 border-b border-border font-bold text-foreground">
+                      <th className="py-1.5 px-2">Symbol</th>
+                      <th className="py-1.5 px-2">Parameter</th>
+                      <th className="py-1.5 px-2">SI Standard</th>
+                      <th className="py-1.5 px-2">IP Standard</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60 font-sans">
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">Q_room</td>
+                      <td className="py-1.5 px-2 text-foreground">Total Room Airflow Demand</td>
+                      <td className="py-1.5 px-2 font-mono">L/s / m³/s</td>
+                      <td className="py-1.5 px-2 font-mono">CFM</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">Q_diff</td>
+                      <td className="py-1.5 px-2 text-foreground">Airflow per Diffuser Terminal</td>
+                      <td className="py-1.5 px-2 font-mono">L/s</td>
+                      <td className="py-1.5 px-2 font-mono">CFM</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">V_neck</td>
+                      <td className="py-1.5 px-2 text-foreground">Terminal Neck Velocity</td>
+                      <td className="py-1.5 px-2 font-mono">m/s</td>
+                      <td className="py-1.5 px-2 font-mono">FPM</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">A_eff</td>
+                      <td className="py-1.5 px-2 text-foreground">Effective Discharge Core Area</td>
+                      <td className="py-1.5 px-2 font-mono">m²</td>
+                      <td className="py-1.5 px-2 font-mono">sq.ft</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">ΔP_s</td>
+                      <td className="py-1.5 px-2 text-foreground">Terminal Static Pressure Drop</td>
+                      <td className="py-1.5 px-2 font-mono">Pa</td>
+                      <td className="py-1.5 px-2 font-mono">in.wg</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">T_50</td>
+                      <td className="py-1.5 px-2 text-foreground">Throw to 0.25 m/s (50 FPM)</td>
+                      <td className="py-1.5 px-2 font-mono">m</td>
+                      <td className="py-1.5 px-2 font-mono">ft</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">NC</td>
+                      <td className="py-1.5 px-2 text-foreground">Noise Criteria Rating</td>
+                      <td className="py-1.5 px-2 font-mono">dB / NC</td>
+                      <td className="py-1.5 px-2 font-mono">dB / NC</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-2 font-mono font-bold text-primary">ρ_air</td>
+                      <td className="py-1.5 px-2 text-foreground">Standard Air Density (20°C)</td>
+                      <td className="py-1.5 px-2 font-mono">1.204 kg/m³</td>
+                      <td className="py-1.5 px-2 font-mono">0.075 lb/ft³</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-              <span className="text-[10.5px] font-semibold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">ASHRAE Standard 55 / ADPI</span>
             </div>
-
-            <div className="p-3 bg-card rounded-lg font-mono border border-border/80 space-y-2">
-              <span className="text-[10px] font-bold text-muted-foreground uppercase block font-sans">Jet Throw Distances</span>
-              <div className="text-primary font-bold text-xs space-y-1">
-                <div>T50 = Distance to 0.25 m/s (50 FPM) terminal velocity envelope</div>
-                <div>T100 = Distance to 0.50 m/s (100 FPM) terminal velocity envelope</div>
-                <div>ADPI Optimal Ratio: 1.0 ≤ T50 / L_room ≤ 1.5 (prevents stagnant cold drafts &amp; drop)</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 4: Acoustic Noise Criteria */}
-          <div className="p-4 rounded-xl border border-border bg-surface-2/60 space-y-3">
-            <div className="flex items-center justify-between border-b border-border pb-2">
-              <div className="flex items-center gap-2">
-                <span className="flex items-center justify-center size-5 rounded-full bg-primary text-primary-foreground font-bold text-[10px]">4</span>
-                <span className="font-bold text-foreground uppercase tracking-wider text-[11.5px]">Acoustic Noise Criteria (NC) Standards</span>
-              </div>
-              <span className="text-[10.5px] font-semibold text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">ASHRAE Handbook - HVAC Applications</span>
-            </div>
-
-            <div className="border border-border rounded-lg overflow-hidden bg-card">
-              <table className="w-full text-left text-[11px]">
-                <thead>
-                  <tr className="bg-surface-2 border-b border-border font-bold">
-                    <th className="py-2 px-3">Space Classification</th>
-                    <th className="py-2 px-3">Max Neck Velocity</th>
-                    <th className="py-2 px-3">Design NC Limit</th>
-                    <th className="py-2 px-3">Recommended Terminal Type</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60 font-sans">
-                  <tr><td className="py-1.5 px-3">Executive / Private Office</td><td className="py-1.5 px-3 font-mono">2.0 m/s (400 FPM)</td><td className="py-1.5 px-3 font-mono font-bold text-emerald-600">NC 20–25</td><td className="py-1.5 px-3">4-Way Square / Linear Slot</td></tr>
-                  <tr><td className="py-1.5 px-3">Conference / Boardroom</td><td className="py-1.5 px-3 font-mono">2.0 m/s (400 FPM)</td><td className="py-1.5 px-3 font-mono font-bold text-emerald-600">NC 25</td><td className="py-1.5 px-3">Linear Slot (20mm / 25mm)</td></tr>
-                  <tr><td className="py-1.5 px-3">Open Plan Office</td><td className="py-1.5 px-3 font-mono">2.5 m/s (500 FPM)</td><td className="py-1.5 px-3 font-mono font-bold text-primary">NC 30</td><td className="py-1.5 px-3">4-Way Square / Swirl</td></tr>
-                  <tr><td className="py-1.5 px-3">Lobbies &amp; Corridors</td><td className="py-1.5 px-3 font-mono">3.0 m/s (600 FPM)</td><td className="py-1.5 px-3 font-mono font-bold">NC 35–40</td><td className="py-1.5 px-3">Circular Cone / Jet Nozzle</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
+          )}
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-border bg-card flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <ShieldCheck className="size-4 text-emerald-500" />
-            <span>Formulas verified against ASHRAE Fundamentals 2021 &amp; CIBSE Guide B</span>
-          </div>
+        {/* Modal Footer matching standard */}
+        <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between shrink-0">
+          <button
+            type="button"
+            onClick={handleCopySummary}
+            className="text-[11px] font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-muted border border-border/70 transition cursor-pointer"
+          >
+            {copied ? (
+              <>
+                <Check className="size-3 text-emerald-500" />
+                <span className="text-emerald-600 dark:text-emerald-400">Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="size-3" />
+                <span>Copy Summary</span>
+              </>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-primary text-primary-foreground font-bold text-xs hover:bg-primary/90 transition cursor-pointer shadow-xs"
+            className="bg-primary text-primary-foreground text-[11.5px] font-semibold px-4 py-1.5 rounded-lg hover:bg-primary/90 transition shadow-xs cursor-pointer"
           >
-            Done
+            Close
           </button>
         </div>
-
       </div>
     </div>
   );

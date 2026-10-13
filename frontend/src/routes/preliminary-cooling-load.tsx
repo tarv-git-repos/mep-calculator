@@ -983,12 +983,18 @@ function PreliminaryCoolingLoadPage() {
           });
         } else if (!importOpen && selected.size > 0) {
           e.preventDefault();
-          confirm(`Are you sure you want to delete the ${selected.size} selected spaces?`).then((ok: any) => {
+          confirm(`Are you sure you want to delete the ${selected.size} selected space(s)?`, {
+            title: "Delete Spaces",
+            confirmText: "Delete",
+            cancelText: "Cancel",
+            variant: "destructive"
+          }).then((ok: any) => {
             if (ok) {
               const selectedIds = Array.from(selected);
               pushToUndo(rows);
               saveRows(rows.filter((s) => !selectedIds.includes(s.id)));
               setSelected(new Set());
+              toast.info(`Deleted ${selectedIds.length} space(s)`);
             }
           });
         }
@@ -1182,9 +1188,17 @@ function PreliminaryCoolingLoadPage() {
       alert("Please select at least one space to delete.");
       return;
     }
-    if (await confirm(`Are you sure you want to remove ${selectedIds.length} selected spaces?`)) {
+    const ok = await confirm(`Are you sure you want to delete the ${selectedIds.length} selected space(s)?`, {
+      title: "Delete Spaces",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive"
+    });
+    if (ok) {
+      pushToUndo(rows);
       saveRows(rows.filter((r) => !selectedIds.includes(r.id)));
       setSelected(new Set());
+      toast.info(`Deleted ${selectedIds.length} space(s)`);
     }
   };
 
@@ -2311,7 +2325,14 @@ function PreliminaryCoolingLoadPage() {
               ? `Are you sure you want to delete space "${row.name}"?`
               : `Are you sure you want to delete the ${targetsCount} selected spaces?`;
 
-            if (await confirm(msg)) {
+            const ok = await confirm(msg, {
+              title: "Delete Spaces",
+              confirmText: "Delete",
+              cancelText: "Cancel",
+              variant: "destructive"
+            });
+
+            if (ok) {
               pushToUndo(rows);
               saveRows(rows.filter((s) => !selectedIds.includes(s.id)));
               setSelected(new Set());
@@ -2641,6 +2662,7 @@ function PreliminaryCoolingLoadPage() {
                             onClick={() => {
                               try {
                                 localStorage.removeItem("mep_grid_preliminary-cooling-load");
+                                window.dispatchEvent(new CustomEvent("mep-reset-column-widths"));
                                 window.dispatchEvent(new Event("resize"));
                                 toast.success("Column widths reset to auto-distribution");
                               } catch (e) {}

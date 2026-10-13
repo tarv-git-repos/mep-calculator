@@ -26,10 +26,13 @@ export const CALCULATION_CONSTANTS = {
 export interface StaircaseItem {
   id: string;
   name: string;
+  floor?: string;
   doorType: DoorTypeKey;
   doorArea: number | "";
   openDoorsCount: number | "";
   closedDoorsCount: number | "";
+  flagged?: boolean;
+  comments?: any[];
 }
 
 export function calculateStaircase(item: StaircaseItem, isIp: boolean = false) {

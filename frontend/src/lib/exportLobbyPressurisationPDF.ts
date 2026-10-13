@@ -113,7 +113,7 @@ export const exportLobbyPressurisationPDF = async (
     // Header Title
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("Lobby Pressurisation & Smoke Containment Report", 14, 14);
+    doc.text("Lobby Pressurisation Calculation", 14, 14);
 
     // Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
     doc.setFontSize(9);
@@ -428,7 +428,7 @@ export const exportLobbyPressurisationPDF = async (
     });
 
     const pdfBuffer = doc.output("arraybuffer");
-    await downloadFile(new Uint8Array(pdfBuffer), `Lobby_Pressurisation_Report_${activeProj?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
+    await downloadFile(new Uint8Array(pdfBuffer), `Lobby_Pressurisation_Calculation_${activeProj?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
     toast.success("Lobby Pressurisation PDF exported successfully!");
   } catch (error: any) {
     console.error("exportLobbyPressurisationPDF error:", error);

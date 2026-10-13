@@ -99,6 +99,31 @@ export function DataGrid<T extends { id: string }>({
     setColRatios(initialRatios);
   }, [columns, gridId]);
 
+  // Support live column auto-distribution reset across all workspaces
+  useEffect(() => {
+    const handleReset = () => {
+      const totalDefault = columns.reduce((sum, c) => sum + c.width, 0);
+      const initialRatios: Record<string, number> = {};
+      columns.forEach((c) => {
+        initialRatios[String(c.key)] = c.width / totalDefault;
+      });
+      setColRatios(initialRatios);
+    };
+
+    const handleWindowResize = () => {
+      if (gridId && !localStorage.getItem(`mep_grid_${gridId}`)) {
+        handleReset();
+      }
+    };
+
+    window.addEventListener("mep-reset-column-widths", handleReset);
+    window.addEventListener("resize", handleWindowResize);
+    return () => {
+      window.removeEventListener("mep-reset-column-widths", handleReset);
+      window.removeEventListener("resize", handleWindowResize);
+    };
+  }, [columns, gridId]);
+
   const handleMouseDown = (key: string, e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
@@ -583,7 +608,7 @@ export function DataGrid<T extends { id: string }>({
                                   detail: {
                                     id: row.id,
                                     name: (row as any).name || (row as any).description || (row as any).desc || (row as any).tag || (row as any).code,
-                                    type: (row as any).tag ? "equipment" : (row as any).zone && !(row as any).area ? "zone" : "space"
+                                    // type: (row as any).tag ? "equipment" : (row as any).zone && !(row as any).area ? "zone" : "space"
                                   }
                                 })
                               );

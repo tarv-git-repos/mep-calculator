@@ -3032,6 +3032,7 @@ function SpacesView() {
               onClick={() => {
                 try {
                   localStorage.removeItem("mep_grid_ventilation_spaces");
+                  window.dispatchEvent(new CustomEvent("mep-reset-column-widths"));
                   window.dispatchEvent(new Event("resize"));
                   toast.success("Column widths reset to auto-distribution");
                 } catch (e) {}
