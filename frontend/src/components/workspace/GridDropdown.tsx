@@ -22,7 +22,7 @@ interface GridDropdownProps<T extends string = string> {
   contentWidth?: number;
   hasOther?: boolean;
   otherLabel?: string;
-  otherValue?: T;
+  otherValue?: T | string;
   hideChevron?: boolean;
 }
 
@@ -38,7 +38,7 @@ export function GridDropdown<T extends string = string>({
   contentWidth = 260,
   hasOther = false,
   otherLabel = "Other / Custom",
-  otherValue = "other" as T,
+  otherValue = "__custom_other__",
   hideChevron = false,
 }: GridDropdownProps<T>) {
   const isReadOnly = typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly);
@@ -47,7 +47,13 @@ export function GridDropdown<T extends string = string>({
 
   // Determine current display label
   const selectedOption = options.find((o) => o.value === value);
-  const isOtherSelected = value === otherValue || String(value).toLowerCase() === "other" || String(value).toLowerCase().includes("custom");
+  const isOtherSelected =
+    !selectedOption &&
+    Boolean(
+      (otherValue && value === (otherValue as unknown as T)) ||
+      String(value).toLowerCase() === "other" ||
+      String(value).toLowerCase().includes("custom")
+    );
   const triggerText = selectedOption
     ? selectedOption.label
     : isOtherSelected
@@ -111,13 +117,13 @@ export function GridDropdown<T extends string = string>({
                 {/* 1. Other / Custom option pinned strictly at the top (first place) */}
                 {hasOther && (
                   <CommandItem
-                    value={String(otherValue)}
+                    value={String(otherLabel || otherValue)}
                     onSelect={() => {
                       setOpen(false);
                       if (onOtherSelect) {
                         onOtherSelect();
                       } else {
-                        onChange(otherValue);
+                        onChange(otherValue as T);
                       }
                     }}
                     className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10 font-semibold text-primary"

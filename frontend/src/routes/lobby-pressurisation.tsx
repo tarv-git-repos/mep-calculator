@@ -1114,7 +1114,6 @@ function LobbyPressurisationPage() {
   };
 
   const renderGroupHeader = (groupValue: string) => {
-    const grpComments = getMergedItemComments(groupValue, groupValue, commentsList, "/lobby-pressurisation", project?.id);
     const grp = calculatedGroups.find(g => g.groupName === groupValue);
     const count = grp ? grp.rows.length : calculatedRows.filter(r => (groupByMode === "zone" ? r.zoneName : r.basementLevel) === groupValue).length;
     const subArea = grp ? grp.totalArea : 0;
@@ -1126,12 +1125,6 @@ function LobbyPressurisationPage() {
         <div className="flex items-center gap-1.5 font-medium">
           <strong className="font-bold text-primary">{groupValue}</strong>
           <span className="text-[10.5px] text-muted-foreground font-normal">({count} {count === 1 ? "space" : "spaces"})</span>
-          {grpComments.length > 0 && (
-            <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[9.5px]">
-              <MessageSquare className="size-2.5 fill-blue-500/20" />
-              <span>{grpComments.length}</span>
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-3.5 font-mono text-[11px] text-muted-foreground">
           <span>Σ Area: <strong className="text-foreground">{subArea.toLocaleString()} {ip ? "ft²" : "m²"}</strong></span>
@@ -1206,6 +1199,17 @@ function LobbyPressurisationPage() {
 
     return (
       <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        {/* Add Comment */}
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row.id, row.name || row.zoneName, "space")}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-3.5 shrink-0" />
+          <span className="whitespace-nowrap">Add Comment</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         {/* Cut */}
         <ContextMenuItem
           onClick={() => {
@@ -1267,6 +1271,7 @@ function LobbyPressurisationPage() {
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
 
+        {/* Edit Space */}
         <ContextMenuItem
           onClick={() => {
             if (isReadOnly) {
@@ -1287,6 +1292,7 @@ function LobbyPressurisationPage() {
           <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
         </ContextMenuItem>
 
+        {/* Duplicate Space */}
         <ContextMenuItem
           onClick={() => {
             if (isReadOnly) {
@@ -1313,16 +1319,6 @@ function LobbyPressurisationPage() {
           <CopyPlus className="size-3.5 text-muted-foreground shrink-0" />
           <span className="whitespace-nowrap">{isMulti ? `Duplicate Selected (${targetIds.length})` : "Duplicate Space"}</span>
           <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Ctrl+D</ContextMenuShortcut>
-        </ContextMenuItem>
-
-        <ContextMenuSeparator className="h-px bg-border my-1" />
-
-        <ContextMenuItem
-          onClick={() => handleOpenComment(row.id, row.name || row.zoneName, "space")}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-        >
-          <MessageSquare className="size-3.5 shrink-0" />
-          <span className="whitespace-nowrap">Add Comment</span>
         </ContextMenuItem>
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -2143,14 +2139,6 @@ function LobbyPressurisationPage() {
                     title="Import lobby floor levels from 3D Studio or Excel schedule"
                   >
                     <Download className="size-3.5" /> Import
-                  </TBtn>
-
-                  {/* PDF Export Button */}
-                  <TBtn
-                    onClick={handleExportPDF}
-                    title="Generate and Export PDF Calculation Report"
-                  >
-                    <FileText className="size-3.5" /> Export
                   </TBtn>
 
                   {/* New Space (EXTREME RIGHT) */}
@@ -3684,6 +3672,13 @@ function LobbyPressurisationPage() {
               calculatedRows={calculatedRows}
               totals={totals}
               unitSystem={unitSystem}
+              onHighlightFloor={(id) => {
+                setSelectedRowIds(new Set([id]));
+                setTimeout(() => {
+                  const el = document.getElementById(id);
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                }, 100);
+              }}
             />
           )}
         </div>
@@ -3706,6 +3701,7 @@ interface LobbyPressurisationIntelligenceDrawerProps {
     sizedCap: number;
   };
   unitSystem: "si" | "ip";
+  onHighlightFloor?: (id: string) => void;
 }
 
 function LobbyPressurisationIntelligenceDrawer({
@@ -3715,131 +3711,253 @@ function LobbyPressurisationIntelligenceDrawer({
   calculatedRows,
   totals,
   unitSystem,
+  onHighlightFloor,
 }: LobbyPressurisationIntelligenceDrawerProps) {
   const ip = unitSystem === "ip";
   const flowUnit = ip ? "CFM" : "L/s";
   const volUnit = ip ? "ft³" : "m³";
   const pressUnit = ip ? "in.wg" : "Pa";
+  const areaUnit = ip ? "ft²" : "m²";
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    unassigned: false,
+    missingArea: false,
+    missingHeight: false,
+  });
 
   // Check unassigned spaces
   const assignedIds = new Set<string>();
   calculatedFanSystems.forEach(fs => {
     (fs.floorIds || []).forEach((id: string) => assignedIds.add(id));
   });
-  const unassignedCount = calculatedRows.filter(r => !assignedIds.has(r.id)).length;
+
+  const unassignedLobbies = useMemo(() => {
+    return calculatedRows
+      .filter(r => !assignedIds.has(r.id))
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        detail: r.zoneName ? `${r.zoneName} (${r.basementLevel || "L01"})` : r.basementLevel || "L01",
+      }));
+  }, [calculatedRows, assignedIds]);
+
+  const missingAreaLobbies = useMemo(() => {
+    return calculatedRows
+      .filter(r => !r.area || Number(r.area) <= 0)
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        detail: `0 ${areaUnit}`,
+      }));
+  }, [calculatedRows, areaUnit]);
+
+  const missingHeightLobbies = useMemo(() => {
+    return calculatedRows
+      .filter(r => !r.height || Number(r.height) <= 0)
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        detail: `0 ${ip ? "ft" : "m"}`,
+      }));
+  }, [calculatedRows, ip]);
+
+  const totalSpaces = floors.length;
+  const compliantSpaces = calculatedRows.filter(r => assignedIds.has(r.id) && (Number(r.area) || 0) > 0 && (Number(r.height) || 0) > 0);
+  const compliancePct = totalSpaces > 0 ? Math.round((compliantSpaces.length / totalSpaces) * 100) : 100;
 
   // Max fan static
   const maxStaticSys = [...calculatedFanSystems].sort((a, b) => (b.totalStatic || 0) - (a.totalStatic || 0))[0];
 
   return (
-    <div className="flex flex-col h-full bg-card p-4 overflow-y-auto gap-4 select-none text-xs font-sans">
-      <div className="flex items-center justify-between pb-2 border-b border-border">
+    <div className="h-full w-[360px] flex flex-col animate-fade-in font-sans">
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-            <Sparkles className="size-4" />
-          </div>
-          <div>
-            <h3 className="font-bold text-sm text-foreground">Pressurisation Intelligence</h3>
-            <p className="text-[10.5px] text-muted-foreground">Real-time Code & Engineering Sizing Audits</p>
-          </div>
+          <Sparkles className="size-3.5 text-primary" />
+          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-2 transition cursor-pointer"
-        >
-          <X className="size-4" />
+        <button onClick={onClose} className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer">
+          <X className="size-3.5" />
         </button>
-      </div>
+      </header>
 
-      {/* Summary KPI grid */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-surface-2 border border-border/70 rounded-xl p-2.5 flex flex-col">
-          <span className="text-[10px] font-bold text-muted-foreground uppercase">Total Required 6 ACH</span>
-          <span className="font-mono text-base font-extrabold text-primary">
-            {totals.total6.toLocaleString()} <span className="text-xs font-normal">{flowUnit}</span>
-          </span>
-          <span className="text-[10px] text-muted-foreground mt-0.5">({totals.totalM3h.toLocaleString()} m³/h)</span>
-        </div>
-
-        <div className="bg-surface-2 border border-border/70 rounded-xl p-2.5 flex flex-col">
-          <span className="text-[10px] font-bold text-muted-foreground uppercase">Total Containment Vol</span>
-          <span className="font-mono text-base font-extrabold text-foreground">
-            {totals.totalVolume.toLocaleString()} <span className="text-xs font-normal">{volUnit}</span>
-          </span>
-          <span className="text-[10px] text-muted-foreground mt-0.5">{floors.length} scheduled {floors.length === 1 ? "space" : "spaces"}</span>
-        </div>
-      </div>
-
-      {/* Code & Safety Health Checks */}
-      <div className="flex flex-col gap-2">
-        <span className="text-[11px] font-bold text-foreground uppercase tracking-wider">Compliance & Health Checks</span>
-
-        {/* 6 ACH Standard Verification */}
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex items-start gap-2.5">
-          <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-          <div className="flex flex-col gap-0.5">
-            <span className="font-bold text-emerald-800 dark:text-emerald-300">NFPA 92 / BS EN 12101 Compliant</span>
-            <p className="text-[11px] text-emerald-700 dark:text-emerald-400 leading-relaxed">
-              Air change rate is actively enforced at 6.0 ACH across all lobby and smoke containment zones.
-            </p>
+      <div className="flex-1 overflow-auto">
+        {/* Compliance Status */}
+        <IntelSection icon={CheckCircle2} tone="success" title="Compliance Status">
+          <div className="text-[12px] text-muted-foreground">
+            NFPA 92 &amp; BS EN 12101 6.0 ACH pressurisation across {totalSpaces} scheduled space{totalSpaces === 1 ? "" : "s"}.
           </div>
-        </div>
-
-        {/* Unassigned Spaces Warning */}
-        {unassignedCount > 0 ? (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-2.5">
-            <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-            <div className="flex flex-col gap-0.5">
-              <span className="font-bold text-amber-800 dark:text-amber-300">{unassignedCount} Unassigned Space(s)</span>
-              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-                Some lobby spaces are not yet linked to a dedicated Fan System. Head losses cannot be calculated for unserved spaces.
-              </p>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
+              <div
+                className={`h-full ${compliancePct === 100 ? "bg-success" : "bg-warning"}`}
+                style={{ width: `${compliancePct}%` }}
+              />
             </div>
+            <span className="font-mono tabular text-[11.5px] font-medium">{compliancePct}%</span>
           </div>
-        ) : (
-          <div className="bg-surface-2 border border-border/70 rounded-xl p-3 flex items-start gap-2.5">
-            <Check className="size-4 text-primary shrink-0 mt-0.5" />
-            <div className="flex flex-col gap-0.5">
-              <span className="font-bold text-foreground">Full Fan Coverage</span>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                All {floors.length} lobby floor spaces are mapped to fan systems.
-              </p>
-            </div>
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            {compliantSpaces.length} of {totalSpaces} spaces assigned &amp; fully dimensioned
           </div>
-        )}
+        </IntelSection>
 
-        {/* Static Head Loss Evaluation */}
-        {maxStaticSys && (
-          <div className="bg-surface-2 border border-border/70 rounded-xl p-3 flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-foreground">Critical Path Head Loss</span>
-              <span className="font-mono font-extrabold text-primary">{maxStaticSys.totalStatic} {pressUnit}</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Highest static pressure in <strong>{maxStaticSys.name}</strong> (Duct friction: {maxStaticSys.frictionLoss.toFixed(1)} {pressUnit}, Safety allowance: +10%).
-            </p>
+        {/* Pressurisation Airflow & Volume */}
+        <IntelSection icon={Gauge} tone="primary" title="Pressurisation Airflow & Volume">
+          <KV k="Required Supply (6 ACH)" v={`${totals.total6.toLocaleString()} ${flowUnit}`} />
+          <KV k="Airflow Volume Rate" v={`${totals.totalM3h.toLocaleString()} m³/h`} />
+          <KV k="Total Containment Volume" v={`${totals.totalVolume.toLocaleString()} ${volUnit}`} />
+          <KV k="Total Gross Area" v={`${totals.totalArea.toLocaleString()} ${areaUnit}`} />
+          <KV k="Configured Fan Systems" v={`${calculatedFanSystems.length} systems`} />
+          <KV k="Avg Duty Fan Capacity" v={`${totals.perFanCapacity.toLocaleString()} ${flowUnit}`} />
+        </IntelSection>
+
+        {/* System & Static Checks */}
+        <IntelSection icon={AlertTriangle} tone={unassignedLobbies.length > 0 ? "warning" : "muted"} title="System & Static Checks">
+          <KV k="Unassigned Lobbies" v={unassignedLobbies.length} />
+          {maxStaticSys ? (
+            <>
+              <KV k={`Max Static (${maxStaticSys.name})`} v={`${maxStaticSys.totalStatic} ${pressUnit}`} />
+              <KV k="Critical Friction Loss" v={`${maxStaticSys.frictionLoss.toFixed(1)} ${pressUnit}`} />
+            </>
+          ) : (
+            <KV k="Critical Path Static" v="No fans" />
+          )}
+        </IntelSection>
+
+        {/* Missing Data Section */}
+        <IntelSection icon={Info} tone="muted" title="Missing Data & Coverage">
+          <CollapsibleMissingSection
+            label="Unassigned Lobbies"
+            count={unassignedLobbies.length}
+            itemsList={unassignedLobbies}
+            isOpen={openSections.unassigned}
+            onToggle={() => setOpenSections(prev => ({ ...prev, unassigned: !prev.unassigned }))}
+            onItemClick={(id) => onHighlightFloor?.(id)}
+          />
+          <CollapsibleMissingSection
+            label="Spaces with 0 / Missing Area"
+            count={missingAreaLobbies.length}
+            itemsList={missingAreaLobbies}
+            isOpen={openSections.missingArea}
+            onToggle={() => setOpenSections(prev => ({ ...prev, missingArea: !prev.missingArea }))}
+            onItemClick={(id) => onHighlightFloor?.(id)}
+          />
+          <CollapsibleMissingSection
+            label="Spaces with 0 / Missing Height"
+            count={missingHeightLobbies.length}
+            itemsList={missingHeightLobbies}
+            isOpen={openSections.missingHeight}
+            onToggle={() => setOpenSections(prev => ({ ...prev, missingHeight: !prev.missingHeight }))}
+            onItemClick={(id) => onHighlightFloor?.(id)}
+          />
+        </IntelSection>
+
+        {/* Optimization Suggestions */}
+        <IntelSection icon={Sparkles} tone="primary" title="Optimization Suggestions">
+          <ul className="text-[12px] text-muted-foreground space-y-1.5 list-disc pl-4">
+            <li>Calibrate lobby relief dampers to limit differential pressure to 50 Pa against escape stair doors.</li>
+            <li>For fire-fighting lobbies, specify 100% standby fan capacity (duty + standby) with auto changeover per BS 9999.</li>
+            <li>Coordinate air supply duct insulation where routes pass through high-temperature or unconditioned shafts.</li>
+          </ul>
+        </IntelSection>
+
+        {/* Engineering Notes */}
+        <IntelSection icon={Info} tone="muted" title="Engineering Notes">
+          <div className="text-[12px] text-muted-foreground leading-relaxed">
+            NFPA 92 &amp; BS EN 12101-6 Class A/B criteria: Minimum 6.0 air changes per hour (ACH) or 45-50 Pa pressurisation differential maintained against fire floor to ensure tenant escape route integrity.
           </div>
-        )}
+        </IntelSection>
       </div>
+    </div>
+  );
+}
 
-      {/* Fan Configuration Insights */}
-      <div className="flex flex-col gap-2">
-        <span className="text-[11px] font-bold text-foreground uppercase tracking-wider">Duty / Standby Insights</span>
-        <div className="bg-surface-2 border border-border/70 rounded-xl p-3 flex flex-col gap-2">
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-muted-foreground">Configured Fan Systems:</span>
-            <span className="font-bold font-mono text-foreground">{calculatedFanSystems.length}</span>
-          </div>
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-muted-foreground">Standard Multi-Fan Split:</span>
-            <span className="font-bold text-foreground">2 × 50% Duty</span>
-          </div>
-          <div className="flex justify-between items-center text-[11px]">
-            <span className="text-muted-foreground">Average Flow per Duty Fan:</span>
-            <span className="font-bold font-mono text-primary">{totals.perFanCapacity.toLocaleString()} {flowUnit}</span>
-          </div>
+function IntelSection({
+  icon: Icon,
+  title,
+  tone,
+  children,
+}: {
+  icon: any;
+  title: string;
+  tone: "success" | "warning" | "primary" | "muted";
+  children: React.ReactNode;
+}) {
+  const color =
+    tone === "success"
+      ? "text-success"
+      : tone === "warning"
+      ? "text-warning"
+      : tone === "primary"
+      ? "text-primary"
+      : "text-muted-foreground";
+  return (
+    <section className="px-3 py-3 border-b border-border">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={`size-3.5 ${color}`} />
+        <h4 className="text-[11px] uppercase tracking-wider font-semibold">{title}</h4>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function KV({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between text-[12px] py-0.5">
+      <span className="text-muted-foreground">{k}</span>
+      <span className="font-mono tabular font-medium">{v}</span>
+    </div>
+  );
+}
+
+function CollapsibleMissingSection({
+  label,
+  count,
+  itemsList,
+  isOpen,
+  onToggle,
+  onItemClick,
+}: {
+  label: string;
+  count: number;
+  itemsList: { id: string; name: string; detail: string }[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onItemClick: (id: string) => void;
+}) {
+  return (
+    <div className="border-b border-border/40 last:border-b-0 py-1.5">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between text-[12.5px] font-medium text-foreground/90 hover:text-foreground transition-colors cursor-pointer select-none py-0.5"
+      >
+        <span className="flex items-center gap-1.5">
+          <span>{label}</span>
+          {isOpen ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
+        </span>
+        <span className="font-mono tabular font-semibold text-foreground/80">{count}</span>
+      </button>
+
+      {isOpen && count > 0 && (
+        <div className="mt-1.5 max-h-36 overflow-y-auto border border-border/60 rounded-md bg-surface-2 divide-y divide-border/40 font-mono text-[10.5px] text-muted-foreground custom-scrollbar">
+          {itemsList.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onItemClick(item.id)}
+              className="block w-full px-2.5 py-1.5 hover:bg-surface-3 transition-colors text-left cursor-pointer select-none"
+            >
+              <div className="text-[11.5px] leading-relaxed whitespace-nowrap overflow-hidden text-ellipsis block">
+                <span className="font-sans font-medium text-foreground/80 hover:text-primary transition-colors">
+                  {item.name}
+                </span>
+                <span className="text-muted-foreground/50 text-[10px] font-mono ml-1.5">
+                  ({item.detail})
+                </span>
+              </div>
+            </button>
+          ))}
         </div>
-      </div>
+      )}
     </div>
   );
 }

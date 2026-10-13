@@ -1688,6 +1688,42 @@ function DiffuserSelectorPage() {
 
     return (
       <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        {/* Add Comment */}
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-3.5" />
+          <span>Add Comment</span>
+        </ContextMenuItem>
+
+        {/* Flag Space */}
+        <ContextMenuItem
+          onClick={() => {
+            const anyUnflagged = selectedIds.some((id) => !rows.find((s) => s.id === id)?.flagged);
+            const editSet = new Set(selectedIds);
+            updateRowsWithHistory(rows.map((s) => (editSet.has(s.id) ? { ...s, flagged: anyUnflagged } : s)));
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+          <span>{row.flagged ? (isMulti ? "Unflag Selected" : "Unflag Space") : (isMulti ? "Flag Selected" : "Flag Space")}</span>
+        </ContextMenuItem>
+
+        {/* Calculation Breakdown */}
+        <ContextMenuItem
+          onClick={() => {
+            setSelectedDetailRow(row);
+            setShowDetailModal(true);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+        >
+          <Calculator className="size-3.5 text-muted-foreground" />
+          <span>Calculation Breakdown</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         {/* Cut */}
         <ContextMenuItem
           onClick={() => {
@@ -1770,42 +1806,6 @@ function DiffuserSelectorPage() {
           <CopyPlus className="size-3.5 text-muted-foreground" />
           <span>{isMulti ? "Duplicate Selected" : "Duplicate Space"}</span>
           <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</ContextMenuShortcut>
-        </ContextMenuItem>
-
-        <ContextMenuSeparator className="h-px bg-border my-1" />
-
-        {/* Add Comment */}
-        <ContextMenuItem
-          onClick={() => handleOpenComment(row)}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-        >
-          <MessageSquare className="size-3.5" />
-          <span>Add Comment</span>
-        </ContextMenuItem>
-
-        {/* Flag Space */}
-        <ContextMenuItem
-          onClick={() => {
-            const anyUnflagged = selectedIds.some((id) => !rows.find((s) => s.id === id)?.flagged);
-            const editSet = new Set(selectedIds);
-            updateRowsWithHistory(rows.map((s) => (editSet.has(s.id) ? { ...s, flagged: anyUnflagged } : s)));
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-        >
-          <Flag className={`size-3.5 ${row.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
-          <span>{row.flagged ? (isMulti ? "Unflag Selected" : "Unflag Space") : (isMulti ? "Flag Selected" : "Flag Space")}</span>
-        </ContextMenuItem>
-
-        {/* Calculation Breakdown */}
-        <ContextMenuItem
-          onClick={() => {
-            setSelectedDetailRow(row);
-            setShowDetailModal(true);
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-        >
-          <Calculator className="size-3.5 text-muted-foreground" />
-          <span>Calculation Breakdown</span>
         </ContextMenuItem>
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -1933,13 +1933,6 @@ function DiffuserSelectorPage() {
             { value: "slot20", label: "Linear Slot (20mm)" },
             { value: "slot25", label: "Linear Slot (25mm)" },
           ]}
-          hasOther={true}
-          otherLabel="Other / Custom"
-          otherValue={"square" as DiffuserType}
-          onOtherSelect={() => {
-            setEditingRow(r);
-            setIsNewRow(false);
-          }}
           onChange={(val) => {
             setRows(prev => prev.map(row => row.id === r.id ? { ...row, diffType: val } : row));
           }}
@@ -2498,9 +2491,6 @@ function DiffuserSelectorPage() {
                       onClick={() => setShowSourceModal(true)}
                     >
                       <Download className="size-3.5" /> Import
-                    </TBtn>
-                    <TBtn onClick={handleExportExcel}>
-                      <FileSpreadsheet className="size-3.5" /> Export
                     </TBtn>
                     <TBtn
                       disabled={isEffectiveReadOnly}
@@ -3811,7 +3801,7 @@ function DiffuserSelectorPage() {
         {/* Intelligence Drawer */}
         <div
           className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+            intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
           }`}
         >
           {intelOpen && (
@@ -3825,6 +3815,10 @@ function DiffuserSelectorPage() {
               unitSystem={unitSystem}
               onHighlightSpace={(id) => {
                 setSelectedRowIds(new Set([id]));
+                setTimeout(() => {
+                  const el = document.getElementById(id);
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                }, 100);
               }}
             />
           )}
@@ -3864,7 +3858,7 @@ function DiffuserSelectorPage() {
   );
 }
 
-// Diffuser Intelligence Drawer component
+// Diffuser Intelligence Drawer component matching Ventilation standard
 function DiffuserIntelligenceDrawer({
   onClose,
   computedRows,
@@ -3886,12 +3880,59 @@ function DiffuserIntelligenceDrawer({
 }) {
   const ip = unitSystem === "ip";
   const flowUnit = ip ? "CFM" : "L/s";
+  const areaUnit = ip ? "ft²" : "m²";
   const totalSpaces = computedRows.length;
   const compliantSpaces = computedRows.filter(r => r.sizing.status === "PASS");
   const flaggedSpaces = computedRows.filter(r => r.flagged || r.sizing.status !== "PASS");
   const compliancePct = totalSpaces > 0 ? Math.round((compliantSpaces.length / totalSpaces) * 100) : 100;
 
-  // Breakdown by diffuser type
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    missingFlow: false,
+    missingArea: false,
+    soundAlerts: false,
+    unselectedDiffuser: false,
+  });
+
+  // Missing data breakdowns
+  const missingFlowSpaces = useMemo(() => {
+    return computedRows
+      .filter(r => !r.airflow || Number(r.airflow) <= 0)
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        detail: `0 ${flowUnit}`
+      }));
+  }, [computedRows, flowUnit]);
+
+  const missingAreaSpaces = useMemo(() => {
+    return computedRows
+      .filter(r => !r.area || Number(r.area) <= 0)
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        detail: `0 ${areaUnit}`
+      }));
+  }, [computedRows, areaUnit]);
+
+  const soundAlertSpaces = useMemo(() => {
+    return flaggedSpaces.map(r => ({
+      id: r.id,
+      name: r.name,
+      detail: `${r.sizing.nc || "NC > Limit"} (${r.sizing.warning || "Sound/Vel Alert"})`
+    }));
+  }, [flaggedSpaces]);
+
+  const unselectedDiffuserSpaces = useMemo(() => {
+    return computedRows
+      .filter(r => !r.diffType || r.diffType.trim() === "")
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        detail: r.floor || "Unassigned"
+      }));
+  }, [computedRows]);
+
+  // Diffuser counts by type
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     rows.forEach(r => {
@@ -3900,146 +3941,209 @@ function DiffuserIntelligenceDrawer({
     return counts;
   }, [rows]);
 
-  // Top airflow spaces
-  const topAirflowSpaces = useMemo(() => {
-    return [...computedRows]
-      .sort((a, b) => (Number(b.airflow) || 0) - (Number(a.airflow) || 0))
-      .slice(0, 5);
-  }, [computedRows]);
-
   return (
-    <div className="h-full w-[360px] flex flex-col font-sans select-none animate-in fade-in duration-200">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
+    <div className="h-full w-[360px] flex flex-col animate-fade-in font-sans">
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <div className="size-6 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-            <Sparkles className="size-3.5" />
-          </div>
-          <div>
-            <h3 className="text-xs font-bold text-foreground">Diffuser Intelligence</h3>
-            <p className="text-[10px] text-muted-foreground">Automated selection audit &amp; sound compliance</p>
-          </div>
+          <Sparkles className="size-3.5 text-primary" />
+          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
         </div>
-        <button
-          onClick={onClose}
-          className="size-7 rounded-lg hover:bg-surface-2 flex items-center justify-center text-muted-foreground hover:text-foreground transition cursor-pointer"
-        >
-          <X className="size-4" />
+        <button onClick={onClose} className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer">
+          <X className="size-3.5" />
         </button>
-      </div>
+      </header>
 
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 text-xs">
-        {/* Compliance / NC Gauge */}
-        <div className="border border-border rounded-2xl p-4 bg-card shadow-xs flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Acoustic &amp; Velocity Health</span>
-            <span className={`font-mono font-bold text-xs ${compliancePct === 100 ? "text-emerald-600" : "text-amber-600"}`}>
-              {compliancePct}% Compliant
-            </span>
+      <div className="flex-1 overflow-auto">
+        {/* Compliance Status */}
+        <IntelSection icon={CheckCircle2} tone="success" title="Compliance Status">
+          <div className="text-[12px] text-muted-foreground">
+            Acoustic NC rating &amp; neck velocity audit across {totalSpaces} scheduled space{totalSpaces === 1 ? "" : "s"}.
           </div>
-          <div className="h-2 w-full bg-border/60 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-300 ${compliancePct === 100 ? "bg-emerald-500" : "bg-amber-500"}`}
-              style={{ width: `${compliancePct}%` }}
-            />
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>{compliantSpaces.length} of {totalSpaces} spaces within NC limits</span>
-            {flaggedSpaces.length > 0 && <span className="text-red-500 font-semibold">{flaggedSpaces.length} warning(s)</span>}
-          </div>
-        </div>
-
-        {/* Section 1: Air Distribution Overview */}
-        <div className="border border-border rounded-2xl p-4 bg-card shadow-xs flex flex-col gap-2.5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
-            <Wind className="size-3.5 text-primary" /> Airflow &amp; Terminal Totals
-          </span>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="p-2.5 rounded-xl bg-surface-2/60 border border-border/60 flex flex-col">
-              <span className="text-[10px] text-muted-foreground uppercase font-semibold">Total Airflow</span>
-              <span className="text-sm font-bold font-mono text-primary mt-0.5">{totalFlowSum.toLocaleString()} {flowUnit}</span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-surface-2/60 border border-border/60 flex flex-col">
-              <span className="text-[10px] text-muted-foreground uppercase font-semibold">Total Outlets</span>
-              <span className="text-sm font-bold font-mono text-foreground mt-0.5">{totalDiffusersSum} Terminals</span>
-            </div>
-          </div>
-          {totalCoolingKwSum > 0 && (
-            <div className="p-2.5 rounded-xl bg-primary/5 border border-primary/20 text-foreground flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground">Total Cooling Load:</span>
-              <span className="font-mono font-bold text-xs text-primary">{totalCoolingKwSum.toFixed(2)} kW</span>
-            </div>
-          )}
-        </div>
-
-        {/* Section 2: Terminal Type Breakdown */}
-        <div className="border border-border rounded-2xl p-4 bg-card shadow-xs flex flex-col gap-2.5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
-            <Layers className="size-3.5 text-primary" /> Terminal Type Distribution
-          </span>
-          <div className="flex flex-col gap-1.5">
-            {Object.entries(typeCounts).map(([type, count]) => (
-              <div key={type} className="flex items-center justify-between p-2 rounded-xl bg-surface-2/40 border border-border/50 text-[11px]">
-                <span className="font-medium text-foreground">{DIFFUSER_NAMES[type as DiffuserType] || type}</span>
-                <span className="font-mono font-bold text-primary">{count} {count === 1 ? "unit" : "units"}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Section 3: Top Airflow Contributors */}
-        <div className="border border-border rounded-2xl p-4 bg-card shadow-xs flex flex-col gap-2.5">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
-            <Activity className="size-3.5 text-primary" /> Highest Flow Demand Spaces
-          </span>
-          <div className="flex flex-col gap-2">
-            {topAirflowSpaces.map((sp, idx) => (
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
               <div
-                key={sp.id}
-                onClick={() => onHighlightSpace(sp.id)}
-                className="p-2 rounded-xl bg-surface-2/60 hover:bg-surface-2 flex items-center justify-between cursor-pointer transition text-[11px]"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="size-4 rounded-full bg-primary/10 text-primary font-bold text-[10px] flex items-center justify-center">
-                    {idx + 1}
-                  </span>
-                  <span className="font-semibold text-foreground truncate max-w-[130px]">{sp.name}</span>
-                </div>
-                <div className="flex items-center gap-2 font-mono">
-                  <span className="text-muted-foreground text-[10px]">{sp.count} × {sp.sizing.neckSize}</span>
-                  <span className="font-bold text-primary">{Number(sp.airflow || 0).toLocaleString()} {flowUnit}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Section 4: Flagged / Warnings */}
-        {flaggedSpaces.length > 0 && (
-          <div className="border border-destructive/30 bg-destructive/5 rounded-2xl p-4 shadow-xs flex flex-col gap-2.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-destructive flex items-center gap-1.5">
-              <AlertTriangle className="size-3.5" /> High Velocity / Sound Alerts ({flaggedSpaces.length})
-            </span>
-            <div className="flex flex-col gap-2">
-              {flaggedSpaces.map(s => (
-                <div
-                  key={s.id}
-                  onClick={() => onHighlightSpace(s.id)}
-                  className="p-2 rounded-xl bg-background/80 border border-destructive/20 flex flex-col gap-1 cursor-pointer hover:border-destructive transition text-[11px]"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-foreground">{s.name}</span>
-                    <span className="font-mono text-destructive font-bold">{s.sizing.nc}</span>
-                  </div>
-                  <span className="text-[10px] text-destructive leading-tight">
-                    {s.sizing.warning || "Velocity exceeds recommended noise limit for space type"}
-                  </span>
-                </div>
-              ))}
+                className={`h-full ${compliancePct === 100 ? "bg-success" : "bg-warning"}`}
+                style={{ width: `${compliancePct}%` }}
+              />
             </div>
+            <span className="font-mono tabular text-[11.5px] font-medium">{compliancePct}%</span>
           </div>
-        )}
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            {compliantSpaces.length} of {totalSpaces} spaces within acoustic &amp; velocity limits
+          </div>
+        </IntelSection>
+
+        {/* Air Distribution Key Metrics */}
+        <IntelSection icon={Gauge} tone="primary" title="Airflow & Terminal Totals">
+          <KV k="Total Airflow" v={`${totalFlowSum.toLocaleString()} ${flowUnit}`} />
+          <KV k="Total Diffusers / Outlets" v={`${totalDiffusersSum} units`} />
+          {totalCoolingKwSum > 0 && (
+            <KV k="Total Cooling Load" v={`${totalCoolingKwSum.toFixed(2)} kW`} />
+          )}
+          <KV
+            k="Avg Flow / Terminal"
+            v={totalDiffusersSum > 0 ? `${Math.round(totalFlowSum / totalDiffusersSum)} ${flowUnit}` : "0"}
+          />
+        </IntelSection>
+
+        {/* Diffuser Type Distribution */}
+        <IntelSection icon={Layers} tone="muted" title="Terminal Type Breakdown">
+          {Object.keys(typeCounts).length === 0 ? (
+            <div className="text-[12px] text-muted-foreground">No diffusers selected yet.</div>
+          ) : (
+            Object.entries(typeCounts).map(([type, count]) => (
+              <KV
+                key={type}
+                k={DIFFUSER_NAMES[type as DiffuserType] || type}
+                v={`${count} unit${count === 1 ? "" : "s"}`}
+              />
+            ))
+          )}
+        </IntelSection>
+
+        {/* Missing Data Section */}
+        <IntelSection icon={Info} tone="muted" title="Missing Data & Alerts">
+          <CollapsibleMissingSection
+            label="High Sound / Velocity Alerts"
+            count={soundAlertSpaces.length}
+            itemsList={soundAlertSpaces}
+            isOpen={openSections.soundAlerts}
+            onToggle={() => setOpenSections(prev => ({ ...prev, soundAlerts: !prev.soundAlerts }))}
+            onItemClick={(id) => onHighlightSpace(id)}
+          />
+          <CollapsibleMissingSection
+            label="Spaces with 0 / Missing Airflow"
+            count={missingFlowSpaces.length}
+            itemsList={missingFlowSpaces}
+            isOpen={openSections.missingFlow}
+            onToggle={() => setOpenSections(prev => ({ ...prev, missingFlow: !prev.missingFlow }))}
+            onItemClick={(id) => onHighlightSpace(id)}
+          />
+          <CollapsibleMissingSection
+            label="Spaces with 0 / Missing Area"
+            count={missingAreaSpaces.length}
+            itemsList={missingAreaSpaces}
+            isOpen={openSections.missingArea}
+            onToggle={() => setOpenSections(prev => ({ ...prev, missingArea: !prev.missingArea }))}
+            onItemClick={(id) => onHighlightSpace(id)}
+          />
+          <CollapsibleMissingSection
+            label="Unselected Diffuser Type"
+            count={unselectedDiffuserSpaces.length}
+            itemsList={unselectedDiffuserSpaces}
+            isOpen={openSections.unselectedDiffuser}
+            onToggle={() => setOpenSections(prev => ({ ...prev, unselectedDiffuser: !prev.unselectedDiffuser }))}
+            onItemClick={(id) => onHighlightSpace(id)}
+          />
+        </IntelSection>
+
+        {/* Optimization Suggestions */}
+        <IntelSection icon={Sparkles} tone="primary" title="Optimization Suggestions">
+          <ul className="text-[12px] text-muted-foreground space-y-1.5 list-disc pl-4">
+            <li>Increase terminal count in spaces where neck velocity exceeds 2.5 m/s to reduce regenerator sound.</li>
+            <li>Consider linear slot diffusers along exterior perimeters to blanket window heat gain and eliminate downdrafts.</li>
+            <li>For high ceilings (&gt; 3.6 m), select high-induction swirl diffusers or jet nozzles to prevent stratification.</li>
+          </ul>
+        </IntelSection>
+
+        {/* Engineering Notes */}
+        <IntelSection icon={Info} tone="muted" title="Engineering Notes">
+          <div className="text-[12px] text-muted-foreground leading-relaxed">
+            Selection based on ASHRAE Fundamentals Ch. 20 and ADC 1062: GRD-84 sound standards. Recommended criteria: Private Offices (NC 30), Conference Rooms (NC 25-30), Open Plan (NC 35), Lobbies (NC 35-40).
+          </div>
+        </IntelSection>
       </div>
+    </div>
+  );
+}
+
+function IntelSection({
+  icon: Icon,
+  title,
+  tone,
+  children,
+}: {
+  icon: any;
+  title: string;
+  tone: "success" | "warning" | "primary" | "muted";
+  children: React.ReactNode;
+}) {
+  const color =
+    tone === "success"
+      ? "text-success"
+      : tone === "warning"
+      ? "text-warning"
+      : tone === "primary"
+      ? "text-primary"
+      : "text-muted-foreground";
+  return (
+    <section className="px-3 py-3 border-b border-border">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={`size-3.5 ${color}`} />
+        <h4 className="text-[11px] uppercase tracking-wider font-semibold">{title}</h4>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function KV({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between text-[12px] py-0.5">
+      <span className="text-muted-foreground">{k}</span>
+      <span className="font-mono tabular font-medium">{v}</span>
+    </div>
+  );
+}
+
+function CollapsibleMissingSection({
+  label,
+  count,
+  itemsList,
+  isOpen,
+  onToggle,
+  onItemClick,
+}: {
+  label: string;
+  count: number;
+  itemsList: { id: string; name: string; detail: string }[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onItemClick: (id: string) => void;
+}) {
+  return (
+    <div className="border-b border-border/40 last:border-b-0 py-1.5">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between text-[12.5px] font-medium text-foreground/90 hover:text-foreground transition-colors cursor-pointer select-none py-0.5"
+      >
+        <span className="flex items-center gap-1.5">
+          <span>{label}</span>
+          {isOpen ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
+        </span>
+        <span className="font-mono tabular font-semibold text-foreground/80">{count}</span>
+      </button>
+
+      {isOpen && count > 0 && (
+        <div className="mt-1.5 max-h-36 overflow-y-auto border border-border/60 rounded-md bg-surface-2 divide-y divide-border/40 font-mono text-[10.5px] text-muted-foreground custom-scrollbar">
+          {itemsList.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onItemClick(item.id)}
+              className="block w-full px-2.5 py-1.5 hover:bg-surface-3 transition-colors text-left cursor-pointer select-none"
+            >
+              <div className="text-[11.5px] leading-relaxed whitespace-nowrap overflow-hidden text-ellipsis block">
+                <span className="font-sans font-medium text-foreground/80 hover:text-primary transition-colors">
+                  {item.name}
+                </span>
+                <span className="text-muted-foreground/50 text-[10px] font-mono ml-1.5">
+                  ({item.detail})
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

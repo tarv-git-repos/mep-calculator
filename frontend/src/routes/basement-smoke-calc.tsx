@@ -1404,7 +1404,6 @@ function BasementSmokeCalcPage() {
   };
 
   const renderGroupHeader = (groupValue: string) => {
-    const grpComments = getMergedItemComments(groupValue, groupValue, commentsList, "/basement-smoke-calc", project?.id);
     const grp = calculatedGroups.find(g => g.basementLevel === groupValue);
     const count = grp ? grp.rows.length : calculatedRows.filter(r => (r.basementLevel || "Basement 1") === groupValue).length;
     const sub3 = grp ? grp.subtotal3 : 0;
@@ -1416,12 +1415,6 @@ function BasementSmokeCalcPage() {
         <div className="flex items-center gap-1.5 font-medium">
           <strong className="font-bold text-primary">{groupValue}</strong>
           <span className="text-[10.5px] text-muted-foreground font-normal">({count} {count === 1 ? "zone" : "zones"})</span>
-          {grpComments.length > 0 && (
-            <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[9.5px]">
-              <MessageSquare className="size-2.5 fill-blue-500/20" />
-              <span>{grpComments.length}</span>
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-3 font-mono text-[11px] text-muted-foreground">
           <span>Σ 3 ACH: <strong className="text-foreground">{sub3.toLocaleString()} {ip ? "CFM" : "L/s"}</strong></span>
@@ -1496,6 +1489,17 @@ function BasementSmokeCalcPage() {
 
     return (
       <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        {/* Add Comment */}
+        <ContextMenuItem
+          onClick={() => handleOpenComment(row.id, row.name || row.zoneName, "zone")}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-3.5 shrink-0" />
+          <span className="whitespace-nowrap">Add Comment</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         {/* Cut */}
         <ContextMenuItem
           onClick={() => {
@@ -1605,17 +1609,6 @@ function BasementSmokeCalcPage() {
           <CopyPlus className="size-3.5 text-muted-foreground shrink-0" />
           <span className="whitespace-nowrap">{isMulti ? `Duplicate Selected (${targetIds.length})` : "Duplicate Space"}</span>
           <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Ctrl+D</ContextMenuShortcut>
-        </ContextMenuItem>
-
-        <ContextMenuSeparator className="h-px bg-border my-1" />
-
-        {/* Add Comment */}
-        <ContextMenuItem
-          onClick={() => handleOpenComment(row.id, row.name || row.zoneName, "zone")}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-        >
-          <MessageSquare className="size-3.5 shrink-0" />
-          <span className="whitespace-nowrap">Add Comment</span>
         </ContextMenuItem>
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -2546,14 +2539,6 @@ function BasementSmokeCalcPage() {
                     <Download className="size-3.5" /> Import
                   </TBtn>
 
-                  {/* Export Button */}
-                  <TBtn
-                    onClick={handleExportPDF}
-                    title="Generate and Export PDF Calculation Report"
-                  >
-                    <FileText className="size-3.5" /> Export
-                  </TBtn>
-
                   {/* New Space (EXTREME RIGHT) */}
                   <TBtn
                     primary
@@ -3442,23 +3427,30 @@ function BasementSmokeCalcPage() {
           </div>
         </div>
 
-{/* Intelligence Drawer (Collapsible Right Side) */}
-        {intelOpen && (
-          <BasementIntelligenceDrawer
-            onClose={() => setIntelOpen(false)}
-            floors={floors}
-            calculatedRows={calculatedRows}
-            calculatedFanSystems={calculatedFanSystems}
-            unitSystem={unitSystem}
-            onSelectZone={(id) => {
-              setActiveSection("schedule");
-              setTimeout(() => {
-                const el = document.getElementById(id);
-                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-              }, 150);
-            }}
-          />
-        )}
+        {/* Intelligence drawer */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <BasementIntelligenceDrawer
+              onClose={() => setIntelOpen(false)}
+              floors={floors}
+              calculatedRows={calculatedRows}
+              calculatedFanSystems={calculatedFanSystems}
+              unitSystem={unitSystem}
+              onSelectZone={(id) => {
+                setActiveSection("schedule");
+                setSelectedRowIds(new Set([id]));
+                setTimeout(() => {
+                  const el = document.getElementById(id);
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                }, 150);
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {/* Formula Breakdown Modal */}
@@ -4336,6 +4328,17 @@ function BasementIntelligenceDrawer({
   onSelectZone,
 }: BasementIntelligenceDrawerProps) {
   const isIp = unitSystem === "ip";
+  const flowUnit = isIp ? "CFM" : "L/s";
+  const areaUnit = isIp ? "ft²" : "m²";
+  const heightUnit = isIp ? "ft" : "m";
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    oversized: false,
+    unassignedExtract: false,
+    unassignedMakeup: false,
+    missingArea: false,
+    missingHeight: false,
+  });
 
   const totalGrossArea = useMemo(() => floors.reduce((acc, f) => acc + (f.area || 0), 0), [floors]);
   const totalEffArea = useMemo(() => floors.reduce((acc, f) => acc + (f.effArea || 0), 0), [floors]);
@@ -4346,215 +4349,285 @@ function BasementIntelligenceDrawer({
 
   const oversizedZones = useMemo(() => {
     const limit = isIp ? 21500 : 2000;
-    return floors.filter(f => (f.effArea || f.area || 0) > limit);
-  }, [floors, isIp]);
+    return floors
+      .filter(f => (f.effArea || f.area || 0) > limit)
+      .map(f => ({
+        id: f.id,
+        name: f.name,
+        detail: `${(f.effArea || f.area || 0).toLocaleString()} ${areaUnit} (Limit: ${limit.toLocaleString()} ${areaUnit})`,
+      }));
+  }, [floors, isIp, areaUnit]);
 
   const lowHeightZones = useMemo(() => {
     const limit = isIp ? 7.87 : 2.4;
-    return floors.filter(f => (f.height || 0) > 0 && (f.height || 0) < limit);
-  }, [floors, isIp]);
+    return floors
+      .filter(f => (f.height || 0) > 0 && (f.height || 0) < limit)
+      .map(f => ({
+        id: f.id,
+        name: f.name,
+        detail: `${f.height} ${heightUnit} (< ${limit} ${heightUnit})`,
+      }));
+  }, [floors, isIp, heightUnit]);
 
   const unassignedExtractZones = useMemo(() => {
-    return floors.filter(f => !calculatedFanSystems.some(fs => fs.fanType === "Extract" && fs.floorIds.includes(f.id)));
+    return floors
+      .filter(f => !calculatedFanSystems.some(fs => fs.fanType === "Extract" && fs.floorIds.includes(f.id)))
+      .map(f => ({
+        id: f.id,
+        name: f.name,
+        detail: f.basementLevel || "No extract fan linked",
+      }));
   }, [floors, calculatedFanSystems]);
 
   const unassignedMakeupZones = useMemo(() => {
-    return floors.filter(f => !calculatedFanSystems.some(fs => fs.fanType === "Makeup" && fs.floorIds.includes(f.id)));
+    return floors
+      .filter(f => !calculatedFanSystems.some(fs => fs.fanType === "Makeup" && fs.floorIds.includes(f.id)))
+      .map(f => ({
+        id: f.id,
+        name: f.name,
+        detail: f.basementLevel || "No makeup fan linked",
+      }));
   }, [floors, calculatedFanSystems]);
 
+  const missingAreaZones = useMemo(() => {
+    return floors
+      .filter(f => !f.area || Number(f.area) <= 0)
+      .map(f => ({
+        id: f.id,
+        name: f.name,
+        detail: `0 ${areaUnit}`,
+      }));
+  }, [floors, areaUnit]);
+
+  const missingHeightZones = useMemo(() => {
+    return floors
+      .filter(f => !f.height || Number(f.height) <= 0)
+      .map(f => ({
+        id: f.id,
+        name: f.name,
+        detail: `0 ${heightUnit}`,
+      }));
+  }, [floors, heightUnit]);
+
+  const totalZones = floors.length;
+  const compliantZones = floors.filter(
+    f =>
+      (f.area || 0) > 0 &&
+      (f.height || 0) >= (isIp ? 7.87 : 2.4) &&
+      (f.effArea || f.area || 0) <= (isIp ? 21500 : 2000) &&
+      calculatedFanSystems.some(fs => fs.fanType === "Extract" && fs.floorIds.includes(f.id))
+  );
+  const compliancePct = totalZones > 0 ? Math.round((compliantZones.length / totalZones) * 100) : 100;
   const complianceIssuesCount = oversizedZones.length + lowHeightZones.length + unassignedExtractZones.length;
 
   return (
-    <div className="w-80 md:w-96 border-l border-border bg-card flex flex-col h-full shrink-0 shadow-lg animate-fade-in font-sans">
-      {/* Header */}
-      <div className="p-4 border-b border-border/80 flex items-center justify-between bg-header-bg/50">
+    <div className="h-full w-[360px] flex flex-col animate-fade-in font-sans">
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-            <Sparkles className="size-4" />
-          </div>
-          <div>
-            <h3 className="font-bold text-sm text-foreground">Basement Intelligence</h3>
-            <span className="text-[11px] text-muted-foreground font-medium">Compliance &amp; System Health</span>
-          </div>
+          <Sparkles className="size-3.5 text-primary" />
+          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
         </div>
         <button
           onClick={onClose}
-          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-          title="Close Intelligence"
+          className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer"
         >
-          <X className="size-4" />
+          <X className="size-3.5" />
         </button>
-      </div>
+      </header>
 
-      {/* Body Content */}
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 text-xs">
-        {/* Compliance Status Banner */}
-        <div
-          className={`p-3 rounded-xl border flex items-start gap-2.5 ${
-            complianceIssuesCount === 0
-              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-300"
-              : "bg-amber-500/10 border-amber-500/30 text-amber-900 dark:text-amber-200"
-          }`}
-        >
-          {complianceIssuesCount === 0 ? (
-            <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-          ) : (
-            <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-          )}
-          <div className="flex flex-col gap-0.5">
-            <span className="font-bold text-xs">
-              {complianceIssuesCount === 0
-                ? "All Zones Meet Smoke & Code Guidelines"
-                : `${complianceIssuesCount} Warning / Advisory Item${complianceIssuesCount > 1 ? "s" : ""}`}
-            </span>
-            <span className="text-[11px] opacity-90 leading-tight">
-              {complianceIssuesCount === 0
-                ? "Zone areas, clear heights, and fan associations conform to NFPA 92 and BS 7346-7 standards."
-                : "Review oversized compartments or unassigned fan system routes below."}
-            </span>
+      <div className="flex-1 overflow-auto">
+        {/* Compliance Status */}
+        <IntelSection icon={CheckCircle2} tone="success" title="Compliance Status">
+          <div className="text-[12px] text-muted-foreground">
+            NFPA 92 &amp; BS 7346-7 smoke extract validation across {totalZones} basement zone{totalZones === 1 ? "" : "s"}.
           </div>
-        </div>
-
-        {/* Key Aggregate Metrics */}
-        <div className="border border-border/80 rounded-2xl p-3.5 bg-surface-2/40 flex flex-col gap-2.5">
-          <div className="flex items-center justify-between pb-1.5 border-b border-border/60">
-            <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-              Total Airflow &amp; Area Demands
-            </span>
-            <span className="font-mono text-[10px] font-bold text-primary">{floors.length} Zones</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="p-2 bg-background/80 rounded-lg border border-border/50 flex flex-col">
-              <span className="text-[9.5px] font-medium text-muted-foreground uppercase">Effective Area</span>
-              <span className="text-xs font-bold font-mono text-foreground">
-                {totalEffArea.toLocaleString()} <span className="text-[9.5px] font-normal text-muted-foreground">{isIp ? "ft²" : "m²"}</span>
-              </span>
-            </div>
-
-            <div className="p-2 bg-background/80 rounded-lg border border-border/50 flex flex-col">
-              <span className="text-[9.5px] font-medium text-muted-foreground uppercase">Gross Footprint</span>
-              <span className="text-xs font-bold font-mono text-foreground">
-                {totalGrossArea.toLocaleString()} <span className="text-[9.5px] font-normal text-muted-foreground">{isIp ? "ft²" : "m²"}</span>
-              </span>
-            </div>
-
-            <div className="p-2 bg-rose-500/10 rounded-lg border border-rose-500/20 flex flex-col">
-              <span className="text-[9.5px] font-semibold text-rose-600 dark:text-rose-400 uppercase">Emergency Extract (10 ACH)</span>
-              <span className="text-xs font-bold font-mono text-rose-700 dark:text-rose-300">
-                {totalFireAirflow.toLocaleString()} <span className="text-[9.5px] font-normal opacity-75">{isIp ? "CFM" : "L/s"}</span>
-              </span>
-            </div>
-
-            <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20 flex flex-col">
-              <span className="text-[9.5px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase">Makeup Air (80%)</span>
-              <span className="text-xs font-bold font-mono text-emerald-700 dark:text-emerald-300">
-                {recommendedMakeupAirflow.toLocaleString()} <span className="text-[9.5px] font-normal opacity-75">{isIp ? "CFM" : "L/s"}</span>
-              </span>
-            </div>
-          </div>
-
-          <div className="flex justify-between items-center pt-1 border-t border-border/40 text-[10.5px] text-muted-foreground font-mono">
-            <span>Normal 3 ACH: <strong>{totalNormal3Airflow.toLocaleString()} {isIp ? "CFM" : "L/s"}</strong></span>
-            <span>Normal 6 ACH: <strong>{totalNormal6Airflow.toLocaleString()} {isIp ? "CFM" : "L/s"}</strong></span>
-          </div>
-        </div>
-
-        {/* Warnings & Checks Section */}
-        {oversizedZones.length > 0 && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex flex-col gap-1.5 text-rose-900 dark:text-rose-200">
-            <div className="flex items-center gap-1.5 font-bold text-[11px]">
-              <AlertTriangle className="size-3.5 text-rose-600 dark:text-rose-400" />
-              <span>Oversized Smoke Compartment (&gt; {isIp ? "21,500 ft²" : "2,000 m²"})</span>
-            </div>
-            <p className="text-[10.5px] leading-relaxed text-rose-800 dark:text-rose-300">
-              Per BS 7346-7 &amp; NFPA 92, single smoke zones should not exceed {isIp ? "21,500 ft²" : "2,000 m²"} without dedicated smoke curtains/barriers:
-            </p>
-            <div className="flex flex-wrap gap-1 mt-0.5">
-              {oversizedZones.map(z => (
-                <button
-                  key={z.id}
-                  onClick={() => onSelectZone?.(z.id)}
-                  className="px-2 py-0.5 bg-rose-200 dark:bg-rose-900/60 rounded text-[10px] font-mono font-bold hover:underline cursor-pointer"
-                >
-                  {z.name} ({z.effArea} {isIp ? "ft²" : "m²"})
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {unassignedExtractZones.length > 0 && (
-          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex flex-col gap-1.5 text-amber-900 dark:text-amber-200">
-            <div className="flex items-center gap-1.5 font-bold text-[11px]">
-              <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400" />
-              <span>Unassigned Extract Zones ({unassignedExtractZones.length})</span>
-            </div>
-            <p className="text-[10.5px] leading-relaxed text-amber-800 dark:text-amber-300">
-              The following zones are not linked to any Extract Fan System:
-            </p>
-            <div className="flex flex-wrap gap-1 mt-0.5">
-              {unassignedExtractZones.map(z => (
-                <span key={z.id} className="px-2 py-0.5 bg-amber-200 dark:bg-amber-900/60 rounded text-[10px] font-mono font-bold">
-                  {z.name}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Zone Quick Inspector */}
-        <div className="border border-border/80 rounded-2xl p-3.5 bg-card flex flex-col gap-2.5">
-          <div className="flex items-center justify-between pb-1 border-b border-border/60">
-            <div className="flex items-center gap-1.5">
-              <Layers className="size-3.5 text-primary" />
-              <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-                Zone Duty Breakdown
-              </span>
-            </div>
-            <span className="text-[10px] text-muted-foreground">Click to locate</span>
-          </div>
-
-          <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto pr-1">
-            {calculatedRows.map(row => (
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
               <div
-                key={row.id}
-                onClick={() => onSelectZone?.(row.id)}
-                className="p-2 rounded-xl bg-surface-2/60 hover:bg-surface-2 border border-border/60 flex flex-col gap-1 cursor-pointer transition"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-foreground text-xs">{row.name}</span>
-                  <span className="text-primary font-mono font-bold text-xs">
-                    {row.flow10ach.toLocaleString()} {isIp ? "CFM" : "L/s"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[10.5px] text-muted-foreground font-mono">
-                  <span>Eff: {row.effArea} {isIp ? "ft²" : "m²"}</span>
-                  <span>Normal: {row.flow3ach.toLocaleString()} | {row.flow6ach.toLocaleString()}</span>
-                </div>
-              </div>
-            ))}
-
-            {calculatedRows.length === 0 && (
-              <div className="text-center py-3 text-muted-foreground text-xs">
-                No zones created yet.
-              </div>
-            )}
+                className={`h-full ${compliancePct === 100 ? "bg-success" : "bg-warning"}`}
+                style={{ width: `${compliancePct}%` }}
+              />
+            </div>
+            <span className="font-mono tabular text-[11.5px] font-medium">{compliancePct}%</span>
           </div>
-        </div>
-
-        {/* Governing Engineering Codes */}
-        <div className="border border-border/80 rounded-2xl p-3.5 bg-card flex flex-col gap-2">
-          <span className="text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground">
-            Governing Standards &amp; Codes
-          </span>
-          <div className="text-[11px] text-muted-foreground space-y-1.5 leading-relaxed">
-            <p>• <strong>NFPA 92 / NFPA 88A</strong>: Minimum 10 air changes per hour (ACH) emergency smoke extraction in car parks and sub-grade structures.</p>
-            <p>• <strong>Makeup Air Velocity</strong>: Maximum velocity across supply openings &le; 2.5 m/s (500 fpm) to avoid disruptive turbulence.</p>
-            <p>• <strong>BS 7346-7 / BS 9999</strong>: Dual-speed fan sizing for 3/6 ACH continuous car park ventilation and 10 ACH fire mode duty.</p>
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            {compliantZones.length} of {totalZones} zones fully compliant with smoke barriers &amp; fans
           </div>
-        </div>
+        </IntelSection>
+
+        {/* Airflow & Capacity Demands */}
+        <IntelSection icon={Gauge} tone="primary" title="Airflow & Capacity Demands">
+          <KV k="Emergency Extract (10 ACH)" v={`${totalFireAirflow.toLocaleString()} ${flowUnit}`} />
+          <KV k="Makeup Air Supply (80%)" v={`${recommendedMakeupAirflow.toLocaleString()} ${flowUnit}`} />
+          <KV k="Normal Day Extract (3 ACH)" v={`${totalNormal3Airflow.toLocaleString()} ${flowUnit}`} />
+          <KV k="Normal Peak Extract (6 ACH)" v={`${totalNormal6Airflow.toLocaleString()} ${flowUnit}`} />
+          <KV k="Effective Area" v={`${totalEffArea.toLocaleString()} ${areaUnit}`} />
+          <KV k="Gross Footprint" v={`${totalGrossArea.toLocaleString()} ${areaUnit}`} />
+          <KV k="Active Smoke Zones" v={`${totalZones} zones`} />
+          <KV k="Configured Fan Systems" v={`${calculatedFanSystems.length} systems`} />
+        </IntelSection>
+
+        {/* Compartment & Code Checks */}
+        <IntelSection icon={AlertTriangle} tone={complianceIssuesCount > 0 ? "warning" : "muted"} title="Compartment & Code Checks">
+          <KV k="Max Compartment Limit" v={isIp ? "21,500 ft²" : "2,000 m²"} />
+          <KV k="Oversized Compartments" v={oversizedZones.length} />
+          <KV k="Min Clear Ceiling Height" v={isIp ? "7.87 ft (2.4 m)" : "2.4 m"} />
+          <KV k="Low Height Warnings" v={lowHeightZones.length} />
+          <KV k="Unassigned Extract Zones" v={unassignedExtractZones.length} />
+          <KV k="Unassigned Makeup Zones" v={unassignedMakeupZones.length} />
+        </IntelSection>
+
+        {/* Missing Data Section */}
+        <IntelSection icon={Info} tone="muted" title="Missing Data & Zone Coverage">
+          <CollapsibleMissingSection
+            label="Oversized Smoke Zones (> 2,000 m²)"
+            count={oversizedZones.length}
+            itemsList={oversizedZones}
+            isOpen={openSections.oversized}
+            onToggle={() => setOpenSections(prev => ({ ...prev, oversized: !prev.oversized }))}
+            onItemClick={(id) => onSelectZone?.(id)}
+          />
+          <CollapsibleMissingSection
+            label="Zones Unassigned to Extract Fan"
+            count={unassignedExtractZones.length}
+            itemsList={unassignedExtractZones}
+            isOpen={openSections.unassignedExtract}
+            onToggle={() => setOpenSections(prev => ({ ...prev, unassignedExtract: !prev.unassignedExtract }))}
+            onItemClick={(id) => onSelectZone?.(id)}
+          />
+          <CollapsibleMissingSection
+            label="Zones Unassigned to Makeup Fan"
+            count={unassignedMakeupZones.length}
+            itemsList={unassignedMakeupZones}
+            isOpen={openSections.unassignedMakeup}
+            onToggle={() => setOpenSections(prev => ({ ...prev, unassignedMakeup: !prev.unassignedMakeup }))}
+            onItemClick={(id) => onSelectZone?.(id)}
+          />
+          <CollapsibleMissingSection
+            label="Zones with 0 / Missing Area"
+            count={missingAreaZones.length}
+            itemsList={missingAreaZones}
+            isOpen={openSections.missingArea}
+            onToggle={() => setOpenSections(prev => ({ ...prev, missingArea: !prev.missingArea }))}
+            onItemClick={(id) => onSelectZone?.(id)}
+          />
+          <CollapsibleMissingSection
+            label="Zones with 0 / Missing Clear Height"
+            count={missingHeightZones.length}
+            itemsList={missingHeightZones}
+            isOpen={openSections.missingHeight}
+            onToggle={() => setOpenSections(prev => ({ ...prev, missingHeight: !prev.missingHeight }))}
+            onItemClick={(id) => onSelectZone?.(id)}
+          />
+        </IntelSection>
+
+        {/* Optimization Suggestions */}
+        <IntelSection icon={Sparkles} tone="primary" title="Optimization Suggestions">
+          <ul className="text-[12px] text-muted-foreground space-y-1.5 list-disc pl-4">
+            <li>Limit makeup air intake velocity to &le; 2.5 m/s (500 fpm) across louvers to prevent feeding turbulence into the rising smoke layer.</li>
+            <li>Locate makeup air supply louvers on opposite perimeter walls from smoke exhaust points to establish a positive cross-flow sweep.</li>
+            <li>For basement levels with depths &gt; 9 m or multiple sub-grades, specify dual-speed emergency fans rated for 300°C / 2h or 400°C / 2h operation.</li>
+          </ul>
+        </IntelSection>
+
+        {/* Engineering Notes */}
+        <IntelSection icon={Info} tone="muted" title="Engineering Notes">
+          <div className="text-[12px] text-muted-foreground leading-relaxed">
+            NFPA 92 &amp; BS 7346-7 / BS 9999: 10 ACH emergency smoke extraction in car parks, with 80% dedicated fresh makeup air. Individual smoke compartments must not exceed 2,000 m² (21,500 sq ft) without approved smoke barriers.
+          </div>
+        </IntelSection>
       </div>
+    </div>
+  );
+}
+
+function IntelSection({
+  icon: Icon,
+  title,
+  tone,
+  children,
+}: {
+  icon: any;
+  title: string;
+  tone: "success" | "warning" | "primary" | "muted";
+  children: React.ReactNode;
+}) {
+  const color =
+    tone === "success"
+      ? "text-success"
+      : tone === "warning"
+      ? "text-warning"
+      : tone === "primary"
+      ? "text-primary"
+      : "text-muted-foreground";
+  return (
+    <section className="px-3 py-3 border-b border-border">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={`size-3.5 ${color}`} />
+        <h4 className="text-[11px] uppercase tracking-wider font-semibold">{title}</h4>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function KV({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between text-[12px] py-0.5">
+      <span className="text-muted-foreground">{k}</span>
+      <span className="font-mono tabular font-medium">{v}</span>
+    </div>
+  );
+}
+
+function CollapsibleMissingSection({
+  label,
+  count,
+  itemsList,
+  isOpen,
+  onToggle,
+  onItemClick,
+}: {
+  label: string;
+  count: number;
+  itemsList: { id: string; name: string; detail: string }[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onItemClick: (id: string) => void;
+}) {
+  return (
+    <div className="border-b border-border/40 last:border-b-0 py-1.5">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between text-[12.5px] font-medium text-foreground/90 hover:text-foreground transition-colors cursor-pointer select-none py-0.5"
+      >
+        <span className="flex items-center gap-1.5">
+          <span>{label}</span>
+          {isOpen ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
+        </span>
+        <span className="font-mono tabular font-semibold text-foreground/80">{count}</span>
+      </button>
+
+      {isOpen && count > 0 && (
+        <div className="mt-1.5 max-h-36 overflow-y-auto border border-border/60 rounded-md bg-surface-2 divide-y divide-border/40 font-mono text-[10.5px] text-muted-foreground custom-scrollbar">
+          {itemsList.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onItemClick(item.id)}
+              className="block w-full px-2.5 py-1.5 hover:bg-surface-3 transition-colors text-left cursor-pointer select-none"
+            >
+              <div className="text-[11.5px] leading-relaxed whitespace-nowrap overflow-hidden text-ellipsis block">
+                <span className="font-sans font-medium text-foreground/80 hover:text-primary transition-colors">
+                  {item.name}
+                </span>
+                <span className="text-muted-foreground/50 text-[10px] font-mono ml-1.5">
+                  ({item.detail})
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

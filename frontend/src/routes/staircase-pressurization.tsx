@@ -878,7 +878,6 @@ function StaircasePressurizationPage() {
             }))}
           hasOther={true}
           otherLabel="Other / Custom Door"
-          otherValue={"single_leaf_into" as DoorTypeKey}
           onOtherSelect={() => {
             setEditingStaircase(row);
             setIsNewStaircase(false);
@@ -954,10 +953,7 @@ function StaircasePressurizationPage() {
       render: (row) => {
         const calc = calculateStaircase(row, unitSystem === "ip");
         return (
-          <span
-            className="font-mono tabular text-[13.5px] text-primary font-bold cursor-pointer text-center w-full block"
-            onDoubleClick={() => setPreviewRow(row)}
-          >
+          <span className="font-mono tabular text-[13.5px] text-primary font-bold text-center w-full block">
             {unitSystem === "ip" ? calc.totalFanCapacityCfm.toLocaleString() : calc.totalFanCapacityLs.toLocaleString()}
           </span>
         );
@@ -972,10 +968,7 @@ function StaircasePressurizationPage() {
       render: (row) => {
         const calc = calculateStaircase(row, unitSystem === "ip");
         return (
-          <span
-            className="cursor-pointer font-mono tabular text-[13.5px] font-medium text-foreground text-center w-full block"
-            onDoubleClick={() => setPreviewRow(row)}
-          >
+          <span className="font-mono tabular text-[13.5px] font-medium text-foreground text-center w-full block">
             {unitSystem === "ip" ? calc.designPressureDropInWg : calc.designPressureDropPa}
           </span>
         );
@@ -990,10 +983,7 @@ function StaircasePressurizationPage() {
       render: (row) => {
         const calc = calculateStaircase(row, unitSystem === "ip");
         return (
-          <span
-            className="cursor-pointer font-mono tabular text-[13.5px] font-medium text-foreground text-center w-full block"
-            onDoubleClick={() => setPreviewRow(row)}
-          >
+          <span className="font-mono tabular text-[13.5px] font-medium text-foreground text-center w-full block">
             {unitSystem === "ip" ? calc.reliefAreaSqFt : calc.reliefAreaM2}
           </span>
         );
@@ -1075,6 +1065,33 @@ function StaircasePressurizationPage() {
 
     return (
       <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+        {/* Add Comment */}
+        <ContextMenuItem
+          onClick={() => {
+            if (isEffectiveReadOnly) {
+              toast.info("Workspace is in Read-Only mode.");
+              return;
+            }
+            setCommentTargetItem(row);
+            setCommentModalOpen(true);
+          }}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <MessageSquare className="size-3.5" />
+          <span>Add Comment</span>
+        </ContextMenuItem>
+
+        {/* Calculation Preview */}
+        <ContextMenuItem
+          onClick={() => setPreviewRow(row)}
+          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+        >
+          <Sparkles className="size-3.5 text-muted-foreground" />
+          <span>Calculation Preview</span>
+        </ContextMenuItem>
+
+        <ContextMenuSeparator className="h-px bg-border my-1" />
+
         {/* Cut */}
         <ContextMenuItem
           onClick={() => {
@@ -1138,33 +1155,6 @@ function StaircasePressurizationPage() {
           <span>Edit Staircase Parameters</span>
           <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
         </ContextMenuItem>
-
-        {/* Calculation Preview */}
-        <ContextMenuItem
-          onClick={() => setPreviewRow(row)}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
-        >
-          <Sparkles className="size-3.5 text-muted-foreground" />
-          <span>Calculation Preview</span>
-        </ContextMenuItem>
-
-        {/* Add Comment */}
-        <ContextMenuItem
-          onClick={() => {
-            if (isEffectiveReadOnly) {
-              toast.info("Workspace is in Read-Only mode.");
-              return;
-            }
-            setCommentTargetItem(row);
-            setCommentModalOpen(true);
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-        >
-          <MessageSquare className="size-3.5" />
-          <span>Add Comment</span>
-        </ContextMenuItem>
-
-        <ContextMenuSeparator className="h-px bg-border my-1" />
 
         {/* Duplicate */}
         <ContextMenuItem
@@ -1509,9 +1499,6 @@ function StaircasePressurizationPage() {
                       <ClipboardPaste className="size-3.5 text-primary" /> Paste ({clipboard.length})
                     </TBtn>
                   )}
-                  <TBtn onClick={handleExportExcel} title="Export to Excel">
-                    <FileSpreadsheet className="size-3.5" /> Export
-                  </TBtn>
                   <TBtn primary onClick={addItem} disabled={isEffectiveReadOnly}>
                     <Plus className="size-3.5" /> Add Staircase
                   </TBtn>
@@ -1894,6 +1881,28 @@ function StaircasePressurizationPage() {
             );
           })() : null}
         </div>
+
+        {/* Intelligence drawer */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[360px] mt-4 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <StaircaseIntelligenceDrawer
+              onClose={() => setIntelOpen(false)}
+              items={items}
+              unitSystem={unitSystem}
+              onSelectStaircase={(id) => {
+                setSelectedItems(new Set([id]));
+                setTimeout(() => {
+                  const el = document.getElementById(id);
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                }, 100);
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {/* Edit Staircase Modal */}
@@ -2045,6 +2054,14 @@ function StaircaseIntelligenceDrawer({
   onSelectStaircase: (id: string) => void;
 }) {
   const isIp = unitSystem === "ip";
+  const flowUnit = isIp ? "CFM" : "L/s";
+  const areaUnit = isIp ? "sq ft" : "m²";
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    missingOpen: false,
+    missingClosed: false,
+    missingDoorArea: false,
+  });
 
   const totals = React.useMemo(() => {
     let totalFanCapacityLs = 0;
@@ -2075,127 +2092,233 @@ function StaircaseIntelligenceDrawer({
     };
   }, [items]);
 
-  const allCompliant = items.length > 0 && items.every(i => (Number(i.doorArea) || 0) > 0 && (Number(i.openDoorsCount) || 0) > 0);
+  const missingOpenDoors = React.useMemo(() => {
+    return items
+      .filter(i => !i.openDoorsCount || Number(i.openDoorsCount) <= 0)
+      .map(i => ({
+        id: i.id,
+        name: i.name,
+        detail: "0 open doors configured",
+      }));
+  }, [items]);
+
+  const missingClosedDoors = React.useMemo(() => {
+    return items
+      .filter(i => !i.closedDoorsCount || Number(i.closedDoorsCount) <= 0)
+      .map(i => ({
+        id: i.id,
+        name: i.name,
+        detail: "0 closed doors configured",
+      }));
+  }, [items]);
+
+  const missingDoorArea = React.useMemo(() => {
+    return items
+      .filter(i => !i.doorArea || Number(i.doorArea) <= 0)
+      .map(i => ({
+        id: i.id,
+        name: i.name,
+        detail: `0 ${areaUnit}`,
+      }));
+  }, [items, areaUnit]);
+
+  const totalSystems = items.length;
+  const compliantSystems = items.filter(
+    i => (Number(i.doorArea) || 0) > 0 && (Number(i.openDoorsCount) || 0) > 0 && (Number(i.closedDoorsCount) || 0) > 0
+  );
+  const compliancePct = totalSystems > 0 ? Math.round((compliantSystems.length / totalSystems) * 100) : 100;
 
   return (
-    <div className="h-full w-[360px] flex flex-col font-sans select-none animate-in fade-in duration-200">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
+    <div className="h-full w-[360px] flex flex-col animate-fade-in font-sans">
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
         <div className="flex items-center gap-2">
-          <div className="size-6 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-            <Sparkles className="size-3.5" />
-          </div>
-          <div>
-            <h3 className="text-xs font-bold text-foreground">Pressurization Intelligence</h3>
-            <p className="text-[10px] text-muted-foreground">NFPA 92 &amp; BS EN 12101-6 Code Audit</p>
-          </div>
+          <Sparkles className="size-3.5 text-primary" />
+          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
         </div>
-        <button
-          onClick={onClose}
-          className="size-7 rounded-lg hover:bg-surface-2 flex items-center justify-center text-muted-foreground hover:text-foreground transition cursor-pointer"
-        >
-          <X className="size-4" />
+        <button onClick={onClose} className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer">
+          <X className="size-3.5" />
         </button>
+      </header>
+
+      <div className="flex-1 overflow-auto">
+        {/* Compliance Status */}
+        <IntelSection icon={CheckCircle2} tone="success" title="Compliance Status">
+          <div className="text-[12px] text-muted-foreground">
+            NFPA 92 &amp; BS EN 12101-6 audit across {totalSystems} staircase shaft{totalSystems === 1 ? "" : "s"}.
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
+              <div
+                className={`h-full ${compliancePct === 100 ? "bg-success" : "bg-warning"}`}
+                style={{ width: `${compliancePct}%` }}
+              />
+            </div>
+            <span className="font-mono tabular text-[11.5px] font-medium">{compliancePct}%</span>
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            {compliantSystems.length} of {totalSystems} staircases fully sized with active relief
+          </div>
+        </IntelSection>
+
+        {/* System Summary KPI */}
+        <IntelSection icon={Gauge} tone="primary" title="Pressurisation Airflow & Relief">
+          <KV
+            k="Total Fan Capacity"
+            v={`${isIp ? totals.totalFanCapacityCfm.toLocaleString() : totals.totalFanCapacityLs.toLocaleString()} ${flowUnit}`}
+          />
+          <KV
+            k="Total Relief Area"
+            v={`${isIp ? totals.totalReliefAreaSqFt.toFixed(2) : totals.totalReliefAreaM2.toFixed(2)} ${areaUnit}`}
+          />
+          <KV k="Design Open Doors" v={`${totals.totalOpenDoors} doors`} />
+          <KV k="Design Closed Doors" v={`${totals.totalClosedDoors} doors`} />
+          <KV k="Staircase Shafts" v={`${totalSystems} systems`} />
+        </IntelSection>
+
+        {/* Code Criteria & Safety Checks */}
+        <IntelSection icon={AlertTriangle} tone={missingOpenDoors.length > 0 ? "warning" : "muted"} title="Code Criteria & Safety">
+          <KV k="Min Egress Velocity" v="1.0 m/s (197 fpm)" />
+          <KV k="Closed Door Safety Margin" v="+25% leakage" />
+          <KV k="Final Fan Sizing Factor" v="+10% flow" />
+          <KV k="Max Door Opening Force" v="110 N (NFPA 101)" />
+          <KV k="Relief Pressure Setpoint" v={isIp ? "0.05 in.wg" : "12.5 Pa"} />
+        </IntelSection>
+
+        {/* Missing Data Section */}
+        <IntelSection icon={Info} tone="muted" title="Missing Data & Configuration">
+          <CollapsibleMissingSection
+            label="Staircases with 0 Open Doors"
+            count={missingOpenDoors.length}
+            itemsList={missingOpenDoors}
+            isOpen={openSections.missingOpen}
+            onToggle={() => setOpenSections(prev => ({ ...prev, missingOpen: !prev.missingOpen }))}
+            onItemClick={(id) => onSelectStaircase(id)}
+          />
+          <CollapsibleMissingSection
+            label="Staircases with 0 Closed Doors"
+            count={missingClosedDoors.length}
+            itemsList={missingClosedDoors}
+            isOpen={openSections.missingClosed}
+            onToggle={() => setOpenSections(prev => ({ ...prev, missingClosed: !prev.missingClosed }))}
+            onItemClick={(id) => onSelectStaircase(id)}
+          />
+          <CollapsibleMissingSection
+            label="Staircases with 0 / Missing Door Area"
+            count={missingDoorArea.length}
+            itemsList={missingDoorArea}
+            isOpen={openSections.missingDoorArea}
+            onToggle={() => setOpenSections(prev => ({ ...prev, missingDoorArea: !prev.missingDoorArea }))}
+            onItemClick={(id) => onSelectStaircase(id)}
+          />
+        </IntelSection>
+
+        {/* Optimization Suggestions */}
+        <IntelSection icon={Sparkles} tone="primary" title="Optimization Suggestions">
+          <ul className="text-[12px] text-muted-foreground space-y-1.5 list-disc pl-4">
+            <li>For stairwells taller than 11 m (&gt; 3 storeys), provide multi-injection discharge points every 3 floors to prevent buoyancy decoupling.</li>
+            <li>Calibrate barometric overpressure relief dampers to crack open at 12.5 Pa / 50 Pa to limit door opening force below 110 N.</li>
+            <li>In high-rise towers (&gt; 20 storeys), account for minimum 3 open doors during simultaneous phase evacuation.</li>
+          </ul>
+        </IntelSection>
+
+        {/* Engineering Notes */}
+        <IntelSection icon={Info} tone="muted" title="Engineering Notes">
+          <div className="text-[12px] text-muted-foreground leading-relaxed">
+            NFPA 92 &amp; BS EN 12101-6 Class B &amp; D criteria: 1.0 m/s minimum airflow velocity across open doors, 50 Pa differential when doors are closed. 25% closed door safety margin + 10% fan design factor applied.
+          </div>
+        </IntelSection>
       </div>
+    </div>
+  );
+}
 
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 text-xs">
-        {/* Compliance Gauge Card */}
-        <div className="border border-border rounded-2xl p-4 bg-card shadow-xs flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Standard Compliance</span>
-            <span className={`font-mono font-bold text-xs ${allCompliant ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
-              {allCompliant ? "100% Compliant" : "Review Needed"}
-            </span>
-          </div>
-          <div className="h-2 w-full bg-border/60 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-300 ${allCompliant ? "bg-emerald-500" : "bg-amber-500"}`}
-              style={{ width: allCompliant ? "100%" : "70%" }}
-            />
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            {allCompliant 
-              ? "All active staircases comply with minimum 1.0 m/s egress velocity and safety allowances."
-              : "Ensure all staircases have valid door areas and open/closed door counts."}
-          </p>
-        </div>
-
-        {/* System Summary KPI Grid */}
-        <div className="grid grid-cols-2 gap-2.5">
-          <div className="p-3 bg-surface-2 rounded-xl border border-border/60 flex flex-col gap-1">
-            <span className="text-[10.5px] font-semibold text-muted-foreground uppercase">Total Airflow</span>
-            <span className="text-base font-bold font-mono text-primary">
-              {isIp ? totals.totalFanCapacityCfm.toLocaleString() : totals.totalFanCapacityLs.toLocaleString()}
-              <span className="text-[10px] font-normal text-muted-foreground ml-1">{isIp ? "CFM" : "L/s"}</span>
-            </span>
-          </div>
-
-          <div className="p-3 bg-surface-2 rounded-xl border border-border/60 flex flex-col gap-1">
-            <span className="text-[10.5px] font-semibold text-muted-foreground uppercase">Total Relief Area</span>
-            <span className="text-base font-bold font-mono text-primary">
-              {isIp ? totals.totalReliefAreaSqFt.toFixed(2) : totals.totalReliefAreaM2.toFixed(2)}
-              <span className="text-[10px] font-normal text-muted-foreground ml-1">{isIp ? "sq ft" : "m²"}</span>
-            </span>
-          </div>
-
-          <div className="p-3 bg-surface-2 rounded-xl border border-border/60 flex flex-col gap-1">
-            <span className="text-[10.5px] font-semibold text-muted-foreground uppercase">Open Doors</span>
-            <span className="text-base font-bold font-mono text-foreground">
-              {totals.totalOpenDoors} <span className="text-[10px] font-normal text-muted-foreground">doors</span>
-            </span>
-          </div>
-
-          <div className="p-3 bg-surface-2 rounded-xl border border-border/60 flex flex-col gap-1">
-            <span className="text-[10.5px] font-semibold text-muted-foreground uppercase">Closed Doors</span>
-            <span className="text-base font-bold font-mono text-foreground">
-              {totals.totalClosedDoors} <span className="text-[10px] font-normal text-muted-foreground">doors</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Staircase System Breakdown */}
-        <div className="border border-border rounded-2xl p-4 bg-card shadow-xs flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Staircase Systems ({items.length})</span>
-          </div>
-
-          <div className="flex flex-col gap-2 max-h-56 overflow-y-auto pr-1">
-            {items.map(stair => {
-              const calc = calculateStaircase(stair, isIp);
-              return (
-                <div
-                  key={stair.id}
-                  onClick={() => onSelectStaircase(stair.id)}
-                  className="p-2.5 rounded-xl bg-surface-2/60 hover:bg-surface-2 border border-border/70 flex flex-col gap-1 cursor-pointer transition"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-foreground text-xs">{stair.name}</span>
-                    <span className="text-primary font-mono font-bold text-xs">
-                      {isIp ? calc.totalFanCapacityCfm.toLocaleString() + " CFM" : calc.totalFanCapacityLs.toLocaleString() + " L/s"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>{DOOR_TYPES_CONFIG[stair.doorType]?.name || stair.doorType}</span>
-                    <span>Relief: {isIp ? calc.reliefAreaSqFt + " sq ft" : calc.reliefAreaM2 + " m²"}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Engineering Code Rules */}
-        <div className="border border-border rounded-2xl p-4 bg-card shadow-xs flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Governing Engineering Codes</span>
-          </div>
-          <div className="text-[11px] text-muted-foreground space-y-1.5 leading-relaxed">
-            <p>• <strong>NFPA 92 / BS EN 12101-6</strong>: Min egress door velocity of 1.0 m/s (196.85 ft/min) across open escape doors.</p>
-            <p>• <strong>Safety Factors</strong>: 25% safety margin on closed door leakage + 10% design safety factor on final fan volume.</p>
-            <p>• <strong>Overpressure Relief</strong>: Sized for {isIp ? "0.05 in.wg (12.5 Pa)" : "12.5 Pa"} differential to prevent door opening force exceeding 110 N (133 N max per NFPA 101).</p>
-          </div>
-        </div>
+function IntelSection({
+  icon: Icon,
+  title,
+  tone,
+  children,
+}: {
+  icon: any;
+  title: string;
+  tone: "success" | "warning" | "primary" | "muted";
+  children: React.ReactNode;
+}) {
+  const color =
+    tone === "success"
+      ? "text-success"
+      : tone === "warning"
+      ? "text-warning"
+      : tone === "primary"
+      ? "text-primary"
+      : "text-muted-foreground";
+  return (
+    <section className="px-3 py-3 border-b border-border">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={`size-3.5 ${color}`} />
+        <h4 className="text-[11px] uppercase tracking-wider font-semibold">{title}</h4>
       </div>
+      {children}
+    </section>
+  );
+}
+
+function KV({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between text-[12px] py-0.5">
+      <span className="text-muted-foreground">{k}</span>
+      <span className="font-mono tabular font-medium">{v}</span>
+    </div>
+  );
+}
+
+function CollapsibleMissingSection({
+  label,
+  count,
+  itemsList,
+  isOpen,
+  onToggle,
+  onItemClick,
+}: {
+  label: string;
+  count: number;
+  itemsList: { id: string; name: string; detail: string }[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onItemClick: (id: string) => void;
+}) {
+  return (
+    <div className="border-b border-border/40 last:border-b-0 py-1.5">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between text-[12.5px] font-medium text-foreground/90 hover:text-foreground transition-colors cursor-pointer select-none py-0.5"
+      >
+        <span className="flex items-center gap-1.5">
+          <span>{label}</span>
+          {isOpen ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
+        </span>
+        <span className="font-mono tabular font-semibold text-foreground/80">{count}</span>
+      </button>
+
+      {isOpen && count > 0 && (
+        <div className="mt-1.5 max-h-36 overflow-y-auto border border-border/60 rounded-md bg-surface-2 divide-y divide-border/40 font-mono text-[10.5px] text-muted-foreground custom-scrollbar">
+          {itemsList.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => onItemClick(item.id)}
+              className="block w-full px-2.5 py-1.5 hover:bg-surface-3 transition-colors text-left cursor-pointer select-none"
+            >
+              <div className="text-[11.5px] leading-relaxed whitespace-nowrap overflow-hidden text-ellipsis block">
+                <span className="font-sans font-medium text-foreground/80 hover:text-primary transition-colors">
+                  {item.name}
+                </span>
+                <span className="text-muted-foreground/50 text-[10px] font-mono ml-1.5">
+                  ({item.detail})
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
