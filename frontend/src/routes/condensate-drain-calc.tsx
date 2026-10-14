@@ -504,8 +504,7 @@ function CondensateDrainCalcPage() {
         dbIn: convT(r.dbIn),
         wbIn: convT(r.wbIn),
         dbOut: convT(r.dbOut),
-        wbOut: convT(r.wbOut),
-        flow: convF(r.flow)
+            flow: convF(r.flow)
       }));
 
       updateRowsWithHistory(converted);
