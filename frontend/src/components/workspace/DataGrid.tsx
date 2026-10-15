@@ -615,7 +615,7 @@ export function DataGrid<T extends { id: string }>({
                             }
                           }}
                           title={`${rowComments.length} comment(s)/task(s) assigned. Click to view.`}
-                          className="absolute top-0 right-0 w-5 h-5 flex items-start justify-end p-0 cursor-pointer z-20 hover:scale-125 active:scale-95 transition-all duration-150 focus:outline-none group/comment-mark pointer-events-auto"
+                          className="absolute top-0 left-0 w-5 h-5 flex items-start justify-start p-0 cursor-pointer z-20 hover:scale-125 active:scale-95 transition-all duration-150 focus:outline-none group/comment-mark pointer-events-auto"
                         >
                           <svg width="13" height="13" viewBox="0 0 10 10" className="overflow-visible drop-shadow-[0_1px_2px_rgba(99,102,241,0.35)]">
                             <defs>
@@ -626,7 +626,7 @@ export function DataGrid<T extends { id: string }>({
                               </linearGradient>
                             </defs>
                             <path
-                              d="M 0 0 H 10 V 10 C 10 5.5 5.5 0 0 0 Z"
+                              d="M 10 0 H 0 V 10 C 0 5.5 4.5 0 10 0 Z"
                               fill={`url(#commentGrad-${row.id})`}
                               className="group-hover/comment-mark:opacity-90 transition-opacity"
                             />
