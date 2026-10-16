@@ -1,4 +1,5 @@
-import { getOccupancyData } from "./ashrae-data";
+import { getOccupancyData } from "./ashrae-data.ts";
+import { getEquipmentTierAndDimensions } from "./ahu-dimensions-data.ts";
 
 export interface TaskComment {
   id: string;
@@ -126,6 +127,11 @@ export interface Space {
   aiDetected?: boolean;
   pressureAutoDetected?: boolean;
   isOccupancyCustomized?: boolean;
+
+  // 3D Studio / IFC BIM tracking
+  isFromIfc?: boolean;
+  source?: string;
+  ifcOriginalArea?: number;
 }
 
 /** One independent instance of the zone (zone.multiplier creates N of these) */
@@ -766,6 +772,15 @@ export function calculateVentilation(
     e.spaces = spacesCount;
     e.utilization = e.capacity > 0 ? Math.min(100, Math.round((e.totalAirflow / e.capacity) * 100)) : 0;
     e.status = e.utilization > 92 ? "warning" : e.utilization > 0 ? "operational" : "design";
+
+    if (totalFA > 0 || totalEA > 0) {
+      const sizing = getEquipmentTierAndDimensions(totalFA, totalEA);
+      if (sizing && sizing.dimensions) {
+        e.dimensions = sizing.dimensions;
+      }
+    } else if (!e.dimensions || (!e.dimensions.length && !e.dimensions.width)) {
+      e.dimensions = undefined;
+    }
   });
 
   // Calculate status for spaces (complete, warning, in-progress, draft)

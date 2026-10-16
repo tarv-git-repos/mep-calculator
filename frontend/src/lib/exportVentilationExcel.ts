@@ -201,9 +201,9 @@ export const exportVentilationExcel = async (
   sheet.getCell('N9').value = 'Fresh Air\nGiven';
   sheet.getCell('O9').value = 'Extract Air\nTaken';
 
-  sheet.getCell('F10').value = '(mÂ²)';
+  sheet.getCell('F10').value = '(m²)';
   sheet.getCell('G10').value = "No's";
-  sheet.getCell('H10').value = 'L/s/mÂ²';
+  sheet.getCell('H10').value = 'L/s/m²';
   sheet.getCell('I10').value = 'L/s/person';
   sheet.getCell('J10').value = 'L/s';
   sheet.getCell('M10').value = 'L/s';
@@ -219,7 +219,7 @@ export const exportVentilationExcel = async (
     for (let c = 1; c <= 15; c++) {
       const cell = sheet.getCell(r, c);
       cell.font = boldFont;
-      cell.fill = (c === 14 || c === 15) ? blueFill : grayFill;
+      cell.fill = grayFill;
       cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
 
       if (r === 8) {
@@ -280,10 +280,36 @@ export const exportVentilationExcel = async (
       ? s.occupancy
       : (typeof s.fixtures === 'number' ? s.fixtures : (parseInt(String(s.fixtures || 0)) || 0));
 
-    const oaAreaRate = data ? data.areaOA : 0.3;
-    const oaPeopleRate = data ? data.peopleOA : 2.5;
+    const isCustom = Boolean(s.category && s.category.endsWith(" (Custom)"));
+    const catLower = (s.category || "").toLowerCase();
+    const isRestroom = catLower === "rest room / changing room" || catLower === "restroom" || catLower === "toilet" || catLower === "bathroom";
 
-    const totalFreshCalculated = Math.round(s.minOA ?? (effectiveArea * oaAreaRate + occCount * oaPeopleRate));
+    let oaAreaRate = 0;
+    let oaPeopleRate = 0;
+
+    if (isCustom) {
+      oaAreaRate = parseFloat(String((s as any).customAreaOA || 0)) || 0;
+      oaPeopleRate = parseFloat(String((s as any).customPeopleOA || 0)) || 0;
+    } else if (isRestroom) {
+      oaAreaRate = 0;
+      oaPeopleRate = 0;
+    } else if (data) {
+      oaAreaRate = typeof data.areaOA === "number" ? data.areaOA : 0.3;
+      oaPeopleRate = typeof data.peopleOA === "number" ? data.peopleOA : 2.5;
+    } else if (s.category && s.category !== "-") {
+      oaAreaRate = 0.3;
+      oaPeopleRate = 2.5;
+    } else {
+      oaAreaRate = 0;
+      oaPeopleRate = 0;
+    }
+
+    const baseFresh = effectiveArea * oaAreaRate + occCount * oaPeopleRate;
+    const totalFreshCalculated = Math.round(
+      typeof s.minOA === "number" && !isNaN(s.minOA)
+        ? s.minOA
+        : baseFresh
+    );
     const totalExtractCalculated = Math.round(s.minExt ?? 0);
 
     const freshAirGiven = Math.round(s.freshAir ?? totalFreshCalculated);
@@ -314,7 +340,7 @@ export const exportVentilationExcel = async (
     c5.value = s.category || '-';
     c5.alignment = { horizontal: 'left', vertical: 'middle' };
 
-    // Col F: Area (mÂ²)
+    // Col F: Area (m²)
     const c6 = sheet.getCell(r, 6);
     c6.value = effectiveArea;
     c6.numFmt = '0.0';
@@ -325,7 +351,7 @@ export const exportVentilationExcel = async (
     c7.value = occCount || 0;
     c7.alignment = { horizontal: 'center', vertical: 'middle' };
 
-    // Col H: Outdoor Air Rate L/s/mÂ²
+    // Col H: Outdoor Air Rate L/s/m²
     const c8 = sheet.getCell(r, 8);
     c8.value = oaAreaRate;
     c8.numFmt = '0.0';
@@ -343,16 +369,10 @@ export const exportVentilationExcel = async (
     c10.numFmt = '#,##0';
     c10.alignment = { horizontal: 'center', vertical: 'middle' };
 
-    // Col K: Extract Air Number
-    const c11 = sheet.getCell(r, 11);
-    let extNo: string | number = (s as any).extractAirNumber ?? (data && data.exhaustPerUnit > 0 ? occCount : '-');
-    
-    // Col L: Extract Air Strategy
-    const c12 = sheet.getCell(r, 12);
-    let extStrat: string = (s as any).extractAirStrategy ?? (data && data.exhaustPerUnit > 0 ? 'L/s/unit' : 'L/s/mÂ²');
+    let extNo: string | number = (s as any).extractAirNumber ?? '-';
+    let extStrat: string = (s as any).extractAirStrategy ?? '-';
 
-    const catLower = (s.category || "").toLowerCase();
-    if (catLower === "rest room / changing room") {
+    if (isRestroom) {
       const sub = s.restroomSubCategories || {};
       const sumSub = 
         (sub.toiletPrivateContinuous || 0) +
@@ -362,19 +382,38 @@ export const exportVentilationExcel = async (
         (sub.showerContinuous || 0) +
         (sub.showerDiscontinuous || 0) +
         (sub.janitorCloset || 0) +
-        (sub.lockerRoom || 0);
+        (sub.lockerRoom || 0) +
+        (sub.changingPositions || 0);
 
       if (sumSub > 0) {
         const val = totalExtractCalculated / sumSub;
         extNo = val % 1 === 0 ? val.toString() : val.toFixed(1);
         extStrat = 'L/s/unit';
+      } else {
+        extNo = '-';
+        extStrat = totalExtractCalculated > 0 ? 'L/s/unit' : '-';
       }
     } else if (catLower === "kitchen - commercial" || catLower === "kitchen - residential") {
-      extNo = parseFloat(String((s as any).customAch || (data ? data.ach : 0)));
+      extNo = parseFloat(String((s as any).customAch || (data ? data.ach : 0))) || '-';
       extStrat = 'ACH';
-    } else if (catLower === "ex. parking garages") {
+    } else if (catLower === "ex. parking garages" || catLower.includes("parking")) {
       extNo = data ? parseFloat(String(data.exhaustPerArea)) : 3.7;
-      extStrat = 'L/s/mÂ²';
+      extStrat = 'L/s/m²';
+    } else if (data && data.exhaustPerUnit > 0) {
+      extNo = occCount > 0 ? occCount : data.exhaustPerUnit;
+      extStrat = 'L/s/unit';
+    } else if (data && data.exhaustPerArea > 0) {
+      extNo = data.exhaustPerArea;
+      extStrat = 'L/s/m²';
+    } else if (data && data.ach > 0) {
+      extNo = data.ach;
+      extStrat = 'ACH';
+    } else if (totalExtractCalculated > 0) {
+      extNo = '-';
+      extStrat = 'L/s/m²';
+    } else {
+      extNo = '-';
+      extStrat = '-';
     }
 
     c11.value = extNo;
@@ -516,7 +555,7 @@ export const exportVentilationExcel = async (
 
   for (let c = 1; c <= 15; c++) {
     const cell = sheet.getCell(sigStartRow, c);
-    cell.fill = peachFill;
+    cell.fill = (c >= 1 && c <= 3) ? { type: 'pattern', pattern: 'none' } : grayFill;
     const rightStyle = (c === 3 || c === 7 || c === 11 || c === 15) ? 'medium' : 'thin';
     const leftStyle = c === 1 ? 'medium' : 'thin';
     setCellBorder(cell, 'medium', 'thin', leftStyle, rightStyle);

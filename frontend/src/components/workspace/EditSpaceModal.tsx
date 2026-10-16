@@ -1,11 +1,13 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
-import { X, Info, CheckCircle, Flame } from "lucide-react";
+import { X, Info, CheckCircle, Flame, Box, AlertTriangle } from "lucide-react";
 import { getOccupancyCategories, getOccupancyData, getCategoryDisplayName } from "@/lib/ashrae-data";
 import { calculateVentilation, type Space } from "@/lib/ventilation-calc";
+import { validateSpaceFacilityCapacity } from "@/lib/facility-capacity-validator";
 import { predictOccupancyCategory, predictSpacePressure } from "@/lib/ai-occupancy";
 import { CategorySelect } from "./CategorySelect";
 import { FloorSelect } from "./FloorSelect";
+import { IfcAreaChangeModal, isSpaceFromIfc } from "./IfcAreaChangeModal";
 
 interface EditSpaceModalProps {
   space: Space;
@@ -24,7 +26,8 @@ const RESTROOM_SUBCATS = [
   { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower" },
   { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower" },
   { key: "janitorCloset", label: "Janitor Closets, Trash Rooms, Recycling", rate: "50.0 L/s per closet" },
-  { key: "lockerRoom", label: "Locker Rooms", rate: "25.0 L/s per room" },
+  { key: "lockerRoom", label: "Locker Rooms / Positions", rate: "1.40 m²/pos (1.25 L/s·m²)" },
+  { key: "changingPositions", label: "Changing Positions", rate: "2.00 m²/position" },
 ];
 
 export function EditSpaceModal({
@@ -35,6 +38,8 @@ export function EditSpaceModal({
   availableEquipment,
   availableFloors,
 }: EditSpaceModalProps) {
+  const isFromIfc = isSpaceFromIfc(space);
+  const [showIfcModal, setShowIfcModal] = useState(false);
   const [tempSpace, setTempSpace] = useState<Space>({ ...space });
   const [showPreview, setShowPreview] = useState(false);
   const [showRestroomModal, setShowRestroomModal] = useState(false);
@@ -258,6 +263,7 @@ export function EditSpaceModal({
             showerDiscontinuous: 0,
             janitorCloset: 0,
             lockerRoom: 0,
+            changingPositions: 0,
           };
         }
         setTimeout(() => setShowRestroomModal(true), 50);
@@ -417,15 +423,40 @@ export function EditSpaceModal({
               </h3>
               <div className={`grid ${showHeight ? "grid-cols-3" : "grid-cols-2"} gap-3`}>
                 <div>
-                  <label className={labelClass}>Area (m²)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={tempSpace.area}
-                    onChange={(e) => handleInputChange("area", parseFloat(e.target.value) || 0)}
-                    className={`${inputClass} font-mono`}
-                    placeholder="100"
-                  />
+                  <label className={labelClass}>
+                    <span>Area (m²)</span>
+                    {isFromIfc && (
+                      <span className="px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-[9px] font-mono font-bold tracking-tight inline-flex items-center gap-1 normal-case">
+                        <Box className="size-2.5" /> 3D Studio IFC
+                      </span>
+                    )}
+                  </label>
+                  {isFromIfc ? (
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setShowIfcModal(true)}
+                      title="This area is from the IFC file. Click to change area."
+                      className="w-full h-9 px-3 bg-blue-500/5 dark:bg-blue-400/5 hover:bg-blue-500/10 border border-blue-500/30 rounded-lg flex items-center justify-between font-mono text-[12px] font-bold text-foreground cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Box className="size-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <span>{tempSpace.area} m²</span>
+                      </div>
+                      <span className="text-[10.5px] text-blue-600 dark:text-blue-400 font-sans font-semibold underline">
+                        Change IFC Area
+                      </span>
+                    </div>
+                  ) : (
+                    <input
+                      type="number"
+                      step="any"
+                      value={tempSpace.area}
+                      onChange={(e) => handleInputChange("area", parseFloat(e.target.value) || 0)}
+                      className={`${inputClass} font-mono`}
+                      placeholder="100"
+                    />
+                  )}
                 </div>
                 {showHeight && (
                   <div>
@@ -790,14 +821,15 @@ export function EditSpaceModal({
             </header>
             <div className="p-5 max-h-[55vh] overflow-y-auto space-y-3 custom-scrollbar">
               {[
-                { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet" },
-                { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet" },
-                { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet" },
-                { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet" },
-                { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower" },
-                { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower" },
-                { key: "janitorCloset", label: "Janitor Closets, Trash Rooms", rate: `5.0 L/s per m² (${(5.0 * (tempSpace.area || 0)).toFixed(1)} L/s)` },
-                { key: "lockerRoom", label: "Locker Rooms", rate: `1.25 L/s per m² (${(1.25 * (tempSpace.area || 0)).toFixed(1)} L/s)` },
+                { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet (1.75 m²/unit)" },
+                { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet (2.15 m²/unit)" },
+                { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet (1.75 m²/unit)" },
+                { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet (2.15 m²/unit)" },
+                { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower (1.85 m²/pos)" },
+                { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower (1.85 m²/pos)" },
+                { key: "janitorCloset", label: "Janitor Closets, Trash Rooms", rate: `5.0 L/s per m² (${(5.0 * (tempSpace.area || 0)).toFixed(1)} L/s, 2.25 m²/unit)` },
+                { key: "lockerRoom", label: "Locker Rooms / Positions", rate: `1.25 L/s per m² (${(1.25 * (tempSpace.area || 0)).toFixed(1)} L/s, 1.40 m²/pos)` },
+                { key: "changingPositions", label: "Changing Positions", rate: "2.00 m²/position" },
               ].map((subcat) => {
                 const sub = tempSpace.restroomSubCategories || {};
                 const qty = sub[subcat.key] || 0;
@@ -834,6 +866,23 @@ export function EditSpaceModal({
                 );
               })}
             </div>
+            {(() => {
+              const cap = validateSpaceFacilityCapacity(tempSpace);
+              if (cap.hasWarning) {
+                return (
+                  <div className="mx-5 mb-1 p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-2 text-red-600 dark:text-red-400 text-[11px] animate-fade-in">
+                    <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold text-[11.5px] leading-tight">Facility Capacity Warning</div>
+                      <div className="mt-0.5 text-muted-foreground dark:text-zinc-400">
+                        Estimated required area <span className="font-semibold text-foreground font-mono">{cap.estimatedRequiredArea.toFixed(2)} m²</span> exceeds available room area <span className="font-semibold text-foreground font-mono">{cap.availableArea.toFixed(2)} m²</span> by <span className="font-semibold text-red-600 dark:text-red-400 font-mono">{cap.excessArea.toFixed(2)} m²</span> ({cap.utilizationPercent}% utilization).
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             <div className="px-5 py-3.5 bg-slate-50/50 dark:bg-zinc-900/30 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
               <div className="flex flex-col">
                 <span className="text-[9.5px] font-bold text-muted-foreground uppercase tracking-wider">
@@ -867,6 +916,19 @@ export function EditSpaceModal({
             </div>
           </div>
         </div>
+      )}
+
+      {showIfcModal && (
+        <IfcAreaChangeModal
+          isOpen={showIfcModal}
+          onClose={() => setShowIfcModal(false)}
+          space={space}
+          initialProposedArea={tempSpace.area}
+          onConfirm={(newArea) => {
+            handleInputChange("area", newArea);
+            setShowIfcModal(false);
+          }}
+        />
       )}
     </div>
   );

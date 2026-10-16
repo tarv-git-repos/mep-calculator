@@ -27,7 +27,8 @@ export function checkIfSpaceMissingData(s: Space): boolean {
       (sub.showerContinuous || 0) +
       (sub.showerDiscontinuous || 0) +
       (sub.janitorCloset || 0) +
-      (sub.lockerRoom || 0);
+      (sub.lockerRoom || 0) +
+      (sub.changingPositions || 0);
     if (sumSub === 0) {
       return true;
     }
@@ -76,6 +77,110 @@ export function sanitizeWorkspaceState(state: any) {
   return state;
 }
 
+export type ProjectType =
+  | "Villa"
+  | "School Projects"
+  | "Mall & Mosque"
+  | "Complex"
+  | "Buildings / Apartment"
+  | "Hospitals"
+  | "Offices / Residential";
+
+export const PROJECT_TYPES: ProjectType[] = [
+  "Villa",
+  "School Projects",
+  "Mall & Mosque",
+  "Complex",
+  "Buildings / Apartment",
+  "Hospitals",
+  "Offices / Residential",
+];
+
+export type ProjectStageName =
+  | "Preconcept Design"
+  | "Concept Design"
+  | "Schematic Design"
+  | "Detailed Design"
+  | "Tender Documentation"
+  | "Issued For Construction";
+
+export const PROJECT_STAGES: ProjectStageName[] = [
+  "Preconcept Design",
+  "Concept Design",
+  "Schematic Design",
+  "Detailed Design",
+  "Tender Documentation",
+  "Issued For Construction",
+];
+
+export function canEditProjectStages(profile: any, project?: any): boolean {
+  if (!profile) return false;
+  const role = String(profile.role || '').toLowerCase();
+  const desig = String(profile.designation || '').toLowerCase();
+  const email = String(profile.email || '').toLowerCase();
+  const myId = String(profile.id || '').toLowerCase();
+  const userOrg = profile.organization_id || profile.features?.organization_id || null;
+
+  // 1. System Admin: full authority across all projects
+  const isSuperAdmin =
+    role === 'super_admin' ||
+    email === 'admin@tarv.ai' ||
+    (role.includes('admin') && !role.includes('org'));
+  if (isSuperAdmin) return true;
+
+  // If no project specified, return whether user is generically permitted to manage stages on their own projects
+  const isOrgAdmin = role === 'org_admin' || desig.includes('org admin');
+  const isTeamLead =
+    role === 'team_leader' ||
+    role === 'team_lead' ||
+    role === 'project_manager' ||
+    desig.includes('team leader') ||
+    desig.includes('team lead') ||
+    desig.includes('project manager');
+
+  if (!project) {
+    return isOrgAdmin || isTeamLead;
+  }
+
+  // 2. Strict Multi-Tenant Boundary: cannot edit stages of another organization
+  const projOrg = project.organization_id || null;
+  if (projOrg && userOrg && String(projOrg) !== String(userOrg)) {
+    return false;
+  }
+
+  // 3. Particular Org Admin: authorized for all projects belonging to their organization
+  if (isOrgAdmin && (!projOrg || !userOrg || String(projOrg) === String(userOrg))) {
+    return true;
+  }
+
+  // 4. Particular Team Leader: must be a Team Leader AND assigned to this specific project
+  if (isTeamLead) {
+    const creator = String(project.created_by || '').toLowerCase();
+    if (creator === myId || (email && creator === email)) return true;
+
+    // Check project_users assignment
+    const pUsers = Array.isArray(project.project_users) ? project.project_users : [];
+    const isAssignedUser = pUsers.some((u: any) => {
+      const uId = String(u.user_id || u.id || '').toLowerCase();
+      const uEmail = String(u.email || '').toLowerCase();
+      return uId === myId || (email && (uId === email || uEmail === email));
+    });
+    if (isAssignedUser) return true;
+
+    // Check project_teams assignment
+    const userTeams = Array.isArray(profile.teams) ? profile.teams.map((t: any) => String(t.id || t).toLowerCase()) : [];
+    const pTeams = Array.isArray(project.project_teams) ? project.project_teams : [];
+    const isAssignedTeam = pTeams.some((t: any) => {
+      const tId = String(t.team_id || t.id || '').toLowerCase();
+      return userTeams.includes(tId);
+    });
+    if (isAssignedTeam) return true;
+  }
+
+  // 5. No other roles (Sr. Engineer, Jr. Engineer, Discipline Coordinator, BIM Modeler, Viewer, etc.) can edit stages
+  return false;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -88,29 +193,64 @@ export interface Project {
   lastModified?: string;
   status?: string;
   workspace_data?: any;
+  project_type?: ProjectType | string;
+  applicable_stages?: (ProjectStageName | string)[];
+  current_stage?: ProjectStageName | string;
+  stage_status?: Record<string, "Completed" | "In Progress" | "Upcoming" | string>;
+  created_by?: string;
+  project_users?: any[];
+  project_teams?: any[];
+}
+
+// The project cache is scoped per signed-in user so that one account never sees
+// another account's (stale) project list on a shared browser / machine.
+function getProjectsCacheKey(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("mep_calculator_user_data") || localStorage.getItem("mep_user_data") || localStorage.getItem("mep_profile");
+    const uid = raw ? JSON.parse(raw)?.id : null;
+    return uid ? `mep_cached_projects_${uid}` : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 function saveCachedProjects(projList: Project[]) {
-  if (typeof localStorage === "undefined") return;
+  const key = getProjectsCacheKey();
+  if (!key) return;
   try {
     const lightProjects = projList.map(p => {
       const { workspace_data, ...light } = p as any;
       return light;
     });
-    localStorage.setItem("mep_cached_projects", JSON.stringify(lightProjects));
+    localStorage.setItem(key, JSON.stringify(lightProjects));
+    // Remove the legacy, non user-scoped cache that caused cross-account leakage
+    localStorage.removeItem("mep_cached_projects");
   } catch (e) {
     console.warn("Failed to cache projects:", e);
   }
 }
 
 function loadCachedProjects(): Project[] {
-  if (typeof localStorage === "undefined") return [];
+  const key = getProjectsCacheKey();
+  if (!key) return [];
   try {
-    const saved = localStorage.getItem("mep_cached_projects");
+    const saved = localStorage.getItem(key);
     return saved ? JSON.parse(saved) : [];
   } catch (e) {
     return [];
   }
+}
+
+/** Use the server list as the source of truth, keeping any already-loaded workspace_data. */
+function mergeCloudProjects(cloudProjects: Project[]): Project[] {
+  const existingById = new Map(projects.map(p => [p.id, p] as const));
+  return cloudProjects.map(cp => {
+    const existing = existingById.get(cp.id);
+    return existing && existing.workspace_data && !(cp as any).workspace_data
+      ? { ...cp, workspace_data: existing.workspace_data }
+      : cp;
+  });
 }
 
 let projects: Project[] = loadCachedProjects();
@@ -243,7 +383,7 @@ function saveState(immediate = false) {
     const path = window.location.pathname;
     const calcTitle = getCalculatorTitleFromPath(path);
     if (calcTitle) {
-      logCalculatorUpdate(calcTitle, `Changes occurred in ${calcTitle}`);
+      logCalculatorUpdate(calcTitle, `Changes occurred in ${calcTitle}`, { throttleMs: 60000 });
     }
   }
 
@@ -280,10 +420,24 @@ export const workspaceStore = {
   forceSaveToCloud(immediate = true) {
     saveState(immediate);
   },
+  /** Immediately persist pending workspace data to the cloud (no activity logging). */
+  flushToCloud() {
+    if (IS_SERVER) return;
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+      saveTimeout = null;
+    }
+    currentWorkspaceState = sanitizeWorkspaceState(currentWorkspaceState);
+    executeWorkspaceSave();
+  },
+  /** Re-render all workspace consumers (e.g. after the global read-only flag changed). */
+  refresh() {
+    notify();
+  },
   async syncFromCloud() {
-    let cloudProjects = await api.getProjects();
-    if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
-      projects = cloudProjects;
+    const cloudProjects = await api.getProjectsOrNull();
+    if (Array.isArray(cloudProjects)) {
+      projects = mergeCloudProjects(cloudProjects);
       saveCachedProjects(projects);
     }
     if (projects.length === 0) {
@@ -334,17 +488,10 @@ export const workspaceStore = {
   },
   async refreshProjects() {
     try {
-      const cloudProjects = await api.getProjects().catch(() => []);
+      const cloudProjects = await api.getProjectsOrNull();
+      // null = request failed -> keep what we have; array (even empty) = authoritative
       if (Array.isArray(cloudProjects)) {
-        const mergedMap = new Map<string, Project>();
-        // Add existing memory projects first
-        projects.forEach(p => mergedMap.set(p.id, p));
-        // Merge cloud projects
-        cloudProjects.forEach(cp => {
-          const existing = mergedMap.get(cp.id);
-          mergedMap.set(cp.id, existing && existing.workspace_data ? { ...cp, workspace_data: existing.workspace_data } : cp);
-        });
-        projects = Array.from(mergedMap.values());
+        projects = mergeCloudProjects(cloudProjects);
         saveCachedProjects(projects);
         if (activeProjectId) {
           const updatedActive = projects.find(p => p.id === activeProjectId);
@@ -395,9 +542,11 @@ export const workspaceStore = {
           .subscribe();
       }
 
-      const cloudProjects = await api.getProjects().catch(() => []);
-      if (Array.isArray(cloudProjects) && cloudProjects.length > 0) {
-        projects = cloudProjects;
+      // Always start from this user's own cache (never another account's)
+      projects = loadCachedProjects();
+      const cloudProjects = await api.getProjectsOrNull();
+      if (Array.isArray(cloudProjects)) {
+        projects = mergeCloudProjects(cloudProjects);
         saveCachedProjects(projects);
       }
 
@@ -543,16 +692,11 @@ export const workspaceStore = {
     if (res.success) {
       const newProj = res.project;
 
-      try {
-        const cloudProjects = await api.getProjects();
-        if (cloudProjects && cloudProjects.length > 0) {
-          projects = cloudProjects;
-        } else {
-          projects = [newProj, ...projects];
-        }
-      } catch (e) {
-        projects = [newProj, ...projects];
-      }
+      const cloudProjects = await api.getProjectsOrNull();
+      const base = Array.isArray(cloudProjects) ? mergeCloudProjects(cloudProjects) : projects;
+      // Never drop existing projects; just make sure the new one is present
+      projects = base.some(p => p.id === newProj.id) ? base : [newProj, ...base];
+      saveCachedProjects(projects);
 
       saveState();
       clearHistory();
@@ -654,6 +798,36 @@ export const workspaceStore = {
     notify();
   },
 
+  async updateProjectStage(projectId: string, currentStage: string, applicableStages?: string[], stageStatus?: Record<string, string>) {
+    try {
+      const res = await api.updateProjectStage(projectId, currentStage, applicableStages, stageStatus);
+      if (res && res.success) {
+        const nextMeta = res.meta || {};
+        projects = projects.map((p) => {
+          if (p.id === projectId) {
+            return {
+              ...p,
+              current_stage: nextMeta.current_stage || currentStage,
+              applicable_stages: nextMeta.applicable_stages || applicableStages || p.applicable_stages,
+              stage_status: nextMeta.stage_status || stageStatus || p.stage_status
+            };
+          }
+          return p;
+        });
+        if (activeProjectId === projectId && currentProject) {
+          const updated = projects.find((p) => p.id === projectId);
+          if (updated) currentProject = updated;
+        }
+        saveCachedProjects(projects);
+        notify();
+        return { success: true, meta: nextMeta };
+      }
+      return res;
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
+  },
+
   updateProject(updated: Project) {
     projects = projects.map((p) => (p.id === updated.id ? updated : p));
     if (activeProjectId === updated.id) {
@@ -693,7 +867,7 @@ export const workspaceStore = {
     );
     currentWorkspaceState = balanced;
     saveState();
-    logCalculatorUpdate('Ventilation', 'Updated spaces in Ventilation');
+    logCalculatorUpdate('Ventilation', 'Updated spaces in Ventilation', { throttleMs: 60000 });
     notify();
   },
 
@@ -724,7 +898,7 @@ export const workspaceStore = {
     );
     currentWorkspaceState = balanced;
     saveState();
-    logCalculatorUpdate('Ventilation', 'Updated zones in Ventilation');
+    logCalculatorUpdate('Ventilation', 'Updated zones in Ventilation', { throttleMs: 60000 });
     notify();
   },
 
@@ -744,7 +918,7 @@ export const workspaceStore = {
     currentWorkspaceState = balanced;
     console.log('[MEP-DND] after equipment mutation. balanced equipment count:', balanced.equipment?.length);
     saveState();
-    logCalculatorUpdate('Ventilation', 'Updated equipment in Ventilation');
+    logCalculatorUpdate('Ventilation', 'Updated equipment in Ventilation', { throttleMs: 60000 });
     console.log('[MEP-DND] final workspace equipment:', currentWorkspaceState.equipment.map(e => ({ id: e.id, tag: e.tag, spaceId: e.locationSpaceId, pos: [e.positionX, e.positionY, e.positionZ] })));
     notify();
   },
@@ -1691,7 +1865,8 @@ export function useWorkspace() {
     zones: state.zones,
     equipment: state.equipment,
     selectProject: (id: string) => workspaceStore.selectProject(id),
-    createNewProject: (project: Omit<Project, "id">) => workspaceStore.createNewProject(project),
+    createNewProject: (project: Omit<Project, "id">, assigned_users: string[] = [], assigned_teams: string[] = []) =>
+      workspaceStore.createNewProject(project, assigned_users, assigned_teams),
     duplicateProject: (id: string) => workspaceStore.duplicateProject(id),
     deleteProject: (id: string) => workspaceStore.deleteProject(id),
     forceSaveToCloud: () => workspaceStore.forceSaveToCloud(),
@@ -1699,6 +1874,8 @@ export function useWorkspace() {
     refreshProjects: () => workspaceStore.refreshProjects(),
     clearWorkspace: () => workspaceStore.clearWorkspace(),
     updateProject: (project: Project) => workspaceStore.updateProject(project),
+    updateProjectStage: (projectId: string, currentStage: string, applicableStages?: string[], stageStatus?: Record<string, string>) =>
+      workspaceStore.updateProjectStage(projectId, currentStage, applicableStages, stageStatus),
     updateSpaces: (spaces: Space[]) => workspaceStore.updateSpaces(spaces),
     updateZones: (zones: Zone[]) => workspaceStore.updateZones(zones),
     updateEquipment: (equip: Equipment[]) => workspaceStore.updateEquipment(equip),

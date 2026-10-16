@@ -1,14 +1,16 @@
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { useAuth } from "@/contexts/AuthContext";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { predictOccupancyCategory, predictSpacePressure } from "@/lib/ai-occupancy";
 import {
   Plus, Download, Upload, Filter, Columns3, GroupIcon, Pin,
   ChevronDown, ChevronUp, Trash2, Edit3, Copy, X, Bookmark, Wrench,
   Sparkles, AlertTriangle, CheckCircle2, Info, Gauge, FileText, Printer, FileSpreadsheet,
   FolderKanban, ArrowUpDown, GripVertical, Check, Flag, ChevronsUpDown, MessageSquare, MapPin,
-  Scissors, ClipboardPaste, CopyPlus, SlidersHorizontal, RefreshCw,
+  Scissors, ClipboardPaste, CopyPlus, SlidersHorizontal, RefreshCw, Box,
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { DataGrid, type Column } from "@/components/workspace/DataGrid";
@@ -19,6 +21,7 @@ import { calculateVentilation } from "@/lib/ventilation-calc";
 import { exportVentilationExcel } from "@/lib/exportVentilationExcel";
 import { exportVentilationPDF } from "@/lib/exportVentilationPDF";
 import { EditSpaceModal } from "@/components/workspace/EditSpaceModal";
+import { IfcAreaChangeModal, isSpaceFromIfc } from "@/components/workspace/IfcAreaChangeModal";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile } from "@/lib/bimViewerSpaceExtractor";
 import { getProjectIfcFile } from "@/lib/projectIfcStorage";
@@ -49,6 +52,8 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
+import { validateSpaceFacilityCapacity } from "@/lib/facility-capacity-validator";
 
 
 
@@ -100,6 +105,8 @@ export function VentilationModule() {
   const [tab, setTab] = useState<Tab>("spaces");
   const [intelOpen, setIntelOpen] = useState(false);
   const { project, spaces, zones, equipment, activeProjectId, roundOffPreset, setRoundOffPreset } = useWorkspace();
+  const { userData, profile } = useAuth();
+  const currentUserName = userData?.name || profile?.name || "System Admin";
 
   const totalArea = Math.round(spaces.reduce((sum, s) => sum + ((s.area || 0) * (s.multiplier || 1)), 0));
   const totalMinFresh = Math.round(spaces.reduce((sum, s) => sum + (s.minOA || 0), 0));
@@ -140,6 +147,18 @@ export function VentilationModule() {
   const calcReviewState = useCalculationReviewState("/ventilation", activeProjectId);
 
   const isApprovedLocked = Boolean(activeProjectId) && calcReviewState?.status === "APPROVED";
+
+  const handleExportPDF = () => {
+    exportVentilationPDF(spaces, {
+      projectName: (project as any)?.name || (project as any)?.projectName,
+      client: (project as any)?.client,
+      projectNo: (project as any)?.code || (project as any)?.projectNo,
+      calcNo: (project as any)?.calcNo,
+      date: new Date().toISOString().split("T")[0],
+      userName: currentUserName,
+      reviewState: calcReviewState,
+    });
+  };
 
 
 
@@ -209,28 +228,34 @@ export function VentilationModule() {
                 })}
               </div>
 
-              {/* Round-off preset toggle option */}
-              <div className="flex items-center gap-2.5 select-none shrink-0 bg-slate-50/40 dark:bg-zinc-900/10 border border-slate-200/40 dark:border-zinc-800/40 px-3.5 py-1 rounded-full">
-                <span className="text-[10px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
-                  ROUND-OFF:
-                </span>
-                <div className="flex bg-[#f1f5f9] dark:bg-zinc-800/60 p-0.5 rounded-full border border-slate-200/40 dark:border-zinc-700/40 shadow-xs">
-                  {[0.5, 1, 5].map((preset) => {
-                    const active = (roundOffPreset ?? 5) === preset;
-                    return (
-                      <button
-                        key={preset}
-                        onClick={() => setRoundOffPreset(preset)}
-                        className={`px-3.5 py-1.5 text-[11px] font-bold rounded-full transition-all duration-150 cursor-pointer ${active
-                          ? "bg-white dark:bg-zinc-900 text-slate-850 dark:text-zinc-150 shadow-xs border border-slate-200/20 dark:border-zinc-800/20"
-                          : "text-slate-500 dark:text-zinc-400 hover:text-slate-850 dark:hover:text-zinc-150"
-                          }`}
-                      >
-                        {preset} L/s
-                      </button>
-                    );
-                  })}
+              {/* Right Side Actions: Round-off preset toggle option & Export button */}
+              <div className="flex items-center gap-2.5 select-none shrink-0">
+                <div className="flex items-center gap-2.5 bg-slate-50/40 dark:bg-zinc-900/10 border border-slate-200/40 dark:border-zinc-800/40 px-3.5 py-1 rounded-full">
+                  <span className="text-[10px] font-extrabold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
+                    ROUND-OFF:
+                  </span>
+                  <div className="flex bg-[#f1f5f9] dark:bg-zinc-800/60 p-0.5 rounded-full border border-slate-200/40 dark:border-zinc-700/40 shadow-xs">
+                    {[0.5, 1, 5].map((preset) => {
+                      const active = (roundOffPreset ?? 5) === preset;
+                      return (
+                        <button
+                          key={preset}
+                          onClick={() => setRoundOffPreset(preset)}
+                          className={`px-3.5 py-1.5 text-[11px] font-bold rounded-full transition-all duration-150 cursor-pointer ${active
+                            ? "bg-white dark:bg-zinc-900 text-slate-850 dark:text-zinc-150 shadow-xs border border-slate-200/20 dark:border-zinc-800/20"
+                            : "text-slate-500 dark:text-zinc-400 hover:text-slate-850 dark:hover:text-zinc-150"
+                            }`}
+                        >
+                          {preset} L/s
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+
+                <TBtn onClick={handleExportPDF} title="Export PDF Report">
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
               </div>
             </div>
 
@@ -239,7 +264,13 @@ export function VentilationModule() {
               {tab === "spaces" && <SpacesView />}
               {tab === "zones" && <ZonesView />}
               {tab === "equipment" && <EquipmentView />}
-              {tab === "report" && <ReportView />}
+              {tab === "report" && (
+                <ReportView
+                  project={project}
+                  calcReviewState={calcReviewState}
+                  currentUserName={currentUserName}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -535,8 +566,14 @@ function SpacesView() {
     }
 
     if (extracted.length > 0) {
-      setPendingRecords(extracted);
-      setSelectedPending(new Set(extracted.map((p) => p.id)));
+      const tagged = extracted.map((sp) => ({
+        ...sp,
+        isFromIfc: true,
+        source: "3d-studio",
+        ifcOriginalArea: sp.area,
+      }));
+      setPendingRecords(tagged);
+      setSelectedPending(new Set(tagged.map((p) => p.id)));
       setImportOpen(true);
       toast.success(`Extracted ${extracted.length} spaces from 3D Studio!`);
     } else {
@@ -565,8 +602,14 @@ function SpacesView() {
         toast.error("No IFCSPACE elements found in the selected model.");
         return;
       }
-      setPendingRecords(extracted);
-      setSelectedPending(new Set(extracted.map((p) => p.id)));
+      const tagged = extracted.map((sp) => ({
+        ...sp,
+        isFromIfc: true,
+        source: "3d-studio",
+        ifcOriginalArea: sp.area,
+      }));
+      setPendingRecords(tagged);
+      setSelectedPending(new Set(tagged.map((p) => p.id)));
       setImportOpen(true);
       toast.success(`Successfully imported ${extracted.length} spaces from 3D IFC Model!`);
     } catch (err) {
@@ -577,6 +620,7 @@ function SpacesView() {
     }
   };
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
+  const [ifcAreaModalSpace, setIfcAreaModalSpace] = useState<Space | null>(null);
   const [assignCommentOpen, setAssignCommentOpen] = useState(false);
   const [commentTarget, setCommentTarget] = useState<{ id: string; name: string; type: 'space' | 'zone' | 'equipment' } | null>(null);
 
@@ -913,6 +957,14 @@ function SpacesView() {
         : 8;
       const occupancy = !isNaN(parsedFixtures) ? parsedFixtures : defaultOcc;
 
+      const fromIfc = Boolean(
+        rec.isFromIfc ||
+        rec.source === "3d-viewer" ||
+        rec.source === "ifc-file" ||
+        rec.source === "3d-studio" ||
+        (typeof rec.id === "string" && (rec.id.startsWith("3d-sp-") || rec.id.startsWith("ifc-sp-")))
+      );
+
       return {
         id: `sp-${Date.now()}-${index}`,
         code,
@@ -933,6 +985,9 @@ function SpacesView() {
         multiplier: rec.multiplier,
         aiDetected: rec.aiDetected,
         pressureAutoDetected: rec.pressureAutoDetected,
+        isFromIfc: fromIfc,
+        source: fromIfc ? (rec.source || "3d-studio") : "excel",
+        ifcOriginalArea: fromIfc ? rec.area : undefined,
       };
     });
 
@@ -1383,6 +1438,7 @@ function SpacesView() {
               showerDiscontinuous: 0,
               janitorCloset: 0,
               lockerRoom: 0,
+              changingPositions: 0,
             }
           });
         }, 50);
@@ -2284,6 +2340,7 @@ function SpacesView() {
                 showerDiscontinuous: 0,
                 janitorCloset: 0,
                 lockerRoom: 0,
+                changingPositions: 0,
               };
             }
             const data = getOccupancyData(newVal);
@@ -2361,10 +2418,10 @@ function SpacesView() {
       key: "pressure", header: "PRESSURE", width: 80, align: "center", editable: true, render: (r) => {
         const displayVal = PRESSURE_MAP[r.pressure || "Positive"] || "1";
         return (
-          <span className="inline-flex items-center gap-1.5 w-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          <span className="inline-flex items-center justify-center gap-1.5 w-full" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
             <span
               title={r.pressureAutoDetected ? "Automatically identified" : undefined}
-              className={`size-1.5 rounded-full shrink-0 ml-5 ${r.pressureAutoDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
+              className={`size-1.5 rounded-full shrink-0 ${r.pressureAutoDetected ? "bg-primary cursor-help" : "bg-transparent pointer-events-none"}`}
             />
             <select
               disabled={isReadOnly}
@@ -2380,7 +2437,7 @@ function SpacesView() {
                   pressureAutoDetected: false
                 });
               }}
-              className={`font-bold rounded-full text-[11px] leading-none py-1 w-12 text-center font-mono border border-transparent focus:ring-1 focus:ring-primary focus:outline-none transition-all appearance-none ${isReadOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+              className={`no-chevron font-bold rounded-full text-[11px] leading-none py-1 w-11 text-center font-mono border border-transparent focus:ring-1 focus:ring-primary focus:outline-none transition-all appearance-none !bg-none !pr-0 ${isReadOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"
                 } ${r.pressure === "Positive" ? "bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400" :
                   r.pressure === "Negative" ? "bg-destructive/20 text-destructive dark:bg-destructive/20 dark:text-red-400" :
                     r.pressure === "Critical" ? "bg-warning/20 text-warning dark:bg-warning/20 dark:text-amber-400" :
@@ -2398,21 +2455,54 @@ function SpacesView() {
     },
 
     {
-      key: "area", header: "AREA (M²)", width: 90, align: "center", mono: true, editable: true, render: (r) => (
-        <InlineInput disabled={isEffectiveReadOnly}
-          type="number"
-          step="0.1"
-          min={0}
-          value={r.area}
-          onCommit={(val) => {
-            const num = parseFloat(val);
-            if (!isNaN(num) && num >= 0) {
-              bulkUpdateSpaces(getSpaceEditIds(r.id), { area: num });
-            }
-          }}
-          className="font-mono tabular text-[13.5px] text-center"
-        />
-      )
+      key: "area", header: "AREA (M²)", width: 92, align: "center", mono: true, editable: true, render: (r) => {
+        const fromIfc = isSpaceFromIfc(r);
+
+        if (fromIfc) {
+          return (
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                if (isEffectiveReadOnly) {
+                  e.stopPropagation();
+                  toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to edit.", { id: "readonly-notice" });
+                  return;
+                }
+                // If row is not selected yet, let click bubble so row gets selected on first click!
+                if (!selected.has(r.id)) {
+                  return;
+                }
+                // On subsequent click on selected row, open the IFC area change modal!
+                e.stopPropagation();
+                setIfcAreaModalSpace(r);
+              }}
+              title="This area is from 3D Studio IFC model. Click to change area."
+              className="flex items-center justify-center w-full h-full px-1.5 py-0.5 rounded cursor-pointer group hover:bg-blue-500/10 transition-colors select-none"
+            >
+              <span className="font-mono tabular text-[13.5px] font-medium text-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                {r.area}
+              </span>
+            </div>
+          );
+        }
+
+        return (
+          <InlineInput disabled={isEffectiveReadOnly}
+            type="number"
+            step="0.1"
+            min={0}
+            value={r.area}
+            onCommit={(val) => {
+              const num = parseFloat(val);
+              if (!isNaN(num) && num >= 0) {
+                bulkUpdateSpaces(getSpaceEditIds(r.id), { area: num });
+              }
+            }}
+            className="font-mono tabular text-[13.5px] text-center"
+          />
+        );
+      }
     },
 
     {
@@ -2450,54 +2540,121 @@ function SpacesView() {
       header: "",
       width: 36,
       align: "center",
-      render: (r) => (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            bulkUpdateSpaces(getSpaceEditIds(r.id), { flagged: !r.flagged });
-          }}
-          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
-          title={
-            (() => {
-              const isNoArea = !r.area || parseFloat(String(r.area)) === 0 || isNaN(parseFloat(String(r.area)));
-              const isNoCategory = !r.category || r.category.trim() === "" || r.category.toLowerCase().includes("select category");
-              if (isNoArea && isNoCategory) {
-                return "Missing space area and category";
-              }
-              if (isNoArea) {
-                return "Missing space area";
-              }
-              if (isNoCategory) {
-                return "Missing space category";
-              }
-              if (r.category === "Rest Room / Changing Room") {
-                const sub = r.restroomSubCategories || {};
-                const sumSub =
-                  (sub.toiletPrivateContinuous || 0) +
-                  (sub.toiletPublicContinuous || 0) +
-                  (sub.toiletPrivateDiscontinuous || 0) +
-                  (sub.toiletPublicDiscontinuous || 0) +
-                  (sub.showerContinuous || 0) +
-                  (sub.showerDiscontinuous || 0) +
-                  (sub.janitorCloset || 0) +
-                  (sub.lockerRoom || 0);
-                if (sumSub === 0) {
-                  return "Rest Room has no subcategories (WC, shower, janitor, locker, etc.) configured";
-                }
-              }
-              return r.flagged ? "Unflag space" : "Flag space";
-            })()
-          }
-        >
-          <Flag
-            className={`size-3.5 transition-all duration-200 ${r.flagged
-              ? "fill-red-500 text-red-500 scale-110"
-              : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
-              }`}
-          />
-        </button>
-      )
+      render: (r) => {
+        const capacityResult = validateSpaceFacilityCapacity(r);
+        const hasCapacityWarning = capacityResult.hasWarning;
+
+        const isNoArea = !r.area || parseFloat(String(r.area)) === 0 || isNaN(parseFloat(String(r.area)));
+        const isNoCategory = !r.category || r.category.trim() === "" || r.category.toLowerCase().includes("select category");
+        const sub = r.restroomSubCategories || {};
+        const sumSub =
+          (sub.toiletPrivateContinuous || 0) +
+          (sub.toiletPublicContinuous || 0) +
+          (sub.toiletPrivateDiscontinuous || 0) +
+          (sub.toiletPublicDiscontinuous || 0) +
+          (sub.showerContinuous || 0) +
+          (sub.showerDiscontinuous || 0) +
+          (sub.janitorCloset || 0) +
+          (sub.lockerRoom || 0) +
+          (sub.changingPositions || 0);
+        const isMissingRestroomSub = r.category === "Rest Room / Changing Room" && sumSub === 0;
+
+        const isFlagged = hasCapacityWarning || r.flagged || isNoArea || isNoCategory || isMissingRestroomSub;
+
+        return (
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    bulkUpdateSpaces(getSpaceEditIds(r.id), { flagged: !r.flagged });
+                  }}
+                  className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+                >
+                  <Flag
+                    className={`size-3.5 transition-all duration-200 ${
+                      isFlagged
+                        ? "fill-red-500 text-red-500 scale-110"
+                        : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+                    }`}
+                  />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="left"
+                align="center"
+                className="max-w-[320px] p-3 text-left bg-zinc-900 text-white dark:bg-zinc-800 border border-zinc-700 shadow-2xl rounded-xl z-50 animate-in fade-in zoom-in-95 pointer-events-none"
+              >
+                {hasCapacityWarning ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-red-400 font-bold text-[12.5px]">
+                      <AlertTriangle className="size-4 shrink-0 text-red-400" />
+                      <span>Facility capacity warning</span>
+                    </div>
+
+                    <div className="space-y-1 font-mono text-[11px] bg-zinc-950/60 dark:bg-zinc-900/80 p-2 rounded-lg border border-zinc-800">
+                      <div className="flex justify-between">
+                        <span className="text-zinc-400 font-sans">Available area:</span>
+                        <span className="font-bold text-white">{capacityResult.availableArea.toFixed(2)} m²</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-zinc-400 font-sans">Estimated required area:</span>
+                        <span className="font-bold text-amber-400">{capacityResult.estimatedRequiredArea.toFixed(2)} m²</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-zinc-400 font-sans">Estimated excess:</span>
+                        <span className="font-bold text-red-400">{capacityResult.excessArea.toFixed(2)} m²</span>
+                      </div>
+                      <div className="flex justify-between border-t border-zinc-800 pt-0.5 mt-0.5">
+                        <span className="text-zinc-400 font-sans">Estimated utilization:</span>
+                        <span className="font-black text-red-400">{capacityResult.utilizationPercent}%</span>
+                      </div>
+                    </div>
+
+                    {capacityResult.breakdown.length > 0 && (
+                      <div className="pt-0.5">
+                        <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1">
+                          Contributing Facilities
+                        </div>
+                        <div className="space-y-0.5 max-h-24 overflow-y-auto custom-scrollbar text-[10.5px]">
+                          {capacityResult.breakdown.map((item) => (
+                            <div key={item.facilityKey} className="flex justify-between text-zinc-300">
+                              <span className="truncate max-w-[190px]">
+                                {item.physicalCount}× {item.facilityName}
+                              </span>
+                              <span className="font-mono text-zinc-400 shrink-0">
+                                {item.totalAreaM2.toFixed(2)} m²
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="text-[10.5px] leading-tight text-zinc-300 pt-1 border-t border-zinc-800/80">
+                      The selected facilities may exceed the available room area. Review the facility quantities and estimated spatial requirements.
+                    </div>
+                  </div>
+                ) : isNoArea && isNoCategory ? (
+                  <div className="text-[11.5px]">Missing space area and category</div>
+                ) : isNoArea ? (
+                  <div className="text-[11.5px]">Missing space area</div>
+                ) : isNoCategory ? (
+                  <div className="text-[11.5px]">Missing space category</div>
+                ) : isMissingRestroomSub ? (
+                  <div className="text-[11.5px]">Rest Room has no subcategories (WC, shower, janitor, locker, etc.) configured</div>
+                ) : r.flagged ? (
+                  <div className="text-[11.5px]">Flagged space (Click to unflag)</div>
+                ) : (
+                  <div className="text-[11.5px]">Click to flag space for manual review</div>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        );
+      }
     }
   ];
 
@@ -2816,6 +2973,8 @@ function SpacesView() {
       multiplier: 1,
       aiDetected: false,
       pressureAutoDetected: false,
+      isFromIfc: false,
+      source: "manual",
     };
     addSpace(newSpace);
     setEditingSpace(newSpace); // Open the editor modal immediately!
@@ -3032,7 +3191,6 @@ function SpacesView() {
               onClick={() => {
                 try {
                   localStorage.removeItem("mep_grid_ventilation_spaces");
-                  window.dispatchEvent(new CustomEvent("mep-reset-column-widths"));
                   window.dispatchEvent(new Event("resize"));
                   toast.success("Column widths reset to auto-distribution");
                 } catch (e) {}
@@ -3069,22 +3227,6 @@ function SpacesView() {
             }}
           >
             <Download className="size-3.5" /> Import
-          </TBtn>
-          <TBtn
-            onClick={async () => {
-              if (spaces.length === 0) {
-                toast.info("No spaces to export.");
-                return;
-              }
-              try {
-                await exportVentilationPDF(spaces);
-                toast.success("PDF report exported successfully!");
-              } catch (err: any) {
-                toast.error(err?.message || "Failed to export PDF report.");
-              }
-            }}
-          >
-            <FileText className="size-3.5" /> Export
           </TBtn>
           <TBtn
             primary
@@ -3254,6 +3396,21 @@ function SpacesView() {
         />
       )}
 
+      {/* 3D Studio IFC Area Change Popup Modal (follows EditSpaceModal double-click format) */}
+      <IfcAreaChangeModal
+        isOpen={Boolean(ifcAreaModalSpace)}
+        onClose={() => setIfcAreaModalSpace(null)}
+        space={ifcAreaModalSpace}
+        onConfirm={(newArea) => {
+          if (!ifcAreaModalSpace) return;
+          const target = ifcAreaModalSpace;
+          const editIds = getSpaceEditIds(target.id);
+          bulkUpdateSpaces(editIds, { area: newArea });
+          toast.success(`Updated area for "${target.name}" to ${newArea} m² (IFC override applied)`);
+          setIfcAreaModalSpace(null);
+        }}
+      />
+
       {/* Edit Modal overlay */}
       {editingSpace && (
         <EditSpaceModal
@@ -3373,14 +3530,15 @@ function SpacesView() {
             </header>
             <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
               {[
-                { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet" },
-                { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet" },
-                { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet" },
-                { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet" },
-                { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower" },
-                { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower" },
-                { key: "janitorCloset", label: "Janitor Closets, Trash Rooms, Recycling", rate: `5.0 L/s per m² (${(5.0 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
-                { key: "lockerRoom", label: "Locker Rooms", rate: `1.25 L/s per m² (${(1.25 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
+                { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet (1.75 m²/unit)" },
+                { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet (2.15 m²/unit)" },
+                { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet (1.75 m²/unit)" },
+                { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet (2.15 m²/unit)" },
+                { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower (1.85 m²/pos)" },
+                { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower (1.85 m²/pos)" },
+                { key: "janitorCloset", label: "Janitor Closets, Trash Rooms, Recycling", rate: `5.0 L/s per m² (${(5.0 * (restroomModalSpace.area || 0)).toFixed(1)} L/s, 2.25 m²/unit)` },
+                { key: "lockerRoom", label: "Locker Rooms / Positions", rate: `1.25 L/s per m² (${(1.25 * (restroomModalSpace.area || 0)).toFixed(1)} L/s, 1.40 m²/pos)` },
+                { key: "changingPositions", label: "Changing Positions", rate: "2.00 m²/position" },
               ].map((subcat) => {
                 const sub = restroomModalSpace.restroomSubCategories || {};
                 const qty = sub[subcat.key] || 0;
@@ -3420,6 +3578,23 @@ function SpacesView() {
                 );
               })}
             </div>
+            {(() => {
+              const cap = validateSpaceFacilityCapacity(restroomModalSpace);
+              if (cap.hasWarning) {
+                return (
+                  <div className="mx-6 mb-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-2 text-red-600 dark:text-red-400 text-[12px] animate-fade-in">
+                    <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold text-[12px]">Facility Capacity Warning</div>
+                      <div className="mt-0.5 text-muted-foreground dark:text-zinc-400 text-[11px]">
+                        Estimated required area <span className="font-semibold text-foreground font-mono">{cap.estimatedRequiredArea.toFixed(2)} m²</span> exceeds available room area <span className="font-semibold text-foreground font-mono">{cap.availableArea.toFixed(2)} m²</span> by <span className="font-semibold text-red-600 dark:text-red-400 font-mono">{cap.excessArea.toFixed(2)} m²</span> ({cap.utilizationPercent}% utilization).
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             <div className="px-6 py-4 bg-slate-50/50 dark:bg-zinc-900/30 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
@@ -3843,7 +4018,7 @@ function SpacesView() {
                                       const newVal = REVERSE_PRESSURE_MAP[e.target.value] || "Positive";
                                       setPendingRecords(prev => prev.map(p => p.id === rec.id ? { ...p, pressure: newVal, pressureAutoDetected: false } : p));
                                     }}
-                                    className={`font-bold rounded-full text-[11px] leading-none py-1 w-12 text-center font-mono border border-transparent cursor-pointer focus:ring-1 focus:ring-primary focus:outline-none transition-all appearance-none ${rec.pressure === "Positive" ? "bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400" :
+                                    className={`no-chevron font-bold rounded-full text-[11px] leading-none py-1 w-11 text-center font-mono border border-transparent cursor-pointer focus:ring-1 focus:ring-primary focus:outline-none transition-all appearance-none !bg-none !pr-0 ${rec.pressure === "Positive" ? "bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400" :
                                       rec.pressure === "Negative" ? "bg-destructive/20 text-destructive dark:bg-destructive/20 dark:text-red-400" :
                                         rec.pressure === "Critical" ? "bg-warning/20 text-warning dark:bg-warning/20 dark:text-amber-400" :
                                           "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -5454,9 +5629,9 @@ function ZonesView() {
                   <tr>
                     <th className="px-5 py-3 text-left font-semibold">Space Name</th>
                     <th className="px-5 py-3 text-left font-semibold">Category</th>
-                    <th className="px-5 py-3 text-right font-semibold">Area (m²)</th>
-                    <th className="px-5 py-3 text-right font-semibold">Fresh Given</th>
-                    <th className="px-5 py-3 text-right font-semibold">Extract Taken</th>
+                    <th className="px-5 py-3 text-center font-semibold">Area (m²)</th>
+                    <th className="px-5 py-3 text-center font-semibold">Fresh Given</th>
+                    <th className="px-5 py-3 text-center font-semibold">Extract Taken</th>
                     <th className="px-5 py-3 text-center font-semibold w-16">Edit</th>
                   </tr>
                 </thead>
@@ -5525,6 +5700,7 @@ function ZonesView() {
                                         showerDiscontinuous: 0,
                                         janitorCloset: 0,
                                         lockerRoom: 0,
+                                        changingPositions: 0,
                                       };
                                     }
                                     const data = getOccupancyData(newVal);
@@ -5592,7 +5768,7 @@ function ZonesView() {
                             </div>
                           </span>
                         </td>
-                        <td className="px-5 py-2.5 text-right font-mono tabular">
+                        <td className="px-5 py-2.5 text-center font-mono tabular">
                           <InlineInput disabled={isEffectiveReadOnly}
                             type="number"
                             step="0.1"
@@ -5607,8 +5783,8 @@ function ZonesView() {
                             className="font-mono tabular text-[12px] text-center hover:bg-muted/50 focus:bg-background px-1 py-0.5 rounded border border-transparent focus:border-border"
                           />
                         </td>
-                        <td className="px-5 py-2.5 text-right font-mono font-medium text-foreground tabular-nums">{s.freshAir.toLocaleString()} L/s</td>
-                        <td className="px-5 py-2.5 text-right font-mono font-medium text-foreground tabular-nums">{s.extractAir.toLocaleString()} L/s</td>
+                        <td className="px-5 py-2.5 text-center font-mono font-medium text-foreground tabular-nums">{s.freshAir.toLocaleString()} L/s</td>
+                        <td className="px-5 py-2.5 text-center font-mono font-medium text-foreground tabular-nums">{s.extractAir.toLocaleString()} L/s</td>
                         <td className="px-5 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-center gap-1">
                             <button
@@ -5921,14 +6097,15 @@ function ZonesView() {
             </header>
             <div className="p-6 max-h-[60vh] overflow-y-auto space-y-4">
               {[
-                { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet" },
-                { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet" },
-                { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet" },
-                { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet" },
-                { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower" },
-                { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower" },
+                { key: "toiletPrivateContinuous", label: "Toilet - private (continuous)", rate: "12.5 L/s per toilet (1.75 m²/unit)" },
+                { key: "toiletPublicContinuous", label: "Toilet - public (continuous)", rate: "25.0 L/s per toilet (2.15 m²/unit)" },
+                { key: "toiletPrivateDiscontinuous", label: "Toilet - private (discontinuous)", rate: "25.0 L/s per toilet (1.75 m²/unit)" },
+                { key: "toiletPublicDiscontinuous", label: "Toilet - public (discontinuous)", rate: "35.0 L/s per toilet (2.15 m²/unit)" },
+                { key: "showerContinuous", label: "Shower Rooms (continuous)", rate: "10.0 L/s per shower (1.85 m²/pos)" },
+                { key: "showerDiscontinuous", label: "Shower Rooms (discontinuous)", rate: "25.0 L/s per shower (1.85 m²/pos)" },
                 { key: "janitorCloset", label: "Janitor Closets, Trash Rooms, Recycling", rate: `5.0 L/s per m² (${(5.0 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
-                { key: "lockerRoom", label: "Locker Rooms", rate: `1.25 L/s per m² (${(1.25 * (restroomModalSpace.area || 0)).toFixed(1)} L/s for ${(restroomModalSpace.area || 0)} m² restroom)` },
+                { key: "lockerRoom", label: "Locker Rooms / Positions", rate: `1.25 L/s per m² (${(1.25 * (restroomModalSpace.area || 0)).toFixed(1)} L/s, 1.40 m²/pos)` },
+                { key: "changingPositions", label: "Changing Positions", rate: "2.00 m²/position" },
               ].map((subcat) => {
                 const sub = restroomModalSpace.restroomSubCategories || {};
                 const qty = sub[subcat.key] || 0;
@@ -5968,6 +6145,23 @@ function ZonesView() {
                 );
               })}
             </div>
+            {(() => {
+              const cap = validateSpaceFacilityCapacity(restroomModalSpace);
+              if (cap.hasWarning) {
+                return (
+                  <div className="mx-6 mb-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-2 text-red-600 dark:text-red-400 text-[12px] animate-fade-in">
+                    <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold text-[12px]">Facility Capacity Warning</div>
+                      <div className="mt-0.5 text-muted-foreground dark:text-zinc-400 text-[11px]">
+                        Estimated required area <span className="font-semibold text-foreground font-mono">{cap.estimatedRequiredArea.toFixed(2)} m²</span> exceeds available room area <span className="font-semibold text-foreground font-mono">{cap.availableArea.toFixed(2)} m²</span> by <span className="font-semibold text-red-600 dark:text-red-400 font-mono">{cap.excessArea.toFixed(2)} m²</span> ({cap.utilizationPercent}% utilization).
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             <div className="px-6 py-4 bg-slate-50/50 dark:bg-zinc-900/30 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between">
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
@@ -6695,11 +6889,16 @@ function EquipmentView() {
           const updated = equipment.map((eq) => {
             if (eq.id === equipId) {
               const sizing = getEquipmentTierAndDimensions(eq.totalFA || 0, eq.totalEA || 0);
+              const floorChanged = eq.locationFloor !== locationFloor;
+              const spaceChanged = eq.locationSpaceId !== locationSpaceId;
               return {
                 ...eq,
                 locationFloor,
                 locationSpaceId,
                 locationSpaceName,
+                positionY: (floorChanged || spaceChanged) ? undefined : eq.positionY,
+                positionX: spaceChanged ? undefined : eq.positionX,
+                positionZ: spaceChanged ? undefined : eq.positionZ,
                 dimensions: sizing?.dimensions || eq.dimensions,
               };
             }
@@ -6746,168 +6945,422 @@ function EquipmentView() {
 }
 
 /* â”€â”€â”€â”€â”€â”€â”€â”€â”€ Report â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-function ReportView() {
-  const { spaces, zones, equipment } = useWorkspace();
-
-  const totalFresh = spaces.reduce((a, s) => a + (s.freshAir || 0), 0);
-  const totalExtract = spaces.reduce((a, s) => a + (s.extractAir || 0), 0);
-  const totalArea = spaces.reduce((a, s) => a + (s.area || 0) * (s.multiplier || 1), 0);
-  const balance = totalFresh - totalExtract;
-  const warningsCount = spaces.filter((s) => s.status === "warning").length;
-  const compliance = spaces.length > 0 ? Math.round(((spaces.length - warningsCount) / spaces.length) * 100) : 100;
-
-  const formatDateStr = (date: Date) => {
-    return date.toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' });
-  };
+function ReportView({
+  project,
+  calcReviewState,
+  currentUserName = "System Admin",
+}: {
+  project?: any;
+  calcReviewState?: any;
+  currentUserName?: string;
+}) {
+  const { spaces, activeProjectId } = useWorkspace();
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50">
-        <span className="text-[12px] text-muted-foreground font-semibold">Generated: <span className="text-foreground font-mono">{formatDateStr(new Date())}</span></span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print</TBtn>
-          <TBtn primary onClick={() => exportVentilationPDF(spaces)}><FileText className="size-3.5" /> Export PDF</TBtn>
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+      <div className="max-w-6xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
+        
+        {/* 1. Document Title */}
+        <div className="pb-1">
+          <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+            Ventilation Calculation
+          </h2>
         </div>
-      </div>
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-        <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
-          <div className="flex justify-between items-start pb-4 border-b border-border">
-            <div>
-              <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-                Ventilation Calculation Report
-              </h2>
-              <p className="text-[12px] text-muted-foreground mt-0.5">
-                ASHRAE Standard 62.1 Ventilation Rate Procedure (VRP) &amp; Pressure Analysis
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="text-[11px] text-muted-foreground block mt-0.5">Date: {formatDateStr(new Date())}</span>
-            </div>
-          </div>
 
-          {/* Table 1: Design Parameters & Overall Summary */}
-          <div className="space-y-2">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              1. Project Summary &amp; Parameters
-            </h3>
-            <table className="w-full text-[12px] border-collapse border border-border">
-              <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                <tr>
-                  <th className="border border-border p-2 text-center w-12">No.</th>
-                  <th className="border border-border p-2 text-left">Description</th>
-                  <th className="border border-border p-2 text-center w-28">Value</th>
-                  <th className="border border-border p-2 text-center w-20">Unit</th>
-                  <th className="border border-border p-2 text-left">Standard / Notes</th>
+        {/* 2. Project Metadata Header Box (Exact 2-column x 3-row layout matching Preliminary Cooling Load) */}
+        <div className="border border-border rounded-xl overflow-hidden text-xs">
+          <table className="w-full border-collapse">
+            <tbody>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                <td className="p-2.5 font-mono text-foreground font-medium">{(project as any)?.calcNo || "TRV-CAL-VENT-001"}</td>
+                <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                <td className="p-2.5 font-mono font-medium">{new Date().toISOString().split("T")[0]}</td>
+              </tr>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                <td className="p-2.5 font-mono">{(project as any)?.code || (project as any)?.projectNo || "MEP-VENT-2026"}</td>
+                <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                <td className="p-2.5">{(project as any)?.client || "Prestige Group developers"}</td>
+              </tr>
+              <tr className="divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                <td className="p-2.5">{(project as any)?.name || (project as any)?.projectName || "Ventilation Rate & Distribution Estimation"}</td>
+                <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* 3. Space-Wise Ventilation Schedule (2-Tier Header Table grouped by Floor) */}
+        <div className="border border-border rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                  <th rowSpan={2} className="p-2 border-r border-border w-12 text-center">
+                    Sr.<br />No.
+                  </th>
+                  <th colSpan={4} className="p-2 border-r border-border text-center">
+                    Space Parameters
+                  </th>
+                  <th colSpan={4} className="p-2 border-r border-border text-center">
+                    Design Parameters
+                  </th>
+                  <th colSpan={2} className="p-2 border-r border-border text-center">
+                    Ventilation Requirements
+                  </th>
+                  <th colSpan={3} className="p-2 text-center">
+                    Balancing Metrics
+                  </th>
+                </tr>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                  <th className="p-2 border-r border-border w-20 text-center">Space Floor</th>
+                  <th className="p-2 border-r border-border text-left min-w-[120px]">Space Name</th>
+                  <th className="p-2 border-r border-border text-left min-w-[100px]">Zone Name</th>
+                  <th className="p-2 border-r border-border text-left min-w-[140px]">Occupancy Category</th>
+                  <th className="p-2 border-r border-border w-18 text-center">Area (m²)</th>
+                  <th className="p-2 border-r border-border w-16 text-center">Fixtures / Occ.</th>
+                  <th className="p-2 border-r border-border w-20 text-center">OA Rate (L/s/m²)</th>
+                  <th className="p-2 border-r border-border w-20 text-center">OA Rate (L/s/p)</th>
+                  <th className="p-2 border-r border-border w-22 text-center">Req. Fresh (L/s)</th>
+                  <th className="p-2 border-r border-border w-22 text-center">Req. Extract (L/s)</th>
+                  <th className="p-2 border-r border-border w-24 text-center">Fresh Air Given (L/s)</th>
+                  <th className="p-2 border-r border-border w-24 text-center">Extract Air Taken (L/s)</th>
+                  <th className="p-2 w-20 text-center">Net Balance (L/s)</th>
                 </tr>
               </thead>
-              <tbody>
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                  <td className="border border-border p-2 font-bold">Total Conditioned Spaces</td>
-                  <td className="border border-border p-2 text-center font-bold">{spaces.length.toLocaleString()}</td>
-                  <td className="border border-border p-2 text-center">spaces</td>
-                  <td className="border border-border p-2 text-muted-foreground">Architectural Space Schedule</td>
-                </tr>
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                  <td className="border border-border p-2 font-bold">Total Conditioned Floor Area</td>
-                  <td className="border border-border p-2 text-center font-bold">{totalArea.toFixed(1)}</td>
-                  <td className="border border-border p-2 text-center">m²</td>
-                  <td className="border border-border p-2 text-muted-foreground">Sum of Scheduled Areas</td>
-                </tr>
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                  <td className="border border-border p-2 font-bold">Total Fresh Air Supplied</td>
-                  <td className="border border-border p-2 text-center font-bold text-blue-600 dark:text-blue-400">{totalFresh.toLocaleString()}</td>
-                  <td className="border border-border p-2 text-center font-bold">L/s</td>
-                  <td className="border border-border p-2 text-muted-foreground">Target Minimum: {spaces.reduce((a, s) => a + (s.minOA || 0), 0).toLocaleString()} L/s</td>
-                </tr>
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                  <td className="border border-border p-2 font-bold">Total Extract Air</td>
-                  <td className="border border-border p-2 text-center font-bold text-orange-600 dark:text-orange-400">{totalExtract.toLocaleString()}</td>
-                  <td className="border border-border p-2 text-center font-bold">L/s</td>
-                  <td className="border border-border p-2 text-muted-foreground">Target Minimum: {spaces.reduce((a, s) => a + (s.minExt || 0), 0).toLocaleString()} L/s</td>
-                </tr>
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">5</td>
-                  <td className="border border-border p-2 font-bold">Net Pressure Balance</td>
-                  <td className="border border-border p-2 text-center font-bold">{balance > 0 ? "+" : ""}{balance.toLocaleString()}</td>
-                  <td className="border border-border p-2 text-center">L/s</td>
-                  <td className="border border-border p-2 text-muted-foreground">Building overall pressurization</td>
-                </tr>
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">6</td>
-                  <td className="border border-border p-2 font-bold">ASHRAE 62.1 Compliance</td>
-                  <td className="border border-border p-2 text-center font-bold text-emerald-600 dark:text-emerald-400">{compliance}%</td>
-                  <td className="border border-border p-2 text-center">%</td>
-                  <td className="border border-border p-2 text-muted-foreground">{warningsCount} warnings / flags active</td>
-                </tr>
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">7</td>
-                  <td className="border border-border p-2 font-bold">Total Zones</td>
-                  <td className="border border-border p-2 text-center font-bold">{zones.length}</td>
-                  <td className="border border-border p-2 text-center">zones</td>
-                  <td className="border border-border p-2 text-muted-foreground">HVAC Zone Distribution</td>
-                </tr>
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">8</td>
-                  <td className="border border-border p-2 font-bold">Active Equipment</td>
-                  <td className="border border-border p-2 text-center font-bold">{equipment.length}</td>
-                  <td className="border border-border p-2 text-center">units</td>
-                  <td className="border border-border p-2 text-muted-foreground">AHUs, FCUs, Fans, etc.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Table 2: Zone-Wise Ventilation Breakdown */}
-          <div className="space-y-2 mt-8">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              2. Zone-Wise Ventilation &amp; Pressure Breakdown
-            </h3>
-            <table className="w-full text-[12px] border-collapse border border-border">
-              <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                <tr>
-                  <th className="border border-border p-2 text-center w-12">No.</th>
-                  <th className="border border-border p-2 text-left">Zone Name</th>
-                  <th className="border border-border p-2 text-center w-24">Spaces</th>
-                  <th className="border border-border p-2 text-right w-24">Fresh (L/s)</th>
-                  <th className="border border-border p-2 text-right w-24">Extract (L/s)</th>
-                  <th className="border border-border p-2 text-right w-24">Balance (L/s)</th>
-                  <th className="border border-border p-2 text-center w-28">Pressure</th>
-                </tr>
-              </thead>
-              <tbody>
-                {zones.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="border border-border p-4 text-center text-muted-foreground">No zones defined.</td>
-                  </tr>
-                ) : (
-                  zones.map((z, idx) => {
-                    const zSpaces = spaces.filter(s => s.zone === z.name);
-                    const zFresh = zSpaces.reduce((a, s) => a + (s.freshAir || 0), 0);
-                    const zExt = zSpaces.reduce((a, s) => a + (s.extractAir || 0), 0);
-                    const zBal = zFresh - zExt;
-                    const pTone = z.pressureType === "positive" ? "text-blue-600 dark:text-blue-400" : z.pressureType === "negative" ? "text-orange-600 dark:text-orange-400" : "text-emerald-600 dark:text-emerald-400";
+              <tbody className="divide-y divide-border">
+                {(() => {
+                  if (spaces.length === 0) {
                     return (
-                      <tr key={z.id}>
-                        <td className="border border-border p-2 text-center text-muted-foreground">{idx + 1}</td>
-                        <td className="border border-border p-2 font-semibold">{z.name}</td>
-                        <td className="border border-border p-2 text-center">{zSpaces.length}</td>
-                        <td className="border border-border p-2 text-right font-mono">{zFresh.toLocaleString()}</td>
-                        <td className="border border-border p-2 text-right font-mono">{zExt.toLocaleString()}</td>
-                        <td className="border border-border p-2 text-right font-mono font-bold">{zBal > 0 ? "+" : ""}{zBal.toLocaleString()}</td>
-                        <td className={`border border-border p-2 text-center font-bold capitalize ${pTone}`}>{z.pressureType}</td>
+                      <tr>
+                        <td colSpan={14} className="p-4 text-center text-muted-foreground">
+                          No spaces defined in ventilation schedule.
+                        </td>
                       </tr>
                     );
-                  })
-                )}
+                  }
+
+                  const sortedSpaces = [...spaces].sort((a, b) => {
+                    const floorA = (a.floor || "GF").toLowerCase();
+                    const floorB = (b.floor || "GF").toLowerCase();
+                    if (floorA !== floorB) return floorA.localeCompare(floorB);
+
+                    const zoneA = a.zone || "Default";
+                    const zoneB = b.zone || "Default";
+                    if (zoneA === "Default" && zoneB !== "Default") return 1;
+                    if (zoneA !== "Default" && zoneB === "Default") return -1;
+                    if (zoneA.toLowerCase() !== zoneB.toLowerCase()) return zoneA.localeCompare(zoneB);
+
+                    return (a.name || "").localeCompare(b.name || "");
+                  });
+
+                  const spacesByFloor: { [floor: string]: Space[] } = {};
+                  const floorOrder: string[] = [];
+
+                  sortedSpaces.forEach((s) => {
+                    const fl = s.floor || "GF";
+                    if (!spacesByFloor[fl]) {
+                      spacesByFloor[fl] = [];
+                      floorOrder.push(fl);
+                    }
+                    spacesByFloor[fl].push(s);
+                  });
+
+                  let globalSrNo = 1;
+                  let grandArea = 0;
+                  let grandOcc = 0;
+                  let grandReqFresh = 0;
+                  let grandReqExt = 0;
+                  let grandFreshGiven = 0;
+                  let grandExtTaken = 0;
+
+                  return (
+                    <>
+                      {floorOrder.map((floorName) => {
+                        const floorSpaces = spacesByFloor[floorName];
+                        let floorArea = 0;
+                        let floorOcc = 0;
+                        let floorReqFresh = 0;
+                        let floorReqExt = 0;
+                        let floorFreshGiven = 0;
+                        let floorExtTaken = 0;
+
+                        return (
+                          <React.Fragment key={floorName}>
+                            {floorSpaces.map((s) => {
+                              const data = getOccupancyData(s.category);
+                              const areaVal = parseFloat(String(s.area || 0));
+                              const multVal = s.multiplier || 1;
+                              const effectiveArea = areaVal * multVal;
+
+                              const occCount = typeof s.occupancy === "number"
+                                ? s.occupancy
+                                : (typeof s.fixtures === "number" ? s.fixtures : (parseInt(String(s.fixtures || 0)) || 0));
+
+                              const isCustom = Boolean(s.category && s.category.endsWith(" (Custom)"));
+                              const catLower = (s.category || "").toLowerCase();
+                              const isRestroom = catLower === "rest room / changing room" || catLower === "restroom" || catLower === "toilet" || catLower === "bathroom";
+
+                              let oaAreaRate = 0;
+                              let oaPeopleRate = 0;
+
+                              if (isCustom) {
+                                oaAreaRate = parseFloat(String((s as any).customAreaOA || 0)) || 0;
+                                oaPeopleRate = parseFloat(String((s as any).customPeopleOA || 0)) || 0;
+                              } else if (isRestroom) {
+                                oaAreaRate = 0;
+                                oaPeopleRate = 0;
+                              } else if (data) {
+                                oaAreaRate = typeof data.areaOA === "number" ? data.areaOA : 0.3;
+                                oaPeopleRate = typeof data.peopleOA === "number" ? data.peopleOA : 2.5;
+                              } else if (s.category && s.category !== "-") {
+                                oaAreaRate = 0.3;
+                                oaPeopleRate = 2.5;
+                              } else {
+                                oaAreaRate = 0;
+                                oaPeopleRate = 0;
+                              }
+
+                              const reqFresh = Math.round(
+                                typeof s.minOA === "number" && !isNaN(s.minOA)
+                                  ? s.minOA
+                                  : effectiveArea * oaAreaRate + occCount * oaPeopleRate
+                              );
+                              const reqExt = Math.round(s.minExt ?? 0);
+
+                              const freshGiven = Math.round(s.freshAir ?? reqFresh);
+                              const extTaken = Math.round(s.extractAir ?? reqExt);
+                              const bal = freshGiven - extTaken;
+
+                              floorArea += effectiveArea;
+                              floorOcc += occCount;
+                              floorReqFresh += reqFresh;
+                              floorReqExt += reqExt;
+                              floorFreshGiven += freshGiven;
+                              floorExtTaken += extTaken;
+
+                              grandArea += effectiveArea;
+                              grandOcc += occCount;
+                              grandReqFresh += reqFresh;
+                              grandReqExt += reqExt;
+                              grandFreshGiven += freshGiven;
+                              grandExtTaken += extTaken;
+
+                              return (
+                                <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">
+                                    {globalSrNo++}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-center">
+                                    {s.floor || "GF"}
+                                  </td>
+                                  <td className="p-2 border-r border-border font-medium">
+                                    {(() => {
+                                      const cap = validateSpaceFacilityCapacity(s);
+                                      return (
+                                        <div className="flex items-center gap-1.5">
+                                          <span>{s.name || "-"}</span>
+                                          {cap.hasWarning && (
+                                            <span
+                                              className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9.5px] font-semibold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20"
+                                              title={`Facility capacity warning: Estimated required area (${cap.estimatedRequiredArea.toFixed(1)} m²) exceeds available room area (${cap.availableArea.toFixed(1)} m²)`}
+                                            >
+                                              <AlertTriangle className="size-3 text-red-500 shrink-0" />
+                                              <span>Capacity</span>
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-muted-foreground">
+                                    {s.zone || "Default"}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-muted-foreground">
+                                    {s.category || "-"}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-center font-mono">
+                                    {effectiveArea.toFixed(1)}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">
+                                    {occCount > 0 ? occCount : "-"}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-center font-mono">
+                                    {oaAreaRate.toFixed(1)}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-center font-mono">
+                                    {oaPeopleRate.toFixed(1)}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-center font-mono">
+                                    {reqFresh.toLocaleString()}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-center font-mono">
+                                    {reqExt.toLocaleString()}
+                                  </td>
+                                  {/* Highlighted Result Columns */}
+                                  <td className="p-2 border-r border-border text-center font-mono font-bold bg-blue-50/70 dark:bg-blue-950/20 text-blue-700 dark:text-blue-300">
+                                    {freshGiven.toLocaleString()}
+                                  </td>
+                                  <td className="p-2 border-r border-border text-center font-mono font-bold bg-amber-50/70 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300">
+                                    {extTaken.toLocaleString()}
+                                  </td>
+                                  <td className={`p-2 text-center font-mono font-bold ${bal > 0 ? "text-blue-600 dark:text-blue-400" : bal < 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                    {bal > 0 ? `+${bal.toLocaleString()}` : bal.toLocaleString()}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+
+                            {/* Floor Total Row matching Preliminary Cooling Load */}
+                            <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t border-b border-border">
+                              <td className="p-2 border-r border-border text-center"></td>
+                              <td className="p-2 border-r border-border text-center font-bold">
+                                {floorName}
+                              </td>
+                              <td className="p-2 border-r border-border font-bold">
+                                TOTAL ({floorName})
+                              </td>
+                              <td className="p-2 border-r border-border"></td>
+                              <td className="p-2 border-r border-border"></td>
+                              <td className="p-2 border-r border-border text-center font-mono font-bold">
+                                {floorArea.toFixed(1)}
+                              </td>
+                              <td className="p-2 border-r border-border text-center font-mono font-bold">
+                                {floorOcc > 0 ? floorOcc : ""}
+                              </td>
+                              <td className="p-2 border-r border-border"></td>
+                              <td className="p-2 border-r border-border"></td>
+                              <td className="p-2 border-r border-border text-center font-mono font-bold">
+                                {floorReqFresh.toLocaleString()}
+                              </td>
+                              <td className="p-2 border-r border-border text-center font-mono font-bold">
+                                {floorReqExt.toLocaleString()}
+                              </td>
+                              <td className="p-2 border-r border-border text-center font-mono font-bold bg-blue-100/50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300">
+                                {floorFreshGiven.toLocaleString()}
+                              </td>
+                              <td className="p-2 border-r border-border text-center font-mono font-bold bg-amber-100/50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300">
+                                {floorExtTaken.toLocaleString()}
+                              </td>
+                              <td className="p-2 text-center font-mono font-bold">
+                                {(floorFreshGiven - floorExtTaken) > 0 ? `+${(floorFreshGiven - floorExtTaken).toLocaleString()}` : (floorFreshGiven - floorExtTaken).toLocaleString()}
+                              </td>
+                            </tr>
+                          </React.Fragment>
+                        );
+                      })}
+
+                      {/* Grand Total Row if multiple floors */}
+                      {floorOrder.length > 1 && (
+                        <tr className="bg-slate-100 dark:bg-zinc-800 font-black border-t-2 border-border">
+                          <td className="p-2 border-r border-border text-center"></td>
+                          <td className="p-2 border-r border-border text-center">ALL</td>
+                          <td className="p-2 border-r border-border">OVERALL TOTAL</td>
+                          <td className="p-2 border-r border-border"></td>
+                          <td className="p-2 border-r border-border"></td>
+                          <td className="p-2 border-r border-border text-center font-mono">
+                            {grandArea.toFixed(1)}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono">
+                            {grandOcc > 0 ? grandOcc : ""}
+                          </td>
+                          <td className="p-2 border-r border-border"></td>
+                          <td className="p-2 border-r border-border"></td>
+                          <td className="p-2 border-r border-border text-center font-mono">
+                            {grandReqFresh.toLocaleString()}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono">
+                            {grandReqExt.toLocaleString()}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono bg-blue-200/50 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
+                            {grandFreshGiven.toLocaleString()}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono bg-amber-200/50 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200">
+                            {grandExtTaken.toLocaleString()}
+                          </td>
+                          <td className="p-2 text-center font-mono">
+                            {(grandFreshGiven - grandExtTaken) > 0 ? `+${(grandFreshGiven - grandExtTaken).toLocaleString()}` : (grandFreshGiven - grandExtTaken).toLocaleString()}
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })()}
               </tbody>
             </table>
           </div>
 
-        </div>
+        {/* Facility Capacity Screening Notice (if applicable) */}
+        {(() => {
+          const capExceededSpaces = spaces.filter((s) => validateSpaceFacilityCapacity(s).hasWarning);
+          if (capExceededSpaces.length > 0) {
+            return (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 rounded-xl text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2.5">
+                <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <div>
+                  <span className="font-bold">Facility Capacity Screening Notice: </span>
+                  {capExceededSpaces.length} space(s) have selected facilities whose estimated spatial requirements exceed available room floor area. Airflow rates remain fully calculated, but review of facility counts and room dimensions is recommended.
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
+        {/* 4. 3-Tier Signature Sign-Off Block (Exact Preliminary Standard) */}
+        {(() => {
+          const sig = getSignatureBlockDetails(
+            (project as any)?.id || activeProjectId || "default",
+            "/ventilation",
+            currentUserName,
+            calcReviewState
+          );
+          return (
+            <div className="pt-2">
+              <div className="border border-border rounded-xl overflow-hidden text-xs">
+                <table className="w-full border-collapse">
+                  <thead className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <tr className="divide-x divide-border">
+                      <th className="p-2.5 w-28 text-center bg-card"></th>
+                      <th className="p-2.5 text-center w-1/3">Originator</th>
+                      <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                      <th className="p-2.5 text-center w-1/3">Approver</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    <tr className="divide-x divide-border">
+                      <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                      <td className="p-2.5 text-center font-medium">
+                        {sig.originatedName || currentUserName || "System Admin"}
+                      </td>
+                      <td className="p-2.5 text-center font-medium">
+                        {sig.reviewerName || ""}
+                      </td>
+                      <td className="p-2.5 text-center font-medium">
+                        {sig.approverName || ""}
+                      </td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                      <td className="p-2.5 text-center font-mono">
+                        {sig.originatedDate || formatDateStr(new Date().toISOString())}
+                      </td>
+                      <td className="p-2.5 text-center font-mono">
+                        {sig.reviewerDate || ""}
+                      </td>
+                      <td className="p-2.5 text-center font-mono">
+                        {sig.approverDate || ""}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
+
       </div>
     </div>
   );
@@ -6969,14 +7422,24 @@ function IntelligenceDrawer({ onClose, setTab }: { onClose: () => void; setTab: 
     unassigned: false,
     unzoned: false,
     noCategory: false,
-    missingArea: false
+    missingArea: false,
+    capacityExceeded: false,
   });
 
   const totalFresh = spaces.reduce((a, s) => a + (s.freshAir || 0), 0);
   const totalExtract = spaces.reduce((a, s) => a + (s.extractAir || 0), 0);
   const balance = totalFresh - totalExtract;
   const warnings = spaces.filter((s) => s.flagged).length;
-  const nonCompliantCount = spaces.filter((s) => s.flagged || s.status === "warning").length;
+  const capacityExceededSpaces = spaces.filter((s) => validateSpaceFacilityCapacity(s).hasWarning);
+  const capacityExceededItems = capacityExceededSpaces.map((s) => {
+    const val = validateSpaceFacilityCapacity(s);
+    return {
+      id: s.id,
+      name: `${s.name} (${val.utilizationPercent}%)`,
+      detail: `${val.estimatedRequiredArea.toFixed(1)} / ${val.availableArea.toFixed(1)} m²`
+    };
+  });
+  const nonCompliantCount = spaces.filter((s) => s.flagged || s.status === "warning" || validateSpaceFacilityCapacity(s).hasWarning).length;
   const draft = spaces.filter((s) => s.status === "draft").length;
   const negZones = zones.filter((z) => z.pressureType === "negative").length;
 
@@ -7059,12 +7522,23 @@ function IntelligenceDrawer({ onClose, setTab }: { onClose: () => void; setTab: 
           <KV k="Negative zones" v={negZones} />
         </IntelSection>
 
-        <IntelSection icon={AlertTriangle} tone={warnings > 0 ? "warning" : "muted"} title="Calculation Issues">
+        <IntelSection icon={AlertTriangle} tone={warnings > 0 || capacityExceededSpaces.length > 0 ? "warning" : "muted"} title="Calculation Issues">
           <KV k="Spaces flagged" v={warnings} />
+          <KV k="Capacity exceeded" v={capacityExceededSpaces.length} />
           <KV k="Draft spaces" v={draft} />
         </IntelSection>
 
-        <IntelSection icon={Info} tone="muted" title="Missing Data">
+        <IntelSection icon={Info} tone="muted" title="Missing Data & Screening">
+          {capacityExceededItems.length > 0 && (
+            <CollapsibleMissingSection
+              label="Facility capacity exceeded"
+              count={capacityExceededItems.length}
+              itemsList={capacityExceededItems}
+              isOpen={openSections.capacityExceeded}
+              onToggle={() => setOpenSections(prev => ({ ...prev, capacityExceeded: !prev.capacityExceeded }))}
+              onItemClick={(id) => handleItemClick(id, false)}
+            />
+          )}
           <CollapsibleMissingSection
             label="Unassigned equipment"
             count={unassignedItems.length}
