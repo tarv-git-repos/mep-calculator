@@ -1,0 +1,518 @@
+import { X, Sparkles, Table, Sun, Zap, Lightbulb, Layers } from "lucide-react";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { workspaceStore } from "@/lib/workspace-store";
+import { predictSpacePressure } from "@/lib/ai-occupancy";
+import { Extracted3DSpace, sortSpacesByFloorAndName, isMepValidSpaceName } from "@/lib/bimViewerSpaceExtractor";
+import { convertBimSpaceToLuxRow } from "@/lib/calc-lighting-lux";
+import { convertBimSpacesToCbsRows } from "@/lib/calc-central-battery";
+import { convertBimSpacesToLpdGroupsSplit, defaultProject, type LpdProject } from "@/lib/calc-lpd-calculation";
+import { convertBimSpacesToLoadRows } from "@/lib/calc-load-summary";
+import { CategorySelect } from "@/components/workspace/CategorySelect";
+
+interface BimScheduleReviewModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  initialRecords: Extracted3DSpace[];
+}
+
+export function BimScheduleReviewModal({ isOpen, onClose, initialRecords }: BimScheduleReviewModalProps) {
+  const [records, setRecords] = useState<Extracted3DSpace[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
+
+  const [bulkValues, setBulkValues] = useState({
+    level: "",
+    zone: "",
+    category: "",
+    pressure: "",
+    height: "",
+    fixtures: "",
+    multiplier: "",
+  });
+
+  useEffect(() => {
+    const validFiltered = (initialRecords || []).filter((r) => isMepValidSpaceName(r.name));
+    const sorted = sortSpacesByFloorAndName(validFiltered);
+    setRecords(sorted);
+    setSelectedIds(new Set(sorted.map((r) => r.id)));
+  }, [initialRecords]);
+
+  if (!isOpen) return null;
+
+  const toggleSelect = (id: string, shiftKey: boolean, ctrlKey: boolean) => {
+    const idx = records.findIndex((r) => r.id === id);
+    if (idx === -1) return;
+
+    if (shiftKey && lastClickedIndex !== null) {
+      const start = Math.min(lastClickedIndex, idx);
+      const end = Math.max(lastClickedIndex, idx);
+      const rangeIds = records.slice(start, end + 1).map((r) => r.id);
+
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        rangeIds.forEach((rId) => next.add(rId));
+        return next;
+      });
+    } else if (ctrlKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      setLastClickedIndex(idx);
+    } else {
+      setSelectedIds(new Set([id]));
+      setLastClickedIndex(idx);
+    }
+  };
+
+  const handleBulkApply = () => {
+    if (selectedIds.size === 0) {
+      toast.error("Please select at least one space to apply bulk edits.");
+      return;
+    }
+
+    setRecords((prev) =>
+      prev.map((r) => {
+        if (!selectedIds.has(r.id)) return r;
+
+        let updatedCat = r.category;
+        let updatedPress = r.pressure;
+        let updatedPressAuto = r.pressureAutoDetected;
+
+        if (bulkValues.category !== "") {
+          updatedCat = bulkValues.category;
+          const pred = predictSpacePressure(updatedCat);
+          updatedPress = pred.pressure;
+          updatedPressAuto = true;
+        }
+
+        if (bulkValues.pressure !== "") {
+          updatedPress = bulkValues.pressure;
+          updatedPressAuto = false;
+        }
+
+        return {
+          ...r,
+          level: bulkValues.level !== "" ? bulkValues.level : r.level,
+          zone: bulkValues.zone !== "" ? bulkValues.zone : r.zone,
+          category: updatedCat,
+          pressure: updatedPress,
+          pressureAutoDetected: updatedPressAuto,
+          height: bulkValues.height !== "" ? parseFloat(bulkValues.height) || r.height : r.height,
+          fixtures: bulkValues.fixtures !== "" ? bulkValues.fixtures : r.fixtures,
+          multiplier: bulkValues.multiplier !== "" ? parseInt(bulkValues.multiplier) || r.multiplier : r.multiplier,
+        };
+      })
+    );
+
+    toast.success(`Updated ${selectedIds.size} selected spaces!`);
+  };
+
+  const handleSaveToProject = () => {
+    const spacesToCommit = records.filter((r) => selectedIds.has(r.id));
+    if (spacesToCommit.length === 0) {
+      toast.error("No spaces selected for commit.");
+      return;
+    }
+
+    const formattedSpaces = spacesToCommit.map((r, idx) => ({
+      id: `sp-3d-${Date.now()}-${idx}`,
+      name: r.name,
+      building: "Tower A",
+      floor: r.level || "L01",
+      zone: r.zone || "Default",
+      category: r.category || "General Office / Space",
+      pressure: r.pressure || "+1",
+      area: r.area,
+      height: r.height || 3.0,
+      fixtures: r.fixtures || "",
+      multiplier: r.multiplier || 1,
+    }));
+
+    workspaceStore.addSpacesBulk(formattedSpaces as any);
+    toast.success(`Successfully saved ${formattedSpaces.length} spaces into Project Schedule! All calculations synced to Ventilation calculator.`);
+    onClose();
+  };
+
+  const handleSyncToLightingLux = () => {
+    const spacesToCommit = records.filter((r) => selectedIds.has(r.id));
+    if (spacesToCommit.length === 0) {
+      toast.error("No spaces selected to sync to Lighting LUX.");
+      return;
+    }
+
+    const luxRows = spacesToCommit.map((s, idx) => convertBimSpaceToLuxRow(s, idx));
+    const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "") || "default";
+
+    try {
+      localStorage.setItem(`mep_lux_calc_${activeProjId}`, JSON.stringify(luxRows));
+      toast.success(`✨ Synced ${luxRows.length} spaces to Lighting LUX Calculation with 3-Source automation!`, {
+        action: {
+          label: "Open Lighting LUX",
+          onClick: () => {
+            window.location.href = "/lighting-lux-calculation";
+          }
+        }
+      });
+      onClose();
+    } catch (err) {
+      console.error("Failed to sync to Lighting LUX:", err);
+      toast.error("Failed to save Lighting LUX rows.");
+    }
+  };
+
+  const handleSyncToCentralBattery = () => {
+    const spacesToCommit = records.filter((r) => selectedIds.has(r.id));
+    if (spacesToCommit.length === 0) {
+      toast.error("No spaces selected to sync to Central Battery Sizing.");
+      return;
+    }
+
+    const cbsRows = convertBimSpacesToCbsRows(spacesToCommit);
+    const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "") || "default";
+
+    try {
+      localStorage.setItem(`mep_central_battery_rows_${activeProjId}`, JSON.stringify(cbsRows));
+      toast.success(`⚡ Synced ${cbsRows.length} spaces to Central Battery Sizing (NFPA 101 / BS 5266)!`, {
+        action: {
+          label: "Open Central Battery",
+          onClick: () => {
+            window.location.href = "/central-battery-sizing";
+          }
+        }
+      });
+      onClose();
+    } catch (err) {
+      console.error("Failed to sync to Central Battery:", err);
+      toast.error("Failed to save Central Battery rows.");
+    }
+  };
+
+  const handleSyncToLpd = () => {
+    const spacesToCommit = records.filter((r) => selectedIds.has(r.id));
+    if (spacesToCommit.length === 0) {
+      toast.error("No spaces selected to sync to LPD Calculation.");
+      return;
+    }
+
+    const { internalGroups, externalGroups, internalSpacesCount, externalSpacesCount } = convertBimSpacesToLpdGroupsSplit(spacesToCommit);
+
+    try {
+      const saved = localStorage.getItem("mep-lpd-calc-v2");
+      let projects: LpdProject[] = [];
+      let currentProjectId = "";
+
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.projects && parsed.projects.length > 0) {
+            projects = parsed.projects;
+            currentProjectId = parsed.currentProjectId || projects[0].id;
+          }
+        } catch (e) {}
+      }
+
+      if (projects.length === 0) {
+        const defProj = defaultProject();
+        defProj.internalGroups = internalGroups.length > 0 ? internalGroups : defProj.internalGroups;
+        defProj.externalGroups = externalGroups.length > 0 ? externalGroups : defProj.externalGroups;
+        projects = [defProj];
+        currentProjectId = defProj.id;
+      } else {
+        projects = projects.map((p) => {
+          if (p.id === currentProjectId) {
+            return {
+              ...p,
+              internalGroups: internalGroups.length > 0 ? internalGroups : p.internalGroups,
+              externalGroups: externalGroups.length > 0 ? externalGroups : p.externalGroups,
+            };
+          }
+          return p;
+        });
+      }
+
+      localStorage.setItem("mep-lpd-calc-v2", JSON.stringify({ projects, currentProjectId }));
+      const parts: string[] = [];
+      if (internalSpacesCount > 0) parts.push(`${internalSpacesCount} internal`);
+      if (externalSpacesCount > 0) parts.push(`${externalSpacesCount} external (gardens/terraces)`);
+      toast.success(`💡 Synced ${spacesToCommit.length} spaces (${parts.join(", ")}) into LPD Calculation!`, {
+        action: {
+          label: "Open LPD Calculation",
+          onClick: () => {
+            window.location.href = "/lpd-calculation";
+          },
+        },
+      });
+      onClose();
+    } catch (err) {
+      console.error("Failed to sync to LPD Calculation:", err);
+      toast.error("Failed to save LPD Calculation spaces.");
+    }
+  };
+
+  const handleSyncToLoadSummary = () => {
+    const spacesToCommit = records.filter((r) => selectedIds.has(r.id));
+    if (spacesToCommit.length === 0) {
+      toast.error("No spaces selected to sync to Load Summary.");
+      return;
+    }
+
+    const loadRows = convertBimSpacesToLoadRows(spacesToCommit);
+    const activeProjId = workspaceStore.getState().activeProjectId || (typeof localStorage !== "undefined" ? localStorage.getItem("mep_active_project_id") : "") || "default";
+
+    try {
+      localStorage.setItem(`mep_load_summary_rows_${activeProjId}`, JSON.stringify(loadRows));
+      toast.success(`⚡ Synced ${loadRows.length} spaces to Electrical Load Summary (Lighting + Small Power + HVAC)!`, {
+        action: {
+          label: "Open Load Summary",
+          onClick: () => {
+            window.location.href = "/load-summary";
+          },
+        },
+      });
+      onClose();
+    } catch (err) {
+      console.error("Failed to sync to Load Summary:", err);
+      toast.error("Failed to save Load Summary spaces.");
+    }
+  };
+
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl w-full max-w-5xl text-white flex flex-col max-h-[85vh] overflow-hidden animate-scale-in">
+        {/* Header */}
+        <header className="px-5 py-4 border-b border-[#27272a] flex items-center justify-between bg-[#111113]">
+          <div className="flex items-center gap-2.5">
+            <div className="size-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+              <Table className="size-4" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm tracking-wide">3D BIM Space Schedule Generator</h3>
+              <p className="text-[11px] text-zinc-400">
+                Review spatial geometry & AI occupancy predictions extracted from 3D model.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-zinc-400 hover:text-white rounded-md p-1 hover:bg-[#27272a] transition-colors"
+          >
+            <X className="size-4" />
+          </button>
+        </header>
+
+        {/* Content Body */}
+        <div className="p-5 flex-1 overflow-y-auto space-y-4 text-xs">
+          {/* Bulk Edit Bar */}
+          <div className="bg-[#202023] border border-[#27272a] rounded-lg p-3 flex flex-wrap items-center gap-2.5">
+            <span className="font-bold text-zinc-300 text-[11px] uppercase tracking-wider">
+              Bulk Edit ({selectedIds.size} selected):
+            </span>
+            <input
+              type="text"
+              placeholder="Level (e.g. GF)"
+              value={bulkValues.level}
+              onChange={(e) => setBulkValues({ ...bulkValues, level: e.target.value })}
+              className="bg-[#18181b] border border-[#3f3f46] rounded px-2.5 py-1 w-28 text-white outline-none focus:border-blue-500"
+            />
+            <input
+              type="text"
+              placeholder="Zone (e.g. AHU-1)"
+              value={bulkValues.zone}
+              onChange={(e) => setBulkValues({ ...bulkValues, zone: e.target.value })}
+              className="bg-[#18181b] border border-[#3f3f46] rounded px-2.5 py-1 w-28 text-white outline-none focus:border-blue-500"
+            />
+            <CategorySelect
+              value={bulkValues.category}
+              onChange={(val) => setBulkValues({ ...bulkValues, category: val })}
+              className="w-44"
+              triggerClassName="bg-[#18181b] border border-[#3f3f46] rounded px-2.5 py-1 text-white outline-none cursor-pointer focus:border-blue-500 h-[30px] text-xs"
+            />
+            <select
+              value={bulkValues.pressure}
+              onChange={(e) => setBulkValues({ ...bulkValues, pressure: e.target.value })}
+              className="bg-[#18181b] border border-[#3f3f46] rounded px-2.5 py-1 w-28 text-white outline-none cursor-pointer focus:border-blue-500"
+            >
+              <option value="">-- Pressure --</option>
+              <option value="+1">+1 (Positive)</option>
+              <option value="0">0 (Neutral)</option>
+              <option value="-1">-1 (Negative)</option>
+              <option value="-2">-2 (Critical Neg)</option>
+            </select>
+            <input
+              type="number"
+              placeholder="Height"
+              value={bulkValues.height}
+              onChange={(e) => setBulkValues({ ...bulkValues, height: e.target.value })}
+              className="bg-[#18181b] border border-[#3f3f46] rounded px-2 py-1 w-16 text-white outline-none focus:border-blue-500"
+            />
+            <button
+              onClick={handleBulkApply}
+              className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3.5 py-1 rounded transition-colors ml-auto shadow cursor-pointer"
+            >
+              Apply Bulk
+            </button>
+          </div>
+
+          {/* Table */}
+          <div className="border border-[#27272a] rounded-lg overflow-hidden max-h-[45vh] overflow-y-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead className="bg-[#111113] border-b border-[#27272a] sticky top-0 font-semibold text-zinc-400 uppercase tracking-wider text-[10px]">
+                <tr>
+                  <th className="p-2.5 w-8 text-center">
+                    <input
+                      type="checkbox"
+                      checked={records.length > 0 && selectedIds.size === records.length}
+                      onChange={(e) => setSelectedIds(e.target.checked ? new Set(records.map((p) => p.id)) : new Set())}
+                      className="cursor-pointer"
+                    />
+                  </th>
+                  <th className="p-2.5">Level</th>
+                  <th className="p-2.5">Space Name</th>
+                  <th className="p-2.5">Zone</th>
+                  <th className="p-2.5">ASHRAE Category</th>
+                  <th className="p-2.5">Pressure</th>
+                  <th className="p-2.5">Area (m²)</th>
+                  <th className="p-2.5">Height (m)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#27272a] bg-[#18181b]">
+                {records.map((rec) => {
+                  const isSel = selectedIds.has(rec.id);
+                  return (
+                    <tr
+                      key={rec.id}
+                      onClick={(e) => toggleSelect(rec.id, e.shiftKey, e.ctrlKey || e.metaKey)}
+                      className={`hover:bg-[#27272a]/60 ${isSel ? "bg-blue-600/10" : ""} cursor-default select-none`}
+                    >
+                      <td className="p-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSel}
+                          onClick={(e) => toggleSelect(rec.id, e.shiftKey, true)}
+                          onChange={() => {}}
+                          className="cursor-pointer"
+                        />
+                      </td>
+                      <td className="p-2.5 font-mono text-zinc-300">{rec.level}</td>
+                      <td className="p-2.5 font-medium text-white">{rec.name}</td>
+                      <td className="p-2.5 font-mono text-zinc-300">{rec.zone}</td>
+                      <td className="p-2.5" onClick={(e) => e.stopPropagation()}>
+                        <span className="inline-flex items-center gap-1.5 w-full">
+                          {rec.aiDetected && <Sparkles className="size-3.5 text-blue-400 shrink-0" />}
+                          <CategorySelect
+                            value={rec.category || ""}
+                            onChange={(cat) => {
+                              const pred = predictSpacePressure(cat);
+                              setRecords((prev) =>
+                                prev.map((item) =>
+                                  item.id === rec.id
+                                    ? {
+                                        ...item,
+                                        category: cat,
+                                        pressure: pred.pressure,
+                                        pressureAutoDetected: true,
+                                      }
+                                    : item
+                                )
+                              );
+                            }}
+                            className="w-full"
+                            triggerClassName="bg-[#202023] border border-[#3f3f46] rounded px-2 py-1 text-xs text-white outline-none w-full cursor-pointer h-7"
+                          />
+                        </span>
+                      </td>
+                      <td className="p-2.5" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={rec.pressure || "+1"}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setRecords((prev) =>
+                              prev.map((item) =>
+                                item.id === rec.id ? { ...item, pressure: val, pressureAutoDetected: false } : item
+                              )
+                            );
+                          }}
+                          className="bg-[#202023] border border-[#3f3f46] rounded px-2 py-1 text-xs font-bold text-emerald-400 outline-none cursor-pointer"
+                        >
+                          <option value="+1">+1</option>
+                          <option value="0">0</option>
+                          <option value="-1">-1</option>
+                          <option value="-2">-2</option>
+                        </select>
+                      </td>
+                      <td className="p-2.5 font-mono text-zinc-300">{rec.area.toFixed(2)}</td>
+                      <td className="p-2.5 font-mono text-zinc-300">{rec.height.toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <footer className="px-5 py-3.5 border-t border-[#27272a] flex items-center justify-between bg-[#111113]">
+          <span className="text-zinc-400 text-xs font-mono">
+            {selectedIds.size} of {records.length} spaces selected
+          </span>
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={onClose}
+              className="px-4 py-1.5 border border-[#3f3f46] text-xs font-semibold rounded-md hover:bg-[#202023] transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSyncToLightingLux}
+              disabled={selectedIds.size === 0}
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-md shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Generate 13-column CIBSE Lighting calculation from 3D IFC spaces"
+            >
+              <Sun className="size-3.5" />
+              Sync to Lighting LUX ({selectedIds.size})
+            </button>
+            <button
+              onClick={handleSyncToLpd}
+              disabled={selectedIds.size === 0}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-md shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Generate ASHRAE 90.1 LPD schedule grouped by floor"
+            >
+              <Lightbulb className="size-3.5" />
+              Sync to LPD ({selectedIds.size})
+            </button>
+            <button
+              onClick={handleSyncToCentralBattery}
+              disabled={selectedIds.size === 0}
+              className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-md shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Generate Life-Safety Central Battery Schedule (NFPA 101 / BS 5266)"
+            >
+              <Zap className="size-3.5" />
+              Sync to Central Battery ({selectedIds.size})
+            </button>
+            <button
+              onClick={handleSyncToLoadSummary}
+              disabled={selectedIds.size === 0}
+              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-md shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Aggregate Lighting, Small Power, and HVAC into Electrical Load Summary"
+            >
+              <Layers className="size-3.5" />
+              Sync to Load Summary ({selectedIds.size})
+            </button>
+            <button
+              onClick={handleSaveToProject}
+              disabled={selectedIds.size === 0}
+              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-md shadow-md transition-all disabled:opacity-50 cursor-pointer"
+            >
+              Save {selectedIds.size} Spaces to Project Schedule
+            </button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}

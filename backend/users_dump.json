@@ -1,0 +1,38 @@
+[
+  {
+    "id": "usr_1785905869652_132",
+    "name": "Vikram",
+    "organization_id": "8343112c-110b-4c26-bce9-b5786b05f241",
+    "role": "SUPER_ADMIN"
+  },
+  {
+    "id": "usr_1786511017815_382",
+    "name": "Abubakar",
+    "organization_id": null,
+    "role": "USER"
+  },
+  {
+    "id": "usr_1786083832014_386",
+    "name": "Vaishnavi Halasage",
+    "organization_id": "8343112c-110b-4c26-bce9-b5786b05f241",
+    "role": "USER"
+  },
+  {
+    "id": "usr_admin_tarv_ai",
+    "name": "System Admin",
+    "organization_id": null,
+    "role": "SUPER_ADMIN"
+  },
+  {
+    "id": "usr_1786021796431_485",
+    "name": "Kirtan",
+    "organization_id": "8343112c-110b-4c26-bce9-b5786b05f241",
+    "role": "USER"
+  },
+  {
+    "id": "usr_1786021470630_14",
+    "name": "Vikram",
+    "organization_id": null,
+    "role": "USER"
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "version": "2.0.10",
+  "notes": "Update to version 2.0.10 - Bug fixes and UI improvements.",
+  "pub_date": "2026-08-17T12:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUzY5ZldlYUdocDloNzRma3dla0dxWmxrT01ETUNMU2F2WW5wOG1PM3lnZnJGSURoaWxDWHE5Q0xvMzZsSStYNGlqTTgwQW5Fb1p0aU1qdFAwSXVDU1diQjIzUXk0OGcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2OTY5MDY4CWZpbGU6TUVQIENhbGN1bGF0b3JfMi4wLjEwX3g2NC1zZXR1cC5leGUKT2lSSG8zUmtuTzZCeTcyTmp4TVpPcE1rRTM2bHg3dVNCVURqL2ZpRUY0bVZ1dFptbHEyNktXa3RqRFI0SWhCMnhaV2UrSEljQko3YzlVRFVZQU9uQ0E9PQo=",
+      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/releases/windows-x86_64/MEP_Calculator_2.0.10_x64-setup.exe"
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+    "$schema":  "../node_modules/@tauri-apps/cli/config.schema.json",
+    "productName":  "MEP Calculator",
+    "version": "0.0.9",
+    "identifier":  "com.vikram.mepcalculator",
+    "build":  {
+                  "frontendDist":  "../dist-nitro-2/public",
+                  "devUrl":  "http://localhost:8080"
+              },
+    "app":  {
+                "windows":  [
+                                {
+                                    "title":  "MEP Calculator",
+                                    "width":  800,
+                                    "height":  600,
+                                    "resizable":  true,
+                                    "fullscreen":  false,
+                                    "url": "index.html"
+                                }
+                            ],
+                "security":  {
+                                 "csp":  null
+                             }
+            },
+    "plugins":  {
+                    "updater":  {
+                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE3QTFBMTc5RDZEN0VCNTIKUldSUzY5ZldlYUdocDcwYWZjQTF2UE9tZ1A1ODNTOFBObEtmdXNIS2tZbzVBeVE4Qi9VK3BIS1UK",
+                                    "endpoints":  [
+                                                      "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/update.json",
+                                                      "https://mep-calculator.onrender.com/update.json"
+                                                  ]
+                                }
+                },
+    "bundle":  {
+                   "active":  true,
+                   "createUpdaterArtifacts": true,
+                   "targets":  [
+                                   "nsis"
+                               ],
+                   "icon":  [
+                                "icons/32x32.png",
+                                "icons/128x128.png",
+                                "icons/128x128@2x.png",
+                                "icons/icon.icns",
+                                "icons/icon.ico"
+                            ],
+                   "android":  {
+                                   "debugApplicationIdSuffix":  ".debug"
+                               }
+               }
+}

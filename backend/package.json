@@ -1,0 +1,18 @@
+{
+  "name": "mep-backend",
+  "version": "2.0.10",
+  "description": "Backend server for MEP Calculator",
+  "main": "authServer.js",
+  "type": "module",
+  "scripts": {
+    "start": "node authServer.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.111.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.4.2",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^9.0.3",
+    "resend": "^6.18.1"
+  }
+}

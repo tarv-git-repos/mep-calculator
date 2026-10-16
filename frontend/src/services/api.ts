@@ -1,0 +1,1236 @@
+import axios from 'axios';
+import { getHardwareFingerprint, getOrCreateDeviceId } from '@/lib/hardwareFingerprint';
+import { supabase } from '@/lib/supabase';
+
+const getBackendUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) {
+      return `http://${host}:4000`;
+    }
+    const isTauri = !!((window as any).__TAURI_INTERNALS__ || window.location.protocol === 'tauri:' || window.location.protocol === 'asset:' || window.location.protocol === 'file:');
+    if (isTauri) {
+      return 'http://127.0.0.1:4000';
+    }
+    return '';
+  }
+  return 'http://127.0.0.1:4000';
+};
+
+// axios.defaults.withCredentials = true; // Disabled to prevent stale cookie conflicts with Authorization header
+
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('auth_token');
+  if (config.headers) {
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    const hwid = getHardwareFingerprint();
+    if (hwid) {
+      config.headers['x-hwid'] = hwid;
+    }
+  }
+  return config;
+});
+
+let lastRevokedEventTime = 0;
+
+axios.interceptors.response.use(
+  (response) => {
+    if (response.data && response.data.sessionRevoked) {
+      const isLoginPage = typeof window !== 'undefined' && window.location.pathname.includes('/login');
+      if (typeof window !== 'undefined' && !isLoginPage && Date.now() - lastRevokedEventTime > 5000) {
+        lastRevokedEventTime = Date.now();
+        window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: response.data.message }));
+      }
+    }
+    return response;
+  },
+  (error) => {
+    const url = error.config?.url || '';
+    const isAuthEndpoint = url.includes('/api/auth/login') || url.includes('/api/auth/register') || url.includes('/api/auth/is-auth');
+    const isLoginPage = typeof window !== 'undefined' && window.location.pathname.includes('/login');
+    const hasToken = typeof window !== 'undefined' && Boolean(localStorage.getItem('auth_token') || localStorage.getItem('mep_calculator_user_data'));
+
+    if (error.response?.status === 401 && !isAuthEndpoint && !isLoginPage) {
+      if (typeof window !== 'undefined' && Date.now() - lastRevokedEventTime > 5000) {
+        lastRevokedEventTime = Date.now();
+        const respData = error.response?.data;
+        const msg = respData?.message || 'Session expired or unauthorized. Please sign in again.';
+        window.dispatchEvent(new CustomEvent('mep_session_revoked', { detail: msg }));
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+let isHeartbeatEndpointAvailable = true;
+
+const getAuthHeaders = () => {
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  const hwid = getHardwareFingerprint();
+  const deviceId = getOrCreateDeviceId();
+  return {
+    Authorization: token ? `Bearer ${token}` : '',
+    'x-hwid': hwid || '',
+    'x-device-id': deviceId || '',
+    'Content-Type': 'application/json',
+  };
+};
+
+export const api = {
+  // USERS
+  async getUsers() {
+    if (typeof window !== 'undefined' && window.location.pathname.includes('/login')) {
+      return [];
+    }
+    let usersList: any[] = [];
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/users/list`);
+      if (data.success && Array.isArray(data.users) && data.users.length > 0) {
+        usersList = data.users;
+      }
+    } catch (e) {}
+    
+    if (usersList.length === 0) {
+      usersList = [
+        { id: 'usr_admin_tarv_ai', name: 'System Admin', email: 'admin@tarv.ai', role: 'SUPER_ADMIN', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787720871957_577', name: 'Abubakar Chanda', email: 'abubakarswork2@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787720981864_567', name: 'Abubakarrrr', email: 'abubakarchanda3@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1786021796431_485', name: 'Kirtan', email: 'kirtankarwa@sinhgad.edu', role: 'ORG_ADMIN', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787637638368_946', name: 'Kirtan-Tarv', email: 'kirtan@tarv.ai', role: 'ORG_ADMIN', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787721668598_839', name: 'Kirtan Karwa', email: 'kirtankarwa.cse.nbnscoe@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787721176260_295', name: 'Kirtan NBN', email: 'kirtankarwa.nbnscoe.comp@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787637111471_201', name: 'Kirtan Comp', email: 'kirtankarwa.nbnscoe@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1786083832014_386', name: 'Vaishnavi Halasage', email: 'halasagevaishu@gmail.com', role: 'Sr. Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1785905869652_132', name: 'Vikram Kadam', email: 'kadamvikram0304@gmail.com', role: 'ORG_ADMIN', designation: 'Organization Admin', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1786021470630_14', name: 'Vikram Kadam', email: 'kadamvikram0308@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1786947574165_155', name: 'Vikram Kadam', email: 'kadamvikram774@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787637352764_974', name: 'Salil Kulkarni', email: 'salilk.cec@gmail.com', role: 'Principal Consultant', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787229568152_328', name: 'Om Shah', email: 'omshah709@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787232833872_722', name: 'Om Shah', email: 'omshah7092004@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787210351720_389', name: 'Sabir Gadwal', email: 'sabir@consistentconsultant.com', role: 'Lead Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787290138300_282', name: 'Paras Sadafule', email: 'parassadafule05@gmail.com', role: 'Jr. Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1787572776053_219', name: 'Aryan Gaikwad', email: 'aryan@consistentconsultant.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' }
+      ];
+    }
+
+    try {
+      const cachedStr = typeof localStorage !== 'undefined' ? localStorage.getItem('mep_local_users') : null;
+      let orgOverrides: Record<string, string> = {};
+      try { orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}'); } catch(e) {}
+      let expiryOverrides: Record<string, string | null> = {};
+      try { expiryOverrides = JSON.parse(localStorage.getItem('mep_user_expiry_overrides') || '{}'); } catch(e) {}
+      let authorityOverrides: Record<string, string> = {};
+      try { authorityOverrides = JSON.parse(localStorage.getItem('mep_user_authority_overrides') || '{}'); } catch(e) {}
+
+      if (cachedStr) {
+        const cachedUsers = JSON.parse(cachedStr);
+        const cachedMap = new Map();
+        cachedUsers.forEach((u: any) => {
+          if (u.id) cachedMap.set(String(u.id).toLowerCase(), u);
+          if (u.email) cachedMap.set(String(u.email).toLowerCase(), u);
+        });
+        usersList = usersList.map(u => {
+          const c = cachedMap.get(String(u.id || '').toLowerCase()) || cachedMap.get(String(u.email || '').toLowerCase());
+          const overrideOrg = orgOverrides[String(u.email || '').toLowerCase()] || orgOverrides[String(u.id || '').toLowerCase()];
+          let finalOrgId = u.organization_id || u.features?.organization_id;
+          if (overrideOrg !== undefined) {
+            finalOrgId = overrideOrg === 'No Organization' ? '' : overrideOrg;
+          } else if (!finalOrgId && c) {
+            finalOrgId = c.organization_id || c.features?.organization_id;
+          }
+          const isSuper = String(u.email || '').toLowerCase().trim() === 'admin@tarv.ai' || String(u.id || '').toLowerCase().trim() === 'usr_admin_tarv_ai' || u.role === 'SUPER_ADMIN';
+          const finalRole = isSuper
+            ? 'SUPER_ADMIN'
+            : ((u.role && u.role !== 'USER')
+              ? u.role
+              : ((c?.role && c?.role !== 'USER') ? c.role : (u.features?.role || c?.features?.role || 'Jr. Design Engineer')));
+          const finalDesignation = isSuper ? 'Super Administrator' : (u.designation || c?.designation || u.features?.designation || c?.features?.designation || finalRole || '');
+
+          const overrideExp = expiryOverrides[String(u.email || '').toLowerCase()] !== undefined
+            ? expiryOverrides[String(u.email || '').toLowerCase()]
+            : expiryOverrides[String(u.id || '').toLowerCase()];
+
+          let finalExpires = overrideExp;
+          if (finalExpires === undefined) {
+            finalExpires = (u.subscription_expires !== undefined && u.subscription_expires !== null)
+              ? u.subscription_expires
+              : ((u.features && u.features?.subscription_expires !== undefined && u.features?.subscription_expires !== null)
+                  ? u.features.subscription_expires
+                  : ((c?.subscription_expires !== undefined && c?.subscription_expires !== null)
+                      ? c.subscription_expires
+                      : (c?.features?.subscription_expires || null)));
+          }
+
+          const overrideAuth = authorityOverrides[String(u.email || '').toLowerCase()] !== undefined
+            ? authorityOverrides[String(u.email || '').toLowerCase()]
+            : authorityOverrides[String(u.id || '').toLowerCase()];
+
+          let finalAuthority = overrideAuth;
+          if (finalAuthority === undefined) {
+            finalAuthority = u.approvalAuthority || c?.approvalAuthority || u.features?.approvalAuthority || c?.features?.approvalAuthority;
+          }
+
+          const finalPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || c?.plan || c?.subscription_status || c?.features?.plan || (finalOrgId ? 'ENTERPRISE' : 'PRO');
+
+          return {
+            ...(c || {}),
+            ...u,
+            organization_id: finalOrgId,
+            role: finalRole,
+            designation: finalDesignation,
+            ...(finalAuthority !== undefined ? { approvalAuthority: finalAuthority } : {}),
+            plan: finalPlan,
+            subscription_status: finalPlan,
+            subscription_expires: finalExpires,
+            features: {
+              ...(c?.features || {}),
+              ...(u.features || {}),
+              plan: finalPlan,
+              subscription_status: finalPlan,
+              organization_id: finalOrgId,
+              role: finalRole,
+              designation: finalDesignation,
+              subscription_expires: finalExpires,
+              ...(finalAuthority !== undefined ? { approvalAuthority: finalAuthority } : {})
+            }
+          };
+        });
+      }
+      if (typeof localStorage !== 'undefined' && Array.isArray(usersList) && usersList.length > 0) {
+        localStorage.setItem('mep_local_users', JSON.stringify(usersList));
+      }
+    } catch (e) {}
+
+    return usersList;
+  },
+
+  // ADMIN USER MANAGEMENT
+  async adminToggleRole(profileId: string, newRole: string) {
+    // 1. Instant local persistence update
+    try {
+      const stored = localStorage.getItem('mep_local_users');
+      let users = stored ? JSON.parse(stored) : null;
+      if (!users || !Array.isArray(users)) {
+        users = await this.getUsers();
+      }
+      const pidLower = String(profileId).toLowerCase().trim();
+      users = users.map((u: any) => {
+        const uId = String(u.id || '').toLowerCase().trim();
+        const uEmail = String(u.email || '').toLowerCase().trim();
+        if (uId === pidLower || uEmail === pidLower) {
+          return { 
+            ...u, 
+            role: newRole,
+            designation: u.designation || newRole,
+            features: {
+              ...(u.features || {}),
+              role: newRole,
+              designation: u.features?.designation || newRole
+            } 
+          };
+        }
+        return u;
+      });
+      localStorage.setItem('mep_local_users', JSON.stringify(users));
+      localStorage.setItem('cachedAllUsers', JSON.stringify(users));
+
+      // Also sync company hierarchy if user is present
+      const newDesignation = newRole === 'ORG_ADMIN' ? 'Organization Admin' : (newRole === 'SUPER_ADMIN' ? 'Super Admin' : newRole);
+      try {
+        const updateMember = (m: any) => {
+          if (String(m.id).toLowerCase().trim() === pidLower || (m.email && String(m.email).toLowerCase().trim() === pidLower)) {
+            return { ...m, role: newRole, designation: newDesignation };
+          }
+          return m;
+        };
+
+        const hierStr = localStorage.getItem('mep_company_hierarchy');
+        if (hierStr) {
+          const hier = JSON.parse(hierStr);
+          localStorage.setItem('mep_company_hierarchy', JSON.stringify(hier.map(updateMember)));
+        }
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('mep_company_hierarchy_')) {
+            try {
+              const h = JSON.parse(localStorage.getItem(k) || '[]');
+              if (Array.isArray(h)) {
+                localStorage.setItem(k, JSON.stringify(h.map(updateMember)));
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (e) {}
+
+      // Sync active logged in user
+      try {
+        const curUserStr = localStorage.getItem('currentUser') || localStorage.getItem('mep_profile') || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_calculator_user_data');
+        if (curUserStr) {
+          const curUser = JSON.parse(curUserStr);
+          if (String(curUser.id).toLowerCase().trim() === pidLower || (curUser.email && String(curUser.email).toLowerCase().trim() === pidLower)) {
+            curUser.role = newRole;
+            curUser.designation = newDesignation;
+            if (!curUser.features) curUser.features = {};
+            curUser.features.role = newRole;
+            curUser.features.designation = newDesignation;
+            const updatedJson = JSON.stringify(curUser);
+            localStorage.setItem('currentUser', updatedJson);
+            localStorage.setItem('mep_profile', updatedJson);
+            localStorage.setItem('mep_user_data', updatedJson);
+            localStorage.setItem('mep_calculator_user_data', updatedJson);
+            if (curUser.id) {
+              localStorage.setItem(`mep_user_designation_${curUser.id}`, newDesignation);
+            }
+          }
+        }
+      } catch (e) {}
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mep_user_profile_updated', { detail: { profileId, role: newRole, designation: newDesignation } }));
+      }
+    } catch (e) {}
+
+    // 2. Async backend sync
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/toggle-role`, { profileId, newRole }, {
+        headers: getAuthHeaders()
+      });
+      if (data && data.success) return data;
+    } catch (error: any) {
+      console.warn('adminToggleRole backend warning:', error);
+    }
+    return { success: true };
+  },
+  
+  async adminDeleteUser(profileId: string) {
+    // 1. Instant local persistence cleanup (0ms UI latency)
+    try {
+      const pidLower = String(profileId || '').toLowerCase().trim();
+      const stored = localStorage.getItem('mep_local_users');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((u: any) => 
+            String(u.id || '').toLowerCase().trim() !== pidLower && 
+            String(u.email || '').toLowerCase().trim() !== pidLower
+          );
+          localStorage.setItem('mep_local_users', JSON.stringify(cleaned));
+          localStorage.setItem('cachedAllUsers', JSON.stringify(cleaned));
+        }
+      }
+      const orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}');
+      delete orgOverrides[pidLower];
+      localStorage.setItem('mep_user_org_overrides', JSON.stringify(orgOverrides));
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mep_user_deleted', { detail: { profileId } }));
+      }
+    } catch (e) {}
+
+    // 2. Call backend & Supabase DB delete
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/delete-user`, { profileId }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to delete user' };
+    }
+  },
+
+  async adminUpdateProfile(profileId: string, updates: any) {
+    // 1. Instant local persistence update
+    try {
+      const stored = localStorage.getItem('mep_local_users');
+      let users = stored ? JSON.parse(stored) : null;
+      if (!users || !Array.isArray(users)) {
+        users = await this.getUsers();
+      }
+      const targetLower = String(profileId || '').toLowerCase().trim();
+      const updateEmailLower = String(updates?.email || '').toLowerCase().trim();
+      
+      let orgMap: Record<string, string> = {};
+      try { orgMap = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}'); } catch(e) {}
+      if (updates.organization_id !== undefined) {
+        const valToStore = updates.organization_id || 'No Organization';
+        orgMap[targetLower] = valToStore;
+        if (updateEmailLower) orgMap[updateEmailLower] = valToStore;
+        localStorage.setItem('mep_user_org_overrides', JSON.stringify(orgMap));
+      }
+
+      let expiryMap: Record<string, string | null> = {};
+      try { expiryMap = JSON.parse(localStorage.getItem('mep_user_expiry_overrides') || '{}'); } catch(e) {}
+      if (updates.subscription_expires !== undefined) {
+        const valToStore = updates.subscription_expires;
+        expiryMap[targetLower] = valToStore;
+        if (updateEmailLower) expiryMap[updateEmailLower] = valToStore;
+        localStorage.setItem('mep_user_expiry_overrides', JSON.stringify(expiryMap));
+      }
+
+      let authorityMap: Record<string, string> = {};
+      try { authorityMap = JSON.parse(localStorage.getItem('mep_user_authority_overrides') || '{}'); } catch(e) {}
+      const reqAuth = updates.approvalAuthority || updates.features?.approvalAuthority;
+      if (reqAuth !== undefined) {
+        authorityMap[targetLower] = reqAuth;
+        if (updateEmailLower) authorityMap[updateEmailLower] = reqAuth;
+        localStorage.setItem('mep_user_authority_overrides', JSON.stringify(authorityMap));
+      }
+
+      users = users.map((u: any) => {
+        const uId = String(u.id || '').toLowerCase().trim();
+        const uEmail = String(u.email || '').toLowerCase().trim();
+        if (uId === targetLower || uEmail === targetLower || (updateEmailLower && (uId === updateEmailLower || uEmail === updateEmailLower))) {
+          const updatedOrg = updates.organization_id !== undefined ? (updates.organization_id || '') : (u.organization_id || u.features?.organization_id || '');
+          const updatedComp = updates.company || updates.organization || u.company || u.organization || u.features?.company || '';
+          const updatedRole = updates.role || u.role || u.features?.role;
+          const updatedDesignation = updates.designation !== undefined ? updates.designation : (u.designation || u.features?.designation || updatedRole || '');
+          const updatedExpires = updates.subscription_expires !== undefined ? updates.subscription_expires : (u.subscription_expires || u.features?.subscription_expires || null);
+          const updatedAuthority = updates.approvalAuthority !== undefined ? updates.approvalAuthority : (updates.features?.approvalAuthority !== undefined ? updates.features.approvalAuthority : (u.approvalAuthority || u.features?.approvalAuthority));
+          const updatedPlan = updates.plan || updates.subscription_status || u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status;
+          return {
+            ...u,
+            ...updates,
+            organization_id: updatedOrg,
+            company: updatedComp,
+            organization: updatedComp,
+            subscription_expires: updatedExpires,
+            ...(updatedPlan ? { plan: updatedPlan, subscription_status: updatedPlan } : {}),
+            ...(updatedRole ? { role: updatedRole } : {}),
+            ...(updatedDesignation ? { designation: updatedDesignation } : {}),
+            ...(updatedAuthority ? { approvalAuthority: updatedAuthority } : {}),
+            features: {
+              ...(u.features || {}),
+              ...(updates.features || {}),
+              organization_id: updatedOrg,
+              company: updatedComp,
+              organization: updatedComp,
+              subscription_expires: updatedExpires,
+              ...(updatedPlan ? { plan: updatedPlan, subscription_status: updatedPlan } : {}),
+              ...(updatedRole ? { role: updatedRole } : {}),
+              ...(updatedDesignation ? { designation: updatedDesignation } : {}),
+              ...(updatedAuthority ? { approvalAuthority: updatedAuthority } : {})
+            }
+          };
+        }
+        return u;
+      });
+
+      localStorage.setItem('mep_local_users', JSON.stringify(users));
+      localStorage.setItem('cachedAllUsers', JSON.stringify(users));
+
+      // Also sync company hierarchy if user is present
+      try {
+        const hierStr = localStorage.getItem('mep_company_hierarchy');
+        if (hierStr) {
+          let hier = JSON.parse(hierStr);
+          let hierChanged = false;
+          hier = hier.map((m: any) => {
+            const mId = String(m.id || '').toLowerCase().trim();
+            const mEmail = String(m.email || '').toLowerCase().trim();
+            if (mId === targetLower || mEmail === targetLower || (updateEmailLower && (mId === updateEmailLower || mEmail === updateEmailLower))) {
+              hierChanged = true;
+              return {
+                ...m,
+                ...(updates.role ? { role: updates.role } : {}),
+                ...(updates.designation !== undefined ? { designation: updates.designation } : {}),
+                ...(updates.approvalAuthority !== undefined ? { approvalAuthority: updates.approvalAuthority } : {}),
+                ...(updates.name ? { name: updates.name } : {})
+              };
+            }
+            return m;
+          });
+          if (hierChanged) {
+            localStorage.setItem('mep_company_hierarchy', JSON.stringify(hier));
+          }
+        }
+      } catch (e) {}
+
+      // Sync active logged in user
+      try {
+        const curUserStr = localStorage.getItem('currentUser');
+        if (curUserStr) {
+          const curUser = JSON.parse(curUserStr);
+          const cId = String(curUser.id || '').toLowerCase().trim();
+          const cEmail = String(curUser.email || '').toLowerCase().trim();
+          if (cId === targetLower || cEmail === targetLower || (updateEmailLower && (cId === updateEmailLower || cEmail === updateEmailLower))) {
+            const updatedRole = updates.role || curUser.role;
+            const updatedDesignation = updates.designation !== undefined ? updates.designation : curUser.designation;
+            curUser.role = updatedRole;
+              curUser.designation = updatedDesignation;
+              if (updates.approvalAuthority !== undefined) curUser.approvalAuthority = updates.approvalAuthority;
+              if (!curUser.features) curUser.features = {};
+              curUser.features.role = updatedRole;
+              curUser.features.designation = updatedDesignation;
+              if (updates.approvalAuthority !== undefined) curUser.features.approvalAuthority = updates.approvalAuthority;
+            localStorage.setItem('currentUser', JSON.stringify(curUser));
+              localStorage.setItem('mep_profile', JSON.stringify(curUser));
+              localStorage.setItem('mep_user_data', JSON.stringify(curUser));
+          }
+        }
+      } catch (e) {}
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mep_user_profile_updated', { detail: { profileId, updates } }));
+      }
+    } catch (e) {}
+
+    // 2. Direct Supabase sync attempt
+    try {
+      const sbPayload: any = {};
+      if (updates.subscription_expires !== undefined) sbPayload.subscription_expires = updates.subscription_expires;
+      if (updates.role !== undefined) sbPayload.role = updates.role;
+      if (updates.organization_id !== undefined) sbPayload.organization_id = updates.organization_id;
+      if (updates.designation !== undefined) sbPayload.designation = updates.designation;
+      
+      if (Object.keys(sbPayload).length > 0) {
+        if (profileId) {
+          await supabase.from('custom_users').update(sbPayload).eq('id', profileId);
+        }
+        if (updates.email) {
+          await supabase.from('custom_users').update(sbPayload).ilike('email', updates.email);
+        }
+      }
+    } catch (sbErr) {
+      console.warn('Direct Supabase sync warning:', sbErr);
+    }
+
+    // 3. Async backend sync
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/update-profile`, { profileId, updates }, {
+        headers: getAuthHeaders()
+      });
+      if (data && data.success) return data;
+      return data || { success: true };
+    } catch (error: any) {
+      console.warn('adminUpdateProfile backend warning:', error);
+      if (error.response && error.response.data) return error.response.data;
+      return { success: true, message: 'Updated locally (offline mode)' };
+    }
+  },
+
+  async adminCreateUser(payload: {
+    name: string;
+    email: string;
+    password: string;
+    role?: string;
+    organization_id?: string | null;
+    company?: string;
+    designation?: string;
+    subscription_expires?: string | null;
+  }) {
+    try {
+      const response = await axios.post(`${getBackendUrl()}/api/admin/create-user`, payload, {
+        headers: getAuthHeaders()
+      });
+      return response.data;
+    } catch (e: any) {
+      if (e.response && e.response.data) return e.response.data;
+      return { success: false, message: e.message || 'Failed to create user' };
+    }
+  },
+
+  // ACTIVITY LOGS
+  async logActivity(action_type: string, details?: any) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/activity/log`, { action_type, details });
+      return data;
+    } catch (e) {
+      return { success: false };
+    }
+  },
+  
+  async getAdminActivityLogs() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/admin/activity-logs`);
+      return data.success ? data.logs : [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  // TEAMS
+  async getTeams() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/teams/list`);
+      return data.success ? data.teams : [];
+    } catch (e) {
+      return [];
+    }
+  },
+  async createTeam(name: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/teams/create`, { name });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to create team' };
+    }
+  },
+  async addUserToTeam(team_id: string, user_id: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/teams/add-user`, { team_id, user_id });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to add user' };
+    }
+  },
+  async removeUserFromTeam(team_id: string, user_id: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/teams/remove-user`, { team_id, user_id });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to remove user' };
+    }
+  },
+  async deleteTeam(team_id: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/teams/delete`, { team_id });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to delete team' };
+    }
+  },
+
+  // PROJECTS
+  async getProjects() {
+    const list = await api.getProjectsOrNull();
+    return list || [];
+  },
+  /** Returns the project list, or null if the request failed / user is not signed in. */
+  async getProjectsOrNull(): Promise<any[] | null> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (!token || (typeof window !== 'undefined' && window.location.pathname.includes('/login'))) {
+      return null;
+    }
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/projects/list`);
+      return data && data.success && Array.isArray(data.projects) ? data.projects : null;
+    } catch (e) {
+      return null;
+    }
+  },
+  async getProject(id: string) {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (!token || (typeof window !== 'undefined' && window.location.pathname.includes('/login'))) {
+      return null;
+    }
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/projects/get?id=${encodeURIComponent(id)}`);
+      return data.success ? data.project : null;
+    } catch (e) {
+      return null;
+    }
+  },
+  async createProject(projectData: any, assigned_users: string[], assigned_teams: string[]) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/create`, {
+        projectData,
+        assigned_users,
+        assigned_teams
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to create project' };
+    }
+  },
+  async saveWorkspace(project_id: string, workspace_data: any) {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (!token || (typeof window !== 'undefined' && window.location.pathname.includes('/login'))) {
+      return { success: false };
+    }
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/save-workspace`, {
+        project_id,
+        workspace_data
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to save workspace' };
+    }
+  },
+  async updateProjectDetails(project_id: string, details: {
+    name?: string;
+    code?: string;
+    client?: string;
+    location?: string;
+    description?: string;
+    notes?: string;
+    project_type?: string;
+    applicable_stages?: string[];
+    current_stage?: string;
+    stage_status?: Record<string, string>;
+  }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/update`, {
+        project_id,
+        ...details
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to update project' };
+    }
+  },
+  async updateProjectStage(project_id: string, current_stage: string, applicable_stages?: string[], stage_status?: Record<string, string>) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/update-stage`, {
+        project_id,
+        current_stage,
+        applicable_stages,
+        stage_status
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to update project stage' };
+    }
+  },
+  async deleteProject(project_id: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/delete`, { project_id });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to delete project' };
+    }
+  },
+  async removeUserFromProject(project_id: string, user_id: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/remove-user`, { project_id, user_id });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to remove user' };
+    }
+  },
+  async addUserToProject(project_id: string, user_id: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/add-user`, { project_id, user_id });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to add user' };
+    }
+  },
+  async removeTeamFromProject(project_id: string, team_id: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/remove-team`, { project_id, team_id });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to remove team' };
+    }
+  },
+  async addTeamToProject(project_id: string, team_id: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/add-team`, { project_id, team_id });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to add team' };
+    }
+  },
+  
+  // PRIVACY
+  async acceptPrivacyPolicy() {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/auth/accept-privacy`);
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to accept privacy policy' };
+    }
+  },
+
+  // ================= ORG API ENDPOINTS ================= //
+  async getOrganizations() {
+    let orgs: any[] = [];
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/admin/organizations`);
+      if (data.success && Array.isArray(data.organizations)) {
+        orgs = data.organizations;
+      }
+    } catch (e) {}
+
+    try {
+      const cached = localStorage.getItem('mep_local_organizations');
+      if (cached) {
+        const localOrgs = JSON.parse(cached);
+        const map = new Map();
+        localOrgs.forEach((o: any) => { 
+          if (o.id) {
+            if (o.license_key === 'MEP-LIC-ORG-PRO' || o.license_key === 'MEP-LIC-CONS-2026' || (o.license_key && o.license_key.length < 25)) {
+              delete o.license_key;
+            }
+            map.set(o.id, o); 
+          }
+        });
+        orgs = orgs.map(o => {
+          const loc = map.get(o.id);
+          return loc ? { ...loc, ...o } : o;
+        });
+        if (orgs.length === 0 && localOrgs.length > 0) orgs = localOrgs;
+      }
+      localStorage.setItem('mep_local_organizations', JSON.stringify(orgs));
+    } catch {
+      return orgs;
+    }
+    return orgs;
+  },
+  async createOrganization(orgData: { name: string; subscription_plan: string; max_users: number }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/organizations`, orgData);
+      if (data.success) {
+        try {
+          const existing = JSON.parse(localStorage.getItem('mep_local_organizations') || '[]');
+          existing.push(data.organization);
+          localStorage.setItem('mep_local_organizations', JSON.stringify(existing));
+        } catch(e) {}
+        return data;
+      }
+    } catch (e) {
+      console.error('Error creating organization:', e);
+    }
+    
+    const fallbackOrg = {
+      id: `org_${Date.now()}`,
+      name: orgData.name.trim(),
+      subscription_plan: orgData.subscription_plan || 'ENTERPRISE',
+      max_users: orgData.max_users || 10,
+      created_at: new Date().toISOString()
+    };
+    try {
+      const existing = JSON.parse(localStorage.getItem('mep_local_organizations') || '[]');
+      existing.push(fallbackOrg);
+      localStorage.setItem('mep_local_organizations', JSON.stringify(existing));
+    } catch(e) {}
+    
+    return { success: true, organization: fallbackOrg };
+  },
+
+  async updateOrganization(orgData: { orgId: string; name?: string; subscription_plan?: string; max_users?: number; license_key?: string; max_concurrent_users?: number }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/organizations/update`, orgData);
+      if (data.success) {
+        try {
+          const existing = JSON.parse(localStorage.getItem('mep_local_organizations') || '[]');
+          const idx = existing.findIndex((o: any) => o.id === orgData.orgId);
+          if (idx !== -1) {
+            existing[idx] = { ...existing[idx], ...orgData };
+          } else {
+            existing.push({ id: orgData.orgId, ...orgData });
+          }
+          localStorage.setItem('mep_local_organizations', JSON.stringify(existing));
+        } catch(e) {}
+      }
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+
+  async checkLicenseSession(sessionData: { userId: string; email: string; orgId: string; deviceId?: string }) {
+    const payload = {
+      ...sessionData,
+      deviceId: sessionData.deviceId || getOrCreateDeviceId(),
+    };
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/license/session/heartbeat`, payload);
+      return data;
+    } catch (e: any) {
+      return { success: true, allowed: true };
+    }
+  },
+
+  async releaseLicenseSession(sessionData: { userId: string; orgId: string; deviceId?: string }) {
+    const payload = {
+      ...sessionData,
+      deviceId: sessionData.deviceId || getOrCreateDeviceId(),
+    };
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/license/session/release`, payload);
+      return data;
+    } catch (e: any) {
+      return { success: true };
+    }
+  },
+
+  async deleteOrganization(orgId: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/organizations/delete`, { orgId });
+      try {
+        const existing = JSON.parse(localStorage.getItem('mep_local_organizations') || '[]');
+        const updated = existing.filter((o: any) => o.id !== orgId);
+        localStorage.setItem('mep_local_organizations', JSON.stringify(updated));
+      } catch(e) {}
+      return data;
+    } catch (e) {}
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('mep_local_organizations') || '[]');
+      const updated = existing.filter((o: any) => o.id !== orgId);
+      localStorage.setItem('mep_local_organizations', JSON.stringify(updated));
+    } catch(e) {}
+
+    return { success: true };
+  },
+  async getOrgUsers() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/org/users`);
+      if (data && data.success && Array.isArray(data.users)) {
+        return data.users;
+      }
+    } catch (e) {
+      console.error('Error fetching org users:', e);
+    }
+
+    let cachedUsers: any[] = [];
+    try {
+      const cachedStr = localStorage.getItem('mep_local_users');
+      if (cachedStr) cachedUsers = JSON.parse(cachedStr);
+    } catch (e) {}
+
+    let curOrg = '';
+    try {
+      const curUserStr = localStorage.getItem('currentUser') || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile');
+      if (curUserStr) {
+        const p = JSON.parse(curUserStr);
+        curOrg = p.organization_id || p.organization || p.company || p.features?.organization_id || p.features?.organization || p.features?.company || '';
+      }
+    } catch (e) {}
+    const cleanCurOrg = String(curOrg).toLowerCase().trim();
+
+    return cachedUsers.filter(u => {
+      if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return false;
+      const uOrg = String(u.organization_id || u.company || u.organization || u.features?.organization_id || u.features?.company || '').toLowerCase().trim();
+      if (!cleanCurOrg) return uOrg && uOrg !== '' && uOrg !== 'no organization' && uOrg !== 'null';
+      return uOrg === cleanCurOrg || cleanCurOrg.includes(uOrg) || uOrg.includes(cleanCurOrg);
+    });
+  },
+
+  async getOrgHierarchy(orgId?: string) {
+    try {
+      const url = orgId ? `${getBackendUrl()}/api/org/hierarchy?orgId=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/hierarchy`;
+      const { data } = await axios.get(url);
+      if (data && data.success && Array.isArray(data.hierarchy)) {
+        return data.hierarchy;
+      }
+    } catch (e) {
+      console.error('Error fetching org hierarchy:', e);
+    }
+    return null;
+  },
+
+  async saveOrgHierarchy(hierarchy: any[], orgId?: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/hierarchy`, { hierarchy, orgId });
+      return data;
+    } catch (e) {
+      console.error('Error saving org hierarchy:', e);
+      return { success: false };
+    }
+  },
+  async inviteOrgUser(inviteData: { name: string; email: string; role: string }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/invite`, inviteData);
+      return data;
+    } catch (e: any) {
+      console.error(e);
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async getOrgBackupSettings(orgId?: string) {
+    try {
+      const url = orgId ? `${getBackendUrl()}/api/org/backup-settings?org_id=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/backup-settings`;
+      const { data } = await axios.get(url, { headers: getAuthHeaders() });
+      return data;
+    } catch (e: any) {
+      console.error('getOrgBackupSettings error:', e);
+      return { success: false, local_backup_path: '', server_backup_path: '', versions_path: '' };
+    }
+  },
+  async saveOrgBackupSettings(local_backup_path: string, server_backup_path: string, param3?: string, param4?: string) {
+    try {
+      let finalVersionsPath = '';
+      let finalOrgId = '';
+
+      const isParam3OrgId = param3 && (
+        param3.startsWith('org_') ||
+        param3 === 'GLOBAL' ||
+        param3 === 'ALL' ||
+        param3 === 'UNASSIGNED' ||
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(param3)
+      );
+
+      if (isParam3OrgId) {
+        finalOrgId = param3;
+        finalVersionsPath = param4 || '';
+      } else {
+        finalVersionsPath = param3 || '';
+        finalOrgId = param4 || '';
+      }
+
+      const { data } = await axios.post(
+        `${getBackendUrl()}/api/org/backup-settings`,
+        {
+          local_backup_path,
+          server_backup_path,
+          versions_path: finalVersionsPath,
+          org_id: finalOrgId
+        },
+        { headers: getAuthHeaders() }
+      );
+      return data;
+    } catch (e: any) {
+      console.error('saveOrgBackupSettings error:', e);
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async getOrgBranding(orgId?: string) {
+    try {
+      const url = orgId ? `${getBackendUrl()}/api/org/branding?org_id=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/branding`;
+      const { data } = await axios.get(url, { headers: getAuthHeaders() });
+      return data;
+    } catch (e: any) {
+      console.error('getOrgBranding error:', e);
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async saveOrgBranding(branding: any, orgId?: string) {
+    try {
+      const activeUser = getStoredUser();
+      const finalOrgId = orgId || activeUser?.organization_id || 'org_default';
+      const { data } = await axios.post(
+        `${getBackendUrl()}/api/org/branding`,
+        { org_id: finalOrgId, branding },
+        { headers: getAuthHeaders() }
+      );
+      return data;
+    } catch (e: any) {
+      console.error('saveOrgBranding error:', e);
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async browseFolder(options?: { title?: string; initial?: string }) {
+    try {
+      const params = new URLSearchParams();
+      if (options?.title) params.append('title', options.title);
+      if (options?.initial) params.append('initial', options.initial);
+      const queryStr = params.toString() ? `?${params.toString()}` : '';
+      const { data } = await axios.get(`${getBackendUrl()}/api/browse-folder${queryStr}`);
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async openFolder(targetPath: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/open-local-backup-folder`, { targetPath });
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async verifyFolder(targetPath: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/verify-folder`, { targetPath });
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async getOrgActivityLogs(orgId?: string) {
+    try {
+      const url = orgId ? `${getBackendUrl()}/api/org/activity-logs?org_id=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/activity-logs`;
+      const { data } = await axios.get(url);
+      return data.success ? data.logs : [];
+    } catch (e) {
+      console.error('Error fetching org activity logs:', e);
+      return [];
+    }
+  },
+
+  // ================= ANNOUNCEMENTS ENDPOINTS ================= //
+  async getAnnouncements() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/announcements`);
+      return data.success ? data.announcements : [];
+    } catch (e) {
+      console.error('Error fetching announcements:', e);
+      return [];
+    }
+  },
+  async createAnnouncement(message: string, is_active: boolean = true) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/announcements`, { message, is_active });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to create announcement' };
+    }
+  },
+  async toggleAnnouncement(id: string, is_active: boolean) {
+    try {
+      const { data } = await axios.put(`${getBackendUrl()}/api/admin/announcements/${id}`, { is_active });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to toggle announcement' };
+    }
+  },
+  async deleteAnnouncement(id: string) {
+    try {
+      const { data } = await axios.delete(`${getBackendUrl()}/api/admin/announcements/${id}`);
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to delete announcement' };
+    }
+  },
+
+  // ================= PROJECT VERSIONS ENDPOINTS ================= //
+  async saveVersionToServer(projectName: string, calculatorName: string, payload: any, versionsPath?: string, discipline?: string, actionSuffix?: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/versions/save`, {
+        projectName,
+        calculatorName,
+        version: payload._versionMetadata?.version,
+        description: payload._versionMetadata?.description,
+        data: payload.data || payload,
+        versionsPath,
+        discipline,
+        actionSuffix
+      });
+      return data;
+    } catch (e: any) {
+      console.warn('Failed to save version to server:', e);
+      return { success: false };
+    }
+  },
+
+  async getVersionsFromServer(projectName: string, calculatorName: string) {
+    try {
+      const url = `${getBackendUrl()}/api/versions/list?project=${encodeURIComponent(projectName)}&calculator=${encodeURIComponent(calculatorName)}`;
+      const { data } = await axios.get(url);
+      return data.success ? data.versions : [];
+    } catch (e: any) {
+      console.warn('Failed to fetch versions from server:', e);
+      return [];
+    }
+  },
+
+  async sendNotification(notifData: {
+    recipientId: string;
+    title: string;
+    message: string;
+    link?: string;
+    metadata?: any;
+  }) {
+    try {
+      if (typeof window !== 'undefined') {
+        const uId = notifData.recipientId;
+        const userNotifKey = uId ? `mep_persistent_user_notifs_${uId}` : 'mep_persistent_user_notifs';
+        
+        const newNotifItem = {
+          id: notifData.metadata?.id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          title: notifData.title,
+          message: notifData.message,
+          link: notifData.link,
+          createdAt: new Date().toISOString(),
+          read: false,
+          ...notifData.metadata
+        };
+
+        try {
+          const existingUserNotifs = JSON.parse(localStorage.getItem(userNotifKey) || '[]');
+          localStorage.setItem(userNotifKey, JSON.stringify([newNotifItem, ...existingUserNotifs]));
+        } catch(e) {}
+
+        try {
+          const globalNotifs = JSON.parse(localStorage.getItem('mep_calc_coord_notifs') || '[]');
+          localStorage.setItem('mep_calc_coord_notifs', JSON.stringify([newNotifItem, ...globalNotifs]));
+        } catch(e) {}
+
+        window.dispatchEvent(new CustomEvent('mep_notification_received', { detail: newNotifItem }));
+        window.dispatchEvent(new CustomEvent('mep-notification-added', { detail: newNotifItem }));
+      }
+
+      const { data } = await axios.post(`${getBackendUrl()}/api/notifications/send`, notifData, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(e) {
+      return { success: true };
+    }
+  },
+
+  async getNotifications() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/notifications`, {
+        headers: getAuthHeaders()
+      });
+      return data.success ? (data.notifications || []) : [];
+    } catch(e) {
+      return [];
+    }
+  },
+
+  async markNotificationRead(id: string | string[]) {
+    try {
+      const payload = Array.isArray(id) ? { ids: id } : { id };
+      const { data } = await axios.post(`${getBackendUrl()}/api/notifications/read`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(e) {
+      return { success: true };
+    }
+  },
+
+  async deleteNotification(id: string | string[]) {
+    try {
+      const payload = Array.isArray(id) ? { ids: id } : { id };
+      const { data } = await axios.post(`${getBackendUrl()}/api/notifications/delete`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(e) {
+      return { success: true };
+    }
+  },
+
+  async completeNotification(id: string | string[]) {
+    try {
+      const payload = Array.isArray(id) ? { ids: id } : { id };
+      const { data } = await axios.post(`${getBackendUrl()}/api/notifications/complete`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(e) {
+      return { success: true };
+    }
+  },
+
+  async heartbeatCalculatorLock(payload: { moduleName: string; email?: string; name?: string; sessionId: string }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/calculator/lock/heartbeat`, payload, { timeout: 4000 });
+      return data;
+    } catch(e) {
+      return { success: false, allowed: true };
+    }
+  },
+
+  async releaseCalculatorLock(payload: { moduleName: string; sessionId?: string }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/calculator/lock/release`, payload, { timeout: 3000 });
+      return data;
+    } catch(e) {
+      return { success: false };
+    }
+  },
+
+  async getCalculatorLockStatus(moduleName: string) {
+    try {
+      const clean = encodeURIComponent(moduleName);
+      const { data } = await axios.get(`${getBackendUrl()}/api/calculator/lock/status?moduleName=${clean}`, { timeout: 3000 });
+      return data;
+    } catch(e) {
+      return { success: false };
+    }
+  }
+};
+
+

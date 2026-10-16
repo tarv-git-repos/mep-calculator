@@ -1,0 +1,350 @@
+import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { downloadFile } from "./download";
+import { workspaceStore } from "./workspace-store";
+import { toast } from "sonner";
+
+export interface SprinklerExportRow {
+  id: string;
+  floor?: string;
+  label: string;
+  kFactor: number;
+  solveFor: "Q" | "P";
+  pressure: number; // PSI or bar
+  flow: number;     // GPM or LPM
+  coverage: number; // sq ft or mÂ²
+  hazard: string;
+  notes?: string;
+  flagged?: boolean;
+  flagReason?: string;
+}
+
+export interface SprinklerProjectMetaData {
+  calcNo?: string;
+  revNo?: string;
+  projectNo?: string;
+  projectName?: string;
+  client?: string;
+  endUser?: string;
+  date?: string;
+  userName?: string;
+  unitSystem?: "ip" | "si";
+}
+
+export const exportSprinklerKFactorPDF = async (
+  rows: SprinklerExportRow[],
+  meta: SprinklerProjectMetaData = {}
+) => {
+  if (!rows || rows.length === 0) {
+    toast.error("No sprinkler rows available to export.");
+    return;
+  }
+
+  let currentUserName = "System Admin";
+  let activeProjectId = "default";
+  if (typeof window !== "undefined") {
+    try {
+      const user = JSON.parse(localStorage.getItem("mep_user") || "{}");
+      currentUserName = user.name || "System Admin";
+      const ws = JSON.parse(localStorage.getItem("workspace-storage") || "{}");
+      activeProjectId = ws.state?.activeProjectId || "default";
+    } catch (e) {}
+  }
+
+  try {
+    const activeProj: any = workspaceStore.getState()?.project || {};
+
+    const JsPDFClass = typeof jsPDF === "function" ? jsPDF : (jsPDF as any).default;
+    // A4 Portrait Mode (210mm x 297mm)
+    const doc = new JsPDFClass("portrait", "mm", "a4");
+
+    const callAutoTable = (pdfDoc: any, options: any) => {
+      if (typeof autoTable === "function") {
+        autoTable(pdfDoc, options);
+      } else if (typeof (autoTable as any)?.default === "function") {
+        (autoTable as any).default(pdfDoc, options);
+      } else if (typeof pdfDoc.autoTable === "function") {
+        pdfDoc.autoTable(options);
+      } else {
+        console.error("autoTable function not available");
+      }
+    };
+
+    const isSI = meta.unitSystem === "si";
+    const pressureUnit = isSI ? "bar" : "PSI";
+    const flowUnit = isSI ? "L/min" : "GPM";
+    const areaUnit = isSI ? "mÂ²" : "ftÂ²";
+
+    const calcNo = meta.calcNo || activeProj?.calcNo || "TRV-CAL-SKF-001";
+    const today = meta.date || new Date().toLocaleDateString("en-GB");
+    const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
+    const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "Sprinkler Hydraulic Calculation";
+    const clientName = meta.client || activeProj?.client || "";
+    const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "";
+
+    // 1. Header Title (Matching Ventilation)
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Sprinkler K-Factor Calculation Report", 14, 14);
+
+    // 2. Metadata Block (Exact Ventilation 2-column format)
+    doc.setFontSize(9);
+    doc.setLineWidth(0.3);
+    doc.rect(14, 18, 182, 18); // Outer box (182mm width)
+
+    // Vertical line
+    doc.line(105, 18, 105, 36);
+
+    // Horizontal lines
+    doc.line(14, 24, 196, 24);
+    doc.line(14, 30, 196, 30);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Calculation No.:", 16, 22);
+    doc.setFont("helvetica", "normal");
+    doc.text(calcNo, 45, 22);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Date:", 107, 22);
+    doc.setFont("helvetica", "normal");
+    doc.text(today, 120, 22);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Project No.:", 16, 28);
+    doc.setFont("helvetica", "normal");
+    doc.text(projectNo, 40, 28);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Client:", 107, 28);
+    doc.setFont("helvetica", "normal");
+    doc.text(clientName, 120, 28);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Project Name:", 16, 34);
+    doc.setFont("helvetica", "normal");
+    doc.text(projectName, 42, 34);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("End User:", 107, 34);
+    doc.setFont("helvetica", "normal");
+    doc.text(endUser, 125, 34);
+
+    // 3. Group sprinklers by floor
+    const sortedRows = [...rows].sort((a, b) => {
+      const floorA = (a.floor || "GF").toLowerCase();
+      const floorB = (b.floor || "GF").toLowerCase();
+      if (floorA !== floorB) return floorA.localeCompare(floorB);
+      return (a.label || "").localeCompare(b.label || "");
+    });
+
+    const rowsByFloor: { [floor: string]: SprinklerExportRow[] } = {};
+    const floorOrder: string[] = [];
+
+    sortedRows.forEach((r) => {
+      const fl = r.floor || "GF";
+      if (!rowsByFloor[fl]) {
+        rowsByFloor[fl] = [];
+        floorOrder.push(fl);
+      }
+      rowsByFloor[fl].push(r);
+    });
+
+    const body: any[] = [];
+    let globalSrNo = 1;
+
+    let grandFlow = 0;
+    let grandCoverage = 0;
+
+    floorOrder.forEach((floorName) => {
+      const floorRows = rowsByFloor[floorName];
+      let floorFlow = 0;
+      let floorCoverage = 0;
+
+      floorRows.forEach((r) => {
+        const flowVal = Number(r.flow || 0);
+        const covVal = Number(r.coverage || 0);
+        const presVal = Number(r.pressure || 0);
+
+        floorFlow += flowVal;
+        floorCoverage += covVal;
+
+        body.push([
+          globalSrNo++,
+          r.floor || "GF",
+          r.label || "-",
+          r.hazard || "Ordinary Hazard",
+          r.kFactor ? `K-${Number(r.kFactor).toFixed(1)}` : "K-5.6",
+          r.solveFor === "P" ? "Solve (P)" : "Solve (Q)",
+          presVal.toFixed(2),
+          covVal.toFixed(1),
+          flowVal.toFixed(2),
+          r.notes || "-"
+        ]);
+      });
+
+      // Floor Total Row
+      const floorTotalRow = [
+        "",
+        floorName,
+        `TOTAL (${floorName})`,
+        "",
+        "",
+        "",
+        "",
+        floorCoverage.toFixed(1),
+        floorFlow.toFixed(2),
+        ""
+      ];
+      (floorTotalRow as any)._isFloorTotal = true;
+      body.push(floorTotalRow);
+
+      grandFlow += floorFlow;
+      grandCoverage += floorCoverage;
+    });
+
+    // Grand Total Row if multiple floors
+    if (floorOrder.length > 1) {
+      const grandTotalRow = [
+        "",
+        "ALL",
+        "GRAND TOTAL",
+        "",
+        "",
+        "",
+        "",
+        grandCoverage.toFixed(1),
+        grandFlow.toFixed(2),
+        ""
+      ];
+      (grandTotalRow as any)._isGrandTotal = true;
+      body.push(grandTotalRow);
+    }
+
+    const primaryFill = [217, 217, 217] as [number, number, number]; // Clean gray from Ventilation
+
+    callAutoTable(doc, {
+      startY: 42,
+      margin: { left: 14, right: 14 },
+      theme: "grid",
+      styles: {
+        fontSize: 7,
+        halign: "center",
+        valign: "middle",
+        lineColor: [100, 100, 100],
+        lineWidth: 0.1,
+        cellPadding: { top: 2.2, bottom: 2.2, left: 1, right: 1 },
+        minCellHeight: 6.5
+      },
+      headStyles: {
+        fillColor: primaryFill,
+        textColor: 0,
+        fontStyle: "bold",
+        cellPadding: { top: 2, bottom: 2, left: 0.5, right: 0.5 }
+      },
+      columnStyles: {
+        0: { cellWidth: 8 },                 // Sr. No.
+        1: { cellWidth: 14 },                // Floor
+        2: { halign: "left", cellWidth: 26 },// Label / ID
+        3: { halign: "left", cellWidth: 28 },// Hazard Category
+        4: { cellWidth: 15 },                // K-Factor
+        5: { cellWidth: 18 },                // Mode
+        6: { cellWidth: 18 },                // Pressure
+        7: { cellWidth: 18 },                // Coverage
+        8: { cellWidth: 18 },                // Flow Rate
+        9: { halign: "left", cellWidth: 19 } // Notes / Remarks
+      },
+      head: [
+        [
+          { content: "Sr. No.", rowSpan: 2, styles: { fillColor: primaryFill } },
+          { content: "Sprinkler Specification", colSpan: 3, styles: { fillColor: primaryFill } },
+          { content: "Hydraulic Parameters", colSpan: 3, styles: { fillColor: primaryFill } },
+          { content: "Discharge & Flow Results", colSpan: 3, styles: { fillColor: primaryFill } }
+        ],
+        [
+          { content: "Floor" },
+          { content: "Sprinkler ID" },
+          { content: "Hazard Class" },
+          { content: "K-Factor" },
+          { content: "Calc Mode" },
+          { content: `Pressure\n(${pressureUnit})` },
+          { content: `Coverage\n(${areaUnit})` },
+          { content: `Flow Rate\n(${flowUnit})` },
+          { content: "Remarks" }
+        ]
+      ],
+      body: body,
+      didParseCell: function(data: any) {
+        const rawRow = data.row.raw;
+        if (data.section === "body") {
+          const isTotalRow = rawRow && (rawRow._isFloorTotal || rawRow._isGrandTotal);
+          if (isTotalRow) {
+            data.cell.styles.fontStyle = "bold";
+          }
+        }
+      }
+    });
+
+    const finalY = (doc as any).lastAutoTable?.finalY ?? 150;
+
+    const {
+      originatedName,
+      originatedDate,
+      reviewerName,
+      reviewerDate,
+      approverName,
+      approverDate
+    } = getSignatureBlockDetails(activeProj?.id || "default", "/plumbing-sprinkler-kfactor", meta.userName || "");
+
+    // 4. Signature Block (Exact warm peach header from Ventilation)
+    callAutoTable(doc, {
+      startY: finalY + 8,
+      margin: { left: 14, right: 14 },
+      theme: "grid",
+      styles: {
+        fontSize: 8,
+        halign: "center",
+        valign: "middle",
+        lineColor: [100, 100, 100],
+        lineWidth: 0.1,
+        cellPadding: { top: 2, bottom: 2, left: 1, right: 1 }
+      },
+      headStyles: { fillColor: [255, 230, 204], textColor: 0, fontStyle: "bold" },
+      head: [
+        [
+          { content: "" },
+          { content: "Originator" },
+          { content: "Reviewer" },
+          { content: "Approver" }
+        ]
+      ],
+      body: [
+        [
+          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
+          { content: originatedName, styles: { halign: "center" } },
+          { content: reviewerName, styles: { halign: "center" } },
+          { content: approverName, styles: { halign: "center" } }
+        ],
+        [
+          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
+          { content: originatedDate, styles: { halign: "center" } },
+          { content: reviewerDate, styles: { halign: "center" } },
+          { content: approverDate, styles: { halign: "center" } }
+        ]
+      ],
+      columnStyles: {
+        0: { cellWidth: 32 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 50 },
+        3: { cellWidth: 50 }
+      }
+    });
+
+    const pdfBuffer = doc.output("arraybuffer");
+    await downloadFile(new Uint8Array(pdfBuffer), `Sprinkler_KFactor_Report_${activeProj?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
+    toast.success("Sprinkler K-Factor PDF exported successfully!");
+  } catch (error: any) {
+    console.error("exportSprinklerKFactorPDF error:", error);
+    toast.error(`Export PDF failed: ${error?.message || String(error)}`);
+  }
+};

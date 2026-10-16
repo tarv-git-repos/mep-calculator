@@ -1,0 +1,132 @@
+import React, { useState } from "react";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+interface PclCategorySelectProps {
+  value: string;
+  densities: Record<string, number>;
+  onChange: (val: string) => void;
+  className?: string;
+  triggerClassName?: string;
+  hideChevron?: boolean;
+  disabled?: boolean;
+}
+
+export function PclCategorySelect({
+  value,
+  densities,
+  onChange,
+  className,
+  triggerClassName,
+  hideChevron,
+  disabled,
+}: PclCategorySelectProps) {
+  const isReadOnly = typeof window !== "undefined" && Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly);
+  const isEffectiveDisabled = Boolean(disabled || isReadOnly);
+  const [open, setOpen] = useState(false);
+  const categories = Object.keys(densities);
+
+  // Find display text
+  const displayVal = value;
+  const triggerText = displayVal ? (displayVal.endsWith(" (Custom)") ? displayVal : displayVal) : "Select Category...";
+
+  return (
+    <div className={cn("relative w-full min-w-0", className, isEffectiveDisabled && "pointer-events-none")}>
+      <Popover open={isEffectiveDisabled ? false : open} onOpenChange={(val) => { if (!isEffectiveDisabled) setOpen(val); }}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            disabled={isEffectiveDisabled}
+            className={cn(
+              "flex items-center justify-between w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[13px] min-w-0 transition-all text-left",
+              !value && "text-muted-foreground/60 italic",
+              isEffectiveDisabled ? "cursor-not-allowed opacity-75 pointer-events-none hover:bg-transparent" : "cursor-pointer",
+              triggerClassName
+            )}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isEffectiveDisabled) {
+                e.preventDefault();
+                toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to change space type.", { id: "readonly-notice" });
+              }
+            }}
+          >
+            <span className="truncate mr-1.5">{triggerText}</span>
+            {!hideChevron && <ChevronsUpDown className="size-3 text-muted-foreground shrink-0 opacity-55" />}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-[320px] p-0 font-mori z-50 bg-popover border border-border rounded-lg shadow-xl"
+          align="start"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Command
+            filter={(itemVal, search) => {
+              const display = itemVal.toLowerCase();
+              const searchLower = search.toLowerCase();
+              if (display.includes(searchLower)) return 1;
+              const words = searchLower.split(/\s+/).filter(Boolean);
+              if (words.length > 1 && words.every((word) => display.includes(word))) return 1;
+              return 0;
+            }}
+          >
+            <CommandInput placeholder="Search category..." className="h-9 text-[13px]" />
+            <CommandEmpty className="py-2 text-center text-xs text-muted-foreground">No category found.</CommandEmpty>
+            <CommandList className="max-h-[250px] overflow-y-auto custom-scrollbar">
+              <CommandGroup>
+                <CommandItem
+                  value=""
+                  onSelect={() => {
+                    onChange("");
+                    setOpen(false);
+                  }}
+                  className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10"
+                >
+                  <span className="italic text-muted-foreground">Select Category...</span>
+                  {value === "" && <Check className="size-3.5 text-primary" />}
+                </CommandItem>
+                <CommandItem
+                  value="Other"
+                  onSelect={() => {
+                    onChange("Other");
+                    setOpen(false);
+                  }}
+                  className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10"
+                >
+                  <span>Other</span>
+                  {(value === "Other" || (value && value.endsWith(" (Custom)"))) && <Check className="size-3.5 text-primary" />}
+                </CommandItem>
+                {categories.map((c) => {
+                  const isSelected = value === c;
+                  const densityVal = densities[c];
+                  return (
+                    <CommandItem
+                      key={c}
+                      value={c}
+                      onSelect={() => {
+                        onChange(c);
+                        setOpen(false);
+                      }}
+                      className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10"
+                    >
+                      <span className="truncate">{c}</span>
+                      <div className="flex items-center gap-1.5 ml-2 shrink-0">
+                        {densityVal !== undefined && (
+                          <span className="text-[10px] text-muted-foreground font-mono">({densityVal} W/m²)</span>
+                        )}
+                        {isSelected && <Check className="size-3.5 text-primary shrink-0" />}
+                      </div>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}

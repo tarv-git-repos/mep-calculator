@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "notes": "MEP Calculator Official Public Release 1.0.0 - Full legal security, code inspection guard, multi-tenant updates, and auto-updater enabled.",
+  "pub_date": "2026-08-21T15:35:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSUzY5ZldlYUdocDJmVlVHSm11eFByVnhNb0E2MDJDbU9ZVlVJZWFMSjBTbmxyeGw5NldnZnhOT0pjYWt0MHYrTEI1T295RS9wMXBQd2FRVHBqTWxJb1lQczlNRk1HdEFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg3MjkwNjYyCWZpbGU6TUVQIENhbGN1bGF0b3JfMS4wLjBfeDY0LXNldHVwLmV4ZQpDbHpvQ2RwN1BHUURCdkgzdnMzV0lyRzFqTHpqL1hmY2V1eXB1TzVDSnFwdjZMaFJPSjk2SmhjdFMzRDlvdFE1MmxBM0dvVDlhVFN3Tkk1cTc5YnlBZz09Cg==",
+      "url": "https://ttqgrcmesxrnujmhesnk.supabase.co/storage/v1/object/public/updater/releases/windows-x86_64/MEP_Calculator_1.0.0_x64-setup.exe"
+    }
+  }
+}

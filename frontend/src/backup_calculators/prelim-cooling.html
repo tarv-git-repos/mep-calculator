@@ -1,0 +1,286 @@
+      <div class="page two-col-page pcl-shell" id="page-prelim-cooling">
+        <div class="calc-header" style="background:linear-gradient(135deg,#f78f22,#d17914)">
+          <div class="calc-title">â„ï¸ Preliminary Cooling Load</div>
+          <div class="calc-std">Space-by-space heat dissipation estimate Â· W/mÂ² lookup method</div>
+        </div>
+        <div class="calc-desc" style="background:#EEF4FF;border-color:rgba(0,102,204,0.2)">
+          Select the type of space â€” Cooling Load Density is auto-filled from the lookup table. Cooling Load =
+          <strong>Area Ã— Cooling Load Density</strong>. Preliminary estimate only â€” not a substitute for a full
+          room-by-room cooling load analysis.
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:16px;">
+
+          <!-- Cooling Load Schedule -->
+          <div style="min-width:0;">
+            <div class="scard">
+              <div class="scard-head">
+                <div class="scard-accent" style="background:var(--brand)"></div>
+                <div class="scard-title">Cooling Load Schedule</div>
+              </div>
+              <div class="scard-body" style="padding:0">
+                <div
+                  style="padding:14px 16px 0;color:var(--muted);font-size:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                  <span>Enter `Name of Space` and `Area` directly in the first table row. Type auto-detects from the
+                    name when possible.</span>
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <span class="pcl-status-pill" id="pcl-table-pill">Live Schedule</span>
+                    <button class="pcl-inline-btn"
+                      style="width:auto;padding:7px 14px;background:#f78f22;color:#fff;font-weight:700;display:flex;align-items:center;gap:5px;box-shadow:0 2px 5px rgba(59,130,246,0.2);border-radius:6px;border:none;cursor:pointer;transition:all 0.15s ease;"
+                      onclick="PlumbingZoneLinker.openImportModal('preliminary-cooling-load')"
+                      onmouseover="this.style.background='#2563eb';this.style.transform='translateY(-1px)'"
+                      onmouseout="this.style.background='#f78f22';this.style.transform='none'">ðŸ“¥ Import</button>
+                    <button class="pcl-inline-btn"
+                      style="width:auto;padding:7px 14px;background:#f78f22;color:#fff;font-weight:700;display:flex;align-items:center;gap:5px;box-shadow:0 2px 5px rgba(16,185,129,0.2);border-radius:6px;border:none;cursor:pointer;transition:all 0.15s ease;"
+                      onclick="pclExportToExcel()"
+                      onmouseover="this.style.background='#d17914';this.style.transform='translateY(-1px)'"
+                      onmouseout="this.style.background='#f78f22';this.style.transform='none'">ðŸ“Š Export
+                      Excel</button>
+                    <button class="pcl-inline-btn"
+                      style="width:auto;padding:7px 14px;background:#fff1f2;border:1px solid #ffe4e6;color:#e11d48;font-weight:600;display:flex;align-items:center;gap:6px;border-radius:6px;cursor:pointer;transition:all 0.15s ease;box-shadow:0 1px 2px rgba(225, 29, 72, 0.05);"
+                      onmouseover="this.style.background='#ffe4e6';this.style.borderColor='#fecdd3';this.style.transform='translateY(-1px)'"
+                      onmouseout="this.style.background='#fff1f2';this.style.borderColor='#ffe4e6';this.style.transform='none'"
+                      onclick="pclDeleteSelected()">
+                      <span style="font-size:14px">ðŸ—‘ï¸</span> Delete Selected
+                    </button>
+                    <button class="pcl-inline-btn secondary" style="width:auto;padding:7px 12px"
+                      onclick="pclClearAll()">Clear All</button>
+                  </div>
+                </div>
+                <div style="padding:12px 16px 16px;overflow-x:auto">
+                  <div class="pcl-table-wrap">
+
+
+
+                    <table id="pcl-table"
+                      style="width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed">
+                      <colgroup>
+                        <col style="width:34px">
+                        <col style="width:34px">
+                        <col style="width:23%">
+                        <col style="width:11%">
+                        <col style="width:22%">
+                        <col style="width:13%">
+                        <col style="width:15%">
+                        <col style="width:12%">
+                      </colgroup>
+                      <thead>
+                        <tr style="background:var(--brand);color:#fff">
+                          <th style="padding:9px 6px;text-align:center"><input type="checkbox" id="pcl-select-all"
+                              onclick="pclToggleSelectAll(this.checked)" style="cursor:pointer"></th>
+                          <th
+                            style="padding:9px 6px;text-align:center;font-weight:700;font-size:11px;border-right:1px solid rgba(255,255,255,0.18)">
+                            #</th>
+                          <th
+                            style="padding:9px 10px;text-align:center;font-weight:700;font-size:11.5px;border-right:1px solid rgba(255,255,255,0.18)">
+                            Name of Space</th>
+                          <th
+                            style="padding:9px 6px;text-align:center;font-weight:700;font-size:11px;border-right:1px solid rgba(255,255,255,0.18)">
+                            Area<br><span style="font-weight:400;font-size:9.5px;opacity:.85">(mÂ²)</span></th>
+                          <th
+                            style="padding:9px 10px;text-align:center;font-weight:700;font-size:11.5px;border-right:1px solid rgba(255,255,255,0.18)">
+                            Type of Space</th>
+                          <th
+                            style="padding:9px 6px;text-align:center;font-weight:700;font-size:11px;border-right:1px solid rgba(255,255,255,0.18)">
+                            Cooling Load Density<br><span
+                              style="font-weight:400;font-size:9.5px;opacity:.85">(W/mÂ²)</span></th>
+                          <th
+                            style="padding:9px 6px;text-align:center;font-weight:700;font-size:11px;border-right:1px solid rgba(255,255,255,0.18)">
+                            Cooling Load<br><span style="font-weight:400;font-size:9.5px;opacity:.85">(kW)</span></th>
+                          <th
+                            style="padding:9px 6px;text-align:center;font-weight:700;font-size:11px;border-right:1px solid rgba(255,255,255,0.18)">
+                            Load<br><span style="font-weight:400;font-size:9.5px;opacity:.85">(TR)</span></th>
+                        </tr>
+                      </thead>
+                      <tbody id="pcl-entry-tbody">
+                        <tr id="pcl-entry-row" style="background:#fffaf4;border-bottom:1px dashed #f5c289">
+                          <td colspan="2"
+                            style="padding:6px;text-align:center;background:#fff3e0;border-right:1px solid #f5d7a5">
+                            <button class="pcl-inline-btn" onclick="pclAddFromForm()"
+                              style="padding:5px 0; width:100%; border-radius:6px; font-size:12px; display:flex; align-items:center; justify-content:center; gap:4px;"><span
+                                style="font-size:14px; line-height:1;">+</span> Add</button>
+                          </td>
+                          <td style="padding:6px;border-right:1px solid #f6e4c7"><input class="pcl-inline-inp"
+                              id="pcl-row-name" type="text" placeholder="e.g. Office 01" oninput="pclPreviewCalc()"
+                              onblur="pclPreviewCalc()"></td>
+                          <td style="padding:6px;border-right:1px solid #f6e4c7"><input class="pcl-inline-inp"
+                              id="pcl-row-area" type="number" min="0" step="any" placeholder="50"
+                              oninput="pclPreviewCalc()" onblur="pclPreviewCalc()"></td>
+                          <td style="padding:6px;border-right:1px solid #f6e4c7">
+                            <select class="pcl-inline-select" id="pcl-row-type" onchange="pclPreviewCalc()"
+                              onblur="pclPreviewCalc()">
+                              <option value="">â€” Select Type â€”</option>
+                              <optgroup label="Residential">
+                                <option value="Apartment - Dwelling Unit" data-density="120">Apartment - Dwelling Unit
+                                </option>
+                                <option value="Corridor - Residential" data-density="60">Corridor - Residential
+                                </option>
+                                <option value="Lobby - Residential" data-density="180">Lobby - Residential</option>
+                              </optgroup>
+                              <optgroup label="Retail &amp; F&amp;B">
+                                <option value="Supermarket" data-density="230">Supermarket</option>
+                                <option value="Retail Shop - Mixed Building" data-density="400">Retail Shop - Mixed
+                                  Building</option>
+                                <option value="Retail Shop - Mall" data-density="200">Retail Shop - Mall</option>
+                                <option value="Food &amp; Beverage" data-density="2000">Food &amp; Beverage</option>
+                                <option value="Kitchen - Public" data-density="600">Kitchen - Public</option>
+                                <option value="Kitchen - Private" data-density="120">Kitchen - Private</option>
+                                <option value="CafÃ©" data-density="140">CafÃ©</option>
+                              </optgroup>
+                              <optgroup label="Office &amp; Coworking">
+                                <option value="Office - Cabin" data-density="120">Office - Cabin</option>
+                                <option value="Office - Meeting Room" data-density="120">Office - Meeting Room
+                                </option>
+                                <option value="Office - Common Room" data-density="120">Office - Common Room</option>
+                                <option value="Coworking Space" data-density="120">Coworking Space</option>
+                              </optgroup>
+                              <optgroup label="Education">
+                                <option value="Classroom - EYFS" data-density="140">Classroom - EYFS</option>
+                                <option value="Classroom - Middle School" data-density="140">Classroom - Middle School
+                                </option>
+                                <option value="Classroom - Art" data-density="140">Classroom - Art</option>
+                                <option value="Classroom - High School" data-density="150">Classroom - High School
+                                </option>
+                                <option value="ICT Room" data-density="180">ICT Room</option>
+                                <option value="Lab - School" data-density="180">Lab - School</option>
+                                <option value="Lab - Science" data-density="180">Lab - Science</option>
+                                <option value="Lobby - School" data-density="100">Lobby - School</option>
+                              </optgroup>
+                              <optgroup label="Wellness &amp; Leisure">
+                                <option value="GYM" data-density="180">GYM</option>
+                                <option value="SPA" data-density="150">SPA</option>
+                                <option value="Kids Play Area" data-density="250">Kids Play Area</option>
+                              </optgroup>
+                              <optgroup label="Medical">
+                                <option value="Clinic" data-density="250">Clinic</option>
+                                <option value="Clinic - Treatment Room" data-density="140">Clinic - Treatment Room
+                                </option>
+                                <option value="Clinic - Doctor Room" data-density="140">Clinic - Doctor Room</option>
+                                <option value="Storage - Medical" data-density="140">Storage - Medical</option>
+                              </optgroup>
+                              <optgroup label="Hospitality">
+                                <option value="Lobby - Hotel" data-density="100">Lobby - Hotel</option>
+                              </optgroup>
+                              <optgroup label="Utilities &amp; Services">
+                                <option value="Airlock" data-density="120">Airlock</option>
+                                <option value="Washroom" data-density="60">Washroom</option>
+                                <option value="Toilet - EYFS Attached" data-density="100">Toilet - EYFS Attached
+                                </option>
+                                <option value="Toilet - Public" data-density="100">Toilet - Public</option>
+                                <option value="Male Prayer Room" data-density="60">Male Prayer Room</option>
+                                <option value="Laundry / House Keeping" data-density="150">Laundry / House Keeping
+                                </option>
+                                <option value="Garbage Room" data-density="120">Garbage Room</option>
+                                <option value="Stairs" data-density="100">Stairs</option>
+                                <option value="Lobby - Lift" data-density="100">Lobby - Lift</option>
+                                <option value="Corridor - BOH/Service" data-density="120">Corridor - BOH/Service
+                                </option>
+                              </optgroup>
+                              <optgroup label="MEP Rooms">
+                                <option value="MTR Room" data-density="300">MTR Room</option>
+                                <option value="LV Room" data-density="90">LV Room</option>
+                                <option value="Server Room" data-density="300">Server Room</option>
+                                <option value="CCTV Room" data-density="300">CCTV Room</option>
+                                <option value="Typ. Electrical Room" data-density="100">Typ. Electrical Room</option>
+                                <option value="Typ. IDF Room" data-density="1500">Typ. IDF Room</option>
+                                <option value="FCC Room" data-density="120">FCC Room</option>
+                                <option value="ETS Room" data-density="120">ETS Room</option>
+                                <option value="ETS Control Room" data-density="120">ETS Control Room</option>
+                                <option value="Chilled Water Pump Room" data-density="120">Chilled Water Pump Room
+                                </option>
+                                <option value="Fire Pump Room" data-density="150">Fire Pump Room</option>
+                                <option value="ETS Pump Room" data-density="100">ETS Pump Room</option>
+                                <option value="Boiler Room" data-density="200">Boiler Room</option>
+                              </optgroup>
+                              <optgroup label="Storage">
+                                <option value="Storage - Dry" data-density="100">Storage - Dry</option>
+                                <option value="Storage - IT" data-density="1000">Storage - IT</option>
+                                <option value="Storage - Occupied" data-density="120">Storage - Occupied</option>
+                              </optgroup>
+                            </select>
+                          </td>
+                          <td style="padding:8px 6px;text-align:center;border-right:1px solid #f6e4c7"><span
+                              class="pcl-inline-val" id="pcl-row-density">â€”</span></td>
+                          <td style="padding:8px 6px;text-align:center;border-right:1px solid #f6e4c7"><span
+                              class="pcl-inline-val" id="pcl-row-diss">â€”</span></td>
+                          <td style="padding:8px 6px;text-align:center;border-right:1px solid #f6e4c7"><span
+                              class="pcl-inline-val" id="pcl-row-kw">â€”</span></td>
+                        </tr>
+                      </tbody>
+                      <tbody id="pcl-tbody">
+                      </tbody>
+                      <tfoot id="pcl-tfoot">
+                        <tr style="background:var(--brand-bg);border-top:2px solid var(--brand)">
+                          <td colspan="4"
+                            style="padding:9px 10px;font-weight:700;font-size:12.5px;border-right:1px solid #f5c289">
+                            TOTAL</td>
+                          <td
+                            style="padding:9px 6px;text-align:right;font-weight:500;color:var(--muted);font-size:11px;border-right:1px solid #f5c289">
+                            â€”</td>
+                          <td
+                            style="padding:9px 6px;text-align:right;font-weight:700;font-size:13px;color:var(--brand);border-right:1px solid #f5c289"
+                            id="pcl-total-w">0.00 kW</td>
+                          <td style="padding:9px 6px;text-align:right;font-weight:700;font-size:12px;color:var(--brand)"
+                            id="pcl-total-kw">0.00 TR</td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+
+                    <!-- Empty state -->
+                    <div id="pcl-empty-state" class="pcl-empty-hero"
+                      style="padding:32px 16px;text-align:center;color:var(--hint);font-size:12.5px;line-height:1.8;border-top:1px solid var(--border)">
+                      <div class="pcl-empty-icon">ðŸ¢</div>
+                      No spaces added yet.<br><span class="pcl-preview-note">Type in the first table row to build the
+                        schedule.</span>
+                    </div>
+                  </div>
+
+                  <div class="pcl-summary-grid">
+                    <div class="pcl-stat">
+                      <div class="res-row">
+                        <div class="res-label">Total Spaces</div>
+                        <div class="res-val" id="pcl-s-count">0 spaces</div>
+                      </div>
+                    </div>
+                    <div class="pcl-stat">
+                      <div class="res-row">
+                        <div class="res-label">Total Floor Area</div>
+                        <div class="res-val" id="pcl-s-area">0.0 mÂ²</div>
+                      </div>
+                    </div>
+                    <div class="pcl-stat">
+                      <div class="res-row">
+                        <div class="res-label">Total Cooling Load (kW)</div>
+                        <div class="res-val" id="pcl-s-w">0.00 kW</div>
+                      </div>
+                    </div>
+                    <div class="pcl-stat">
+                      <div class="res-row">
+                        <div class="res-label">Total Load (TR)</div>
+                        <div class="res-val primary" id="pcl-s-kw">0.00 TR</div>
+                      </div>
+                    </div>
+                    <div class="pcl-stat">
+                      <div class="res-row">
+                        <div class="res-label">Total Load (TR)</div>
+                        <div class="res-val primary" id="pcl-s-tr">0.00 TR</div>
+                      </div>
+                    </div>
+                    <div class="pcl-stat">
+                      <div class="res-row">
+                        <div class="res-label">Average Load Density</div>
+                        <div class="res-val" id="pcl-s-density">0.0 W/mÂ²</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="calc-desc" style="font-size:11.5px;color:var(--muted);margin-top:4px">
+          âš  Heat density values are standard defaults from lookup table. Always verify with a full cooling load
+          analysis before finalising equipment selection.
+        </div>
+      </div>

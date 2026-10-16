@@ -1,0 +1,1927 @@
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { calculateVentilation, setGlobalRoundOffPreset, sanitizeSpaceRecord, type Space, type Zone, type Equipment, type ZoneInstanceAssignment } from "./ventilation-calc";
+export type { ZoneInstanceAssignment };
+import { predictOccupancyCategory, predictSpacePressure } from "./ai-occupancy";
+import { api } from "../services/api";
+import { supabase } from "./supabase";
+import { getOccupancyData } from "./ashrae-data";
+import { logCalculatorUpdate, getCalculatorTitleFromPath } from "@/utils/logger";
+import { notifyCommentAssigned } from "@/utils/notificationHelpers";
+export type { Space, Zone, Equipment };
+export type { SpaceStatus } from "./mock-data";
+
+const IS_SERVER = typeof window === "undefined";
+export function checkIfSpaceMissingData(s: Space): boolean {
+  const isNoArea = !s.area || parseFloat(String(s.area)) === 0 || isNaN(parseFloat(String(s.area)));
+  const isNoCategory = !s.category || s.category.trim() === "" || s.category.toLowerCase().includes("select category");
+  if (isNoArea || isNoCategory) return true;
+
+  if (s.category === "Rest Room / Changing Room") {
+    const sub = s.restroomSubCategories || {};
+    const sumSub =
+      (sub.toiletPrivateContinuous || 0) +
+      (sub.toiletPublicContinuous || 0) +
+      (sub.toiletPrivateDiscontinuous || 0) +
+      (sub.toiletPublicDiscontinuous || 0) +
+      (sub.showerContinuous || 0) +
+      (sub.showerDiscontinuous || 0) +
+      (sub.janitorCloset || 0) +
+      (sub.lockerRoom || 0) +
+      (sub.changingPositions || 0);
+    if (sumSub === 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function sanitizeWorkspaceState(state: any) {
+  if (!state || !Array.isArray(state.zones)) return state;
+
+  const seenIds = new Set<string>();
+  const idMap = new Map<string, string>(); // oldId -> newId
+  const zoneNameMap = new Map<string, string>();
+
+  state.zones = state.zones.map((z: any) => {
+    if (!z.id || seenIds.has(z.id)) {
+      const newId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+      idMap.set(z.id || "empty", newId);
+      z.id = newId;
+    }
+    seenIds.add(z.id);
+    if (z.name) {
+      zoneNameMap.set(z.id, z.name);
+      zoneNameMap.set(z.name.toLowerCase(), z.name);
+    }
+    return z;
+  });
+
+  // Always resolve space.name and space.zone to clean human-readable names
+  if (Array.isArray(state.spaces)) {
+    state.spaces = state.spaces.map((s: any, idx: number) => {
+      const sanitized = sanitizeSpaceRecord(s, idx + 1);
+      if (sanitized.zone) {
+        const cleanName = zoneNameMap.get(sanitized.zone) || zoneNameMap.get(sanitized.zone.toLowerCase());
+        if (cleanName) {
+          sanitized.zone = cleanName;
+        } else if (sanitized.zone.startsWith("zone-")) {
+          sanitized.zone = "Default";
+        }
+      }
+      return sanitized;
+    });
+  }
+
+  return state;
+}
+
+export type ProjectType =
+  | "Villa"
+  | "School Projects"
+  | "Mall & Mosque"
+  | "Complex"
+  | "Buildings / Apartment"
+  | "Hospitals"
+  | "Offices / Residential";
+
+export const PROJECT_TYPES: ProjectType[] = [
+  "Villa",
+  "School Projects",
+  "Mall & Mosque",
+  "Complex",
+  "Buildings / Apartment",
+  "Hospitals",
+  "Offices / Residential",
+];
+
+export type ProjectStageName =
+  | "Preconcept Design"
+  | "Concept Design"
+  | "Schematic Design"
+  | "Detailed Design"
+  | "Tender Documentation"
+  | "Issued For Construction";
+
+export const PROJECT_STAGES: ProjectStageName[] = [
+  "Preconcept Design",
+  "Concept Design",
+  "Schematic Design",
+  "Detailed Design",
+  "Tender Documentation",
+  "Issued For Construction",
+];
+
+export function canEditProjectStages(profile: any, project?: any): boolean {
+  if (!profile) return false;
+  const role = String(profile.role || '').toLowerCase();
+  const desig = String(profile.designation || '').toLowerCase();
+  const email = String(profile.email || '').toLowerCase();
+  const myId = String(profile.id || '').toLowerCase();
+  const userOrg = profile.organization_id || profile.features?.organization_id || null;
+
+  // 1. System Admin: full authority across all projects
+  const isSuperAdmin =
+    role === 'super_admin' ||
+    email === 'admin@tarv.ai' ||
+    (role.includes('admin') && !role.includes('org'));
+  if (isSuperAdmin) return true;
+
+  // If no project specified, return whether user is generically permitted to manage stages on their own projects
+  const isOrgAdmin = role === 'org_admin' || desig.includes('org admin');
+  const isTeamLead =
+    role === 'team_leader' ||
+    role === 'team_lead' ||
+    role === 'project_manager' ||
+    desig.includes('team leader') ||
+    desig.includes('team lead') ||
+    desig.includes('project manager');
+
+  if (!project) {
+    return isOrgAdmin || isTeamLead;
+  }
+
+  // 2. Strict Multi-Tenant Boundary: cannot edit stages of another organization
+  const projOrg = project.organization_id || null;
+  if (projOrg && userOrg && String(projOrg) !== String(userOrg)) {
+    return false;
+  }
+
+  // 3. Particular Org Admin: authorized for all projects belonging to their organization
+  if (isOrgAdmin && (!projOrg || !userOrg || String(projOrg) === String(userOrg))) {
+    return true;
+  }
+
+  // 4. Particular Team Leader: must be a Team Leader AND assigned to this specific project
+  if (isTeamLead) {
+    const creator = String(project.created_by || '').toLowerCase();
+    if (creator === myId || (email && creator === email)) return true;
+
+    // Check project_users assignment
+    const pUsers = Array.isArray(project.project_users) ? project.project_users : [];
+    const isAssignedUser = pUsers.some((u: any) => {
+      const uId = String(u.user_id || u.id || '').toLowerCase();
+      const uEmail = String(u.email || '').toLowerCase();
+      return uId === myId || (email && (uId === email || uEmail === email));
+    });
+    if (isAssignedUser) return true;
+
+    // Check project_teams assignment
+    const userTeams = Array.isArray(profile.teams) ? profile.teams.map((t: any) => String(t.id || t).toLowerCase()) : [];
+    const pTeams = Array.isArray(project.project_teams) ? project.project_teams : [];
+    const isAssignedTeam = pTeams.some((t: any) => {
+      const tId = String(t.team_id || t.id || '').toLowerCase();
+      return userTeams.includes(tId);
+    });
+    if (isAssignedTeam) return true;
+  }
+
+  // 5. No other roles (Sr. Engineer, Jr. Engineer, Discipline Coordinator, BIM Modeler, Viewer, etc.) can edit stages
+  return false;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  code: string;
+  client: string;
+  location?: string;
+  description?: string;
+  notes?: string;
+  createdDate?: string;
+  lastModified?: string;
+  status?: string;
+  workspace_data?: any;
+  project_type?: ProjectType | string;
+  applicable_stages?: (ProjectStageName | string)[];
+  current_stage?: ProjectStageName | string;
+  stage_status?: Record<string, "Completed" | "In Progress" | "Upcoming" | string>;
+  created_by?: string;
+  project_users?: any[];
+  project_teams?: any[];
+}
+
+// The project cache is scoped per signed-in user so that one account never sees
+// another account's (stale) project list on a shared browser / machine.
+function getProjectsCacheKey(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("mep_calculator_user_data") || localStorage.getItem("mep_user_data") || localStorage.getItem("mep_profile");
+    const uid = raw ? JSON.parse(raw)?.id : null;
+    return uid ? `mep_cached_projects_${uid}` : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveCachedProjects(projList: Project[]) {
+  const key = getProjectsCacheKey();
+  if (!key) return;
+  try {
+    const lightProjects = projList.map(p => {
+      const { workspace_data, ...light } = p as any;
+      return light;
+    });
+    localStorage.setItem(key, JSON.stringify(lightProjects));
+    // Remove the legacy, non user-scoped cache that caused cross-account leakage
+    localStorage.removeItem("mep_cached_projects");
+  } catch (e) {
+    console.warn("Failed to cache projects:", e);
+  }
+}
+
+function loadCachedProjects(): Project[] {
+  const key = getProjectsCacheKey();
+  if (!key) return [];
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+/** Use the server list as the source of truth, keeping any already-loaded workspace_data. */
+function mergeCloudProjects(cloudProjects: Project[]): Project[] {
+  const existingById = new Map(projects.map(p => [p.id, p] as const));
+  return cloudProjects.map(cp => {
+    const existing = existingById.get(cp.id);
+    return existing && existing.workspace_data && !(cp as any).workspace_data
+      ? { ...cp, workspace_data: existing.workspace_data }
+      : cp;
+  });
+}
+
+let projects: Project[] = loadCachedProjects();
+let activeProjectId: string = "";
+let currentProject: Project | undefined = undefined;
+
+let currentWorkspaceState = {
+  spaces: [] as Space[],
+  zones: [] as Zone[],
+  equipment: [] as Equipment[],
+  roundOffPreset: 5,
+  isReadOnly: false,
+};
+
+let cloudInitDone = false;
+export let isInitializing = true;
+
+const listeners = new Set<() => void>();
+
+function notify() {
+  console.log('[MEP-DND] notify started. Subscriber count:', listeners.size);
+  let idx = 0;
+  listeners.forEach((l) => {
+    idx++;
+    console.log(`[MEP-DND] notify subscriber ${idx}`);
+    try {
+      l();
+      console.log(`[MEP-DND] notify subscriber ${idx} completed`);
+    } catch (err) {
+      console.error(`[MEP-DND] notify subscriber ${idx} ERROR:`, err);
+    }
+  });
+}
+
+let undoStack: string[] = [];
+let redoStack: string[] = [];
+const MAX_HISTORY_LIMIT = 50;
+
+function pushHistory() {
+  undoStack.push(JSON.stringify(currentWorkspaceState));
+  if (undoStack.length > MAX_HISTORY_LIMIT) {
+    undoStack.shift();
+  }
+  redoStack = []; // Reset redo stack when a new operation occurs
+}
+
+function clearHistory() {
+  undoStack = [];
+  redoStack = [];
+}
+
+let copiedSpaces: Space[] = [];
+
+if (typeof window !== "undefined") {
+  try {
+    const saved = localStorage.getItem("mep_clipboard_spaces");
+    copiedSpaces = saved ? JSON.parse(saved) : [];
+  } catch (e) {
+    console.error("Failed to load clipboard:", e);
+  }
+
+  window.addEventListener("mep_version_restored", (e: any) => {
+    const data = e.detail;
+    if (data) {
+      if (data.spaces || data.zones || data.equipment) {
+        currentWorkspaceState = {
+          spaces: data.spaces || currentWorkspaceState.spaces,
+          zones: data.zones || currentWorkspaceState.zones,
+          equipment: data.equipment || currentWorkspaceState.equipment,
+          roundOffPreset: data.roundOffPreset ?? currentWorkspaceState.roundOffPreset,
+          isReadOnly: currentWorkspaceState.isReadOnly,
+        };
+      }
+      notify();
+    }
+  });
+}
+
+function executeWorkspaceSave() {
+  if (!activeProjectId) return;
+  const lsState: Record<string, string> = {};
+  const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'custom', 'feature_', 'customCableCatalog', 'customBusbarRatings'];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && knownPrefixes.some(p => key.startsWith(p)) && !key.includes('clipboard')) {
+      lsState[key] = localStorage.getItem(key) || "";
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const existingWdata = currentProject ? (currentProject.workspace_data || {}) : {};
+
+  const payload = {
+    ...existingWdata,
+    ...currentWorkspaceState,
+    localStorageCache: lsState
+  };
+
+  if (currentProject) {
+    currentProject.workspace_data = payload;
+    (currentProject as any).updated_at = nowIso;
+    (currentProject as any).last_modified = nowIso;
+    currentProject.lastModified = nowIso;
+  }
+  const targetProj = projects.find(proj => proj.id === activeProjectId);
+  if (targetProj) {
+    targetProj.workspace_data = payload;
+    (targetProj as any).updated_at = nowIso;
+    (targetProj as any).last_modified = nowIso;
+    targetProj.lastModified = nowIso;
+  }
+
+  api.saveWorkspace(activeProjectId, payload);
+  saveCachedProjects(projects);
+  notify();
+}
+
+let saveTimeout: any = null;
+function saveState(immediate = false) {
+  if (IS_SERVER) return;
+  currentWorkspaceState = sanitizeWorkspaceState(currentWorkspaceState);
+
+  if (typeof localStorage !== "undefined" && activeProjectId) {
+    localStorage.setItem("mep_active_project_id", activeProjectId);
+    localStorage.setItem("mep_last_worked_project_id", activeProjectId);
+  }
+
+  // Immediately log calculator update action on any workspace state change
+  if (typeof window !== 'undefined' && window.location.pathname) {
+    const path = window.location.pathname;
+    const calcTitle = getCalculatorTitleFromPath(path);
+    if (calcTitle) {
+      logCalculatorUpdate(calcTitle, `Changes occurred in ${calcTitle}`, { throttleMs: 60000 });
+    }
+  }
+
+  if (saveTimeout) clearTimeout(saveTimeout);
+  if (immediate) {
+    executeWorkspaceSave();
+  } else {
+    saveTimeout = setTimeout(() => {
+      executeWorkspaceSave();
+    }, 1000);
+  }
+}
+
+function injectLocalStorageCache(wdata: any) {
+  if (typeof localStorage === "undefined") return;
+  const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'custom', 'feature_', 'customCableCatalog', 'customBusbarRatings'];
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && knownPrefixes.some(p => key.startsWith(p)) && !key.includes('clipboard')) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(k => localStorage.removeItem(k));
+
+  if (wdata && wdata.localStorageCache) {
+    Object.entries(wdata.localStorageCache).forEach(([key, val]) => {
+      localStorage.setItem(key, val as string);
+    });
+  }
+}
+
+export const workspaceStore = {
+  forceSaveToCloud(immediate = true) {
+    saveState(immediate);
+  },
+  /** Immediately persist pending workspace data to the cloud (no activity logging). */
+  flushToCloud() {
+    if (IS_SERVER) return;
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+      saveTimeout = null;
+    }
+    currentWorkspaceState = sanitizeWorkspaceState(currentWorkspaceState);
+    executeWorkspaceSave();
+  },
+  /** Re-render all workspace consumers (e.g. after the global read-only flag changed). */
+  refresh() {
+    notify();
+  },
+  async syncFromCloud() {
+    const cloudProjects = await api.getProjectsOrNull();
+    if (Array.isArray(cloudProjects)) {
+      projects = mergeCloudProjects(cloudProjects);
+      saveCachedProjects(projects);
+    }
+    if (projects.length === 0) {
+      projects = [
+        {
+          id: "proj_default_mep",
+          name: "Default MEP Project",
+          code: "MEP-2026-001",
+          client: "Standard Client",
+          location: "Main Building",
+          description: "Default MEP Calculation Workspace",
+          createdDate: new Date().toISOString(),
+          lastModified: new Date().toISOString(),
+          status: "active"
+        }
+      ];
+      saveCachedProjects(projects);
+    }
+    const lastActive = typeof localStorage !== "undefined"
+      ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id") || activeProjectId)
+      : activeProjectId;
+    let target = projects.find(p => p.id === lastActive || p.id === activeProjectId) || projects[0];
+    try {
+      const fullProj = await api.getProject(target.id);
+      if (fullProj && fullProj.workspace_data) {
+        target = { ...target, ...fullProj };
+        projects = projects.map(p => p.id === target.id ? target : p);
+        saveCachedProjects(projects);
+      }
+    } catch (e) { }
+    activeProjectId = target.id;
+    currentProject = target;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("mep_active_project_id", target.id);
+      localStorage.setItem("mep_last_worked_project_id", target.id);
+    }
+    const wdata = currentProject.workspace_data || {};
+    injectLocalStorageCache(wdata);
+    currentWorkspaceState = sanitizeWorkspaceState({
+      spaces: wdata.spaces || [],
+      zones: wdata.zones || [],
+      equipment: wdata.equipment || [],
+      roundOffPreset: wdata.roundOffPreset ?? 5,
+      isReadOnly: false
+    });
+    setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
+    notify();
+  },
+  async refreshProjects() {
+    try {
+      const cloudProjects = await api.getProjectsOrNull();
+      // null = request failed -> keep what we have; array (even empty) = authoritative
+      if (Array.isArray(cloudProjects)) {
+        projects = mergeCloudProjects(cloudProjects);
+        saveCachedProjects(projects);
+        if (activeProjectId) {
+          const updatedActive = projects.find(p => p.id === activeProjectId);
+          if (updatedActive) {
+            currentProject = updatedActive;
+          }
+        }
+        notify();
+      }
+    } catch (err) {
+      console.error("Failed to refresh projects list:", err);
+    }
+  },
+  async initCloud() {
+    // Safety fallback: Ensure workspace initialization never locks UI for more than 800ms
+    const initTimer = setTimeout(() => {
+      if (isInitializing) {
+        isInitializing = false;
+        notify();
+      }
+    }, 800);
+
+    try {
+      if (!cloudInitDone) {
+        cloudInitDone = true;
+        supabase
+          .channel('public:projects')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'projects' }, (payload: any) => {
+            if (payload && payload.eventType === 'UPDATE' && payload.new && payload.new.id) {
+              const updatedId = payload.new.id;
+              const existing = projects.find(p => p.id === updatedId);
+              if (existing) {
+                const updated = { ...existing, ...payload.new };
+                if (existing.workspace_data) {
+                  updated.workspace_data = existing.workspace_data;
+                }
+                projects = projects.map(p => p.id === updatedId ? updated : p);
+                if (activeProjectId === updatedId && currentProject) {
+                  currentProject = { ...currentProject, ...updated };
+                }
+                saveCachedProjects(projects);
+                notify();
+                return;
+              }
+            }
+            workspaceStore.refreshProjects();
+          })
+          .subscribe();
+      }
+
+      // Always start from this user's own cache (never another account's)
+      projects = loadCachedProjects();
+      const cloudProjects = await api.getProjectsOrNull();
+      if (Array.isArray(cloudProjects)) {
+        projects = mergeCloudProjects(cloudProjects);
+        saveCachedProjects(projects);
+      }
+
+      if (projects.length > 0) {
+        let lastActive = typeof localStorage !== "undefined"
+          ? (localStorage.getItem("mep_active_project_id") || localStorage.getItem("mep_last_worked_project_id"))
+          : null;
+        let target = projects[0];
+        if (lastActive) {
+          const found = projects.find(p => p.id === lastActive || p.code === lastActive);
+          if (found) target = found;
+        }
+        try {
+          const fullActive = await api.getProject(target.id);
+          if (fullActive && fullActive.workspace_data) {
+            target = { ...target, ...fullActive };
+            projects = projects.map(p => p.id === target.id ? target : p);
+            saveCachedProjects(projects);
+          }
+        } catch (e) { }
+
+        activeProjectId = target.id;
+        currentProject = target;
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("mep_active_project_id", target.id);
+          localStorage.setItem("mep_last_worked_project_id", target.id);
+        }
+        const wdata = currentProject.workspace_data || {};
+        injectLocalStorageCache(wdata);
+        currentWorkspaceState = sanitizeWorkspaceState({
+          spaces: wdata.spaces || [],
+          zones: wdata.zones || [],
+          equipment: wdata.equipment || [],
+          roundOffPreset: wdata.roundOffPreset ?? 5,
+          isReadOnly: false
+        });
+      } else {
+        activeProjectId = "";
+        currentProject = undefined;
+        currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
+      }
+      setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
+    } catch (err) {
+      console.error("Workspace init failed:", err);
+    } finally {
+      clearTimeout(initTimer);
+      isInitializing = false;
+      notify();
+    }
+  },
+  getState() {
+    const defaultProject = { id: "", name: "No Workspace Selected", code: "---", client: "N/A" };
+    return {
+      project: currentProject || defaultProject,
+      projects,
+      activeProjectId,
+      isInitializing,
+      spaces: currentWorkspaceState.spaces,
+      zones: currentWorkspaceState.zones,
+      equipment: currentWorkspaceState.equipment,
+      roundOffPreset: currentWorkspaceState.roundOffPreset ?? 5,
+      isReadOnly: currentWorkspaceState.isReadOnly ?? false,
+    };
+  },
+
+  setReadOnly(val: boolean) {
+    if (currentWorkspaceState.isReadOnly === Boolean(val)) return;
+    currentWorkspaceState.isReadOnly = Boolean(val);
+    saveState();
+    notify();
+  },
+
+  setState(newState: { project?: Project; spaces: Space[]; zones: Zone[]; equipment: Equipment[]; isReadOnly?: boolean }) {
+    pushHistory();
+    if (newState.project) {
+      const proj = newState.project;
+      currentProject = proj;
+      projects = projects.map((p) => (p.id === proj.id ? proj : p));
+    }
+    const processedSpaces = (newState.spaces || []).map(s => {
+      const isMissing = checkIfSpaceMissingData(s);
+      return isMissing ? { ...s, flagged: true } : s;
+    });
+    currentWorkspaceState = {
+      spaces: processedSpaces,
+      zones: newState.zones || currentWorkspaceState.zones || [],
+      equipment: newState.equipment || currentWorkspaceState.equipment || [],
+      roundOffPreset: currentWorkspaceState.roundOffPreset,
+      isReadOnly: newState.isReadOnly ?? currentWorkspaceState.isReadOnly,
+    };
+    saveState();
+    notify();
+  },
+
+  async selectProject(id: string) {
+    let target = projects.find((p) => p.id === id);
+    if (!target) return;
+
+    saveState();
+    clearHistory();
+
+    if (!target.workspace_data) {
+      const fullProj = await api.getProject(id);
+      if (fullProj && fullProj.workspace_data) {
+        target = { ...target, ...fullProj };
+        projects = projects.map(p => p.id === id ? target! : p);
+      }
+    }
+
+    currentProject = target;
+    activeProjectId = id;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("mep_active_project_id", id);
+      localStorage.setItem("mep_last_worked_project_id", id);
+    }
+    if (typeof window !== "undefined") {
+      (window as any)._currentLoadedFile = null;
+      (window as any).__BIM_VIEWER_SPACES__ = null;
+    }
+
+    const wdata = target.workspace_data || {};
+    injectLocalStorageCache(wdata);
+
+    let nextState = sanitizeWorkspaceState({
+      spaces: wdata.spaces || [],
+      zones: wdata.zones || [],
+      equipment: wdata.equipment || [],
+      roundOffPreset: wdata.roundOffPreset ?? 5,
+      isReadOnly: false
+    });
+
+    setGlobalRoundOffPreset(nextState.roundOffPreset);
+    currentWorkspaceState = nextState;
+    notify();
+  },
+
+  async createNewProject(projData: Omit<Project, "id">, assigned_users: string[] = [], assigned_teams: string[] = []) {
+    const res = await api.createProject({
+      ...projData,
+      workspace_data: { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
+    }, assigned_users, assigned_teams);
+
+    if (res.success) {
+      const newProj = res.project;
+
+      const cloudProjects = await api.getProjectsOrNull();
+      const base = Array.isArray(cloudProjects) ? mergeCloudProjects(cloudProjects) : projects;
+      // Never drop existing projects; just make sure the new one is present
+      projects = base.some(p => p.id === newProj.id) ? base : [newProj, ...base];
+      saveCachedProjects(projects);
+
+      saveState();
+      clearHistory();
+
+      const targetProj = projects.find(p => p.id === newProj.id) || newProj;
+      currentProject = targetProj;
+      activeProjectId = targetProj.id;
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("mep_active_project_id", targetProj.id);
+        localStorage.setItem("mep_last_worked_project_id", targetProj.id);
+      }
+      currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
+
+      notify();
+    }
+    return res;
+  },
+
+  async duplicateProject(id: string) {
+    // Currently disabled for cloud MVP, will just fetch the target and create a new project
+    const target = projects.find((p) => p.id === id);
+    if (!target) return null;
+
+    const res = await api.createProject({
+      ...target,
+      name: `${target.name} (Copy)`,
+      code: `${target.code}-COPY`,
+      workspace_data: target.workspace_data || { spaces: [], zones: [], equipment: [], roundOffPreset: 5 }
+    }, [], []);
+
+    if (res.success) {
+      projects.unshift(res.project);
+      notify();
+      return res.project;
+    }
+    return null;
+  },
+
+  saveAsRevision(versionName: string) {
+    if (!currentProject) return null;
+    const newId = `proj_${Date.now()}_${versionName}`;
+    const newProj: Project = {
+      ...currentProject,
+      id: newId,
+      name: `${currentProject.name} (${versionName})`,
+      createdDate: new Date().toISOString(),
+      lastModified: new Date().toISOString(),
+    };
+
+    projects.unshift(newProj);
+
+    if (!IS_SERVER) {
+      localStorage.setItem(`mep_project_workspace_${newId}`, JSON.stringify({ ...currentWorkspaceState, isReadOnly: true }));
+    }
+
+    saveState();
+    notify();
+    return newProj;
+  },
+
+  async deleteProject(id: string) {
+    const res = await api.deleteProject(id);
+    if (res.success) {
+      projects = projects.filter((p) => p.id !== id);
+
+      if (activeProjectId === id) {
+        if (projects.length > 0) {
+          activeProjectId = projects[0].id;
+          currentProject = projects[0];
+          const wdata = currentProject.workspace_data || {};
+          currentWorkspaceState = sanitizeWorkspaceState({
+            spaces: wdata.spaces || [],
+            zones: wdata.zones || [],
+            equipment: wdata.equipment || [],
+            roundOffPreset: wdata.roundOffPreset ?? 5,
+            isReadOnly: false
+          });
+          setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
+        } else {
+          activeProjectId = "";
+          currentProject = undefined;
+          setGlobalRoundOffPreset(5);
+          currentWorkspaceState = { spaces: [], zones: [], equipment: [], roundOffPreset: 5, isReadOnly: false };
+        }
+      }
+      notify();
+    }
+    return res;
+  },
+
+  clearWorkspace() {
+    pushHistory();
+    currentWorkspaceState = {
+      spaces: [],
+      zones: [],
+      equipment: [],
+    };
+    saveState();
+    notify();
+  },
+
+  async updateProjectStage(projectId: string, currentStage: string, applicableStages?: string[], stageStatus?: Record<string, string>) {
+    try {
+      const res = await api.updateProjectStage(projectId, currentStage, applicableStages, stageStatus);
+      if (res && res.success) {
+        const nextMeta = res.meta || {};
+        projects = projects.map((p) => {
+          if (p.id === projectId) {
+            return {
+              ...p,
+              current_stage: nextMeta.current_stage || currentStage,
+              applicable_stages: nextMeta.applicable_stages || applicableStages || p.applicable_stages,
+              stage_status: nextMeta.stage_status || stageStatus || p.stage_status
+            };
+          }
+          return p;
+        });
+        if (activeProjectId === projectId && currentProject) {
+          const updated = projects.find((p) => p.id === projectId);
+          if (updated) currentProject = updated;
+        }
+        saveCachedProjects(projects);
+        notify();
+        return { success: true, meta: nextMeta };
+      }
+      return res;
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
+  },
+
+  updateProject(updated: Project) {
+    projects = projects.map((p) => (p.id === updated.id ? updated : p));
+    if (activeProjectId === updated.id) {
+      currentProject = updated;
+    }
+    saveState();
+    notify();
+  },
+
+  updateSpaces(updatedSpaces: Space[]) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    pushHistory();
+    const spaceMap = new Map(updatedSpaces.map((s) => [s.id, s]));
+    const nextSpaces = (currentWorkspaceState?.spaces || []).map((s) => {
+      const updated = spaceMap.get(s.id);
+      if (updated) {
+        const wasMissing = checkIfSpaceMissingData(s);
+        const isMissing = checkIfSpaceMissingData(updated);
+        let flagged = updated.flagged;
+        if (isMissing) {
+          flagged = true;
+        } else if (wasMissing && !isMissing) {
+          flagged = false;
+        }
+        return { ...updated, flagged };
+      }
+      return s;
+    });
+
+    const balanced = calculateVentilation(
+      nextSpaces,
+      currentWorkspaceState.zones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    logCalculatorUpdate('Ventilation', 'Updated spaces in Ventilation', { throttleMs: 60000 });
+    notify();
+  },
+
+  updateZones(updatedZones: Zone[]) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    pushHistory();
+    const zoneMap = new Map(updatedZones.map((z) => [z.id, z]));
+    const nextZones = (currentWorkspaceState?.zones || []).map((z) => {
+      const updated = zoneMap.get(z.id);
+      if (updated) {
+        const mult = updated.multiplier ?? 1;
+        return {
+          ...updated,
+          faAssignedQty: Math.min(mult, updated.faAssignedQty ?? 1),
+          eaAssignedQty: Math.min(mult, updated.eaAssignedQty ?? 1),
+        };
+      }
+      return z;
+    });
+
+    const balanced = calculateVentilation(
+      currentWorkspaceState.spaces,
+      nextZones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    logCalculatorUpdate('Ventilation', 'Updated zones in Ventilation', { throttleMs: 60000 });
+    notify();
+  },
+
+
+  updateEquipment(updatedEquip: Equipment[]) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    pushHistory();
+    console.log('[MEP-DND] before updateEquipment. count:', updatedEquip?.length);
+    const balanced = calculateVentilation(
+      currentWorkspaceState.spaces,
+      currentWorkspaceState.zones,
+      updatedEquip
+    );
+    currentWorkspaceState = balanced;
+    console.log('[MEP-DND] after equipment mutation. balanced equipment count:', balanced.equipment?.length);
+    saveState();
+    logCalculatorUpdate('Ventilation', 'Updated equipment in Ventilation', { throttleMs: 60000 });
+    console.log('[MEP-DND] final workspace equipment:', currentWorkspaceState.equipment.map(e => ({ id: e.id, tag: e.tag, spaceId: e.locationSpaceId, pos: [e.positionX, e.positionY, e.positionZ] })));
+    notify();
+  },
+
+  addCommentToTarget(targetId: string, targetType: 'space' | 'zone' | 'equipment', comment: any) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    pushHistory();
+    if (targetType === 'space') {
+      const nextSpaces = (currentWorkspaceState?.spaces || []).map(s => {
+        if (s.id === targetId) {
+          const comments = [...(s.comments || []), comment];
+          return { ...s, comments };
+        }
+        return s;
+      });
+      currentWorkspaceState = { ...currentWorkspaceState, spaces: nextSpaces };
+    } else if (targetType === 'zone') {
+      const nextZones = (currentWorkspaceState?.zones || []).map(z => {
+        if (z.id === targetId) {
+          const comments = [...(z.comments || []), comment];
+          return { ...z, comments };
+        }
+        return z;
+      });
+      currentWorkspaceState = { ...currentWorkspaceState, zones: nextZones };
+    } else if (targetType === 'equipment') {
+      const nextEquip = (currentWorkspaceState?.equipment || []).map(e => {
+        if (e.id === targetId) {
+          const comments = [...(e.comments || []), comment];
+          return { ...e, comments };
+        }
+        return e;
+      });
+      currentWorkspaceState = { ...currentWorkspaceState, equipment: nextEquip };
+    }
+    saveState();
+    logCalculatorUpdate('Ventilation', `Added comment to ${targetType}`);
+    notify();
+
+    let targetName = targetId;
+    if (targetType === 'space') {
+      targetName = currentWorkspaceState.spaces.find(s => s.id === targetId)?.name || targetId;
+    } else if (targetType === 'zone') {
+      targetName = currentWorkspaceState.zones.find(z => z.id === targetId)?.name || targetId;
+    } else if (targetType === 'equipment') {
+      targetName = (currentWorkspaceState?.equipment || []).find(e => e.id === targetId)?.name || targetId;
+    }
+
+    notifyCommentAssigned({
+      comment,
+      targetId,
+      targetName,
+      targetType,
+      calculatorTitle: 'Ventilation & Air Balance',
+      calculatorPath: '/ventilation',
+      project: currentProject || currentWorkspaceState.project,
+      currentUserName: comment.authorName,
+      currentUserId: comment.authorId
+    }).catch(console.error);
+  },
+
+  deleteCommentFromWorkspace(keys: string | string[]) {
+    const keySet = new Set(Array.isArray(keys) ? keys : [keys]);
+    if (keySet.size === 0) return;
+
+    const removeMatchingComments = (list: any[]) => {
+      if (!Array.isArray(list)) return list;
+      return list.map((item: any) => {
+        if (Array.isArray(item.comments) && item.comments.length > 0) {
+          const filtered = item.comments.filter((c: any) => {
+            if (!c || c.deleted === true) return false;
+            if (c.id && keySet.has(c.id)) return false;
+            if (c.text && keySet.has(c.text)) return false;
+            if (c.message && keySet.has(c.message)) return false;
+            if (c.metadata?.id && keySet.has(c.metadata.id)) return false;
+            if (item.id && c.text && keySet.has(`${item.id}_${c.text}`)) return false;
+            if (item.id && c.message && keySet.has(`${item.id}_${c.message}`)) return false;
+            if (item.id && c.timestamp && keySet.has(`notif_${item.id}_${c.timestamp}`)) return false;
+            if (item.id && c.timestamp && keySet.has(`${item.id}_${c.timestamp}`)) return false;
+            return true;
+          });
+          return { ...item, comments: filtered };
+        }
+        return item;
+      });
+    };
+
+    currentWorkspaceState = {
+      ...currentWorkspaceState,
+      spaces: removeMatchingComments(currentWorkspaceState.spaces),
+      zones: removeMatchingComments(currentWorkspaceState.zones),
+      equipment: removeMatchingComments((currentWorkspaceState?.equipment || [])),
+    };
+    saveState(true);
+    notify();
+  },
+
+  markCommentCompletedInWorkspace(keys: string | string[]) {
+    const keySet = new Set(Array.isArray(keys) ? keys : [keys]);
+    if (keySet.size === 0) return;
+
+    const markMatchingComments = (list: any[]) => {
+      if (!Array.isArray(list)) return list;
+      return list.map((item: any) => {
+        if (Array.isArray(item.comments) && item.comments.length > 0) {
+          const updated = item.comments.map((c: any) => {
+            if (!c) return c;
+            const isMatch = Boolean(
+              (c.id && keySet.has(c.id)) ||
+              (c.text && keySet.has(c.text)) ||
+              (item.id && c.text && keySet.has(`${item.id}_${c.text}`)) ||
+              (item.id && c.timestamp && keySet.has(`notif_${item.id}_${c.timestamp}`))
+            );
+            if (isMatch) {
+              return { ...c, completed: true, read: true };
+            }
+            return c;
+          });
+          return { ...item, comments: updated };
+        }
+        return item;
+      });
+    };
+
+    currentWorkspaceState = {
+      ...currentWorkspaceState,
+      spaces: markMatchingComments(currentWorkspaceState.spaces),
+      zones: markMatchingComments(currentWorkspaceState.zones),
+      equipment: markMatchingComments((currentWorkspaceState?.equipment || [])),
+    };
+    saveState(true);
+    notify();
+  },
+
+  markCommentReadInWorkspace(keys: string | string[]) {
+    const keySet = new Set(Array.isArray(keys) ? keys : [keys]);
+    if (keySet.size === 0) return;
+
+    const markMatchingComments = (list: any[]) => {
+      if (!Array.isArray(list)) return list;
+      return list.map((item: any) => {
+        if (Array.isArray(item.comments) && item.comments.length > 0) {
+          const updated = item.comments.map((c: any) => {
+            if (!c) return c;
+            const isMatch = Boolean(
+              (c.id && keySet.has(c.id)) ||
+              (c.text && keySet.has(c.text)) ||
+              (item.id && c.text && keySet.has(`${item.id}_${c.text}`)) ||
+              (item.id && c.timestamp && keySet.has(`notif_${item.id}_${c.timestamp}`))
+            );
+            if (isMatch) {
+              return { ...c, read: true };
+            }
+            return c;
+          });
+          return { ...item, comments: updated };
+        }
+        return item;
+      });
+    };
+
+    currentWorkspaceState = {
+      ...currentWorkspaceState,
+      spaces: markMatchingComments(currentWorkspaceState.spaces),
+      zones: markMatchingComments(currentWorkspaceState.zones),
+      equipment: markMatchingComments((currentWorkspaceState?.equipment || [])),
+    };
+    saveState(true);
+    notify();
+  },
+
+  clearAllCommentsFromWorkspace() {
+    const clearComments = (list: any[]) => {
+      if (!Array.isArray(list)) return list;
+      return list.map((item: any) => {
+        if (Array.isArray(item.comments) && item.comments.length > 0) {
+          return { ...item, comments: [] };
+        }
+        return item;
+      });
+    };
+
+    currentWorkspaceState = {
+      ...currentWorkspaceState,
+      spaces: clearComments(currentWorkspaceState.spaces),
+      zones: clearComments(currentWorkspaceState.zones),
+      equipment: clearComments((currentWorkspaceState?.equipment || [])),
+    };
+    saveState(true);
+    notify();
+  },
+
+  addSpace(newSpace: Space) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    pushHistory();
+    const nextSpace = { ...newSpace };
+    if (!nextSpace.category && nextSpace.name) {
+      const nameVal = nextSpace.name.trim();
+      const pred = predictOccupancyCategory(nameVal);
+      let predCategory = "";
+
+      if (pred && pred.category) {
+        nextSpace.category = pred.category;
+        nextSpace.aiDetected = true;
+        predCategory = pred.category;
+
+        const data = getOccupancyData(pred.category);
+        if (data) {
+          const density = data.defaultDensity || 0;
+          const hasFixtures = nextSpace.fixtures !== "" && nextSpace.fixtures !== undefined;
+          nextSpace.occupancy = hasFixtures ? parseFloat(String(nextSpace.fixtures)) || 0 : Math.ceil((nextSpace.area * density) / 100);
+          nextSpace.isOccupancyCustomized = false;
+          if (data.exhaustPerUnit > 0) {
+            nextSpace.fixtures = nextSpace.occupancy.toString();
+          } else if (!hasFixtures) {
+            nextSpace.fixtures = "";
+          }
+        }
+      }
+
+      const predPress = predictSpacePressure(predCategory);
+      if (predPress && predPress.autoDetected) {
+        nextSpace.pressure = predPress.pressure;
+        nextSpace.pressureAutoDetected = true;
+      }
+    }
+    if (checkIfSpaceMissingData(nextSpace)) {
+      nextSpace.flagged = true;
+    }
+    const nextSpaces = [...currentWorkspaceState.spaces, nextSpace];
+    const balanced = calculateVentilation(
+      nextSpaces,
+      currentWorkspaceState.zones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  addSpacesBulk(newSpaces: Space[]) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    pushHistory();
+    const existingZoneNames = new Set(
+      (currentWorkspaceState?.zones || []).map((z) => z.name.toLowerCase())
+    );
+    const existingZoneIds = new Set(
+      (currentWorkspaceState?.zones || []).map((z) => z.id.toLowerCase())
+    );
+
+    const zonesToAdd: Zone[] = [];
+    newSpaces.forEach((s) => {
+      if (s.zone) {
+        const zoneLower = s.zone.toLowerCase();
+        if (!existingZoneNames.has(zoneLower) && !existingZoneIds.has(zoneLower)) {
+          const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          zonesToAdd.push({
+            id: zoneId,
+            name: s.zone,
+            building: s.building || "Tower A",
+            floor: s.floor || "L01",
+            spaceCount: 0,
+            area: 0,
+            freshAir: 0,
+            extractAir: 0,
+            pressure: 0,
+            equipment: [],
+            pressureType: "neutral",
+            faAssignment: null,
+            eaAssignment: null,
+            multiplier: 1,
+            faAssignedQty: 1,
+            eaAssignedQty: 1,
+          });
+          existingZoneNames.add(zoneLower);
+        }
+      }
+    });
+
+    const processedSpaces = newSpaces.map(s => {
+      const isMissing = checkIfSpaceMissingData(s);
+      return isMissing ? { ...s, flagged: true } : s;
+    });
+
+    const nextZones = [...currentWorkspaceState.zones, ...zonesToAdd];
+    const nextSpaces = [...currentWorkspaceState.spaces, ...processedSpaces];
+
+    const balanced = calculateVentilation(
+      nextSpaces,
+      nextZones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  deleteSpaces(idsToDelete: string[]) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    pushHistory();
+
+    // Find the names/ids of the zones assigned to the spaces we are deleting
+    const spacesToDelete = currentWorkspaceState.spaces.filter((s) => idsToDelete.includes(s.id));
+    const zonesToCheck = new Set<string>();
+    spacesToDelete.forEach((s) => {
+      if (s.zone) {
+        zonesToCheck.add(s.zone.toLowerCase());
+      }
+    });
+
+    const nextSpaces = currentWorkspaceState.spaces.filter((s) => !idsToDelete.includes(s.id));
+
+    // Filter zones: if a zone was assigned to deleted spaces, and has no remaining spaces left, delete it too
+    const nextZones = currentWorkspaceState.zones.filter((g) => {
+      const isDefault = g.name.toLowerCase() === "default" || g.name.toLowerCase() === "unzoned";
+      if (isDefault) return true;
+
+      const wasAssigned = zonesToCheck.has(g.id.toLowerCase()) || zonesToCheck.has(g.name.toLowerCase());
+      if (!wasAssigned) return true; // Keep it if it wasn't affected
+
+      const hasSpaces = nextSpaces.some(
+        (s) => s.zone && (s.zone.toLowerCase() === g.id.toLowerCase() || s.zone.toLowerCase() === g.name.toLowerCase())
+      );
+      return hasSpaces; // Keep it only if it still has spaces
+    });
+
+    const balanced = calculateVentilation(
+      nextSpaces,
+      nextZones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  bulkUpdateSpaces(ids: string[], updates: Partial<Space>) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    pushHistory();
+    const nextSpaces = (currentWorkspaceState?.spaces || []).map((s) => {
+      if (ids.includes(s.id)) {
+        const next = { ...s, ...updates };
+
+        // Sanitize zone to ensure we store human-readable zone name, never raw zoneId
+        if (updates.zone !== undefined && updates.zone !== "") {
+          const matchingZone = currentWorkspaceState.zones.find(
+            (z) => z.id === updates.zone || z.name === updates.zone
+          );
+          if (matchingZone) {
+            next.zone = matchingZone.name;
+          }
+        }
+
+        // If the name is being updated, perform automatic classification!
+        if (updates.name !== undefined) {
+          const nameVal = updates.name.trim();
+
+          if (!s.category || s.aiDetected) {
+            const pred = predictOccupancyCategory(nameVal);
+
+            if (pred && pred.category) {
+              next.category = pred.category;
+              next.aiDetected = true;
+
+              const data = getOccupancyData(pred.category);
+              if (data) {
+                const density = data.defaultDensity || 0;
+                const hasFixtures = next.fixtures !== "" && next.fixtures !== undefined;
+                if (!s.isOccupancyCustomized) {
+                  next.occupancy = hasFixtures ? parseFloat(String(next.fixtures)) || 0 : Math.ceil((next.area * density) / 100);
+                  next.isOccupancyCustomized = false;
+                }
+                if (data.exhaustPerUnit > 0) {
+                  next.fixtures = next.occupancy.toString();
+                } else if (!hasFixtures) {
+                  next.fixtures = "";
+                }
+              }
+            } else if (s.aiDetected) {
+              // Clear auto-detected category if the name is now unrecognized
+              next.category = "";
+              next.aiDetected = false;
+            }
+          }
+
+          const predPress = predictSpacePressure(next.category);
+          if (predPress && predPress.autoDetected) {
+            next.pressure = predPress.pressure;
+            next.pressureAutoDetected = true;
+          } else if (s.pressureAutoDetected) {
+            // Reset to default (Positive) if the name is now unrecognized
+            next.pressure = "Positive";
+            next.pressureAutoDetected = false;
+          }
+        }
+
+        // If category is explicitly being updated (and name is not), predict pressure based on category
+        if (updates.category !== undefined && updates.name === undefined) {
+          const predPress = predictSpacePressure(updates.category);
+          if (predPress && predPress.autoDetected) {
+            next.pressure = predPress.pressure;
+            next.pressureAutoDetected = true;
+          }
+        }
+
+        // If area or category changes and occupancy is not customized, recalculate default occupancy
+        if ((updates.area !== undefined || updates.category !== undefined) && !next.isOccupancyCustomized) {
+          const cat = next.category;
+          if (cat && !cat.endsWith(" (Custom)") && cat !== "OTHER") {
+            const data = getOccupancyData(cat);
+            if (data) {
+              const density = data.defaultDensity || 0;
+              const hasFixtures = next.fixtures !== "" && next.fixtures !== undefined;
+              next.occupancy = hasFixtures ? parseFloat(String(next.fixtures)) || 0 : Math.ceil((next.area * density) / 100);
+              next.isOccupancyCustomized = false;
+            }
+          }
+        }
+
+        const isMissingVal = checkIfSpaceMissingData(next);
+        if (isMissingVal) {
+          next.flagged = true;
+        } else if (updates.area !== undefined || updates.category !== undefined) {
+          next.flagged = false;
+        }
+
+        return next;
+      }
+      return s;
+    });
+    const balanced = calculateVentilation(
+      nextSpaces,
+      currentWorkspaceState.zones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  mergeSpaces(ids: string[], primaryId: string, mergedName: string) {
+    pushHistory();
+    const selectedSpaces = currentWorkspaceState.spaces.filter((s) => ids.includes(s.id));
+    if (selectedSpaces.length < 2) return;
+    const primarySpace = selectedSpaces.find((s) => s.id === primaryId) || selectedSpaces[0];
+
+    let combinedArea = 0;
+    let combinedFixtures = 0;
+    let hasAnyFixturesVal = false;
+
+    selectedSpaces.forEach((s) => {
+      const mult = parseFloat(String(s.multiplier || 1)) || 1;
+      combinedArea += (parseFloat(String(s.area || 0)) || 0) * mult;
+      if (s.fixtures !== "" && s.fixtures !== undefined && s.fixtures !== null) {
+        combinedFixtures += (parseFloat(String(s.fixtures || 0)) || 0) * mult;
+        hasAnyFixturesVal = true;
+      }
+    });
+
+    const mergedSpace: Space = {
+      ...primarySpace,
+      id: `merged-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      name: mergedName,
+      area: combinedArea,
+      fixtures: hasAnyFixturesVal ? combinedFixtures : "",
+      multiplier: 1,
+      status: "complete",
+    };
+
+    const firstIndex = currentWorkspaceState.spaces.findIndex((s) => ids.includes(s.id));
+    const filteredSpaces = currentWorkspaceState.spaces.filter((s) => !ids.includes(s.id));
+    filteredSpaces.splice(firstIndex === -1 ? 0 : firstIndex, 0, mergedSpace);
+
+    const balanced = calculateVentilation(
+      filteredSpaces,
+      currentWorkspaceState.zones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  addZone(newZone: Zone) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    pushHistory();
+    const trimmedName = (newZone.name || "").trim();
+    const existingIndex = currentWorkspaceState.zones.findIndex(
+      (z) => z.id === newZone.id || (trimmedName && z.name.trim().toLowerCase() === trimmedName.toLowerCase())
+    );
+
+    let nextZones: Zone[];
+    if (existingIndex !== -1) {
+      nextZones = [...currentWorkspaceState.zones];
+      nextZones[existingIndex] = {
+        ...nextZones[existingIndex],
+        ...newZone,
+        name: trimmedName || nextZones[existingIndex].name,
+      };
+    } else {
+      nextZones = [...currentWorkspaceState.zones, { ...newZone, name: trimmedName || newZone.name }];
+    }
+
+    const balanced = calculateVentilation(
+      currentWorkspaceState.spaces,
+      nextZones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  deleteZone(zoneId: string) {
+    if (currentWorkspaceState.isReadOnly || (typeof window !== "undefined" && (Boolean((window as any).__mep_is_readonly) || Boolean((window as any).__mep_approved_readonly)))) {
+      if (typeof window !== "undefined") toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
+      return;
+    }
+    pushHistory();
+    const targetZone = currentWorkspaceState.zones.find((z) => z.id === zoneId);
+    const targetName = targetZone?.name?.trim()?.toLowerCase();
+
+    const nextZones = currentWorkspaceState.zones.filter((z) => z.id !== zoneId && (!targetName || z.name.trim().toLowerCase() !== targetName));
+    // Dissolve zone: set all spaces in this zone to have zone = ""
+    const nextSpaces = (currentWorkspaceState?.spaces || []).map((s) =>
+      s.zone === zoneId || (targetName && s.zone.trim().toLowerCase() === targetName)
+        ? { ...s, zone: "" }
+        : s
+    );
+    const balanced = calculateVentilation(
+      nextSpaces,
+      nextZones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  autoZoneSpaces(selectedProposals: { name: string; floor: string; spaces: Space[] }[]) {
+    pushHistory();
+    const nextZones = [...currentWorkspaceState.zones];
+    const nextSpaces = [...currentWorkspaceState.spaces];
+
+    selectedProposals.forEach((p) => {
+      const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const zoneName = p.name + " Zone";
+
+      const newZone: Zone = {
+        id: zoneId,
+        name: zoneName,
+        building: p.spaces[0]?.building || "Tower A",
+        floor: p.floor,
+        spaceCount: p.spaces.length,
+        area: p.spaces.reduce((sum, s) => sum + s.area, 0),
+        freshAir: 0,
+        extractAir: 0,
+        pressure: 0,
+        equipment: [],
+        pressureType: "neutral",
+        faAssignment: null,
+        eaAssignment: null,
+        multiplier: 1,
+        faAssignedQty: 1,
+        eaAssignedQty: 1,
+      };
+      nextZones.push(newZone);
+
+      const spaceIds = p.spaces.map((s) => s.id);
+      nextSpaces.forEach((s, idx) => {
+        if (spaceIds.includes(s.id)) {
+          nextSpaces[idx] = { ...s, zone: newZone.name };
+        }
+      });
+    });
+
+    const balanced = calculateVentilation(
+      nextSpaces,
+      nextZones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  assignZoneToEquipment(zoneId: string, equipId: string, stream: "FA" | "EA", quantity?: number) {
+    pushHistory();
+    const nextZones = (currentWorkspaceState?.zones || []).map((g) => {
+      if (g.id === zoneId) {
+        const qty = quantity ?? 1;
+
+        if (stream === "FA") {
+          const currentFA = { ...(g.faAssignments || {}) };
+          currentFA[equipId] = qty;
+
+          if (qty <= 0) {
+            delete currentFA[equipId];
+          }
+
+          const keys = Object.keys(currentFA);
+          const firstKey = keys[0] || null;
+
+          return {
+            ...g,
+            faAssignments: currentFA,
+            faAssignment: firstKey,
+            faAssignedQty: firstKey ? currentFA[firstKey] : 1,
+          };
+        } else {
+          const currentEA = { ...(g.eaAssignments || {}) };
+          currentEA[equipId] = qty;
+
+          if (qty <= 0) {
+            delete currentEA[equipId];
+          }
+
+          const keys = Object.keys(currentEA);
+          const firstKey = keys[0] || null;
+
+          return {
+            ...g,
+            eaAssignments: currentEA,
+            eaAssignment: firstKey,
+            eaAssignedQty: firstKey ? currentEA[firstKey] : 1,
+          };
+        }
+      }
+      return g;
+    });
+
+    const balanced = calculateVentilation(
+      currentWorkspaceState.spaces,
+      nextZones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  removeZoneFromEquipment(zoneId: string, equipId: string, stream: "FA" | "EA") {
+    pushHistory();
+    const nextZones = (currentWorkspaceState?.zones || []).map((g) => {
+      if (g.id === zoneId) {
+        if (stream === "FA") {
+          const currentFA = { ...(g.faAssignments || {}) };
+          delete currentFA[equipId];
+
+          const keys = Object.keys(currentFA);
+          const firstKey = keys[0] || null;
+
+          return {
+            ...g,
+            faAssignments: currentFA,
+            faAssignment: firstKey,
+            faAssignedQty: firstKey ? currentFA[firstKey] : 1,
+          };
+        } else {
+          const currentEA = { ...(g.eaAssignments || {}) };
+          delete currentEA[equipId];
+
+          const keys = Object.keys(currentEA);
+          const firstKey = keys[0] || null;
+
+          return {
+            ...g,
+            eaAssignments: currentEA,
+            eaAssignment: firstKey,
+            eaAssignedQty: firstKey ? currentEA[firstKey] : 1,
+          };
+        }
+      }
+      return g;
+    });
+
+    const balanced = calculateVentilation(
+      currentWorkspaceState.spaces,
+      nextZones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  // Instance-based allocation — each multiplier slot is one independent instance
+  updateZoneInstances(zoneId: string, instances: ZoneInstanceAssignment[]) {
+    pushHistory();
+    const nextZones = (currentWorkspaceState?.zones || []).map((g) => {
+      if (g.id !== zoneId) return g;
+
+      // Derive backward-compat dicts: count instances served per equipment
+      const faMap: Record<string, number> = {};
+      const eaMap: Record<string, number> = {};
+      for (const inst of instances) {
+        if (inst.faEquipId) faMap[inst.faEquipId] = (faMap[inst.faEquipId] || 0) + 1;
+        if (inst.eaEquipId) eaMap[inst.eaEquipId] = (eaMap[inst.eaEquipId] || 0) + 1;
+      }
+      const firstFA = Object.keys(faMap)[0] || null;
+      const firstEA = Object.keys(eaMap)[0] || null;
+      return {
+        ...g,
+        instances,
+        faAssignments: faMap,
+        eaAssignments: eaMap,
+        faAssignment: firstFA,
+        eaAssignment: firstEA,
+        faAssignedQty: firstFA ? faMap[firstFA] : 1,
+        eaAssignedQty: firstEA ? eaMap[firstEA] : 1,
+      };
+    });
+    const balanced = calculateVentilation(
+      currentWorkspaceState.spaces,
+      nextZones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  addEquipment(newEquip: Equipment) {
+    pushHistory();
+    const currentEquip = currentWorkspaceState?.equipment || [];
+    const currentSpaces = currentWorkspaceState?.spaces || [];
+    const currentZones = currentWorkspaceState?.zones || [];
+    const nextEquip = [...currentEquip, newEquip];
+    const balanced = calculateVentilation(
+      currentSpaces,
+      currentZones,
+      nextEquip
+    );
+    currentWorkspaceState = { ...currentWorkspaceState, ...balanced };
+    saveState();
+    notify();
+  },
+
+  deleteEquipment(equipId: string) {
+    pushHistory();
+    const nextEquip = (currentWorkspaceState?.equipment || []).filter((e) => e.id !== equipId);
+    const nextZones = (currentWorkspaceState?.zones || []).map((g) => {
+      const currentFA = { ...(g.faAssignments || {}) };
+      delete currentFA[equipId];
+      const faKeys = Object.keys(currentFA);
+      const firstFA = faKeys[0] || null;
+
+      const currentEA = { ...(g.eaAssignments || {}) };
+      delete currentEA[equipId];
+      const eaKeys = Object.keys(currentEA);
+      const firstEA = eaKeys[0] || null;
+
+      return {
+        ...g,
+        faAssignments: currentFA,
+        faAssignment: firstFA,
+        faAssignedQty: firstFA ? currentFA[firstFA] : 1,
+        eaAssignments: currentEA,
+        eaAssignment: firstEA,
+        eaAssignedQty: firstEA ? currentEA[firstEA] : 1,
+      };
+    });
+
+    const balanced = calculateVentilation(
+      currentWorkspaceState.spaces,
+      nextZones,
+      nextEquip
+    );
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+  },
+
+  undo() {
+    if (undoStack.length === 0) return false;
+    const previous = undoStack.pop()!;
+    redoStack.push(JSON.stringify(currentWorkspaceState));
+    currentWorkspaceState = JSON.parse(previous);
+    saveState();
+    notify();
+    return true;
+  },
+
+  redo() {
+    if (redoStack.length === 0) return false;
+    const nextState = redoStack.pop()!;
+    undoStack.push(JSON.stringify(currentWorkspaceState));
+    currentWorkspaceState = JSON.parse(nextState);
+    saveState();
+    notify();
+    return true;
+  },
+
+  copySpaces(ids: string[]) {
+    const targets = currentWorkspaceState.spaces.filter((s) => ids.includes(s.id));
+    if (targets.length === 0) return false;
+    copiedSpaces = JSON.parse(JSON.stringify(targets));
+    if (typeof window !== "undefined") {
+      localStorage.setItem("mep_clipboard_spaces", JSON.stringify(copiedSpaces));
+    }
+    notify(); // Notify so that state updates (e.g. paste capability)
+    return true;
+  },
+
+  cutSpaces(ids: string[]) {
+    const targets = currentWorkspaceState.spaces.filter((s) => ids.includes(s.id));
+    if (targets.length === 0) return false;
+    copiedSpaces = JSON.parse(JSON.stringify(targets));
+    if (typeof window !== "undefined") {
+      localStorage.setItem("mep_clipboard_spaces", JSON.stringify(copiedSpaces));
+    }
+    this.deleteSpaces(ids); // deleteSpaces already pushes history
+    return true;
+  },
+
+  pasteSpaces(): Space[] {
+    if (copiedSpaces.length === 0) return [];
+    pushHistory();
+    const pasted: Space[] = copiedSpaces.map((s, index) => {
+      const timestamp = Date.now();
+      const newId = `sp-${timestamp}-${index}-${Math.floor(Math.random() * 1000)}`;
+      const newCode = `${s.code.replace(/-CLONE(-\d+)?$/, "")}-CLONE-${Math.floor(Math.random() * 100)}`;
+      return {
+        ...s,
+        id: newId,
+        code: newCode,
+        name: `${s.name} (Copy)`,
+      };
+    });
+
+    const nextSpaces = [...currentWorkspaceState.spaces, ...pasted];
+
+    // Auto-create zones if they don't exist
+    const existingZoneNames = new Set(
+      (currentWorkspaceState?.zones || []).map((z) => z.name.toLowerCase())
+    );
+    const existingZoneIds = new Set(
+      (currentWorkspaceState?.zones || []).map((z) => z.id.toLowerCase())
+    );
+    const zonesToAdd: Zone[] = [];
+
+    pasted.forEach((s) => {
+      if (s.zone) {
+        const zoneLower = s.zone.toLowerCase();
+        if (!existingZoneNames.has(zoneLower) && !existingZoneIds.has(zoneLower)) {
+          const zoneId = `zone-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          zonesToAdd.push({
+            id: zoneId,
+            name: s.zone,
+            building: s.building || "Tower A",
+            floor: s.floor || "L01",
+            spaceCount: 0,
+            area: 0,
+            freshAir: 0,
+            extractAir: 0,
+            pressure: 0,
+            equipment: [],
+            pressureType: "neutral",
+            faAssignment: null,
+            eaAssignment: null,
+          });
+          existingZoneNames.add(zoneLower);
+        }
+      }
+    });
+
+    const nextZones = [...currentWorkspaceState.zones, ...zonesToAdd];
+    const balanced = calculateVentilation(
+      nextSpaces,
+      nextZones,
+      currentWorkspaceState.equipment
+    );
+
+    currentWorkspaceState = balanced;
+    saveState();
+    notify();
+    return pasted;
+  },
+
+  getRoundOffPreset() {
+    return currentWorkspaceState.roundOffPreset ?? 5;
+  },
+
+  setRoundOffPreset(value: number) {
+    pushHistory();
+    setGlobalRoundOffPreset(value);
+    currentWorkspaceState.roundOffPreset = value;
+
+    // Recalculate based on new rounding preset
+    const balanced = calculateVentilation(
+      currentWorkspaceState.spaces,
+      currentWorkspaceState.zones,
+      currentWorkspaceState.equipment
+    );
+    currentWorkspaceState = {
+      ...balanced,
+      roundOffPreset: value,
+    };
+    saveState();
+    notify();
+  },
+
+  subscribe(listener: () => void) {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  },
+};
+
+export function useWorkspace() {
+  const [state, setState] = useState(workspaceStore.getState());
+
+  useEffect(() => {
+    return workspaceStore.subscribe(() => {
+      setState(workspaceStore.getState());
+    });
+  }, []);
+
+  return {
+    project: state.project,
+    projects: state.projects,
+    activeProjectId: state.activeProjectId,
+    isInitializing: state.isInitializing,
+    spaces: state.spaces,
+    zones: state.zones,
+    equipment: state.equipment,
+    selectProject: (id: string) => workspaceStore.selectProject(id),
+    createNewProject: (project: Omit<Project, "id">, assigned_users: string[] = [], assigned_teams: string[] = []) =>
+      workspaceStore.createNewProject(project, assigned_users, assigned_teams),
+    duplicateProject: (id: string) => workspaceStore.duplicateProject(id),
+    deleteProject: (id: string) => workspaceStore.deleteProject(id),
+    forceSaveToCloud: () => workspaceStore.forceSaveToCloud(),
+    syncFromCloud: () => workspaceStore.syncFromCloud(),
+    refreshProjects: () => workspaceStore.refreshProjects(),
+    clearWorkspace: () => workspaceStore.clearWorkspace(),
+    updateProject: (project: Project) => workspaceStore.updateProject(project),
+    updateProjectStage: (projectId: string, currentStage: string, applicableStages?: string[], stageStatus?: Record<string, string>) =>
+      workspaceStore.updateProjectStage(projectId, currentStage, applicableStages, stageStatus),
+    updateSpaces: (spaces: Space[]) => workspaceStore.updateSpaces(spaces),
+    updateZones: (zones: Zone[]) => workspaceStore.updateZones(zones),
+    updateEquipment: (equip: Equipment[]) => workspaceStore.updateEquipment(equip),
+    addSpace: (space: Space) => workspaceStore.addSpace(space),
+    addSpacesBulk: (spaces: Space[]) => workspaceStore.addSpacesBulk(spaces),
+    deleteSpaces: (ids: string[]) => workspaceStore.deleteSpaces(ids),
+    bulkUpdateSpaces: (ids: string[], updates: Partial<Space>) => workspaceStore.bulkUpdateSpaces(ids, updates),
+    mergeSpaces: (ids: string[], primaryId: string, mergedName: string) => workspaceStore.mergeSpaces(ids, primaryId, mergedName),
+    addZone: (zone: Zone) => workspaceStore.addZone(zone),
+    deleteZone: (zoneId: string) => workspaceStore.deleteZone(zoneId),
+    autoZoneSpaces: (proposals: { name: string; floor: string; spaces: Space[] }[]) => workspaceStore.autoZoneSpaces(proposals),
+    assignZoneToEquipment: (zoneId: string, equipId: string, stream: "FA" | "EA", quantity?: number) => workspaceStore.assignZoneToEquipment(zoneId, equipId, stream, quantity),
+    removeZoneFromEquipment: (zoneId: string, equipId: string, stream: "FA" | "EA") => workspaceStore.removeZoneFromEquipment(zoneId, equipId, stream),
+    updateZoneInstances: (zoneId: string, instances: ZoneInstanceAssignment[]) => workspaceStore.updateZoneInstances(zoneId, instances),
+    addEquipment: (equip: Equipment) => workspaceStore.addEquipment(equip),
+    deleteEquipment: (equipId: string) => workspaceStore.deleteEquipment(equipId),
+    setWorkspaceState: (newState: any) => workspaceStore.setState(newState),
+    undo: () => workspaceStore.undo(),
+    redo: () => workspaceStore.redo(),
+    canUndo: undoStack.length > 0,
+    canRedo: redoStack.length > 0,
+    copySpaces: (ids: string[]) => workspaceStore.copySpaces(ids),
+    cutSpaces: (ids: string[]) => workspaceStore.cutSpaces(ids),
+    pasteSpaces: () => workspaceStore.pasteSpaces(),
+    hasClipboard: copiedSpaces.length > 0,
+    roundOffPreset: state.roundOffPreset,
+    setRoundOffPreset: (val: number) => workspaceStore.setRoundOffPreset(val),
+    isReadOnly: state.isReadOnly,
+    setReadOnly: (val: boolean) => workspaceStore.setReadOnly(val),
+    saveAsRevision: (name: string) => workspaceStore.saveAsRevision(name),
+    deleteCommentFromWorkspace: (keys: string | string[]) => workspaceStore.deleteCommentFromWorkspace(keys),
+    markCommentCompletedInWorkspace: (keys: string | string[]) => workspaceStore.markCommentCompletedInWorkspace(keys),
+    clearAllCommentsFromWorkspace: () => workspaceStore.clearAllCommentsFromWorkspace(),
+  };
+}
+
+useWorkspace.getState = () => ({
+  ...workspaceStore.getState(),
+  projects: workspaceStore.getState().projects,
+  project: workspaceStore.getState().project,
+  activeProjectId: workspaceStore.getState().activeProjectId,
+  updateProject: (project: Project) => workspaceStore.updateProject(project),
+  selectProject: (id: string) => workspaceStore.selectProject(id),
+  forceSaveToCloud: () => workspaceStore.forceSaveToCloud(),
+  syncFromCloud: () => workspaceStore.syncFromCloud(),
+  refreshProjects: () => workspaceStore.refreshProjects(),
+});
+
+export const workspace = currentWorkspaceState;

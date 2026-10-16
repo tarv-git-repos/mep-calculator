@@ -1,0 +1,825 @@
+import React, { useState, useEffect } from 'react';
+import { History, Save, FolderOpen, Plus, List, AlertCircle } from 'lucide-react';
+import { 
+  DropdownMenu, 
+  DropdownMenuTrigger, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuShortcut
+} from '@/components/ui/dropdown-menu';
+import { toast } from 'sonner';
+import { readTextFile, exists, mkdir, readDir } from '@tauri-apps/plugin-fs';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
+import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/services/api';
+import { workspaceStore } from '@/lib/workspace-store';
+import { dirtyStore } from '@/lib/dirty-store';
+
+export function VersionManager({ projectName, calculatorName = 'Unknown' }: { projectName: string, calculatorName?: string }) {
+  const { userData } = useAuth();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [descriptionInput, setDescriptionInput] = useState('');
+  
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyList, setHistoryList] = useState<any[]>([]);
+
+  // Restore prompt state
+  const [pendingRestoreItem, setPendingRestoreItem] = useState<any>(null);
+  const [isRestorePromptOpen, setIsRestorePromptOpen] = useState(false);
+
+  const activeVersionKey = `mep_active_ver_${projectName.replace(/[<>:"/\\|?*]/g, '_')}_${calculatorName.replace(/[<>:"/\\|?*]/g, '_')}`;
+  
+  const [activeVersionName, setActiveVersionName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(activeVersionKey) || 'Versions';
+    }
+    return 'Versions';
+  });
+
+  const updateActiveVersion = (verName: string) => {
+    setActiveVersionName(verName);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(activeVersionKey, verName);
+    }
+  };
+
+  // Gather complete project state (workspace store memory + all calculator localStorage items)
+  const gatherProjectData = () => {
+    const wsState = workspaceStore.getState();
+    const lsState: Record<string, any> = {};
+    
+    if (typeof localStorage !== 'undefined') {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key) continue;
+        
+        // Exclude session & auth keys
+        if (
+          key === 'auth_token' || 
+          key === 'mep_calculator_user_data' || 
+          key === 'mep_device_client_id' || 
+          key === 'privacy_policy_accepted' ||
+          key === 'mep_active_project_id' ||
+          key === 'mep_last_worked_project_id' ||
+          key.startsWith('mep_profile_photo') ||
+          key.startsWith('mep_local_users')
+        ) {
+          continue;
+        }
+
+        try {
+          lsState[key] = JSON.parse(localStorage.getItem(key) || 'null');
+        } catch {
+          lsState[key] = localStorage.getItem(key);
+        }
+      }
+    }
+
+    return {
+      spaces: wsState.spaces || [],
+      zones: wsState.zones || [],
+      equipment: wsState.equipment || [],
+      roundOffPreset: wsState.roundOffPreset ?? 5,
+      localStorageCache: lsState
+    };
+  };
+
+  const saveActiveVersionState = async (verName: string) => {
+    try {
+      const userName = (userData?.name || "SystemAdmin");
+      const projectData = gatherProjectData();
+
+      const existingItem = historyList.find(h => String(h.version).toUpperCase() === String(verName).toUpperCase());
+      const originalCreator = existingItem?.createdBy || existingItem?.user || userName;
+      const originalCreatedAt = existingItem?.createdAt || existingItem?.timestamp || new Date().toISOString();
+
+      const payload = {
+        _versionMetadata: {
+          version: verName,
+          description: existingItem?.description || `Version ${verName}`,
+          user: originalCreator,
+          createdBy: originalCreator,
+          createdAt: originalCreatedAt,
+          editedBy: userName,
+          lastEditedAt: new Date().toISOString(),
+          timestamp: new Date().toISOString()
+        },
+        data: projectData
+      };
+
+      // 1. Overwrite / sync to server database (and disk if web version)
+      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath') || 'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Project Data';
+      const nCalc = calculatorName.toLowerCase();
+      let discForApi = "MEP";
+      if (nCalc.includes("cooling") || nCalc.includes("ventilation") || nCalc.includes("duct") || nCalc.includes("chw") || nCalc.includes("heating") || nCalc.includes("smoke") || nCalc.includes("pressuri") || nCalc.includes("psychro") || nCalc.includes("refrigerant") || nCalc.includes("condensate") || nCalc.includes("diffuser")) discForApi = "HVAC";
+      else if (nCalc.includes("cable") || nCalc.includes("busbar") || nCalc.includes("conductor") || nCalc.includes("transformer") || nCalc.includes("generator") || nCalc.includes("ups") || nCalc.includes("capacitor") || nCalc.includes("breaker") || nCalc.includes("short-circuit") || nCalc.includes("tray") || nCalc.includes("lux") || nCalc.includes("lpd") || nCalc.includes("battery") || nCalc.includes("load-schedule")) discForApi = "Electrical";
+      else if (nCalc.includes("loading-unit") || nCalc.includes("fixture-unit") || nCalc.includes("water-demand") || nCalc.includes("supply-pipe") || nCalc.includes("pump-sizing") || nCalc.includes("pressure-vessel") || nCalc.includes("tank-sizing") || nCalc.includes("drainage") || nCalc.includes("sewage") || nCalc.includes("sump") || nCalc.includes("storm") || nCalc.includes("gas-tank")) discForApi = "Plumbing";
+      else if (nCalc.includes("fire") || nCalc.includes("sprinkler") || nCalc.includes("fm200") || nCalc.includes("hazen")) discForApi = "Fire Fighting";
+
+      try {
+        await api.saveVersionToServer(projectName, calculatorName, payload, basePath, discForApi, '');
+      } catch (e) {
+        console.warn("Cloud version update warning:", e);
+      }
+
+      // 2. Overwrite / save to local disk if in desktop app
+      const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      if (isTauri && basePath) {
+        try {
+          const safeBasePath = basePath.replace(/['"]/g, '');
+          const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
+          const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
+          const n = calculatorName.toLowerCase();
+          let disc = "MEP";
+          if (n.includes("cooling") || n.includes("ventilation") || n.includes("duct") || n.includes("chw") || n.includes("heating") || n.includes("smoke") || n.includes("pressuri") || n.includes("psychro") || n.includes("refrigerant") || n.includes("condensate") || n.includes("diffuser")) disc = "HVAC";
+          else if (n.includes("cable") || n.includes("busbar") || n.includes("conductor") || n.includes("transformer") || n.includes("generator") || n.includes("ups") || n.includes("capacitor") || n.includes("breaker") || n.includes("short-circuit") || n.includes("tray") || n.includes("lux") || n.includes("lpd") || n.includes("battery") || n.includes("load-schedule")) disc = "Electrical";
+          else if (n.includes("loading-unit") || n.includes("fixture-unit") || n.includes("water-demand") || n.includes("supply-pipe") || n.includes("pump-sizing") || n.includes("pressure-vessel") || n.includes("tank-sizing") || n.includes("drainage") || n.includes("sewage") || n.includes("sump") || n.includes("storm") || n.includes("gas-tank")) disc = "Plumbing";
+          else if (n.includes("fire") || n.includes("sprinkler") || n.includes("fm200") || n.includes("hazen")) disc = "Fire Fighting";
+
+          const projectBase = `${safeBasePath}\\${safeProjectName}`;
+          if (!await exists(projectBase)) await mkdir(projectBase, { recursive: true });
+          for (const d of ["HVAC", "Electrical", "Plumbing", "Fire Fighting"]) {
+            const dPath = `${projectBase}\\${d}`;
+            if (!await exists(dPath)) await mkdir(dPath, { recursive: true });
+          }
+
+          const projectDir = `${projectBase}\\${disc}\\${safeCalculatorName}`;
+          if (!await exists(projectDir)) {
+            await mkdir(projectDir, { recursive: true });
+          }
+          const filePath = `${projectDir}\\${verName.toLowerCase()}.js`;
+          await invoke('save_backup', { 
+            path: filePath, 
+            content: `export default ${JSON.stringify(payload, null, 2)};`
+          });
+        } catch (e) {
+          console.warn("Local active version save warning:", e);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to update active version:", err);
+    }
+  };
+
+  const handleSaveAsVersion = async () => {
+    const currentPath = (typeof window !== 'undefined' ? window.location.pathname : '').toLowerCase().replace(/\/$/, "") || "/";
+    const NON_VERSION_PATHS = [
+      "/",
+      "/dashboard",
+      "/projects",
+      "/reports",
+      "/report",
+      "/teams",
+      "/team",
+      "/admin",
+      "/settings",
+      "/privacy",
+      "/login",
+      "/calculators",
+      "/reset-password"
+    ];
+    if (NON_VERSION_PATHS.some(p => currentPath === p || currentPath.startsWith(p + '/'))) {
+      toast.error("Version creation is only allowed inside calculation sections.");
+      return;
+    }
+
+    setDescriptionInput('');
+    setIsModalOpen(true);
+  };
+
+  const executeSaveAsVersion = async (customDesc?: string) => {
+    setIsModalOpen(false);
+
+    try {
+      const userName = (userData?.name || "SystemAdmin");
+      const projectData = gatherProjectData();
+      
+      // Fetch current server versions count to generate accurate incremental version string (V0, V1, V2...)
+      let serverVersions: any[] = [];
+      try {
+        serverVersions = await api.getVersionsFromServer(projectName, calculatorName);
+      } catch (e) {}
+
+      const allKnown = [...(serverVersions || []), ...(historyList || [])];
+      let maxV = -1;
+      allKnown.forEach((item: any) => {
+        const vStr = String(item.version || item.id || '');
+        const match = vStr.match(/v?(\d+)/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxV) maxV = num;
+        }
+      });
+
+      const nextV = maxV >= 0 ? maxV + 1 : 0;
+      const versionStr = `V${nextV}`;
+      
+      const finalDesc = typeof customDesc === 'string' ? customDesc : descriptionInput.trim();
+      let actionSuffix = "";
+      const descLower = finalDesc.toLowerCase();
+      if (descLower.includes("review")) actionSuffix = "-review";
+      else if (descLower.includes("approv")) actionSuffix = "-approve";
+      else if (descLower.includes("reject")) actionSuffix = "-reject";
+      else if (descLower.includes("submit")) actionSuffix = "-submit";
+      
+      const n = calculatorName.toLowerCase();
+      let discipline = "MEP";
+      if (n.includes("cooling") || n.includes("ventilation") || n.includes("duct") || n.includes("chw") || n.includes("heating") || n.includes("smoke") || n.includes("pressuri") || n.includes("psychro") || n.includes("refrigerant") || n.includes("condensate") || n.includes("diffuser")) discipline = "HVAC";
+      else if (n.includes("cable") || n.includes("busbar") || n.includes("conductor") || n.includes("transformer") || n.includes("generator") || n.includes("ups") || n.includes("capacitor") || n.includes("breaker") || n.includes("short-circuit") || n.includes("tray") || n.includes("lux") || n.includes("lpd") || n.includes("battery") || n.includes("load-schedule")) discipline = "Electrical";
+      else if (n.includes("loading-unit") || n.includes("fixture-unit") || n.includes("water-demand") || n.includes("supply-pipe") || n.includes("pump-sizing") || n.includes("pressure-vessel") || n.includes("tank-sizing") || n.includes("drainage") || n.includes("sewage") || n.includes("sump") || n.includes("storm") || n.includes("gas-tank")) discipline = "Plumbing";
+      else if (n.includes("fire") || n.includes("sprinkler") || n.includes("fm200") || n.includes("hazen")) discipline = "Fire Fighting";
+
+      const payload = {
+        _versionMetadata: {
+          version: versionStr,
+          description: finalDesc || `Version ${versionStr}`,
+          user: userName,
+          createdBy: userName,
+          createdAt: new Date().toISOString(),
+          editedBy: null,
+          lastEditedAt: null,
+          timestamp: new Date().toISOString()
+        },
+        data: projectData
+      };
+
+      updateActiveVersion(versionStr);
+
+      const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
+      const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
+
+      // Cache version entry in local browser storage
+      try {
+        const cacheKey = `mep_version_cache_${safeProjectName}_${safeCalculatorName}`;
+        const currentCache = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+        const filteredCache = Array.isArray(currentCache) ? currentCache.filter((item: any) => {
+          const vStr = item._versionMetadata?.version || item.version;
+          return String(vStr).toUpperCase() !== versionStr.toUpperCase();
+        }) : [];
+        filteredCache.unshift(payload);
+        localStorage.setItem(cacheKey, JSON.stringify(filteredCache));
+      } catch (e) {}
+
+      // 1. Sync to server database (and disk if web version) so ALL project members see the saved version
+      const basePath = localStorage.getItem('versionsPath') || localStorage.getItem('localBackupPath') || 'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Project Data';
+      try {
+        await api.saveVersionToServer(projectName, calculatorName, payload, basePath, discipline, actionSuffix);
+      } catch (e) {
+        console.warn("Cloud version sync warning:", e);
+      }
+
+      // 2. Also save to local disk if running in desktop app and path configured
+      const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      if (isTauri && basePath) {
+        try {
+          const safeBasePath = basePath.replace(/['"]/g, '');
+          const projectBase = `${safeBasePath}\\${safeProjectName}`;
+          if (!await exists(projectBase)) await mkdir(projectBase, { recursive: true });
+          
+          for (const d of ["HVAC", "Electrical", "Plumbing", "Fire Fighting"]) {
+            const dPath = `${projectBase}\\${d}`;
+            if (!await exists(dPath)) await mkdir(dPath, { recursive: true });
+          }
+
+          const projectDir = `${projectBase}\\${discipline}\\${safeCalculatorName}`;
+          const dirExists = await exists(projectDir);
+          if (!dirExists) {
+            await mkdir(projectDir, { recursive: true });
+          }
+
+          const finalFileName = `${versionStr.toLowerCase()}${actionSuffix}.js`;
+          const filePath = `${projectDir}\\${finalFileName}`;
+          await invoke('save_backup', { 
+            path: filePath, 
+            content: `export default ${JSON.stringify(payload, null, 2)};`
+          });
+        } catch (e) {
+          console.warn("Local backup warning:", e);
+        }
+      }
+
+      toast.success(`Successfully saved as version ${versionStr}`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Error: ${err.message || err}`);
+    }
+  };
+
+  const loadVersionData = (data: any, versionName?: string) => {
+    if (!data || typeof data !== 'object') {
+      toast.error("Invalid version data.");
+      return;
+    }
+
+    // Clear dirty flags so browser does not pop up 'Reload site? Changes you made may not be saved'
+    dirtyStore.set(false);
+    if (typeof window !== 'undefined') {
+      window.onbeforeunload = null;
+    }
+
+    // Preserve active project ID and auth info so active project is never lost or deleted!
+    const currentActiveProjId = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_active_project_id") : null;
+    const currentLastWorkedProjId = typeof localStorage !== 'undefined' ? localStorage.getItem("mep_last_worked_project_id") : null;
+
+    if (versionName) {
+      updateActiveVersion(versionName);
+    }
+
+    // 1. Restore localStorage calculator keys while preserving system/project metadata
+    const lsCache = data.localStorageCache || data;
+    if (typeof localStorage !== 'undefined' && lsCache && typeof lsCache === 'object') {
+      const SYSTEM_KEYS = new Set([
+        'mep_active_project_id',
+        'mep_last_worked_project_id',
+        'auth_token',
+        'mep_calculator_user_data',
+        'mep_device_client_id',
+        'privacy_policy_accepted',
+        'spaces',
+        'zones',
+        'equipment',
+        'localStorageCache',
+        '_versionMetadata'
+      ]);
+
+      Object.keys(lsCache).forEach(key => {
+        if (SYSTEM_KEYS.has(key) || key.startsWith('mep_profile_photo') || key.startsWith('mep_local_users')) {
+          return;
+        }
+        const val = lsCache[key];
+        if (val === null || val === undefined) {
+          localStorage.removeItem(key);
+        } else if (typeof val === 'string') {
+          localStorage.setItem(key, val);
+        } else {
+          localStorage.setItem(key, JSON.stringify(val));
+        }
+      });
+
+      // Ensure active project ID is explicitly preserved
+      if (currentActiveProjId) {
+        localStorage.setItem("mep_active_project_id", currentActiveProjId);
+      }
+      if (currentLastWorkedProjId) {
+        localStorage.setItem("mep_last_worked_project_id", currentLastWorkedProjId);
+      }
+    }
+
+    // 2. Restore workspaceStore state into current local session ONLY (Preserve user's read-only status!)
+    // DO NOT force save to cloud so other concurrent users working on the project are never disturbed.
+    const currentReadOnly = workspaceStore.getState().isReadOnly;
+    if (Array.isArray(data.spaces) || Array.isArray(data.zones) || Array.isArray(data.equipment)) {
+      workspaceStore.setState({
+        spaces: data.spaces || [],
+        zones: data.zones || [],
+        equipment: data.equipment || [],
+        isReadOnly: currentReadOnly
+      });
+    }
+
+    dirtyStore.set(false);
+    if (typeof window !== 'undefined') {
+      window.onbeforeunload = null;
+      window.dispatchEvent(new CustomEvent('mep_version_restored', { detail: data }));
+    }
+    toast.success(`Version ${versionName || ''} restored successfully!`);
+  };
+
+  const handleInitiateRestore = (item: any) => {
+    if (activeVersionName && activeVersionName !== 'Versions') {
+      setPendingRestoreItem(item);
+      setIsRestorePromptOpen(true);
+    } else {
+      setIsHistoryOpen(false);
+      const dataToLoad = item.parsedData || item.data || item.payload;
+      loadVersionData(dataToLoad, item.version);
+    }
+  };
+
+  const confirmSaveActiveAndRestore = async () => {
+    if (!pendingRestoreItem) return;
+    setIsRestorePromptOpen(false);
+    setIsHistoryOpen(false);
+
+    if (activeVersionName && activeVersionName !== 'Versions') {
+      toast.info(`Saving current calculations to ${activeVersionName}...`);
+      await saveActiveVersionState(activeVersionName);
+    }
+
+    const dataToLoad = pendingRestoreItem.parsedData || pendingRestoreItem.data || pendingRestoreItem.payload;
+    loadVersionData(dataToLoad, pendingRestoreItem.version);
+  };
+
+  const confirmRestoreWithoutSaving = () => {
+    if (!pendingRestoreItem) return;
+    setIsRestorePromptOpen(false);
+    setIsHistoryOpen(false);
+
+    const dataToLoad = pendingRestoreItem.parsedData || pendingRestoreItem.data || pendingRestoreItem.payload;
+    loadVersionData(dataToLoad, pendingRestoreItem.version);
+  };
+
+  const handleLoadVersion = async () => {
+    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    if (!isTauri) {
+      toast.error("Version loading requires the native desktop app.");
+      return;
+    }
+
+    try {
+      const selectedPath = await openDialog({
+        multiple: false,
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      });
+
+      if (!selectedPath || typeof selectedPath !== 'string') return;
+
+      const fileContent = await readTextFile(selectedPath);
+      let parsed = JSON.parse(fileContent);
+      
+      const dataToLoad = parsed._versionMetadata ? parsed.data : parsed;
+      const vName = parsed._versionMetadata?.version || 'Restored';
+      loadVersionData(dataToLoad, vName);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load version.");
+    }
+  };
+
+  const handleOpenHistory = async () => {
+    try {
+      const historyMap = new Map<string, any>();
+      const safeProjectName = projectName.replace(/[<>:"/\\|?*]/g, '_');
+      const safeCalculatorName = calculatorName.replace(/[<>:"/\\|?*]/g, '_');
+
+      // 1. Fetch browser-cached versions for this project & calculator
+      try {
+        const cacheKey = `mep_version_cache_${safeProjectName}_${safeCalculatorName}`;
+        const localCache = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+        if (Array.isArray(localCache)) {
+          localCache.forEach((item: any) => {
+            const meta = item._versionMetadata || {};
+            const vNum = meta.version || item.version || 'V0';
+            const vKey = String(vNum).toUpperCase();
+            historyMap.set(vKey, {
+              version: vNum,
+              description: meta.description || item.description || `Version ${vNum}`,
+              user: meta.createdBy || meta.user || item.user || 'System User',
+              createdBy: meta.createdBy || meta.user || item.user || 'System User',
+              createdAt: meta.createdAt || meta.timestamp || item.timestamp || new Date().toISOString(),
+              editedBy: meta.editedBy || item.editedBy || null,
+              lastEditedAt: meta.lastEditedAt || item.lastEditedAt || null,
+              timestamp: meta.timestamp || item.timestamp || new Date().toISOString(),
+              parsedData: meta.version ? (item.data || item) : item
+            });
+          });
+        }
+      } catch (e) {}
+
+      // 2. Fetch shared team versions from server (visible to all project members)
+      try {
+        const serverVersions = await api.getVersionsFromServer(projectName, calculatorName);
+        if (Array.isArray(serverVersions)) {
+          serverVersions.forEach((item: any) => {
+            const vNum = item.version || item.id;
+            const vKey = String(vNum).toUpperCase();
+            if (!historyMap.has(vKey)) {
+              historyMap.set(vKey, {
+                version: vNum,
+                description: item.description,
+                user: item.createdBy || item.user,
+                createdBy: item.createdBy || item.user,
+                createdAt: item.createdAt || item.timestamp,
+                editedBy: item.editedBy || null,
+                lastEditedAt: item.lastEditedAt || null,
+                timestamp: item.timestamp,
+                parsedData: item.data || item.parsedData || item.payload
+              });
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Server version list warning:', e);
+      }
+
+      // 3. Fetch local versions from disk if running in desktop app
+      const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+      const candidateBasePaths = [
+        localStorage.getItem('versionsPath'),
+        localStorage.getItem('localBackupPath'),
+        'Z:\\00 R&D Server\\00 PROJECTS\\08 MEP Calculator\\03 Development\\Project Data',
+        'Z:\\Versions',
+        'Z:/Versions'
+      ].filter(Boolean).map(p => String(p).replace(/['"]/g, ''));
+
+      for (const basePath of candidateBasePaths) {
+        if (isTauri && basePath) {
+          try {
+            const n = safeCalculatorName.toLowerCase();
+            let disc = "MEP";
+            if (n.includes("cooling") || n.includes("ventilation") || n.includes("duct") || n.includes("chw") || n.includes("heating") || n.includes("smoke") || n.includes("pressuri") || n.includes("psychro") || n.includes("refrigerant") || n.includes("condensate") || n.includes("diffuser")) disc = "HVAC";
+            else if (n.includes("cable") || n.includes("busbar") || n.includes("conductor") || n.includes("transformer") || n.includes("generator") || n.includes("ups") || n.includes("capacitor") || n.includes("breaker") || n.includes("short-circuit") || n.includes("tray") || n.includes("lux") || n.includes("lpd") || n.includes("battery") || n.includes("load-schedule")) disc = "Electrical";
+            else if (n.includes("loading-unit") || n.includes("fixture-unit") || n.includes("water-demand") || n.includes("supply-pipe") || n.includes("pump-sizing") || n.includes("pressure-vessel") || n.includes("tank-sizing") || n.includes("drainage") || n.includes("sewage") || n.includes("sump") || n.includes("storm") || n.includes("gas-tank")) disc = "Plumbing";
+            else if (n.includes("fire") || n.includes("sprinkler") || n.includes("fm200") || n.includes("hazen")) disc = "Fire Fighting";
+
+            const projectDir = `${basePath}\\${safeProjectName}\\${disc}\\${safeCalculatorName}`;
+            const dirExists = await exists(projectDir);
+            if (dirExists) {
+              const entries = await readDir(projectDir);
+              for (const entry of entries) {
+                if (entry.isFile && (entry.name.toLowerCase().endsWith('.json') || entry.name.toLowerCase().endsWith('.js'))) {
+                  try {
+                    const filePath = `${projectDir}\\${entry.name}`;
+                    const fileContent = await readTextFile(filePath);
+                    let parsed;
+                    if (entry.name.toLowerCase().endsWith('.js')) {
+                      const cleanContent = fileContent.replace(/^export\s+default\s+/, '').replace(/;?\s*$/, '');
+                      parsed = JSON.parse(cleanContent);
+                    } else {
+                      parsed = JSON.parse(fileContent);
+                    }
+                    const meta = parsed._versionMetadata || {};
+                    const vNum = meta.version || entry.name.replace(/\.json$/i, '').toUpperCase();
+                    const vData = meta.version ? (parsed.data || parsed) : parsed;
+                    const vKey = String(vNum).toUpperCase();
+                    
+                    if (!historyMap.has(vKey)) {
+                      historyMap.set(vKey, {
+                        version: vNum,
+                        description: meta.description || `Version ${vNum}`,
+                        user: meta.createdBy || meta.user || 'System User',
+                        createdBy: meta.createdBy || meta.user || 'System User',
+                        createdAt: meta.createdAt || meta.timestamp || new Date().toISOString(),
+                        editedBy: meta.editedBy || null,
+                        lastEditedAt: meta.lastEditedAt || null,
+                        timestamp: meta.timestamp || new Date().toISOString(),
+                        filePath,
+                        fileName: entry.name,
+                        parsedData: vData
+                      });
+                    }
+                  } catch (e) {}
+                }
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
+      const combinedList = Array.from(historyMap.values());
+      
+      // Sort in ascending order (V0 at top, V1 below V0, V2 below V1, etc.)
+      const getVersionNum = (vStr: string) => {
+        if (!vStr) return 999999;
+        const match = String(vStr).match(/v?(\d+)/i);
+        return match ? parseInt(match[1], 10) : 999999;
+      };
+
+      combinedList.sort((a, b) => {
+        const numA = getVersionNum(a.version);
+        const numB = getVersionNum(b.version);
+        if (numA !== numB) return numA - numB;
+        return new Date(a.createdAt || a.timestamp).getTime() - new Date(b.createdAt || b.timestamp).getTime();
+      });
+
+      setHistoryList(combinedList);
+      setIsHistoryOpen(true);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Error loading history: ${err.message || err}`);
+    }
+  };
+
+  // Keyboard Shortcut Listener for Quick Version Management
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isInputFocused = ["INPUT", "TEXTAREA", "SELECT"].includes((document.activeElement?.tagName || "").toUpperCase());
+      if (isInputFocused) return;
+
+      // Ctrl+Shift+S or Cmd+Shift+S (Save as New Version)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "S" || e.key === "s")) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleSaveAsVersion();
+        return;
+      }
+
+      // Ctrl+Shift+H or Cmd+Shift+H (Open Version History)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "H" || e.key === "h")) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleOpenHistory();
+        return;
+      }
+
+      // Ctrl+Shift+O or Cmd+Shift+O (Load Past Version File)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "O" || e.key === "o")) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleLoadVersion();
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [projectName, calculatorName, historyList, activeVersionName]);
+
+  // Listen for workflow actions that trigger automatic version saving
+  useEffect(() => {
+    const handleTriggerSave = (e: any) => {
+      const desc = e.detail?.description || 'Workflow Action Update';
+      executeSaveAsVersion(desc);
+    };
+    window.addEventListener('mep_trigger_save_version', handleTriggerSave);
+    return () => window.removeEventListener('mep_trigger_save_version', handleTriggerSave);
+  }, [projectName, calculatorName, historyList, activeVersionName, userData]);
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Version Dropdown */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="flex items-center gap-2 px-4 h-10 bg-surface-2 dark:bg-white/5 border border-border dark:border-[#262626] hover:bg-surface-3 dark:hover:bg-white/10 rounded-full text-[13.5px] cursor-pointer outline-none select-none transition-all duration-150 allow-read-only">
+            <History className="w-4 h-4 text-muted-foreground" />
+            <span className="font-semibold text-foreground dark:text-white">{activeVersionName}</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64 z-50">
+          <DropdownMenuLabel className="flex items-center justify-between">
+            <span>Revision Manager</span>
+            <span className="text-[10px] font-mono text-muted-foreground/70 font-normal">Global Shortcuts</span>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleSaveAsVersion} className="gap-2 cursor-pointer flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Plus className="w-4 h-4 text-blue-500" />
+              <span>Save as New Version...</span>
+            </div>
+            <DropdownMenuShortcut>Ctrl+Shift+S</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleLoadVersion} className="gap-2 cursor-pointer flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 text-emerald-500" />
+              <span>Load Past Version (File)...</span>
+            </div>
+            <DropdownMenuShortcut>Ctrl+Shift+O</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleOpenHistory} className="gap-2 cursor-pointer flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <List className="w-4 h-4 text-purple-500" />
+              <span>History</span>
+            </div>
+            <DropdownMenuShortcut>Ctrl+Shift+H</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Save Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-xl shadow-2xl w-full max-w-sm p-5 animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-semibold mb-4 text-foreground">Save as New Version</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">Description (Optional)</label>
+                <textarea
+                  autoFocus
+                  value={descriptionInput}
+                  onChange={(e) => setDescriptionInput(e.target.value)}
+                  className="w-full h-24 p-3 bg-surface-2 border border-border rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none"
+                  placeholder="What changed in this version?"
+                />
+              </div>
+              <div className="flex justify-end gap-3 mt-6">
+                <button 
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium hover:bg-surface-2 text-muted-foreground transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => executeSaveAsVersion()}
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* History Modal */}
+      {isHistoryOpen && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 border-b border-border flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-bold text-foreground">Version History</h3>
+                <p className="text-xs text-muted-foreground">{projectName} - {calculatorName}</p>
+              </div>
+              <button onClick={() => setIsHistoryOpen(false)} className="text-muted-foreground hover:text-foreground text-xl leading-none cursor-pointer">&times;</button>
+            </div>
+            
+            <div className="flex-1 overflow-auto p-6 bg-surface-1">
+              {historyList.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <History className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                  <p>No versions saved yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {historyList.map((item, idx) => {
+                    const isActive = activeVersionName === item.version;
+                    return (
+                      <div key={idx} className={`bg-background border rounded-xl p-4 flex gap-4 items-center transition-colors ${isActive ? 'border-emerald-500/50 bg-emerald-500/5 dark:bg-emerald-500/10' : 'border-border hover:border-primary/30'}`}>
+                        <div className={`w-14 h-14 shrink-0 rounded-xl flex items-center justify-center font-bold text-lg ${isActive ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-primary/10 text-primary'}`}>
+                          {item.version}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-start mb-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-semibold text-foreground truncate">{item.description}</h4>
+                              {isActive && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/30">Active</span>
+                              )}
+                            </div>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
+                              {new Date(item.createdAt || item.timestamp).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="text-sm text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <p>Created by <span className="font-medium text-foreground">{item.createdBy || item.user || 'Unknown'}</span></p>
+                            {item.editedBy && (
+                              <p className="text-xs text-muted-foreground border-l border-border/80 pl-2">
+                                Edited by <span className="font-medium text-foreground">{item.editedBy}</span> ({new Date(item.lastEditedAt || item.timestamp).toLocaleString()})
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (!isActive) {
+                              handleInitiateRestore(item);
+                            }
+                          }}
+                          disabled={isActive}
+                          className={`px-4 py-2 shrink-0 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 cursor-default font-bold' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80 cursor-pointer'}`}
+                        >
+                          {isActive ? 'Active Version' : 'Restore'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restore Confirmation Modal */}
+      {isRestorePromptOpen && pendingRestoreItem && (
+        <div className="fixed inset-0 z-[10000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-background border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-3 text-amber-500">
+              <AlertCircle className="w-6 h-6 shrink-0" />
+              <h3 className="text-lg font-bold text-foreground">Save Current Version Work?</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+              You are currently working on <strong className="text-foreground">{activeVersionName}</strong>. 
+              Do you want to update and save your current calculation changes to <strong className="text-foreground">{activeVersionName}</strong> before restoring <strong className="text-emerald-500">{pendingRestoreItem.version}</strong>?
+            </p>
+            
+            <div className="flex flex-col gap-2.5">
+              <button
+                onClick={confirmSaveActiveAndRestore}
+                className="w-full py-2.5 px-4 rounded-xl text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Save className="w-4 h-4" />
+                <span>Yes, Save {activeVersionName} & Restore {pendingRestoreItem.version}</span>
+              </button>
+              <button
+                onClick={confirmRestoreWithoutSaving}
+                className="w-full py-2.5 px-4 rounded-xl text-sm font-medium bg-secondary hover:bg-secondary/80 text-secondary-foreground transition-all cursor-pointer"
+              >
+                No, Restore {pendingRestoreItem.version} Without Saving
+              </button>
+              <button
+                onClick={() => setIsRestorePromptOpen(false)}
+                className="w-full py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors mt-1 cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
