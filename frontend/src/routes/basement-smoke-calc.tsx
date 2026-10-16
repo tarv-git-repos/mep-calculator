@@ -685,7 +685,6 @@ function BasementSmokeCalcPage() {
         value={val}
         onChange={e => setVal(e.target.value)}
         onBlur={commitRename}
-        onFocus={e => e.target.select()}
         onKeyDown={e => {
           if (e.key === "Enter") {
             e.currentTarget.blur();

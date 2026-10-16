@@ -416,3 +416,13 @@ input[type=number] {
   user-select: text !important;
   cursor: default !important;
 }
+
+/* All Plumbing / Interactive Inputs: Palm (pointer) cursor on hover; text cursor on focus */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(:disabled):not([readonly]),
+select:not(:disabled) {
+  cursor: pointer;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(:disabled):not([readonly]):focus {
+  cursor: text !important;
+}

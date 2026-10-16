@@ -1468,7 +1468,7 @@ function WaterDemandPage() {
                               <div onMouseDown={(e) => startResizing("load", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
                             </th>
                             <th style={{ width: colWidths.actions, minWidth: colWidths.actions }} className="py-2 px-2 text-center relative group">
-                              ACTIONS
+                              FLAG
                               <div onMouseDown={(e) => startResizing("actions", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
                             </th>
                           </tr>
@@ -1504,7 +1504,7 @@ function WaterDemandPage() {
                                       selectedWdRows.has(r.id)
                                         ? "bg-[#0A7BC7]/15 dark:bg-[#0A7BC7]/25 border-l-2 border-l-[#0A7BC7]"
                                         : r.flagged
-                                        ? "bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100/50"
+                                        ? "bg-red-50/60 dark:bg-amber-950/30 hover:bg-amber-100/50"
                                         : idx % 2 === 0
                                         ? "bg-white dark:bg-slate-950 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
                                         : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
@@ -1550,7 +1550,7 @@ function WaterDemandPage() {
                                         <span className="text-muted-foreground font-mono text-xs">{idx + 1}</span>
                                         {r.flagged && (
                                           <span title="Flagged for review" className="inline-flex">
-                                            <Flag className="size-3 text-amber-500 fill-amber-500" />
+                                            <Flag className="size-3 text-red-500 fill-red-500" />
                                           </span>
                                         )}
                                       </div>
@@ -1733,25 +1733,15 @@ function WaterDemandPage() {
                                           onClick={() => handleToggleWdFlag(r.id)}
                                           className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                                             r.flagged
-                                              ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40"
-                                              : "text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                                              ? "text-red-500 bg-red-50 dark:bg-red-950/40"
+                                              : "text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
                                           }`}
                                           title={r.flagged ? "Flagged for review" : "Flag for review"}
                                         >
-                                          <Flag className={`size-3.5 ${r.flagged ? "fill-amber-500" : ""}`} />
+                                          <Flag className={`size-3.5 ${r.flagged ? "fill-red-500 text-red-500" : ""}`} />
                                         </button>
 
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setWdRows((prev) => prev.filter((x) => x.id !== r.id));
-                                            toast.success(`Deleted "${r.name}"`);
-                                          }}
-                                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
-                                          title="Delete entry"
-                                        >
-                                          <Trash2 className="size-3.5" />
-                                        </button>
+                                        
                                       </div>
                                     </td>
                                   </tr>
@@ -1788,7 +1778,7 @@ function WaterDemandPage() {
                                     onClick={() => handleToggleWdFlag(r.id)}
                                     className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
                                   >
-                                    <Flag className={`size-3.5 ${r.flagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
+                                    <Flag className={`size-3.5 ${r.flagged ? "text-red-500 fill-red-500" : "text-red-500"}`} />
                                     <span>{r.flagged ? "Unflag Row" : "Flag for Review"}</span>
                                   </ContextMenuItem>
                                   <ContextMenuItem
@@ -1957,7 +1947,7 @@ function WaterDemandPage() {
                                 />
                               </th>
                               <th style={{ width: colWidths.irr_actions, minWidth: colWidths.irr_actions }} className="py-2 px-2 text-center relative group">
-                                ACTIONS
+                                FLAG
                                 <div
                                   onMouseDown={(e) => startResizing("irr_actions", e)}
                                   className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] z-20"
@@ -1994,7 +1984,7 @@ function WaterDemandPage() {
                                             selectedIrrRows.has(r.id)
                                               ? "bg-emerald-500/15 dark:bg-emerald-500/25 border-l-2 border-l-emerald-600"
                                               : r.flagged
-                                              ? "bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100/50"
+                                              ? "bg-red-50/60 dark:bg-amber-950/30 hover:bg-amber-100/50"
                                               : idx % 2 === 0
                                               ? "bg-white dark:bg-slate-950 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
                                               : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
@@ -2040,7 +2030,7 @@ function WaterDemandPage() {
                                               <span className="text-muted-foreground font-mono text-xs">{idx + 1}</span>
                                               {r.flagged && (
                                                 <span title="Flagged for review" className="inline-flex">
-                                                  <Flag className="size-3 text-amber-500 fill-amber-500" />
+                                                  <Flag className="size-3 text-red-500 fill-red-500" />
                                                 </span>
                                               )}
                                             </div>
@@ -2140,25 +2130,15 @@ function WaterDemandPage() {
                                                 onClick={() => handleToggleIrrFlag(r.id)}
                                                 className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                                                   r.flagged
-                                                    ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40 opacity-100"
-                                                    : "text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 opacity-0 group-hover:opacity-100"
+                                                    ? "text-red-500 bg-red-50 dark:bg-red-950/40 opacity-100"
+                                                    : "text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 opacity-100"
                                                 }`}
                                                 title={r.flagged ? "Flagged for review" : "Flag for review"}
                                               >
-                                                <Flag className={`size-3.5 ${r.flagged ? "fill-amber-500" : ""}`} />
+                                                <Flag className={`size-3.5 ${r.flagged ? "fill-red-500 text-red-500" : ""}`} />
                                               </button>
 
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setIrrRows((prev) => prev.filter((x) => x.id !== r.id));
-                                                  toast.success(`Deleted "${r.vegType}"`);
-                                                }}
-                                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-all cursor-pointer opacity-0 group-hover:opacity-100"
-                                                title="Delete entry"
-                                              >
-                                                <Trash2 className="size-3.5" />
-                                              </button>
+                                              
                                             </div>
                                           </td>
                                         </tr>
@@ -2195,7 +2175,7 @@ function WaterDemandPage() {
                                           onClick={() => handleToggleIrrFlag(r.id)}
                                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
                                         >
-                                          <Flag className={`size-3.5 ${r.flagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
+                                          <Flag className={`size-3.5 ${r.flagged ? "text-red-500 fill-red-500" : "text-red-500"}`} />
                                           <span>{r.flagged ? "Unflag Row" : "Flag for Review"}</span>
                                         </ContextMenuItem>
                                         <ContextMenuItem
@@ -2254,7 +2234,7 @@ function WaterDemandPage() {
                           title="Double-click to open swimming pool makeup calculation breakdown"
                           className={`bg-card border rounded-2xl p-5 flex flex-col gap-4 shadow-xs transition-colors cursor-pointer select-none relative overflow-hidden ${
                             poolFlagged
-                              ? "border-amber-400/80 bg-amber-50/40 dark:bg-amber-950/20"
+                              ? "border-red-400/80 bg-red-50/40 dark:bg-red-950/20"
                               : "border-border hover:border-border/80"
                           }`}
                         >
@@ -2280,7 +2260,7 @@ function WaterDemandPage() {
                                 🏊 Swimming Pool Makeup
                                 {poolFlagged && (
                                   <span title="Flagged for review" className="inline-flex">
-                                    <Flag className="size-3 text-amber-500 fill-amber-500" />
+                                    <Flag className="size-3 text-red-500 fill-red-500" />
                                   </span>
                                 )}
                               </h3>
@@ -2313,12 +2293,12 @@ function WaterDemandPage() {
                                   }}
                                   className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                                     poolFlagged
-                                      ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40"
-                                      : "text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                                      ? "text-red-500 bg-red-50 dark:bg-red-950/40"
+                                      : "text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
                                   }`}
                                   title={poolFlagged ? "Flagged for review" : "Flag for review"}
                                 >
-                                  <Flag className={`size-3.5 ${poolFlagged ? "fill-amber-500" : ""}`} />
+                                  <Flag className={`size-3.5 ${poolFlagged ? "fill-red-500 text-red-500" : ""}`} />
                                 </button>
                               </div>
                             </div>
@@ -2398,7 +2378,7 @@ function WaterDemandPage() {
                           }}
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
                         >
-                          <Flag className={`size-3.5 ${poolFlagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
+                          <Flag className={`size-3.5 ${poolFlagged ? "text-red-500 fill-red-500" : "text-red-500"}`} />
                           <span>{poolFlagged ? "Unflag Item" : "Flag for Review"}</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
@@ -2417,7 +2397,7 @@ function WaterDemandPage() {
                           title="Double-click to open fire reserve calculation breakdown"
                           className={`bg-card border rounded-2xl p-5 flex flex-col gap-4 shadow-xs transition-colors cursor-pointer select-none ${
                             fireFlagged
-                              ? "border-amber-400/80 bg-amber-50/40 dark:bg-amber-950/20"
+                              ? "border-amber-400/80 bg-red-50/40 dark:bg-amber-950/20"
                               : "border-border hover:border-border/80"
                           }`}
                         >
@@ -2428,7 +2408,7 @@ function WaterDemandPage() {
                                 🔥 Fire Fighting Reserve Sizing
                                 {fireFlagged && (
                                   <span title="Flagged for review" className="inline-flex">
-                                    <Flag className="size-3 text-amber-500 fill-amber-500" />
+                                    <Flag className="size-3 text-red-500 fill-red-500" />
                                   </span>
                                 )}
                               </h3>
@@ -2461,12 +2441,12 @@ function WaterDemandPage() {
                                   }}
                                   className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                                     fireFlagged
-                                      ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40"
-                                      : "text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                                      ? "text-red-500 bg-red-50 dark:bg-red-950/40"
+                                      : "text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
                                   }`}
                                   title={fireFlagged ? "Flagged for review" : "Flag for review"}
                                 >
-                                  <Flag className={`size-3.5 ${fireFlagged ? "fill-amber-500" : ""}`} />
+                                  <Flag className={`size-3.5 ${fireFlagged ? "fill-red-500 text-red-500" : ""}`} />
                                 </button>
                               </div>
                             </div>
@@ -2533,7 +2513,7 @@ function WaterDemandPage() {
                             toast.info(nextState ? "Flagged Fire Fighting Reserve for review" : "Unflagged Fire Fighting Reserve");
                           }}
                         >
-                          <Flag className={`size-3.5 ${fireFlagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
+                          <Flag className={`size-3.5 ${fireFlagged ? "text-red-500 fill-red-500" : "text-red-500"}`} />
                           <span>{fireFlagged ? "Unflag Item" : "Flag for Review"}</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
@@ -4011,6 +3991,39 @@ function WaterDemandReportView({
           </div>
         </div>
 
+        
+        {/* Project Metadata Header Box (Canonical 2-column x 3-row format) */}
+        <div className="border border-border rounded-xl overflow-hidden text-xs">
+          <table className="w-full border-collapse">
+            <tbody>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                <td className="p-2.5 font-mono text-foreground font-medium">
+                  {(project as any)?.calcNo || `TRV-CAL-WDM-${(project?.id || "0000").slice(-4).toUpperCase()}`}
+                </td>
+                <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                <td className="p-2.5 font-mono font-medium">
+                  {new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' })}
+                </td>
+              </tr>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                <td className="p-2.5 font-mono">
+                  {project?.code || (project?.id ? project.id.slice(0, 8) : "MEP-WDM-2026")}
+                </td>
+                <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                <td className="p-2.5">{project?.client || "-"}</td>
+              </tr>
+              <tr className="divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                <td className="p-2.5">{project?.name || "MEP Water Distribution Project"}</td>
+                <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
         {/* Table 1: Design Parameters & Overall Summary */}
         <div className="space-y-2">
           <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
@@ -4383,7 +4396,7 @@ function WaterDemandReportView({
             {(poolArea || fireFlow) ? "7" : "6"}. Professional Engineering Review &amp; Sign-Off Block
           </h3>
           <table className="w-full text-[12px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
+            <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
               <tr>
                 <th className="border border-border p-2 text-left w-1/4">Approval Role</th>
                 <th className="border border-border p-2 text-center w-1/4">Engineer Name</th>
@@ -4577,17 +4590,17 @@ function WaterDemandIntelligenceDrawer({
         {/* Calculation Issues & Warnings */}
         <div className="p-3.5 bg-card border border-border rounded-xl space-y-2 shadow-xs">
           <div className="flex items-center gap-2">
-            <AlertTriangle className={`size-4 ${flaggedTotal > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
+            <AlertTriangle className={`size-4 ${flaggedTotal > 0 ? "text-red-500" : "text-muted-foreground"}`} />
             <span className="text-xs font-bold text-foreground">Audit &amp; Flagged Items</span>
           </div>
           <div className="space-y-1 text-xs">
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Flagged domestic spaces:</span>
-              <span className={`font-mono font-bold ${flaggedWd > 0 ? "text-amber-500" : "text-muted-foreground"}`}>{flaggedWd}</span>
+              <span className={`font-mono font-bold ${flaggedWd > 0 ? "text-red-500" : "text-muted-foreground"}`}>{flaggedWd}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Flagged irrigation zones:</span>
-              <span className={`font-mono font-bold ${flaggedIrr > 0 ? "text-amber-500" : "text-muted-foreground"}`}>{flaggedIrr}</span>
+              <span className={`font-mono font-bold ${flaggedIrr > 0 ? "text-red-500" : "text-muted-foreground"}`}>{flaggedIrr}</span>
             </div>
           </div>
         </div>

@@ -1817,7 +1817,7 @@ function SewagePumpReportView({
             <div className="border border-border rounded-xl overflow-hidden">
               <table className="w-full text-left text-[11px] border-collapse">
                 <thead>
-                  <tr className="bg-[#D9D9D9] text-black font-bold border-b border-border text-center">
+                  <tr className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border text-center">
                     <th className="py-2 px-3 w-32">Approvals</th>
                     <th className="py-2 px-3 text-center">Originated By</th>
                     <th className="py-2 px-3 text-center">Reviewed By</th>

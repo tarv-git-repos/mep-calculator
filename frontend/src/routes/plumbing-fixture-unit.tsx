@@ -3,6 +3,7 @@ import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
@@ -629,7 +630,6 @@ function FloorNameInput({
       disabled={disabled}
       onChange={e => setVal(e.target.value)}
       onBlur={commitRename}
-      onFocus={e => e.target.select()}
       onKeyDown={e => {
         if (e.key === "Enter") {
           e.currentTarget.blur();
@@ -638,7 +638,7 @@ function FloorNameInput({
           e.currentTarget.blur();
         }
       }}
-      className="bg-transparent border border-transparent hover:border-border/80 focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 px-1.5 py-0.5 rounded font-extrabold text-[#0A7BC7] text-xs uppercase outline-none transition-all cursor-text min-w-[80px]"
+      className="bg-transparent border border-transparent hover:border-border/80 focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 px-1.5 py-0.5 rounded font-extrabold text-[#0A7BC7] text-xs uppercase outline-none transition-all cursor-pointer focus:cursor-text min-w-[80px]"
       title="Click to edit floor name (Press Enter or click outside to save)"
     />
   );
@@ -1270,6 +1270,16 @@ function FixtureUnitPage() {
 
   const ip = unitSystem === "ip";
 
+  const handleUnitSystemChange = (targetUnit: "si" | "ip") => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved & Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+      return;
+    }
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
+    dirtyStore.set(true);
+  };
+
   // Unique list of floors currently in the list
   const existingFloors = useMemo(() => {
     const set = new Set<string>();
@@ -1701,6 +1711,11 @@ function FixtureUnitPage() {
               </button>
               <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/plumbing-fixture-unit" calculatorTitle="Fixture Unit Calculator" />
             </div>
+
+            {/* Right Side Header Controls: Unit System Toggle */}
+            <div className="flex items-center gap-2">
+              <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
+            </div>
           </div>
 
           {/* Unified White Card Container (Matching Ventilation Layout Structure) */}
@@ -2048,7 +2063,7 @@ function FixtureUnitPage() {
                           <th className="py-2 px-0.5 text-center leading-tight text-[9.5px]">SPACE QTY</th>
                           <th className="py-2 px-0.5 text-center leading-tight text-[9.5px]">NO. OF FLOORS</th>
                           <th className="py-2 px-1 text-right text-primary font-bold leading-tight text-[10.5px]">TOTAL LU</th>
-                          <th className="py-2 px-0.5 text-center text-[9.5px]">ACTIONS</th>
+                          <th className="py-2 px-0.5 text-center text-[9.5px]">FLAG</th>
                         </tr>
 
                         {/* Fixture Weights Overview Row */}
@@ -2269,7 +2284,7 @@ function FixtureUnitPage() {
                                       setSelectedIds([s.id]);
                                       setEditingSpace({ space: s, floor });
                                     }}
-                                    className={`group transition-all duration-150 ${isLocked ? "cursor-default" : "cursor-pointer"} ${rowDensity === "compact" ? "h-7 text-[11px]" : "h-9 text-xs"} ${
+                                    className={`group transition-all duration-150 select-none ${isLocked ? "cursor-default" : "cursor-pointer"} ${rowDensity === "compact" ? "h-7 text-[11px]" : "h-9 text-xs"} ${
                                       isEditing
                                         ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-sm z-10 relative"
                                         : isSelected
@@ -2305,7 +2320,7 @@ function FixtureUnitPage() {
                                           const val = e.target.value;
                                           setIopSpaces(prev => prev.map(item => item.id === s.id ? { ...item, desc: val } : item));
                                         }}
-                                        className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1.5 py-0.5 text-xs font-bold text-foreground outline-none transition-all truncate cursor-text"
+                                        className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1.5 py-0.5 text-xs font-bold text-foreground outline-none transition-all truncate cursor-pointer focus:cursor-text"
                                         title={s.desc || "Untitled Space"}
                                       />
                                     </td>
@@ -2342,7 +2357,7 @@ function FixtureUnitPage() {
                                               count > 0
                                                 ? "bg-primary/10 border-primary/40 text-foreground font-extrabold focus:bg-background focus:ring-1 focus:ring-primary"
                                                 : "bg-transparent border-transparent hover:border-border/40 text-muted-foreground/30 placeholder:text-muted-foreground/25 focus:bg-background focus:border-primary focus:text-foreground"
-                                            } ${isApprovedLocked ? "opacity-50 cursor-not-allowed" : "cursor-text"}`}
+                                            } ${isApprovedLocked ? "opacity-50 cursor-not-allowed" : "cursor-pointer focus:cursor-text"}`}
                                           />
                                          </td>
                                         );
@@ -2366,7 +2381,7 @@ function FixtureUnitPage() {
                                           const qtyVal = isNaN(val) || val < 1 ? 1 : val;
                                           setIopSpaces(prev => prev.map(item => item.id === s.id ? { ...item, qty: qtyVal } : item));
                                         }}
-                                        className="w-10 h-5.5 text-center text-[11px] font-bold font-mono rounded border border-transparent hover:border-border/60 focus:border-primary bg-transparent focus:bg-background outline-none transition-all cursor-text"
+                                        className="w-10 h-5.5 text-center text-[11px] font-bold font-mono rounded border border-transparent hover:border-border/60 focus:border-primary bg-transparent focus:bg-background outline-none transition-all cursor-pointer focus:cursor-text"
                                       />
                                     </td>
 
@@ -2384,7 +2399,7 @@ function FixtureUnitPage() {
                                           const floorQtyVal = isNaN(val) || val < 1 ? 1 : val;
                                           setIopSpaces(prev => prev.map(item => item.id === s.id ? { ...item, floorQty: floorQtyVal } : item));
                                         }}
-                                        className="w-10 h-5.5 text-center text-[11px] font-bold font-mono rounded border border-transparent hover:border-border/60 focus:border-primary bg-transparent focus:bg-background outline-none transition-all cursor-text"
+                                        className="w-10 h-5.5 text-center text-[11px] font-bold font-mono rounded border border-transparent hover:border-border/60 focus:border-primary bg-transparent focus:bg-background outline-none transition-all cursor-pointer focus:cursor-text"
                                       />
                                     </td>
 
@@ -2401,10 +2416,10 @@ function FixtureUnitPage() {
                                             const newFlagged = !s.flagged;
                                             setIopSpaces(prev => prev.map(item => targets.includes(item.id) ? { ...item, flagged: newFlagged } : item));
                                           }}
-                                          className="p-0.5 text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded transition-colors cursor-pointer"
+                                          className="p-0.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
                                           title={s.flagged ? "Unflag space" : "Flag space for review"}
                                         >
-                                          <Flag className={`size-3.5 ${s.flagged ? "fill-amber-500 text-amber-500" : ""}`} />
+                                          <Flag className={`size-3.5 ${s.flagged ? "fill-red-500 text-red-500" : ""}`} />
                                         </button>
                                       </div>
                                     </td>
@@ -2437,7 +2452,7 @@ function FixtureUnitPage() {
                                     }}
                                     className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer text-[13px]"
                                   >
-                                    <Flag className={`size-3.5 ${s.flagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
+                                    <Flag className={`size-3.5 ${s.flagged ? "text-red-500 fill-red-500" : "text-red-500"}`} />
                                     <span>{s.flagged ? "Unflag Space" : "Flag for Review"}</span>
                                   </ContextMenuItem>
                                   <ContextMenuItem
@@ -2889,7 +2904,7 @@ function FixtureUnitReportView({
             <div className="border border-border rounded-xl overflow-hidden text-xs">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <tr className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
                     <th className="p-2.5 text-left w-1/4">Approval Role</th>
                     <th className="p-2.5 text-center w-1/4">Originated By</th>
                     <th className="p-2.5 text-center w-1/4">Reviewed By</th>
@@ -3018,17 +3033,17 @@ function FixtureUnitIntelligenceDrawer({
         {/* Calculation Issues & Warnings */}
         <div className="p-3.5 bg-card border border-border rounded-xl space-y-2 shadow-xs">
           <div className="flex items-center gap-2">
-            <AlertTriangle className={`size-4 ${flaggedCount > 0 || missingFixtures > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
+            <AlertTriangle className={`size-4 ${flaggedCount > 0 || missingFixtures > 0 ? "text-red-500" : "text-muted-foreground"}`} />
             <span className="text-xs font-bold text-foreground">Audit &amp; Flagged Items</span>
           </div>
           <div className="space-y-1 text-xs">
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Flagged spaces:</span>
-              <span className={`font-mono font-bold ${flaggedCount > 0 ? "text-amber-500" : "text-muted-foreground"}`}>{flaggedCount}</span>
+              <span className={`font-mono font-bold ${flaggedCount > 0 ? "text-red-500" : "text-muted-foreground"}`}>{flaggedCount}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Spaces with 0 fixtures:</span>
-              <span className={`font-mono font-bold ${missingFixtures > 0 ? "text-amber-500" : "text-muted-foreground"}`}>{missingFixtures}</span>
+              <span className={`font-mono font-bold ${missingFixtures > 0 ? "text-red-500" : "text-muted-foreground"}`}>{missingFixtures}</span>
             </div>
           </div>
         </div>

@@ -1244,7 +1244,7 @@ function TankSizingReportView({
           <div className="border border-border rounded-xl overflow-hidden text-xs">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-200/80 dark:bg-zinc-800 font-bold border-b border-border">
+                <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
                   <th className="p-2.5 w-12 text-center">Sr.</th>
                   <th className="p-2.5">Parameter Description</th>
                   <th className="p-2.5 text-center">Design Value</th>
@@ -1313,7 +1313,7 @@ function TankSizingReportView({
           <div className="border border-border rounded-xl overflow-hidden text-xs">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-blue-100 dark:bg-blue-950/60 font-bold border-b border-border">
+                <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
                   <th className="p-2.5 w-12 text-center">Sr.</th>
                   <th className="p-2.5">Metric / Sizing Parameter</th>
                   <th className="p-2.5 text-center">Calculated Value</th>
@@ -1322,10 +1322,10 @@ function TankSizingReportView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                <tr className="bg-blue-50/50 dark:bg-blue-950/20 font-bold">
+                <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold border-y border-border text-foreground">
                   <td className="p-2.5 text-center font-mono">1</td>
-                  <td className="p-2.5 text-primary">RECOMMENDED USABLE CAPACITY</td>
-                  <td className="p-2.5 text-center font-mono text-sm text-primary">{calc.recommendedCapacity.toLocaleString()} {calc.volUnit}</td>
+                  <td className="p-2.5 text-primary font-bold">RECOMMENDED USABLE CAPACITY</td>
+                  <td className="p-2.5 text-center font-mono text-sm text-primary font-bold">{calc.recommendedCapacity.toLocaleString()} {calc.volUnit}</td>
                   <td className="p-2.5 text-center">Total Storage</td>
                   <td className="p-2.5 text-muted-foreground">Max(Storage Demand, Break Surge) × (1 + Safety)</td>
                 </tr>
@@ -1393,7 +1393,7 @@ function TankSizingReportView({
           <div className="border border-border rounded-xl overflow-hidden text-xs">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-200/80 dark:bg-zinc-800 font-bold border-b border-border">
+                <tr className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
                   <th className="p-2.5">Approval Role</th>
                   <th className="p-2.5 text-center">Engineers Name</th>
                   <th className="p-2.5 text-center">Status / Role Title</th>

@@ -3,6 +3,7 @@ import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
 import {
   Trash2,
@@ -30,7 +31,8 @@ import {
   Check,
   Layers,
   ArrowUpDown,
-  Printer
+  Printer,
+  AlertTriangle
 } from "lucide-react";
 import {
   ContextMenu,
@@ -97,7 +99,6 @@ function FloorNameInput({
       disabled={disabled}
       onChange={e => setVal(e.target.value)}
       onBlur={commitRename}
-      onFocus={e => e.target.select()}
       onClick={e => e.stopPropagation()}
       onKeyDown={e => {
         if (e.key === "Enter") {
@@ -107,7 +108,7 @@ function FloorNameInput({
           e.currentTarget.blur();
         }
       }}
-      className="bg-transparent border border-transparent hover:border-border/80 focus:border-primary focus:bg-background px-2 py-0.5 rounded-md font-bold text-primary text-xs uppercase outline-none transition-all cursor-text min-w-[60px] max-w-[220px]"
+      className="bg-transparent border border-transparent hover:border-border/80 focus:border-primary focus:bg-background px-2 py-0.5 rounded-md font-bold text-primary text-xs uppercase outline-none transition-all cursor-pointer focus:cursor-text min-w-[60px] max-w-[220px]"
       title="Click to edit floor name (Press Enter or click outside to save)"
     />
   );
@@ -323,6 +324,16 @@ function DischargeUnitPage() {
   }, [project?.id, unitSystem, headerStd, weightOverrides, floorSections, fuSpaces, forceSaveToCloud]);
 
   const ip = unitSystem === "ip";
+
+  const handleUnitSystemChange = (targetUnit: "si" | "ip") => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved & Locked. Discipline Coordinator must unlock to make changes.", { id: "readonly-notice" });
+      return;
+    }
+    if (targetUnit === unitSystem) return;
+    setUnitSystem(targetUnit);
+    dirtyStore.set(true);
+  };
 
   const getEffectiveUnitFU = (fixtureId: string, spaceStd: string) => {
     if (spaceStd === headerStd && weightOverrides[fixtureId] !== undefined) {
@@ -963,7 +974,7 @@ function DischargeUnitPage() {
         <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           
           {/* Page Header (Matching Ventilation exactly) */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
+          <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg py-0.5 flex-wrap gap-2">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">
@@ -988,6 +999,11 @@ function DischargeUnitPage() {
                 calculatorPath="/plumbing-discharge-unit" 
                 calculatorTitle="Discharge Unit Calculator"
               />
+            </div>
+
+            {/* Right Side Header Controls: Unit System Toggle */}
+            <div className="flex items-center gap-2">
+              <UnitToggle unitSystem={unitSystem} onChange={handleUnitSystemChange} disabled={isEffectiveReadOnly} />
             </div>
           </div>
 
@@ -1262,7 +1278,7 @@ function DischargeUnitPage() {
                             GREY DU
                           </th>
                           <th className="py-1.5 px-1 text-center text-[10.5px] font-bold tracking-wider text-muted-foreground uppercase">
-                            ACTION
+                            FLAG
                           </th>
                         </tr>
 
@@ -1461,7 +1477,7 @@ function DischargeUnitPage() {
                                               e.stopPropagation();
                                               handleOpenSpaceModal(s);
                                             }}
-                                            className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1.5 py-0.5 font-medium text-[12.5px] text-foreground outline-none transition-all truncate cursor-text disabled:cursor-not-allowed"
+                                            className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1.5 py-0.5 font-medium text-[12.5px] text-foreground outline-none transition-all truncate cursor-pointer focus:cursor-text disabled:cursor-not-allowed"
                                           />
                                         </div>
                                       </td>
@@ -1482,7 +1498,7 @@ function DischargeUnitPage() {
                                             e.stopPropagation();
                                             handleOpenSpaceModal(s);
                                           }}
-                                          className="w-full text-center bg-transparent border border-transparent hover:border-border/60 focus:border-primary focus:bg-background rounded px-0.5 py-0.5 text-[12px] font-mono font-medium text-muted-foreground outline-none transition-all cursor-text disabled:cursor-not-allowed uppercase"
+                                          className="w-full text-center bg-transparent border border-transparent hover:border-border/60 focus:border-primary focus:bg-background rounded px-0.5 py-0.5 text-[12px] font-mono font-medium text-muted-foreground outline-none transition-all cursor-pointer focus:cursor-text disabled:cursor-not-allowed uppercase"
                                         />
                                       </td>
 
@@ -1502,7 +1518,7 @@ function DischargeUnitPage() {
                                               e.stopPropagation();
                                               handleOpenSpaceModal(s);
                                             }}
-                                            className="w-full h-full text-center bg-transparent border border-transparent hover:border-border/60 focus:border-primary focus:bg-background rounded px-0.5 py-0.5 text-[12.5px] font-mono tabular font-medium text-foreground outline-none transition-all cursor-text disabled:cursor-not-allowed"
+                                            className="w-full h-full text-center bg-transparent border border-transparent hover:border-border/60 focus:border-primary focus:bg-background rounded px-0.5 py-0.5 text-[12.5px] font-mono tabular font-medium text-foreground outline-none transition-all cursor-pointer focus:cursor-text disabled:cursor-not-allowed"
                                           />
                                         </td>
                                       ))}
@@ -1711,6 +1727,23 @@ function DischargeUnitPage() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Intelligence Drawer (Collapsible Right Side Panel) */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <DischargeUnitIntelligenceDrawer
+              onClose={() => setIntelOpen(false)}
+              calculations={calculations}
+              fuSpaces={fuSpaces}
+              headerStd={headerStd}
+              setActiveTab={setActiveTab}
+            />
+          )}
         </div>
       </div>
 
@@ -2512,7 +2545,7 @@ function DischargeUnitReportView({
             <div className="border border-border rounded-xl overflow-hidden text-xs">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <tr className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
                     <th className="p-2.5 text-left w-1/4">Approval Role</th>
                     <th className="p-2.5 text-center w-1/4">Originated By</th>
                     <th className="p-2.5 text-center w-1/4">Reviewed By</th>
@@ -2548,3 +2581,141 @@ function DischargeUnitReportView({
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Intelligence Drawer Component for Discharge Unit Calculator
+// ─────────────────────────────────────────────────────────────────────────────
+function DischargeUnitIntelligenceDrawer({
+  onClose,
+  calculations,
+  fuSpaces,
+  headerStd,
+  setActiveTab,
+}: {
+  onClose: () => void;
+  calculations: any;
+  fuSpaces: FUSpace[];
+  headerStd: string;
+  setActiveTab: (t: "spaces" | "report") => void;
+}) {
+  const flaggedCount = fuSpaces.filter((s) => s.flagged || getFUSpaceValidation(s).isFlagged).length;
+  const missingFixtures = fuSpaces.filter((s) => !Object.values(s.fixtures || {}).some((v) => Number(v) > 0)).length;
+  const compliancePct = fuSpaces.length > 0 ? Math.round(((fuSpaces.length - flaggedCount) / fuSpaces.length) * 100) : 100;
+
+  // Determine suggested main stack pipe diameter based on total DU (IPC Table 710.1(2))
+  const suggestedStackSize = useMemo(() => {
+    const du = calculations.totalDU || 0;
+    if (du <= 20) return { in: '3"', mm: 75, maxDU: 20 };
+    if (du <= 160) return { in: '4"', mm: 100, maxDU: 160 };
+    if (du <= 360) return { in: '5"', mm: 125, maxDU: 360 };
+    if (du <= 620) return { in: '6"', mm: 150, maxDU: 620 };
+    return { in: '8"', mm: 200, maxDU: 1400 };
+  }, [calculations.totalDU]);
+
+  const stdName = headerStd.replace("ipc-", "").toUpperCase();
+
+  return (
+    <div className="h-full w-[360px] flex flex-col animate-fade-in font-sans">
+      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-3.5 text-primary" />
+          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
+        </div>
+        <button
+          onClick={onClose}
+          className="size-7 grid place-items-center rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
+          title="Close Intelligence"
+        >
+          <X className="size-3.5" />
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+        {/* Compliance Status */}
+        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2 shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="size-4 text-emerald-500" />
+            <span className="text-xs font-bold text-foreground">Standard Compliance Status</span>
+          </div>
+          <div className="text-[11.5px] text-muted-foreground">
+            {stdName} drainage validation across {fuSpaces.length} defined spaces.
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${compliancePct}%` }} />
+            </div>
+            <span className="font-mono text-[11px] font-bold text-foreground">{compliancePct}%</span>
+          </div>
+        </div>
+
+        {/* Discharge Unit & Peak Flow Summary */}
+        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2.5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Building2 className="size-4 text-primary" />
+              <span className="text-xs font-bold text-foreground">Discharge Unit Summary</span>
+            </div>
+            <button
+              onClick={() => setActiveTab("spaces")}
+              className="text-[10.5px] text-primary hover:underline font-semibold cursor-pointer"
+            >
+              View Spaces
+            </button>
+          </div>
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+              <span className="text-muted-foreground">Total Discharge Units:</span>
+              <span className="font-mono font-bold text-primary text-xs">{calculations.totalDU.toFixed(1)} D.U.</span>
+            </div>
+            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+              <span className="text-muted-foreground">Blackwater (Soil - WC/Urinal):</span>
+              <span className="font-mono font-bold text-foreground">{calculations.blackTotalDU.toFixed(1)} D.U.</span>
+            </div>
+            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+              <span className="text-muted-foreground">Greywater (Waste):</span>
+              <span className="font-mono font-bold text-foreground">{calculations.greyTotalDU.toFixed(1)} D.U.</span>
+            </div>
+            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+              <span className="text-muted-foreground">Peak Drainage Flow:</span>
+              <span className="font-mono font-bold text-primary">{calculations.displayFlow}</span>
+            </div>
+            <div className="flex justify-between items-center pt-1 font-bold">
+              <span className="text-foreground">Suggested Main Stack:</span>
+              <span className="font-mono text-primary text-xs font-extrabold">DN{suggestedStackSize.mm} ({suggestedStackSize.in})</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Calculation Issues & Warnings */}
+        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2 shadow-xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className={`size-4 ${flaggedCount > 0 || missingFixtures > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
+            <span className="text-xs font-bold text-foreground">Audit &amp; Flagged Items</span>
+          </div>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Flagged spaces:</span>
+              <span className={`font-mono font-bold ${flaggedCount > 0 ? "text-red-500" : "text-muted-foreground"}`}>{flaggedCount}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Spaces with 0 fixtures:</span>
+              <span className={`font-mono font-bold ${missingFixtures > 0 ? "text-amber-500" : "text-muted-foreground"}`}>{missingFixtures}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Standards Guidelines Reference */}
+        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2 shadow-xs text-xs">
+          <div className="flex items-center gap-2">
+            <Info className="size-4 text-blue-500" />
+            <span className="font-bold text-foreground">Discharge Unit Engineering Guidelines</span>
+          </div>
+          <p className="text-[11.5px] text-muted-foreground leading-relaxed">
+            Discharge Units (D.U. / DFU) evaluate simultaneous drain runoff. Soil pipes carrying water closets require minimum DN75 (3&quot;) branch sizing regardless of total unit count.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+

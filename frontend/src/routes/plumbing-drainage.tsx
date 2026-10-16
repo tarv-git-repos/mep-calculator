@@ -13,7 +13,7 @@ import {
   Info, CheckCircle2, Flag, FileText, X, HelpCircle,
   MessageSquare, Check, Activity, Copy, RotateCcw,
   Trash2, Edit3, Droplets, Waves, Gauge, ShieldCheck, ShieldAlert, Layers,
-  Download, Cylinder, ChevronDown, ChevronUp, ChevronRight, Search,
+  Download, Printer, Cylinder, ChevronDown, ChevronUp, ChevronRight, Search,
   Plus, Minus, SlidersHorizontal, Maximize2, Sparkles, AlertTriangle,
   Zap, ArrowRight, BookOpen, Scissors, ClipboardPaste
 } from "lucide-react";
@@ -99,7 +99,6 @@ function FloorNameInput({
       disabled={disabled}
       onChange={e => setVal(e.target.value)}
       onBlur={commitRename}
-      onFocus={e => e.target.select()}
       onKeyDown={e => {
         if (e.key === "Enter") {
           e.currentTarget.blur();
@@ -108,7 +107,7 @@ function FloorNameInput({
           e.currentTarget.blur();
         }
       }}
-      className="bg-transparent border border-transparent hover:border-border/80 focus:border-primary focus:bg-background px-2 py-0.5 rounded-md font-bold text-primary text-xs uppercase outline-none transition-all cursor-text min-w-[100px] max-w-[260px]"
+      className="bg-transparent border border-transparent hover:border-border/80 focus:border-primary focus:bg-background px-2 py-0.5 rounded-md font-bold text-primary text-xs uppercase outline-none transition-all cursor-pointer focus:cursor-text min-w-[100px] max-w-[260px]"
       title="Click to edit floor name (Press Enter or click outside to save)"
     />
   );
@@ -188,7 +187,7 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
       }}
       className={`bg-transparent border border-transparent rounded transition-colors ${disabled
         ? "cursor-not-allowed opacity-75 select-none"
-        : "hover:border-border/60 focus:border-primary focus:bg-background focus:outline-none cursor-text"
+        : "hover:border-border/60 focus:border-primary focus:bg-background focus:outline-none cursor-pointer focus:cursor-text"
         } ${className}`}
     />
   );
@@ -1491,28 +1490,41 @@ function DrainagePage() {
         <div className="flex-1 min-w-0 flex flex-col pt-3 gap-2.5 overflow-hidden h-full animate-in fade-in-50 duration-200">
 
           {/* Top Stationary Header Block */}
-          <div className="shrink-0 flex flex-col gap-2.5 pb-1">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 select-none">
-              <div className="flex flex-col gap-1 max-w-2xl">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Drainage Pipe Sizing</h1>
-                  <button
-                    onClick={() => setIntelOpen(v => !v)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
-                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                      }`}
-                  >
-                    <Sparkles className="size-3.5" />
-                    <span>Intelligence</span>
-                  </button>
-                  <CalculationReviewBar
-                    projectId={project?.id || "default"}
-                    calculatorPath="/plumbing-drainage"
-                    calculatorTitle="Drainage Pipe Sizing"
-                  />
-                </div>
-              </div>
+          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-foreground mt-0.5">Drainage Pipe Sizing</h1>
+              <button
+                type="button"
+                onClick={() => setIntelOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${intelOpen
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                  : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
+                title="Toggle Drainage Intelligence"
+              >
+                <Sparkles className="size-3.5" />
+                <span>Intelligence</span>
+              </button>
+              <CalculationReviewBar
+                projectId={project?.id || "default"}
+                calculatorPath="/plumbing-drainage"
+                calculatorTitle="Drainage Pipe Sizing"
+              />
+            </div>
+
+            {/* Right Side Header Controls: Unit System Toggle */}
+            <div className="flex items-center gap-2">
+              <UnitToggle
+                unitSystem={unitSystem}
+                onChange={handleUnitSystemChange}
+                disabled={isEffectiveReadOnly}
+                inputDescriptions="Drainage DFU, Pipe Diameters (NPS / mm DN), Slope (in/ft / mm/m), Manning Flow (GPM / L/s)"
+                conversionExample={
+                  unitSystem === "ip"
+                    ? "Convert 1/4 in/ft → 20.8 mm/m, 4 inch NPS → 100 mm DN, 50 GPM → 3.15 L/s"
+                    : "Convert 20.8 mm/m → 1/4 in/ft, 100 mm DN → 4 inch NPS, 3.15 L/s → 50 GPM"
+                }
+              />
             </div>
           </div>
 
@@ -1574,18 +1586,6 @@ function DrainagePage() {
                 <TBtn onClick={handleExportPdf}>
                   <FileText className="size-3.5" /> Export
                 </TBtn>
-
-                <UnitToggle
-                  unitSystem={unitSystem}
-                  onChange={handleUnitSystemChange}
-                  disabled={isEffectiveReadOnly}
-                  inputDescriptions="Drainage DFU, Pipe Diameters (NPS / mm DN), Slope (in/ft / mm/m), Manning Flow (GPM / L/s)"
-                  conversionExample={
-                    unitSystem === "ip"
-                      ? "Convert 1/4 in/ft → 20.8 mm/m, 4 inch NPS → 100 mm DN, 50 GPM → 3.15 L/s"
-                      : "Convert 20.8 mm/m → 1/4 in/ft, 100 mm DN → 4 inch NPS, 3.15 L/s → 50 GPM"
-                  }
-                />
               </div>
             </div>
 
@@ -1605,8 +1605,51 @@ function DrainagePage() {
                           IPC Chapter 7, UPC Chapter 7 & Gravity Sanitary Drainage Hydraulic Analysis
                         </p>
                       </div>
+                      <div className="flex items-center gap-2 no-print">
+                        <button
+                          type="button"
+                          onClick={() => window.print()}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-border bg-background hover:bg-muted text-foreground transition-colors shadow-xs"
+                        >
+                          <Printer className="size-3.5" />
+                          <span>Print</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleExportPdf}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground transition-colors shadow-xs"
+                        >
+                          <Download className="size-3.5" />
+                          <span>Export PDF</span>
+                        </button>
+                      </div>
                     </div>
 
+                    {/* 2-Column × 3-Row Enclosed Metadata Box */}
+                    <div className="border border-border rounded-xl overflow-hidden text-xs">
+                      <table className="w-full border-collapse">
+                        <tbody className="divide-y divide-border">
+                          <tr className="divide-x divide-border">
+                            <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                            <td className="p-2.5 font-mono text-primary font-normal">{(project as any)?.calcNo || "TRV-CAL-DRN-01"}</td>
+                            <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                            <td className="p-2.5 font-normal">{formatDateStr(new Date().toISOString()) || new Date().toLocaleDateString("en-GB")}</td>
+                          </tr>
+                          <tr className="divide-x divide-border">
+                            <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                            <td className="p-2.5 font-mono">{project?.code || (project as any)?.projectNo || "P000"}</td>
+                            <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                            <td className="p-2.5">{project?.client || "General Contracting Co."}</td>
+                          </tr>
+                          <tr className="divide-x divide-border">
+                            <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                            <td className="p-2.5">{project?.name || (project as any)?.projectName || "Sanitary Drainage System"}</td>
+                            <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                            <td className="p-2.5">{(project as any)?.endUser || "MEP Authority"}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
 
                     {/* Table 1: Design Parameters & Hydraulic Sizing Criteria */}
                     <div className="space-y-2">
@@ -1867,6 +1910,47 @@ function DrainagePage() {
                       </table>
                     </div>
 
+                    {/* Section 5: Professional Review & Sign-Off Block (Peach #FFE6CC Header) */}
+                    {(() => {
+                      const sigDetails = getSignatureBlockDetails(
+                        project?.id || "default",
+                        "/plumbing-drainage",
+                        currentUserName,
+                        calcReviewState
+                      );
+                      const reportDate = formatDateStr(new Date().toISOString()) || new Date().toLocaleDateString("en-GB");
+                      return (
+                        <div className="pt-2">
+                          <div className="border border-border rounded-xl overflow-hidden text-xs">
+                            <table className="w-full border-collapse">
+                              <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
+                                <tr className="divide-x divide-border">
+                                  <th className="p-2.5 w-28 text-center"></th>
+                                  <th className="p-2.5 text-center w-1/3">Originator</th>
+                                  <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                                  <th className="p-2.5 text-center w-1/3">Approver</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border">
+                                <tr className="divide-x divide-border">
+                                  <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                                  <td className="p-2.5 text-center font-medium">{sigDetails.originatedName || currentUserName}</td>
+                                  <td className="p-2.5 text-center font-medium">{sigDetails.reviewerName || ""}</td>
+                                  <td className="p-2.5 text-center font-medium">{sigDetails.approverName || ""}</td>
+                                </tr>
+                                <tr className="divide-x divide-border">
+                                  <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                                  <td className="p-2.5 text-center font-mono">{sigDetails.originatedDate || reportDate}</td>
+                                  <td className="p-2.5 text-center font-mono">{sigDetails.reviewerDate || ""}</td>
+                                  <td className="p-2.5 text-center font-mono">{sigDetails.approverDate || ""}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                   </div>
                 </div>
               ) : (
@@ -2045,8 +2129,8 @@ function DrainagePage() {
                           <th className="p-1.5 px-2 text-center text-[#0A7BC7] dark:text-[#38bdf8] font-extrabold min-w-[70px] whitespace-nowrap border-r border-border/60">
                             Total DFU
                           </th>
-                          <th className="p-1 text-center w-10 min-w-[44px]">
-                            {/* Action / Flag */}
+                          <th className="p-1 text-center w-10 min-w-[44px] text-[10px] font-bold tracking-wider text-muted-foreground uppercase">
+                            FLAG
                           </th>
                         </tr>
                       </thead>
@@ -2163,7 +2247,7 @@ function DrainagePage() {
                                         }
                                         setEditingSpace({ space, floor });
                                       }}
-                                      className={`group transition-colors duration-150 cursor-pointer h-8.5 text-xs ${highlightedSpaceId === space.id
+                                      className={`group transition-colors duration-150 cursor-pointer select-none h-8.5 text-xs ${highlightedSpaceId === space.id
                                         ? "ring-2 ring-primary bg-primary/25 font-bold z-10 relative"
                                         : isSelected
                                           ? "bg-row-selected font-medium"
@@ -2223,7 +2307,7 @@ function DrainagePage() {
                                               }));
                                               dirtyStore.set(true);
                                             }}
-                                            className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1.5 py-0.5 text-xs font-medium text-foreground outline-none transition-all truncate cursor-text"
+                                            className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1.5 py-0.5 text-xs font-medium text-foreground outline-none transition-all truncate cursor-pointer focus:cursor-text"
                                             title={space.desc || "Untitled Space"}
                                           />
                                         </div>
@@ -2269,7 +2353,7 @@ function DrainagePage() {
                                                   }));
                                                 dirtyStore.set(true);
                                               }}
-                                              className="w-full h-7 bg-transparent border border-transparent hover:border-border/60 focus:border-primary focus:bg-background rounded px-1 text-center font-mono tabular text-[13px] font-medium text-foreground placeholder:text-muted-foreground/30 outline-none transition-colors cursor-text disabled:cursor-not-allowed disabled:opacity-50"
+                                              className="w-full h-7 bg-transparent border border-transparent hover:border-border/60 focus:border-primary focus:bg-background rounded px-1 text-center font-mono tabular text-[13px] font-medium text-foreground placeholder:text-muted-foreground/30 outline-none transition-colors cursor-pointer focus:cursor-text disabled:cursor-not-allowed disabled:opacity-50"
                                             />
                                           </td>
                                         );

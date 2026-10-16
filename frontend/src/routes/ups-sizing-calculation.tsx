@@ -650,16 +650,14 @@ function UpsSizingCalculationPage() {
               title={isFlagged ? flagReasonText : "Flag for review"}
               className={`p-1.5 rounded-md transition-all cursor-pointer ${
                 isFlagged
-                  ? (isAutoFlagged
-                      ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400"
-                      : "bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400")
+                  ? ("bg-red-100 text-red-600 dark:bg-red-950/60 dark:text-red-400")
                   : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600"
               }`}
             >
               <Flag
                 className={`size-4 transition-all ${
                   isFlagged
-                    ? (isAutoFlagged ? "text-amber-600 fill-amber-500" : "text-red-600 fill-red-500")
+                    ? ("text-red-600 fill-red-500")
                     : "fill-none"
                 }`}
               />
@@ -669,7 +667,7 @@ function UpsSizingCalculationPage() {
             {isFlagged && (
               <div className="absolute bottom-full right-0 mb-2 px-3 py-1.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-xl shadow-xl pointer-events-none opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 whitespace-nowrap z-50">
                 <div className="flex items-center gap-1.5">
-                  <span className={isAutoFlagged ? "text-amber-500" : "text-red-500"}>
+                  <span className={"text-red-500"}>
                     {isAutoFlagged ? "⚠️" : "🚩"}
                   </span>
                   <span>{flagReasonText}</span>

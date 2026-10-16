@@ -1654,7 +1654,7 @@ function PumpSizingReportView({
             <div className="border border-border rounded-xl overflow-hidden text-xs">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <tr className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
                     <th className="p-2.5 text-left w-1/4">Approval Role</th>
                     <th className="p-2.5 text-center w-1/4">Originated By</th>
                     <th className="p-2.5 text-center w-1/4">Reviewed By</th>

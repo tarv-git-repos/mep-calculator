@@ -1156,7 +1156,7 @@ function StormWaterPage() {
                                     <th className="py-2.5 px-2 text-center w-20 border-b border-border border-r border-border/60">C</th>
                                     <th className="py-2.5 px-3 text-right w-28 border-b border-border border-r border-border/60">Intensity ({isSI ? "mm/hr" : "in/hr"})</th>
                                     <th className="py-2.5 px-3 text-right w-28 border-b border-border border-r border-border/60 font-mono font-bold text-primary">Flow ({isSI ? "L/s" : "GPM"})</th>
-                                    <th className="py-2.5 px-2 text-center w-20 border-b border-border">Action</th>
+                                    <th className="py-2.5 px-2 text-center w-20 border-b border-border">FLAG</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -1229,7 +1229,7 @@ function StormWaterPage() {
                                                   value={row.name}
                                                   onChange={(e) => handleUpdateRow(row.id, { name: e.target.value })}
                                                   placeholder="Catchment name"
-                                                  className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-2 py-1 text-[13.5px] font-medium text-foreground outline-none transition-all truncate cursor-text disabled:cursor-not-allowed"
+                                                  className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-2 py-1 text-[13.5px] font-medium text-foreground outline-none transition-all truncate cursor-pointer focus:cursor-text disabled:cursor-not-allowed"
                                                 />
                                                 {renderCommentBadge(`catchment-${row.id}`, row.name)}
                                               </div>
@@ -1245,7 +1245,7 @@ function StormWaterPage() {
                                                 value={row.area === 0 ? "" : row.area}
                                                 onChange={(e) => handleUpdateRow(row.id, { area: e.target.value === "" ? 0 : parseFloat(e.target.value) || 0 })}
                                                 placeholder="0.0"
-                                                className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-2 py-1 text-xs font-mono font-medium text-foreground outline-none transition-all text-right cursor-text disabled:cursor-not-allowed"
+                                                className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-2 py-1 text-xs font-mono font-medium text-foreground outline-none transition-all text-right cursor-pointer focus:cursor-text disabled:cursor-not-allowed"
                                               />
                                             </td>
 
@@ -1284,7 +1284,7 @@ function StormWaterPage() {
                                                 value={row.coef === 0 ? "" : row.coef}
                                                 onChange={(e) => handleUpdateRow(row.id, { coef: e.target.value === "" ? 0 : parseFloat(e.target.value) || 0 })}
                                                 placeholder="0.00"
-                                                className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1 py-1 text-xs font-mono font-bold text-center text-foreground outline-none transition-all cursor-text disabled:cursor-not-allowed"
+                                                className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-1 py-1 text-xs font-mono font-bold text-center text-foreground outline-none transition-all cursor-pointer focus:cursor-text disabled:cursor-not-allowed"
                                               />
                                             </td>
 
@@ -1298,7 +1298,7 @@ function StormWaterPage() {
                                                 value={row.intensity === 0 ? "" : row.intensity}
                                                 onChange={(e) => handleUpdateRow(row.id, { intensity: e.target.value === "" ? 0 : parseFloat(e.target.value) || 0 })}
                                                 placeholder={isSI ? "50" : "2.0"}
-                                                className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-2 py-1 text-xs font-mono font-medium text-foreground outline-none transition-all text-right cursor-text disabled:cursor-not-allowed"
+                                                className="w-full bg-transparent hover:bg-background focus:bg-background border border-transparent hover:border-border/60 focus:border-primary rounded px-2 py-1 text-xs font-mono font-medium text-foreground outline-none transition-all text-right cursor-pointer focus:cursor-text disabled:cursor-not-allowed"
                                               />
                                             </td>
 
@@ -1675,6 +1675,39 @@ function StormWaterPage() {
                           <FileText className="size-3.5" /> Export
                         </TBtn>
                       </div>
+                    </div>
+
+                    
+                    {/* Project Metadata Header Box (Canonical 2-column x 3-row format) */}
+                    <div className="border border-border rounded-xl overflow-hidden text-xs">
+                      <table className="w-full border-collapse">
+                        <tbody>
+                          <tr className="border-b border-border divide-x divide-border">
+                            <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                            <td className="p-2.5 font-mono text-foreground font-medium">
+                              {(project as any)?.calcNo || `TRV-CAL-SWR-${(project?.id || "0000").slice(-4).toUpperCase()}`}
+                            </td>
+                            <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                            <td className="p-2.5 font-mono font-medium">
+                              {formatDateStr(new Date().toISOString())}
+                            </td>
+                          </tr>
+                          <tr className="border-b border-border divide-x divide-border">
+                            <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                            <td className="p-2.5 font-mono">
+                              {project?.code || (project?.id ? project.id.slice(0, 8) : "MEP-SWR-2026")}
+                            </td>
+                            <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                            <td className="p-2.5">{project?.client || "-"}</td>
+                          </tr>
+                          <tr className="divide-x divide-border">
+                            <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                            <td className="p-2.5">{project?.name || "Storm Water Management"}</td>
+                            <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                            <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
 
                     {/* Table 1: Design Parameters & Overall Summary */}

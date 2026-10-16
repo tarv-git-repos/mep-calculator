@@ -3603,7 +3603,7 @@ function LpdIntelligenceDrawer({
         <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2.5">
           <div className="flex items-center justify-between">
             <span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <Flag className="size-3.5 text-amber-500" />
+              <Flag className="size-3.5 text-red-500 fill-red-500" />
               Flagged Spaces ({flaggedSpaces.length})
             </span>
             {flaggedSpaces.length > 0 && (
