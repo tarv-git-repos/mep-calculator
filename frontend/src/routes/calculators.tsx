@@ -184,6 +184,24 @@ const CALC_CONFIGS: Record<string, CalcConfig> = {
       "Provide automatic Power Factor Correction (APFC) relays for varying loads."
     ]
   },
+  "LPD Calculation": {
+    desc: "Calculate Lighting Power Density (LPD W/m²) and verify compliance against ASHRAE 90.1 energy standards.",
+    standard: "ASHRAE Standard 90.1 / IECC",
+    inputs: [
+      { key: "area", label: "Room Area", min: 5, max: 2000, step: 5, default: 100, unit: "m²" },
+      { key: "targetLux", label: "Target Lux Level", min: 50, max: 2000, step: 25, default: 500, unit: "lux" },
+      { key: "lumenPerFitting", label: "Lamp Flux per Fitting", min: 500, max: 25000, step: 100, default: 3600, unit: "lm" },
+      { key: "wattPerFitting", label: "Luminaire Wattage", min: 5, max: 400, step: 1, default: 36, unit: "W" },
+      { key: "uf", label: "Utilisation Factor (UF)", min: 0.1, max: 0.9, step: 0.05, default: 0.60, unit: "-" },
+      { key: "mf", label: "Maintenance Factor (MF)", min: 0.5, max: 0.95, step: 0.05, default: 0.80, unit: "-" },
+    ],
+    checklist: [
+      "Select target lux level according to space function (e.g., 500 lux for general office).",
+      "Determine Utilisation Factor (UF) from luminaire photometric tables based on room index.",
+      "Apply appropriate Maintenance Factor (MF) considering lamp lumen depreciation and cleaning schedules.",
+      "Verify total Lighting Power Density (LPD W/m²) complies with ASHRAE 90.1 energy standards."
+    ]
+  },
   "Lighting LUX Calculation": {
     desc: "Calculate required number of LED luminaires based on space illuminance standards, room area, lumen output, UF, and MF.",
     standard: "EN 12464-1 / CIBSE Guide LG7 / IESNA",
@@ -699,6 +717,7 @@ function CalculatorsPage() {
         };
       }
 
+      case "LPD Calculation":
       case "Lighting LUX Calculation":
       case "Lighting Lux Calculation": {
         const area = getVal("area");

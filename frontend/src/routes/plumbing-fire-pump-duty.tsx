@@ -83,7 +83,6 @@ export const Route = createFileRoute("/plumbing-fire-pump-duty")({
 function FirePumpDutyPage() {
   const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/plumbing-fire-pump-duty", activeProjectId || project?.id);
-  const sigDetails = getSignatureBlockDetails(project?.id || "default", "/plumbing-fire-pump-duty", user?.name || "MEP Engineer", calcReviewState);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-fire-pump-duty", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
@@ -1505,227 +1504,139 @@ function FirePumpDutyPage() {
                       </div>
                     </div>
                   </div>
-) : (
-                  /* Standardized Report View matching Ventilation / Condensate standard */
-                  <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                    <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
-                      
-                      {/* 1. Title */}
-                      <div className="pb-1">
-                        <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground uppercase tracking-wide">
-                          Fire Pump Duty & Motor Sizing Calculation
-                        </h2>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          NFPA 20 Stationary Pumps for Fire Protection Hydraulic & Electric Driver Verification
-                        </p>
+                ) : (
+                  /* REPORT VIEW */
+                  <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
+                    <div className="max-w-4xl mx-auto bg-card border border-border rounded-2xl p-6 shadow-xs space-y-6">
+                      <div className="flex justify-between items-center pb-4 border-b border-border/60">
+                        <div>
+                          <h2 className="text-xl font-bold text-foreground">
+                            Fire Pump Duty & Motor Sizing Report
+                          </h2>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Per NFPA 20 Standard for the Installation of Stationary Pumps for Fire
+                            Protection
+                          </p>
+                        </div>
                       </div>
 
-                      {/* 2. Metadata Box (2-column x 3-row) */}
-                      <div className="border border-border rounded-xl overflow-hidden text-xs">
-                        <table className="w-full border-collapse">
-                          <tbody>
-                            <tr className="border-b border-border divide-x divide-border">
-                              <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
-                              <td className="p-2.5 font-mono text-foreground font-medium">
-                                {(project as any)?.calcNo || `TRV-CAL-FPD-${(project?.id || "0000").slice(-4).toUpperCase()}`}
-                              </td>
-                              <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
-                              <td className="p-2.5 font-mono font-medium">
-                                {formatDateStr(new Date().toISOString())}
-                              </td>
-                            </tr>
-                            <tr className="border-b border-border divide-x divide-border">
-                              <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
-                              <td className="p-2.5 font-mono">
-                                {project?.code || (project?.id ? project.id.slice(0, 8) : "MEP-FPD-2026")}
-                              </td>
-                              <td className="p-2.5 font-bold bg-muted/20">Client:</td>
-                              <td className="p-2.5">{project?.client || "-"}</td>
-                            </tr>
-                            <tr className="divide-x divide-border">
-                              <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
-                              <td className="p-2.5">{project?.name || "Life Safety Fire Suppression"}</td>
-                              <td className="p-2.5 font-bold bg-muted/20">End User:</td>
-                              <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* 3. Table 1: Pump Operating & Hydraulic Parameters */}
-                      <div className="space-y-2">
+                      {/* Design Parameters Table */}
+                      <div className="space-y-3">
                         <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
                           1. Pump Operating & Hydraulic Parameters
                         </h3>
-                        <div className="border border-border rounded-xl overflow-hidden text-xs">
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
-                                <th className="p-2.5 w-12 text-center border-r border-border">No.</th>
-                                <th className="p-2.5 text-left border-r border-border">Hydraulic Parameter</th>
-                                <th className="p-2.5 text-center border-r border-border w-44">Design Value</th>
-                                <th className="p-2.5 text-center border-r border-border w-24">Unit</th>
-                                <th className="p-2.5 text-left">Code Reference / Governing Standard</th>
+                        <div className="border border-border/80 rounded-xl overflow-hidden">
+                          <table className="w-full text-xs text-left">
+                            <thead className="bg-muted/50 border-b border-border text-muted-foreground font-bold">
+                              <tr>
+                                <th className="p-2.5">Parameter</th>
+                                <th className="p-2.5">Design Value</th>
+                                <th className="p-2.5">Engineering Description</th>
+                                <th className="p-2.5">Code Reference</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-border">
-                              {/* Primary Highlight 1: Design Flow Demand */}
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">1</td>
-                                <td className="p-2.5 font-bold text-foreground border-r border-border">Design Flow Demand (Q_req)</td>
-                                <td className="p-2.5 text-center font-mono text-primary font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
+                            <tbody className="divide-y divide-border/60">
+                              <tr>
+                                <td className="p-2.5 font-bold">Design Flow Demand</td>
+                                <td className="p-2.5 font-semibold text-primary">
                                   {results.Q_req} GPM ({(results.Q_req * GPM_TO_LMIN).toFixed(0)} L/min)
                                 </td>
-                                <td className="p-2.5 text-center font-mono border-r border-border">GPM</td>
-                                <td className="p-2.5 text-muted-foreground">NFPA 13 / 14 combined system demand</td>
+                                <td className="p-2.5 text-muted-foreground">Hydraulic Demand Calculation</td>
+                                <td className="p-2.5 text-muted-foreground">NFPA 13 / 14</td>
                               </tr>
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">2</td>
-                                <td className="p-2.5 font-medium border-r border-border">NFPA 20 Standard Rated Pump Size</td>
-                                <td className="p-2.5 text-center font-mono font-bold border-r border-border">
+                              <tr>
+                                <td className="p-2.5 font-bold">Standard Rated Size</td>
+                                <td className="p-2.5 font-semibold text-foreground">
                                   {results.nearestStandardSize} GPM ({(results.nearestStandardSize * GPM_TO_LMIN).toFixed(0)} L/min)
                                 </td>
-                                <td className="p-2.5 text-center text-muted-foreground border-r border-border">GPM</td>
-                                <td className="p-2.5 text-muted-foreground">NFPA 20 Table 4.8.2 standard rating schedule</td>
+                                <td className="p-2.5 text-muted-foreground">NFPA 20 Table 4.8.2 Rating</td>
+                                <td className="p-2.5 text-muted-foreground">NFPA 20 Clause 4.8.2</td>
                               </tr>
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">3</td>
-                                <td className="p-2.5 font-medium border-r border-border">System Residual Remote Pressure</td>
-                                <td className="p-2.5 text-center font-mono font-bold border-r border-border">
-                                  {results.P_req} psi ({Number(results.P_req * PSI_TO_BAR).toFixed(2)} bar)
+                              <tr>
+                                <td className="p-2.5 font-bold">System Demand Pressure</td>
+                                <td className="p-2.5 font-semibold text-foreground">
+                                  {results.P_req} psi ({results.P_req * PSI_TO_BAR.toFixed(2)} bar)
                                 </td>
-                                <td className="p-2.5 text-center text-muted-foreground border-r border-border">psi</td>
-                                <td className="p-2.5 text-muted-foreground">Hydraulic remote most demanding node allowance</td>
+                                <td className="p-2.5 text-muted-foreground">Hydraulic Remote Point Demand</td>
+                                <td className="p-2.5 text-muted-foreground">NFPA 13 / 14</td>
                               </tr>
-                              {/* Primary Highlight 2: Rated Net Pump Head */}
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">4</td>
-                                <td className="p-2.5 font-bold text-foreground border-r border-border">Rated Net Dynamic Head</td>
-                                <td className="p-2.5 text-center font-mono text-primary font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
+                              <tr>
+                                <td className="p-2.5 font-bold">Rated Pump Head</td>
+                                <td className="p-2.5 font-semibold text-foreground">
                                   {results.ratedHeadPsi.toFixed(1)} psi ({results.ratedHeadBar.toFixed(2)} bar)
                                 </td>
-                                <td className="p-2.5 text-center font-mono border-r border-border">psi</td>
-                                <td className="p-2.5 text-muted-foreground">System elevation + friction + safety margin - suction</td>
+                                <td className="p-2.5 text-muted-foreground">System Pressure + Losses - Suction + Margin</td>
+                                <td className="p-2.5 text-muted-foreground">NFPA 20 Rated Head</td>
                               </tr>
-                              {/* Primary Highlight 3: Churn Shutoff Pressure */}
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">5</td>
-                                <td className="p-2.5 font-bold text-foreground border-r border-border">Churn (Zero-Flow Shutoff) Head</td>
-                                <td className="p-2.5 text-center font-mono text-primary font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
+                              <tr>
+                                <td className="p-2.5 font-bold">Churn (Shutoff) Head</td>
+                                <td className="p-2.5 font-semibold text-foreground">
                                   {results.churnPsi.toFixed(1)} psi ({results.churnBar.toFixed(2)} bar)
                                 </td>
-                                <td className="p-2.5 text-center font-mono border-r border-border">psi</td>
-                                <td className="p-2.5 text-muted-foreground">NFPA 20 Clause 4.7.6 (max 140% of rated head)</td>
+                                <td className="p-2.5 text-muted-foreground">Max 140% of rated head</td>
+                                <td className="p-2.5 text-muted-foreground">NFPA 20 Clause 4.7.6</td>
                               </tr>
                             </tbody>
                           </table>
                         </div>
                       </div>
 
-                      {/* 4. Table 2: Driver & Electrical Motor Evaluation */}
-                      <div className="space-y-2">
+                      {/* Motor & Driver Selection Table */}
+                      <div className="space-y-3">
                         <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
                           2. Driver & Electrical Motor Evaluation
                         </h3>
-                        <div className="border border-border rounded-xl overflow-hidden text-xs">
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
-                                <th className="p-2.5 w-12 text-center border-r border-border">No.</th>
-                                <th className="p-2.5 text-left border-r border-border">Driver Evaluation Attribute</th>
-                                <th className="p-2.5 text-center border-r border-border w-44">Calculated Duty</th>
-                                <th className="p-2.5 text-center border-r border-border w-36">Standard Selected</th>
-                                <th className="p-2.5 text-left">Compliance & Design Status</th>
+                        <div className="border border-border/80 rounded-xl overflow-hidden">
+                          <table className="w-full text-xs text-left">
+                            <thead className="bg-muted/50 border-b border-border text-muted-foreground font-bold">
+                              <tr>
+                                <th className="p-2.5">Attribute</th>
+                                <th className="p-2.5">Calculated Rating</th>
+                                <th className="p-2.5">Standard Selected</th>
+                                <th className="p-2.5">Compliance Status</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-border">
-                              {/* Primary Highlight: Brake Horsepower */}
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">1</td>
-                                <td className="p-2.5 font-bold text-foreground border-r border-border">Brake Horsepower @ Rated Flow (100%)</td>
-                                <td className="p-2.5 text-center font-mono font-bold border-r border-border">
+                            <tbody className="divide-y divide-border/60">
+                              <tr>
+                                <td className="p-2.5 font-bold">Brake Horsepower @ Rated</td>
+                                <td className="p-2.5 font-semibold text-foreground">
                                   {results.brakeHp.toFixed(1)} BHP ({results.brakeKw.toFixed(1)} kW)
                                 </td>
-                                <td className="p-2.5 text-center font-mono text-primary font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
+                                <td className="p-2.5 font-bold text-primary">
                                   {results.selectedMotorHp} HP ({results.selectedMotorKw.toFixed(1)} kW)
                                 </td>
                                 <td className="p-2.5 text-emerald-600 dark:text-emerald-400 font-bold">
-                                  ✓ Non-Overloading Motor Selected
+                                  ✓ Non-Overloading
                                 </td>
                               </tr>
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">2</td>
-                                <td className="p-2.5 font-medium border-r border-border">Peak Brake Horsepower @ 150% Flow</td>
-                                <td className="p-2.5 text-center font-mono font-bold border-r border-border">
+                              <tr>
+                                <td className="p-2.5 font-bold">Peak Brake Horsepower (150%)</td>
+                                <td className="p-2.5 font-semibold text-foreground">
                                   {results.peakBrakeHp.toFixed(1)} BHP
                                 </td>
-                                <td className="p-2.5 text-center font-mono font-semibold border-r border-border">
+                                <td className="p-2.5 font-semibold text-foreground">
                                   Covered by {results.selectedMotorHp} HP
                                 </td>
                                 <td className="p-2.5 text-emerald-600 dark:text-emerald-400 font-bold">
-                                  ✓ Full Characteristic Curve Rated
+                                  ✓ Full Curve Rated
                                 </td>
                               </tr>
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">3</td>
-                                <td className="p-2.5 font-medium border-r border-border">Pressure Maintenance Jockey Pump</td>
-                                <td className="p-2.5 text-center font-mono font-bold border-r border-border">
+                              <tr>
+                                <td className="p-2.5 font-bold">Jockey Maintenance Pump</td>
+                                <td className="p-2.5 font-semibold text-foreground">
                                   {results.jockeyFlowGpm.toFixed(1)} GPM
                                 </td>
-                                <td className="p-2.5 text-center font-mono text-xs border-r border-border">
+                                <td className="p-2.5 font-semibold text-foreground">
                                   Cut-In: {results.jockeyCutInPsi.toFixed(0)} psi | Cut-Out: {results.jockeyCutOutPsi.toFixed(0)} psi
                                 </td>
                                 <td className="p-2.5 text-emerald-600 dark:text-emerald-400 font-bold">
-                                  ✓ NFPA 20 Chapter 5 Sized
+                                  ✓ NFPA 20 Chap 5
                                 </td>
                               </tr>
                             </tbody>
                           </table>
                         </div>
                       </div>
-
-                      {/* 5. 3-Tier Signature Sign-Off Block (Peach #FFE6CC Header) */}
-                      <div className="pt-2">
-                        <div className="border border-border rounded-xl overflow-hidden text-xs">
-                          <table className="w-full border-collapse">
-                            <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
-                              <tr className="divide-x divide-border">
-                                <th className="p-2.5 w-28 text-center"></th>
-                                <th className="p-2.5 text-center w-1/3">Originator</th>
-                                <th className="p-2.5 text-center w-1/3">Reviewer</th>
-                                <th className="p-2.5 text-center w-1/3">Approver</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                              <tr className="divide-x divide-border">
-                                <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
-                                <td className="p-2.5 text-center font-medium">
-                                  {sigDetails?.originatedName || user?.name || "MEP Engineer"}
-                                </td>
-                                <td className="p-2.5 text-center font-medium">
-                                  {sigDetails?.reviewerName || ""}
-                                </td>
-                                <td className="p-2.5 text-center font-medium">
-                                  {sigDetails?.approverName || ""}
-                                </td>
-                              </tr>
-                              <tr className="divide-x divide-border">
-                                <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
-                                <td className="p-2.5 text-center font-mono">
-                                  {sigDetails?.originatedDate || formatDateStr(new Date().toISOString())}
-                                </td>
-                                <td className="p-2.5 text-center font-mono">
-                                  {sigDetails?.reviewerDate || ""}
-                                </td>
-                                <td className="p-2.5 text-center font-mono">
-                                  {sigDetails?.approverDate || ""}
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
                     </div>
                   </div>
                 )}

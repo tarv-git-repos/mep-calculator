@@ -10,7 +10,7 @@ import { TBtn } from "@/components/workspace/Button";
 import {
   AlertTriangle, Info, Printer, FileSpreadsheet,
   Save, RotateCcw, MessageSquare, FileText, Sparkles,
-  Eye, Zap, X
+  Eye, Zap, X, CheckCircle2
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -50,8 +50,13 @@ function ChwPipeSizerPage() {
   const currentUserName = userData?.name || profile?.name || "System Admin";
   const isApprovedLocked = useCalculationLock("/chw-pipe-sizer", project?.id);
 
-  const [intelOpen, setIntelOpen] = useState<boolean>(false);
-  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("ip");
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">(() => {
+    if (typeof window !== "undefined") {
+      const pref = localStorage.getItem("mep_unit_system");
+      if (pref) return pref.toLowerCase() === "ip" ? "ip" : "si";
+    }
+    return "ip";
+  });
   const [activeTab, setActiveTab] = useState<"calculator" | "report">("calculator");
   const handleReset = () => {
     saveParams({
@@ -80,8 +85,6 @@ function ChwPipeSizerPage() {
   const [commentsList, setCommentsList] = useState<any[]>([]);
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
-  const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
-  const highlightTimeoutRef = useRef<any>(null);
 
   const isSI = unitSystem === "si";
   const ip = unitSystem === "ip";
@@ -327,101 +330,6 @@ function ChwPipeSizerPage() {
     );
   };
 
-  useEffect(() => {
-    const handleScrollTarget = (targetId?: string, targetName?: string) => {
-      if (!targetId && !targetName) return;
-      const cleanRaw = String(targetId || "").toLowerCase().trim();
-      const cleanId = cleanRaw.replace(/^(field-|card-|metric-|res-)/, "");
-      const cleanName = String(targetName || "").toLowerCase().trim();
-
-      setHighlightedTargetId(targetId || cleanRaw || cleanId || targetName || "");
-
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-      highlightTimeoutRef.current = setTimeout(() => {
-        setHighlightedTargetId(null);
-        highlightTimeoutRef.current = null;
-      }, 4500);
-
-      requestAnimationFrame(() => {
-        let el =
-          document.getElementById(targetId || "") ||
-          document.getElementById(`field-${cleanRaw}`) ||
-          document.getElementById(`card-${cleanRaw}`) ||
-          document.getElementById(`metric-${cleanRaw}`) ||
-          document.getElementById(`res-${cleanRaw}`) ||
-          document.getElementById(`field-card-${cleanRaw}`) ||
-          document.getElementById(`field-card-${cleanId}`) ||
-          document.getElementById(`card-${cleanId}`) ||
-          document.getElementById(cleanRaw) ||
-          document.getElementById(cleanId) ||
-          document.querySelector(`[data-comment-target="${cleanRaw}"]`) ||
-          document.querySelector(`[data-comment-target="${targetId}"]`) ||
-          document.querySelector(`[data-field-id="${cleanRaw}"]`) ||
-          document.querySelector(`[data-field-id="${cleanId}"]`);
-
-        if (!el && cleanName) {
-          const allFields = document.querySelectorAll("[data-comment-target]");
-          for (let i = 0; i < allFields.length; i++) {
-            const targetAttr = allFields[i].getAttribute("data-comment-target")?.toLowerCase() || "";
-            if (targetAttr.includes(cleanName) || cleanName.includes(targetAttr)) {
-              el = allFields[i] as HTMLElement;
-              break;
-            }
-          }
-        }
-
-        if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-      });
-    };
-
-    const handleScrollEvent = (e: any) => {
-      const targetId = e?.detail?.id || e?.detail?.targetItemId || e?.detail?.targetId;
-      const targetName = e?.detail?.name || e?.detail?.fieldName || e?.detail?.targetName;
-      if (targetId || targetName) handleScrollTarget(targetId, targetName);
-    };
-
-    if (typeof window !== "undefined") {
-      const searchParams = new URLSearchParams(window.location.search);
-      const urlTargetId = searchParams.get("commentTargetId") || searchParams.get("targetId") || searchParams.get("itemId") || searchParams.get("spaceId");
-      if (urlTargetId) {
-        setTimeout(() => handleScrollTarget(urlTargetId, searchParams.get("commentTargetName") || searchParams.get("targetName") || ""), 500);
-      }
-    }
-
-    window.addEventListener("mep-scroll-to-item", handleScrollEvent);
-    window.addEventListener("mep-data-grid-scroll", handleScrollEvent);
-    window.addEventListener("mep_scroll_to_comment_target", handleScrollEvent);
-    window.addEventListener("mep-comment-notification-clicked", handleScrollEvent);
-    window.addEventListener("mep-highlight-item", handleScrollEvent);
-
-    return () => {
-      window.removeEventListener("mep-scroll-to-item", handleScrollEvent);
-      window.removeEventListener("mep-data-grid-scroll", handleScrollEvent);
-      window.removeEventListener("mep_scroll_to_comment_target", handleScrollEvent);
-      window.removeEventListener("mep-comment-notification-clicked", handleScrollEvent);
-      window.removeEventListener("mep-highlight-item", handleScrollEvent);
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-    };
-  }, []);
-
-  const isFieldHighlighted = (id: string, name?: string) => {
-    if (!highlightedTargetId) return "";
-    const cleanHigh = highlightedTargetId.toLowerCase().trim().replace(/^(field-|card-|metric-|res-)/, "");
-    const cleanId = id.toLowerCase().trim().replace(/^(field-|card-|metric-|res-)/, "");
-    const cleanName = (name || "").toLowerCase().trim();
-    const cleanHighFull = highlightedTargetId.toLowerCase().trim();
-
-    const isMatch =
-      cleanHigh === cleanId ||
-      cleanHighFull === id.toLowerCase().trim() ||
-      (cleanName && cleanHigh.includes(cleanName)) ||
-      (cleanName && cleanName.includes(cleanHigh));
-
-    return isMatch ? "ring-2 ring-primary ring-offset-2 border-primary shadow-lg animate-pulse" : "";
-  };
-
   const getInputClass = (id: string, name?: string, isLarger: boolean = false) => {
     const isHigh = isFieldHighlighted(id, name);
     const baseStyle = isLarger
@@ -447,14 +355,12 @@ function ChwPipeSizerPage() {
     <AppShell
       title="CHW Pipe Sizer"
       hideSubHeader={true}
-      onIntelClick={() => setIntelOpen((v) => !v)}
-      intelOpen={intelOpen}
     >
-      <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
+      <div className="flex h-full min-h-0 bg-transparent font-sans">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
           
-          {/* Header Row matching Ventilation exactly */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
+          {/* Header Row matching Pump Sizing exactly */}
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg py-0.5">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">CHW Pipe Sizer</h1>
@@ -554,8 +460,11 @@ function ChwPipeSizerPage() {
                     Generated: <span className="text-foreground font-mono">{formatDateStr(new Date())}</span>
                   </span>
                   <div className="ml-auto flex items-center gap-1.5">
+                    <TBtn onClick={() => window.print()}>
+                      <Printer className="size-3.5" /> Print
+                    </TBtn>
                     <TBtn primary onClick={handleExportPDF}>
-                      <FileText className="size-3.5" /> Export
+                      <FileText className="size-3.5" /> Export PDF
                     </TBtn>
                   </div>
                 </div>
@@ -568,7 +477,7 @@ function ChwPipeSizerPage() {
                     <div className="flex justify-between items-start pb-4 border-b border-border">
                       <div>
                         <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-                          CHW Pipe Sizer Calculation
+                          Chilled Water Pipe Sizing Calculation Report
                         </h2>
                         <p className="text-[12px] text-muted-foreground mt-0.5">
                           Hydronic Pipe Sizing &amp; Hydrodynamic Analysis (ASHRAE Fundamentals Ch. 22 / Colebrook-White Friction Model)
@@ -607,7 +516,7 @@ function ChwPipeSizerPage() {
                       <div className="border border-border rounded-xl overflow-hidden text-xs">
                         <table className="w-full text-left border-collapse">
                           <thead>
-                            <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
                               <th className="p-2.5 w-12 text-center">No.</th>
                               <th className="p-2.5">Executive Design Parameter Summary</th>
                               <th className="p-2.5 text-center w-28">Value</th>
@@ -696,7 +605,7 @@ function ChwPipeSizerPage() {
                       <div className="border border-border rounded-xl overflow-hidden text-xs">
                         <table className="w-full text-left border-collapse">
                           <thead>
-                            <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
                               <th className="p-2.5 w-10 text-center">Sr.</th>
                               <th className="p-2.5 text-center w-28">Nominal (NPS)</th>
                               <th className="p-2.5 text-center w-28">Metric (DN)</th>
@@ -752,7 +661,7 @@ function ChwPipeSizerPage() {
                       <div className="border border-border rounded-xl overflow-hidden text-xs">
                         <table className="w-full text-left border-collapse">
                           <thead>
-                            <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
                               <th className="p-2.5 w-12 text-center">No.</th>
                               <th className="p-2.5">Thermodynamic Parameter</th>
                               <th className="p-2.5 text-center w-28">Value</th>
@@ -1084,8 +993,8 @@ function ChwPipeSizerPage() {
                   </div>
                 </div>
 
-                {/* RIGHT COLUMN: CALCULATION RESULTS (lg:col-span-7) STICKY matching Pump Sizing */}
-                <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
+                {/* RIGHT COLUMN: CALCULATION RESULTS (lg:col-span-7) */}
+                <div className="lg:col-span-7 space-y-5">
                   <div 
                     id="card-results"
                     data-field-id="card-results"
@@ -1095,7 +1004,7 @@ function ChwPipeSizerPage() {
                     className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6 cursor-pointer hover:border-primary/40 transition-colors"
                   >
                     <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-                      <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
                         ⚡ Sizing Results Summary
                       </span>
                       {renderCommentBadge("card-results", "Sizing Results Summary")}
@@ -1112,7 +1021,7 @@ function ChwPipeSizerPage() {
                             className={getCardCommentClass("res-size", "Selected Pipe Size", "bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
                           >
                             <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Selected Pipe Size</div>
-                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                            <div className="text-lg font-semibold font-mono text-foreground mt-1">
                               {calculatedData.chosen ? `NPS ${calculatedData.chosen.nps}"` : "NaN"}{" "}
                               <span className="text-xs font-normal text-muted-foreground">{calculatedData.chosen ? `(DN ${calculatedData.chosen.idMm})` : ""}</span>
                             </div>
@@ -1150,7 +1059,7 @@ function ChwPipeSizerPage() {
                             className={getCardCommentClass("res-velocity", "Velocity", "bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
                           >
                             <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium font-sans">Velocity</div>
-                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                            <div className="text-lg font-semibold font-mono text-foreground mt-1">
                               {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.v.toFixed(2)}` : `${calculatedData.chosen.vFps.toFixed(2)}`) : "NaN"}{" "}
                               <span className="text-xs font-normal text-muted-foreground">{isSI ? "m/s" : "fps"}</span>
                             </div>
@@ -1188,7 +1097,7 @@ function ChwPipeSizerPage() {
                             className={getCardCommentClass("res-dp", "Pressure Drop", "bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
                           >
                             <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium font-sans">Pressure Drop</div>
-                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                            <div className="text-lg font-semibold font-mono text-foreground mt-1">
                               {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.dpPaM.toFixed(1)}` : `${calculatedData.chosen.dpFt.toFixed(2)}`) : "NaN"}{" "}
                               <span className="text-xs font-normal text-muted-foreground">{isSI ? "Pa/m" : "ft/100ft"}</span>
                             </div>
@@ -1226,7 +1135,7 @@ function ChwPipeSizerPage() {
                             className={getCardCommentClass("res-reynolds", "Reynolds Number", "bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 transition-all cursor-context-menu")}
                           >
                             <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium font-sans">Reynolds Number</div>
-                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                            <div className="text-lg font-semibold font-mono text-foreground mt-1">
                               {calculatedData.chosen ? Math.round(calculatedData.chosen.Re).toLocaleString() : "NaN"}
                             </div>
                             {renderCommentBadge("res-reynolds", "Reynolds Number")}
@@ -1259,32 +1168,35 @@ function ChwPipeSizerPage() {
                     <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs">
                       <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                         <span className="text-slate-600 dark:text-zinc-400">Internal Diameter:</span>
-                        <span className="font-mono font-bold">
+                        <span className="font-mono font-medium">
                           {calculatedData.chosen ? (isSI ? `${calculatedData.chosen.idMm} mm` : `${calculatedData.chosen.idIn.toFixed(3)} in (${calculatedData.chosen.idMm} mm)`) : "-"}
                         </span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                         <span className="text-slate-600 dark:text-zinc-400">Flow Regime:</span>
-                        <span className="font-mono font-bold">{calculatedData.chosen ? calculatedData.chosen.regime : "-"}</span>
+                        <span className="font-mono font-medium">{calculatedData.chosen ? calculatedData.chosen.regime : "-"}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                         <span className="text-slate-600 dark:text-zinc-400">Darcy Friction Factor (f):</span>
-                        <span className="font-mono font-bold">{calculatedData.chosen ? calculatedData.chosen.f.toFixed(4) : "-"}</span>
+                        <span className="font-mono font-medium">{calculatedData.chosen ? calculatedData.chosen.f.toFixed(4) : "-"}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                         <span className="text-slate-600 dark:text-zinc-400">Fluid Density (ρ) &amp; Viscosity (μ):</span>
-                        <span className="font-mono font-bold">{calculatedData.rho.toFixed(1)} kg/m³ | {calculatedData.mu.toExponential(2)} Pa·s</span>
+                        <span className="font-mono font-medium">{calculatedData.rho.toFixed(1)} kg/m³ | {calculatedData.mu.toExponential(2)} Pa·s</span>
                       </div>
-                      <div className="flex justify-between py-1 font-bold text-foreground">
+                      <div className="flex justify-between py-1 font-medium text-foreground">
                         <span>Optimal Pipe Specification:</span>
-                        <span className="font-mono font-bold text-[#0A7BC7]">
+                        <span className="font-mono font-semibold text-[#0A7BC7]">
                           {calculatedData.chosen ? `NPS ${calculatedData.chosen.nps}" / DN ${calculatedData.chosen.idMm} mm Pipe` : "-"}
                         </span>
                       </div>
                     </div>
 
+
+
                   </div>
                 </div>
+
               </div>
               <ContextMenu>
                 <ContextMenuTrigger className="block w-full h-4 mt-2" />

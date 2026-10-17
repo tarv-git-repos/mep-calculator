@@ -20,6 +20,7 @@ import { useCollaboration } from "@/lib/collaboration-store";
 import { supabase } from "@/lib/supabase";
 import { Megaphone, X as XIcon } from "lucide-react";
 import { PricingModal } from "./PricingModal";
+import { EnterLicenseModal } from "@/components/modals/EnterLicenseModal";
 import { fetchLicenseStatus, type LicenseStatusInfo } from "@/lib/license";
 import { getHardwareFingerprint, getOrCreateDeviceId } from "@/lib/hardwareFingerprint";
 import { authService } from "@/services/authService";
@@ -154,6 +155,27 @@ const EXCLUDED_PERSIST_PATHS = [
   "/settings",
   "/3d-view",
   "/calculators",
+  "/lighting-lux-calculation",
+  "/ventilation",
+  "/preliminary-cooling-load",
+  "/fresh-air-cooling-load",
+  "/duct-sizer",
+  "/chw-pipe-sizer",
+  "/condensate-drain",
+  "/cable-voltage-drop",
+  "/busbar-calculation",
+  "/busbar-voltage-drop",
+  "/conductor-sizing",
+  "/transformer-sizing",
+  "/generator-sizing",
+  "/ups-sizing-calculation",
+  "/capacitor-bank-sizing",
+  "/circuit-breaker-sizing",
+  "/short-circuit-calculations",
+  "/cable-tray-sizing",
+  "/central-battery-sizing",
+  "/project-load-schedule",
+  "/load-summary",
   "/plumbing-fixture-unit",
   "/plumbing-loading-unit",
   "/plumbing-pump-sizing",
@@ -201,7 +223,13 @@ const savePageInputs = (projectId: string, pathname: string) => {
   const state: Record<string, any> = {};
   
   inputs.forEach((el, index) => {
-    if (el.closest("aside") || el.closest("header") || el.closest("[data-ignore-persist]")) return;
+    if (
+      el.closest("aside") ||
+      el.closest("header") ||
+      el.closest("[data-ignore-persist]") ||
+      el.hasAttribute("data-row-idx") ||
+      el.closest("[data-row-id]")
+    ) return;
     
     const key = getElementKey(el, index);
     if (el instanceof HTMLInputElement) {
@@ -229,7 +257,13 @@ const applyLiveData = (state: Record<string, any>) => {
   (window as any).__mep_is_restoring = true;
   
   inputs.forEach((el, index) => {
-    if (el.closest("aside") || el.closest("header") || el.closest("[data-ignore-persist]")) return;
+    if (
+      el.closest("aside") ||
+      el.closest("header") ||
+      el.closest("[data-ignore-persist]") ||
+      el.hasAttribute("data-row-idx") ||
+      el.closest("[data-row-id]")
+    ) return;
     
     const key = getElementKey(el, index);
     const savedVal = state[key];
@@ -245,14 +279,12 @@ const applyLiveData = (state: Record<string, any>) => {
         if (el.value !== savedVal.value) {
           setReactInputValue(el, savedVal.value);
           el.dispatchEvent(new Event("input", { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
         }
       }
     } else if (el instanceof HTMLTextAreaElement) {
       if (el.value !== savedVal.value) {
         setReactInputValue(el, savedVal.value);
         el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
       }
     } else if (el instanceof HTMLSelectElement) {
       if (el.value !== savedVal.value) {
@@ -286,7 +318,13 @@ const restorePageInputs = (projectId: string, pathname: string) => {
   (window as any).__mep_is_restoring = true;
   
   inputs.forEach((el, index) => {
-    if (el.closest("aside") || el.closest("header") || el.closest("[data-ignore-persist]")) return;
+    if (
+      el.closest("aside") ||
+      el.closest("header") ||
+      el.closest("[data-ignore-persist]") ||
+      el.hasAttribute("data-row-idx") ||
+      el.closest("[data-row-id]")
+    ) return;
     if (el instanceof HTMLInputElement && el.type === "file") return;
     
     const key = getElementKey(el, index);
@@ -303,14 +341,12 @@ const restorePageInputs = (projectId: string, pathname: string) => {
         if (el.value !== savedVal.value) {
           setReactInputValue(el, savedVal.value);
           el.dispatchEvent(new Event("input", { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
         }
       }
     } else if (el instanceof HTMLTextAreaElement) {
       if (el.value !== savedVal.value) {
         setReactInputValue(el, savedVal.value);
         el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
       }
     } else if (el instanceof HTMLSelectElement) {
       if (el.value !== savedVal.value) {
@@ -330,7 +366,7 @@ const triggerSave = () => {
   
   const pathname = window.location.pathname;
   const calcTitle = getCalculatorTitleFromPath(pathname) || 'Ventilation';
-  logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
+  logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`, { immediate: true });
 
   // Broadcast mep-trigger-save to all active calculator routes
   const saveEvent = new CustomEvent("mep-trigger-save", { detail: { handled: false } });
@@ -406,7 +442,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   spaceCountUnit?: string;
   subtext?: ReactNode;
 }) {
-  const { profile, userData, logout, loading } = useAuth();
+  const { profile, userData, logout, loading, updateProfileDetails } = useAuth();
   const userId = userData?.id || profile?.id;
   const userPhoto = (userData?.profile_photo !== undefined && userData?.profile_photo !== null)
     ? userData.profile_photo
@@ -425,10 +461,11 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const activeName = searchObj?.name;
   const navigate = useNavigate();
   const { project, projects, activeProjectId, selectProject, refreshProjects, deleteProject, duplicateProject, updateProject, isReadOnly, setReadOnly, saveAsRevision, forceSaveToCloud, syncFromCloud, isInitializing, spaces, zones, equipment } = useWorkspace();
-  const { joinProject, leaveProject, setActiveModule, getLockOwner, mySessionId } = useCollaboration();
+  const { joinProject, setActiveModule, getLockOwner, mySessionId, presenceReady } = useCollaboration();
   const activeUsers = useCollaboration(s => s.activeUsers);
   const [myEmail, setMyEmail] = useState<string>("unknown");
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [enterLicenseOpen, setEnterLicenseOpen] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState<LicenseStatusInfo | null>(globalLicenseCache);
   const [showPioneerModal, setShowPioneerModal] = useState(false);
   const [defaultIntelOpen, setDefaultIntelOpen] = useState(false);
@@ -2258,7 +2295,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
   useEffect(() => {
     if (profile?.id && pathname && pathname !== '/' && pathname !== '/login') {
-      const formattedTitle = pathname.replace('/', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Dashboard';
+      const formattedTitle = pathname.replace('/', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || 'Home';
       logCalculatorView(formattedTitle, pathname);
     }
   }, [pathname, profile?.id]);
@@ -2289,11 +2326,18 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     };
     initCollab();
+    // NOTE: we intentionally do NOT leave the presence channel here. AppShell is mounted per route,
+    // so leaving on unmount would tear down/rejoin the channel on every navigation and break locking.
+    // joinProject() is idempotent and only switches channels when the project changes.
+  }, [project?.id, userData?.name, profile?.name, userData?.email, profile?.email, joinProject]);
 
+  // Release this page's calculator lock when AppShell unmounts (delayed, so moving to another
+  // calculator page doesn't produce a presence flicker; cancelled when the next page claims a module).
+  useEffect(() => {
     return () => {
-      leaveProject();
+      useCollaboration.getState().releaseActiveModule();
     };
-  }, [project?.id, userData?.name, profile?.name, userData?.email, profile?.email, joinProject, leaveProject]);
+  }, []);
 
 
 
@@ -2349,6 +2393,8 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     if (!isAutoSaveActive) return;
 
     const autoSaveTimer = setInterval(() => {
+      // Never auto-save from a read-only session (e.g. another user is editing this calculator)
+      if (typeof window !== 'undefined' && (window as any).__mep_is_readonly) return;
       if (targetProjId) {
         workspaceStore.forceSaveToCloud();
       }
@@ -2365,11 +2411,19 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   }, [userData?.name, profile?.name]);
 
   const isCalculatorRoute = isVersionAllowed;
+  // Pages that take part in the "one editor per calculator" lock
+  const isLockableRoute = isCalculatorRoute && pathname !== '/notifications';
 
   // Update active module on route change across all calculators
   useEffect(() => {
-    if (pathname && isCalculatorRoute) {
+    if (pathname && isLockableRoute) {
       setActiveModule(pathname);
+      try {
+        if (project?.id) {
+          localStorage.setItem(`mep_last_route_${project.id}`, pathname);
+        }
+        localStorage.setItem("mep_last_active_route", pathname);
+      } catch {}
     } else {
       setActiveModule(null);
     }
@@ -2379,11 +2433,76 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     if (!acceptedPrivacy && pathname !== '/login' && pathname !== '/privacy') {
       navigate({ to: '/privacy' });
     }
-  }, [pathname, isCalculatorRoute, navigate, userData?.privacyPolicyAccepted]);
+  }, [pathname, isLockableRoute, navigate, userData?.privacyPolicyAccepted, project?.id]);
 
-  const lockOwnerObj = getLockOwner(pathname);
+  const lockOwnerObj = isLockableRoute ? getLockOwner(pathname) : null;
   const isLockedByOther = Boolean(lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
   const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
+  // Until the first presence sync arrives we don't know if someone else is editing -> stay read-only (fail-open after 5s)
+  const isPresencePending = isLockableRoute && !presenceReady;
+
+  // When the editor leaves a calculator while someone else is waiting on it, push the latest data to the cloud
+  // immediately so the next editor starts from fresh data.
+  useEffect(() => {
+    if (!pathname || !isLockableRoute) return;
+    const path = pathname;
+    return () => {
+      try {
+        if (typeof window !== 'undefined' && (window as any).__mep_is_readonly) return;
+        if (useCollaboration.getState().getOthersInModule(path).length > 0) {
+          workspaceStore.flushToCloud();
+        }
+      } catch (e) { /* ignore */ }
+    };
+  }, [pathname, isLockableRoute]);
+
+  // Live lock hand-over: notify the user and pull the latest data when the lock is passed to them
+  const lockTransitionRef = useRef<{ path: string; locked: boolean; ready: boolean; owner: string } | null>(null);
+  const handoverSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!isLockableRoute) {
+      lockTransitionRef.current = null;
+      return;
+    }
+    const prev = lockTransitionRef.current;
+    lockTransitionRef.current = { path: pathname, locked: isLockedByOther, ready: !isPresencePending, owner: lockOwnerName };
+    if (isPresencePending) return;
+
+    const isFirstEvaluation = !prev || prev.path !== pathname || !prev.ready;
+    if (isFirstEvaluation) {
+      if (isLockedByOther) {
+        toast.info(`🛡️ ${lockOwnerName} is currently editing this calculator. You are in Read-Only mode until they leave.`, { id: "collab-lock-status", duration: 6000 });
+      }
+      return;
+    }
+
+    if (prev.locked && !isLockedByOther) {
+      toast.success(`🔓 ${prev.owner} left this calculator. Editing is now unlocked for you.`, { id: "collab-lock-status", duration: 6000 });
+      // Give the previous editor's final save a moment to land, then load the latest data
+      if (handoverSyncTimerRef.current) clearTimeout(handoverSyncTimerRef.current);
+      const syncPath = pathname;
+      handoverSyncTimerRef.current = setTimeout(async () => {
+        handoverSyncTimerRef.current = null;
+        try {
+          await workspaceStore.syncFromCloud();
+          const pid = workspaceStore.getState().project?.id;
+          if (pid && typeof window !== 'undefined' && window.location.pathname === syncPath) {
+            restorePageInputs(pid, syncPath);
+          }
+        } catch (e) {
+          console.error("Failed to load latest data after lock hand-over", e);
+        }
+      }, 1500);
+    } else if (!prev.locked && isLockedByOther) {
+      toast.warning(`🛡️ ${lockOwnerName} is now editing this calculator. Switched to Read-Only mode.`, { id: "collab-lock-status", duration: 6000 });
+    }
+  }, [pathname, isLockableRoute, isLockedByOther, isPresencePending, lockOwnerName]);
+
+  useEffect(() => {
+    return () => {
+      if (handoverSyncTimerRef.current) clearTimeout(handoverSyncTimerRef.current);
+    };
+  }, []);
 
 
 
@@ -2408,8 +2527,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
   }, [pathname, project.id]);
 
-  // Save inputs on any input, change, or keyup event and log activity update immediately
+  // Save inputs on any input or change event (debounced)
   useEffect(() => {
+    if (EXCLUDED_PERSIST_PATHS.includes(pathname)) return;
     let updateTimer: any = null;
 
     const handleUserEdit = (e: Event) => {
@@ -2417,26 +2537,31 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       
       const target = e.target as HTMLElement;
       if (!target) return;
-      if (target.closest("aside") || target.closest("header") || target.closest("[data-ignore-persist]")) {
+      if (
+        target.closest("aside") ||
+        target.closest("header") ||
+        target.closest("[data-ignore-persist]") ||
+        target.hasAttribute("data-row-idx") ||
+        target.closest("[data-row-id]")
+      ) {
         return;
       }
       
-      try {
-        if (project?.id) savePageInputs(project.id, pathname);
-      } catch (err) {}
+      if (updateTimer) clearTimeout(updateTimer);
+      updateTimer = setTimeout(() => {
+        try {
+          if (project?.id) savePageInputs(project.id, pathname);
+        } catch (err) {}
+      }, 250);
     };
     
     document.addEventListener("input", handleUserEdit, true);
     document.addEventListener("change", handleUserEdit, true);
-    document.addEventListener("keyup", handleUserEdit, true);
-    document.addEventListener("click", handleUserEdit, true);
     
     return () => {
       if (updateTimer) clearTimeout(updateTimer);
       document.removeEventListener("input", handleUserEdit, true);
       document.removeEventListener("change", handleUserEdit, true);
-      document.removeEventListener("keyup", handleUserEdit, true);
-      document.removeEventListener("click", handleUserEdit, true);
     };
   }, [pathname, project?.id]);
 
@@ -2520,9 +2645,9 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         e.preventDefault();
         e.stopPropagation();
         
-        const isEffectiveReadOnly = isReadOnly || isLockedByOther || isApprovedLockedByCalc;
+        const isEffectiveReadOnly = isReadOnly || isLockedByOther || isApprovedLockedByCalc || isPresencePending || isViewerRole;
         if (isEffectiveReadOnly) {
-          toast.error(isApprovedLockedByCalc ? "Cannot save. Calculation is APPROVED & LOCKED in Read-Only mode." : "Cannot save. Workspace is in Read-Only mode.");
+          toast.error(isApprovedLockedByCalc ? "Cannot save. Calculation is APPROVED & LOCKED in Read-Only mode." : isLockedByOther ? `Cannot save. ${lockOwnerName} is currently editing this calculator.` : "Cannot save. Workspace is in Read-Only mode.");
           return;
         }
         
@@ -2531,8 +2656,6 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         }
         triggerSave();
         if (forceSaveToCloud) forceSaveToCloud();
-        const calcTitle = getCalculatorTitleFromPath(pathname) || 'Calculation';
-        logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
         toast.success("💾 Saved successfully to Cloud & Disk! (Ctrl+S)", { id: "ctrl-s-save" });
       }
     };
@@ -2541,26 +2664,36 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [project?.id, pathname, isReadOnly, isLockedByOther, isApprovedLockedByCalc]);
+  }, [project?.id, pathname, isReadOnly, isLockedByOther, isApprovedLockedByCalc, isPresencePending, isViewerRole, lockOwnerName]);
 
   const getReadOnlyMessage = useCallback(() => {
     if (isApprovedLockedByCalc) {
       return "🔒 CALCULATION APPROVED: This calculation has been approved and is locked in Read-Only mode. Contact a Discipline Coordinator to unlock.";
     }
     if (isLockedByOther) {
-      return `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Editing is locked.`;
+      return `🛡️ READ-ONLY MODE: This calculator is currently being edited by ${lockOwnerName}. Editing will unlock automatically when they leave.`;
+    }
+    if (isPresencePending) {
+      return "⏳ Checking whether another user is editing this calculator... please wait a moment.";
     }
     if (isViewerRole) {
       return "🛡️ READ-ONLY MODE: Viewer role accounts cannot edit calculations.";
     }
     return "🛡️ READ-ONLY MODE: Workspace is locked. Modifications are disabled.";
-  }, [isApprovedLockedByCalc, isLockedByOther, lockOwnerName, isViewerRole]);
+  }, [isApprovedLockedByCalc, isLockedByOther, lockOwnerName, isViewerRole, isPresencePending]);
 
   // Read-Only Enforcement: Blocks value modifications on inputs/selects/textareas and mutation buttons, while keeping scrolling, text copying, tabs, and navigation 100% interactive
   useEffect(() => {
     const isNotificationsPage = pathname === '/notifications';
-    const isEffectiveReadOnly = !isNotificationsPage && (isReadOnly || isLockedByOther || isViewerRole || isApprovedLockedByCalc);
+    const isEffectiveReadOnly = !isNotificationsPage && (isReadOnly || isLockedByOther || isViewerRole || isApprovedLockedByCalc || isPresencePending);
+    const prevReadOnlyFlag = Boolean((window as any).__mep_is_readonly);
     (window as any).__mep_is_readonly = isEffectiveReadOnly;
+    if (prevReadOnlyFlag !== isEffectiveReadOnly) {
+      // Many components read window.__mep_is_readonly while rendering; re-render them so the
+      // lock/unlock takes effect immediately (e.g. when the other editor leaves the calculator).
+      window.dispatchEvent(new CustomEvent('mep_readonly_changed', { detail: { readOnly: isEffectiveReadOnly } }));
+      workspaceStore.refresh();
+    }
     
     if (!isEffectiveReadOnly) return;
 
@@ -2710,7 +2843,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       document.removeEventListener("change", handleReadOnlyChange, true);
       document.removeEventListener("contextmenu", handleReadOnlyContextMenu, true);
     };
-  }, [isReadOnly, isLockedByOther, isViewerRole, getReadOnlyMessage]);
+  }, [pathname, isReadOnly, isLockedByOther, isViewerRole, isApprovedLockedByCalc, isPresencePending, getReadOnlyMessage]);
 
   // Security Guard: Prevent Inspect Element & DevTools Shortcuts in Production Desktop App
   useEffect(() => {
@@ -2746,18 +2879,27 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
 
   const filteredNav = useMemo(() => {
-    let effRole = profile?.role;
+    let effRole = profile?.role || userData?.role || (userData?.features as any)?.role;
     if (!effRole && typeof window !== 'undefined') {
       try {
         const raw = localStorage.getItem('mep_calculator_user_data') || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile');
         if (raw) {
           const parsed = JSON.parse(raw);
-          effRole = parsed?.role;
+          effRole = parsed?.role || parsed?.features?.role;
         }
       } catch (e) {}
     }
-    const isSuperAdmin = effRole === 'SUPER_ADMIN' || profile?.email === 'admin@tarv.ai';
-    const isOrgAdmin = effRole === 'ORG_ADMIN' || (profile?.email && profile.email.toLowerCase().includes('kirtan'));
+    const roleUpper = String(effRole || '').toUpperCase().trim();
+    const desigUpper = String(profile?.designation || userData?.designation || (userData?.features as any)?.designation || '').toUpperCase().trim();
+    const isSuperAdmin = roleUpper === 'SUPER_ADMIN' || userEmail === 'admin@tarv.ai';
+    const isOrgAdmin = roleUpper === 'ORG_ADMIN' ||
+      roleUpper === 'ORGANIZATION_ADMIN' ||
+      roleUpper === 'ORGANIZATION ADMIN' ||
+      roleUpper === 'ORG ADMIN' ||
+      (roleUpper.includes('ORG') && roleUpper.includes('ADMIN')) ||
+      desigUpper.includes('ORG ADMIN') ||
+      desigUpper.includes('ORGANIZATION ADMIN') ||
+      userEmail.includes('kirtan');
     const isAdmin = isSuperAdmin || isOrgAdmin;
 
     const rawNav = import.meta.env.VITE_APP_MODE === 'kfactor'
@@ -2801,7 +2943,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     };
     
     return filterNavItems(rawNav);
-  }, [profile]);
+  }, [profile, userData]);
 
   const logoLetter = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K" : "M";
   const brandName = import.meta.env.VITE_APP_MODE === 'kfactor' ? "K-Factor Calc" : "MEP Calculator";
@@ -2826,6 +2968,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
     }
   }
 
+  // Step 2 in License Flow: After the trial period (14 days), a license popup appears automatically
+  useEffect(() => {
+    if (!isPaidPlan && profile?.role !== 'SUPER_ADMIN' && computedStatus === 'EXPIRED_TRIAL') {
+      setEnterLicenseOpen(true);
+    }
+  }, [computedStatus, isPaidPlan, profile?.role]);
+
   return (
     <div className="grid h-screen grid-cols-[auto_1fr] grid-rows-[80px_1fr] bg-surface dark:bg-[#121212] text-foreground text-[14px] print:block print:h-auto">
       {/* Top Header (Column 2, Row 1) */}
@@ -2843,7 +2992,17 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   <PanelLeftOpen className="size-5" />
                 </button>
               )}
-               <div className="flex items-center gap-2">
+              {!(
+                title === "Home" ||
+                title === "Dashboard" ||
+                title === "Projects" ||
+                title === "Project" ||
+                pathname === "/" ||
+                pathname === "/dashboard" ||
+                pathname === "/projects" ||
+                pathname.startsWith("/projects")
+              ) && (
+                <div className="flex items-center gap-2">
                  <DropdownMenu>
                    <ContextMenu>
                    <ContextMenuTrigger asChild>
@@ -3051,6 +3210,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                    <VersionManager projectName={project.name} calculatorName={pathname.split('/').pop() || 'Unknown'} />
                  )}
                </div>
+              )}
              </div>
 
              <div className="flex-1" />
@@ -3063,7 +3223,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   type="button"
                   onClick={() => toast.info(getReadOnlyMessage(), { id: "readonly-notice" })}
                   className="size-10 rounded-full flex items-center justify-center bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 shadow-xs select-none animate-pulse cursor-pointer hover:scale-105 active:scale-95 transition-transform"
-                  title={`READ-ONLY MODE: Currently being edited by ${lockOwnerName}. Click for details.`}
+                  title={`READ-ONLY MODE: ${lockOwnerName} is currently editing this calculator. It will unlock automatically when they leave. Click for details.`}
                 >
                   <ShieldAlert className="size-5 text-red-600 dark:text-red-400 animate-pulse" />
                 </button>
@@ -3076,12 +3236,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                 >
                   <Lock className="size-5 text-emerald-600 dark:text-emerald-400" />
                 </button>
-              ) : isReadOnly || isViewerRole ? (
+              ) : isReadOnly || isViewerRole || isPresencePending ? (
                 <button
                   type="button"
                   onClick={() => toast.info(getReadOnlyMessage(), { id: "readonly-notice" })}
                   className="size-10 rounded-full flex items-center justify-center bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shadow-xs select-none animate-pulse cursor-pointer hover:scale-105 active:scale-95 transition-transform"
-                  title={isViewerRole ? "READ-ONLY MODE: Viewer Role Active. Click for details." : "READ-ONLY MODE Active. Click for details."}
+                  title={isViewerRole ? "READ-ONLY MODE: Viewer Role Active. Click for details." : isPresencePending && !isReadOnly ? "Checking whether another user is editing this calculator..." : "READ-ONLY MODE Active. Click for details."}
                 >
                   <ShieldAlert className="size-5 text-amber-600 dark:text-amber-400 animate-pulse" />
                 </button>
@@ -3097,16 +3257,14 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
               <button
                 type="button"
                 onClick={() => {
-                  if (isLockedByOther || isReadOnly || isViewerRole || isApprovedLockedByCalc) {
-                    toast.error(isApprovedLockedByCalc ? "Cannot save: Calculation is Approved & Locked in Read-Only mode." : "Cannot save: Workspace is in Read-Only mode.", { id: "readonly-save-err" });
+                  if (isLockedByOther || isReadOnly || isViewerRole || isApprovedLockedByCalc || isPresencePending) {
+                    toast.error(isApprovedLockedByCalc ? "Cannot save: Calculation is Approved & Locked in Read-Only mode." : isLockedByOther ? `Cannot save: ${lockOwnerName} is currently editing this calculator.` : "Cannot save: Workspace is in Read-Only mode.", { id: "readonly-save-err" });
                     return;
                   }
                   savePageInputs(project.id, pathname);
                   triggerSave();
                   forceSaveToCloud();
                   dirtyStore.set(false);
-                  const calcTitle = getCalculatorTitleFromPath(pathname) || 'Ventilation';
-                  logCalculatorUpdate(calcTitle, `Saved changes in ${calcTitle}`);
                   toast.success("Calculations synced to cloud successfully!");
                 }}
                 className="size-10 rounded-full flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border border-transparent"
@@ -3121,7 +3279,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   await syncFromCloud();
                   toast.success("Synced latest data from cloud!");
                 }}
-                className="size-10 rounded-full flex items-center justify-center bg-blue-500 text-white hover:bg-blue-600 transition-colors shadow-sm cursor-pointer border border-transparent"
+                className="size-10 rounded-full flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border border-transparent"
                 title="Sync from Cloud"
               >
                 <RefreshCw className="size-4" />
@@ -3129,7 +3287,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
               <button
                 type="button"
-                onClick={() => setPricingModalOpen(true)}
+                onClick={() => setEnterLicenseOpen(true)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold transition-all shadow-sm cursor-pointer border ${
                   isPaidPlan
                     ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20"
@@ -3161,6 +3319,12 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     document.documentElement.classList.remove("dark");
                   }
                   window.dispatchEvent(new Event("mep-theme-change"));
+                  try {
+                    updateProfileDetails({
+                      settings: { theme: nextTheme }
+                    }).catch(() => {});
+                  } catch (e) {}
+                  toast.success(`Switched to ${nextTheme === "light" ? "Light" : "Dark"} Mode`);
                 }}
                 className="size-10 rounded-full hover:bg-surface-2 dark:hover:bg-white/5 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
                 title="Toggle Dark / Light Mode"
@@ -3296,6 +3460,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     )}
                     <div className="flex flex-col min-w-0 flex-1">
                       <div className="text-sm font-semibold text-foreground truncate">{userData?.name || profile?.name || 'MEP User'}</div>
+                      {(() => {
+                        const orgDisplay = userData?.company || profile?.company || userData?.organization || profile?.organization || userData?.organization_name || (profile as any)?.organization_name || (userData?.features as any)?.organization_name || (profile?.features as any)?.organization_name || (typeof window !== 'undefined' && userData?.id ? localStorage.getItem(`mep_user_company_${userData.id}`) : null);
+                        if (!orgDisplay) return null;
+                        return (
+                          <div className="flex items-center gap-1.5 mt-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 truncate" title={orgDisplay}>
+                            <Building2 className="size-3.5 shrink-0" />
+                            <span className="truncate">{orgDisplay}</span>
+                          </div>
+                        );
+                      })()}
                       <div className="text-xs text-muted-foreground truncate">{userData?.email || myEmail}</div>
                       {(() => {
                         // Priority 1: Check hierarchy storage
@@ -3497,7 +3671,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   </span>
                 </div>
                 <button
-                  onClick={() => setPricingModalOpen(true)}
+                  onClick={() => setEnterLicenseOpen(true)}
                   className="px-2.5 py-1 bg-white text-amber-800 rounded font-bold hover:bg-amber-100 transition-colors shrink-0"
                 >
                   Renew Now
@@ -3578,7 +3752,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   )}
                   {(() => {
                     const NON_CALC_TITLES = new Set([
-                      "Dashboard", "Projects", "Project", "Reports", "Report",
+                      "Home", "Dashboard", "Home Page", "Projects", "Project", "Reports", "Report",
                       "Settings", "Teams", "Team", "BIM Viewer", "Admin",
                       "Notifications", "Company Hierarchy", "3D BIM Viewer", "3D Studio",
                       "Sanity Check Tool", "Zone Overview", "Equipment"
@@ -3691,12 +3865,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
           {(() => {
             const sections = getSections(hoveredGroup.item.children);
-            const isTwoColGrid = hoveredGroup.item.label === "HVAC" || hoveredGroup.item.label === "Electrical";
+            const totalLeafItems = hoveredGroup.item.children.filter((c) => !c.isHeader).length;
+            const isTwoColGrid = totalLeafItems > 6 && (hoveredGroup.item.label === "HVAC" || hoveredGroup.item.label === "Electrical");
             const isMultiCol = isTwoColGrid || (!sections[0]?.header && sections[0]?.items.length > 8);
             return (
               <div
                 className={`${
-                  isTwoColGrid ? "w-[540px]" : isMultiCol ? "w-[480px]" : "w-[260px]"
+                  isTwoColGrid ? "w-[540px]" : isMultiCol ? "w-[480px]" : "w-[280px]"
                 } ${isTwoColGrid ? "grid grid-cols-2 gap-4" : "flex flex-col gap-3.5"}`}
               >
                 {sections.map((sec, idx) => (
@@ -3732,6 +3907,19 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         </div>
       )}
 
+
+      <EnterLicenseModal
+        isOpen={enterLicenseOpen}
+        onClose={() => setEnterLicenseOpen(false)}
+        isExpired={computedStatus === 'EXPIRED_TRIAL'}
+        onSuccess={() => {
+          refreshLicenseStatus();
+          if (getUserData) getUserData();
+        }}
+        onOpenPricing={() => {
+          setPricingModalOpen(true);
+        }}
+      />
 
       <PricingModal
         isOpen={pricingModalOpen}

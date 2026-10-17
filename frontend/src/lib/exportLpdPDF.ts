@@ -1,4 +1,4 @@
-import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
@@ -9,6 +9,16 @@ import { toast } from "sonner";
 
 export interface LpdPdfExportOptions {
   scope?: "current" | "all"; // current area type (Internal or External) or both
+  calcNo?: string;
+  revNo?: string;
+  projectNo?: string;
+  projectName?: string;
+  client?: string;
+  endUser?: string;
+  date?: string;
+  userName?: string;
+  includeStamp?: boolean;
+  returnBuffer?: boolean;
 }
 
 const sanitizePdfText = (text: any): string => {
@@ -28,9 +38,11 @@ export const exportLpdPDF = async (
   project: LpdProject,
   unitSystem: "si" | "ip" = "si",
   options: LpdPdfExportOptions = {}
-) => {
+): Promise<Uint8Array | boolean | void> => {
   try {
-    toast.loading("Generating LPD Calculation PDF Report...", { id: "lpd-pdf-export" });
+    if (!options.returnBuffer) {
+      toast.loading("Generating LPD Calculation PDF Report...", { id: "lpd-pdf-export" });
+    }
 
     const activeProj: any = workspaceStore.getState()?.project || {};
 
@@ -54,60 +66,24 @@ export const exportLpdPDF = async (
     const areaUnit = isIp ? "sq.ft" : "m²";
     const lpdUnit = isIp ? "W/sq.ft" : "W/m²";
 
-    const calcNo = project.calculationNo || activeProj?.calcNo || "TRV-CAL-LPD-01";
-    const today = project.date || new Date().toLocaleDateString("en-GB");
-    const projectNo = project.projectNo || activeProj?.code || activeProj?.projectNo || "P001";
-    const projectName = project.name || activeProj?.name || activeProj?.projectName || "Lighting Power Density";
-    const clientName = project.client || activeProj?.client || "-";
-    const endUser = project.endUser || activeProj?.endUser || activeProj?.location || "-";
+    const calcNo = options.calcNo || project.calculationNo || activeProj?.calcNo || "TRV-CAL-LPD-01";
+    const revNo = options.revNo || project.revNo || activeProj?.revNo || "Rev 0 - IFC";
+    const today = options.date || project.date || new Date().toLocaleDateString("en-GB");
+    const projectNo = options.projectNo || project.projectNo || activeProj?.code || activeProj?.projectNo || "P001";
+    const projectName = options.projectName || project.name || activeProj?.name || activeProj?.projectName || "Lighting Power Density";
+    const clientName = options.client || project.client || activeProj?.client || "-";
+    const endUser = options.endUser || project.endUser || activeProj?.endUser || activeProj?.location || "-";
 
-    // 1. Report Title (matching exact Ventilation Report format)
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Lighting Power Density (LPD) Calculation Report", 14, 14);
-
-    // 2. Metadata Block (182mm width: left 14mm to right 196mm)
-    doc.setFontSize(9);
-    doc.setLineWidth(0.3);
-    doc.rect(14, 18, 182, 18); // Outer box
-
-    // Vertical line to separate left/right metadata
-    doc.line(105, 18, 105, 36);
-
-    // Horizontal dividing lines
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    // Metadata entries
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 120, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 120, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName.length > 32 ? projectName.substring(0, 32) + "..." : projectName, 42, 34);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, 125, 34);
+    // 1. Header & Standard Metadata Box (Central Org Branding)
+    const startY = addPdfHeader(doc, "Lighting Power Density (LPD) Calculation", {
+      calcNo,
+      revNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser
+    });
 
     // 3. Assemble groups to export
     const groupsToExport: LpdGroup[] = [];
@@ -254,7 +230,7 @@ export const exportLpdPDF = async (
 
     // 4. Render AutoTable (matching layout of Ventilation Report)
     callAutoTable(doc, {
-      startY: 40,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
@@ -309,63 +285,40 @@ export const exportLpdPDF = async (
       reviewerDate,
       approverName,
       approverDate,
-    } = getSignatureBlockDetails(activeProj?.id || "default", "/lpd-calculation", "");
+    } = getSignatureBlockDetails(activeProj?.id || "default", "/lpd-calculation", options.userName || "");
 
-    callAutoTable(doc, {
-      startY: finalY + 8,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      styles: {
-        fontSize: 8,
-        halign: "center",
-        valign: "middle",
-        lineColor: [100, 100, 100],
-        lineWidth: 0.1,
-        cellPadding: { top: 2, bottom: 2, left: 1, right: 1 },
-      },
-      headStyles: { fillColor: [255, 230, 204], textColor: 0, fontStyle: "bold" },
-      head: [
-        [
-          { content: "" },
-          { content: "Originator" },
-          { content: "Reviewer" },
-          { content: "Approver" },
-        ],
-      ],
-      body: [
-        [
-          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedName || "-", styles: { halign: "center" } },
-          { content: reviewerName || "-", styles: { halign: "center" } },
-          { content: approverName || "-", styles: { halign: "center" } },
-        ],
-        [
-          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedDate || "-", styles: { halign: "center" } },
-          { content: reviewerDate || "-", styles: { halign: "center" } },
-          { content: approverDate || "-", styles: { halign: "center" } },
-        ],
-      ],
-      columnStyles: {
-        0: { cellWidth: 32 },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 50 },
-      },
-    });
+    if (options.includeStamp !== false) {
+      const sigDetails = getSignatureBlockDetails(activeProj?.id || "default", "/lpd-calculation", options.userName || "");
+      addPdfSignatureBlock(doc, finalY + 8, sigDetails, activeProj?.id || "default", "/lpd-calculation");
+    }
+
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
 
     const pdfBuffer = doc.output("arraybuffer");
-    const cleanFileName = `LPD_Calculation_Report_${project.projectNo || project.name || "Project"}.pdf`.replace(
+    if (options.returnBuffer) {
+      return new Uint8Array(pdfBuffer);
+    }
+
+    const cleanFileName = `LPD_Calculation_${project.projectNo || project.name || "Project"}.pdf`.replace(
       /[^a-zA-Z0-9_\-\.]/g,
       "_"
     );
 
     await downloadFile(new Uint8Array(pdfBuffer), cleanFileName, "PDF Document", ["pdf"]);
     toast.dismiss("lpd-pdf-export");
-    toast.success("LPD Calculation PDF Report exported successfully!");
+    toast.success("LPD Calculation PDF exported successfully!");
+    return true;
   } catch (error: any) {
     console.error("exportLpdPDF error:", error);
-    toast.dismiss("lpd-pdf-export");
-    toast.error(`Export PDF failed: ${error?.message || String(error)}`);
+    if (!options.returnBuffer) {
+      toast.dismiss("lpd-pdf-export");
+      toast.error(`Export PDF failed: ${error?.message || String(error)}`);
+    }
+    return false;
   }
 };

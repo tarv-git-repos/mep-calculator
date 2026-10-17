@@ -983,18 +983,12 @@ function PreliminaryCoolingLoadPage() {
           });
         } else if (!importOpen && selected.size > 0) {
           e.preventDefault();
-          confirm(`Are you sure you want to delete the ${selected.size} selected space(s)?`, {
-            title: "Delete Spaces",
-            confirmText: "Delete",
-            cancelText: "Cancel",
-            variant: "destructive"
-          }).then((ok: any) => {
+          confirm(`Are you sure you want to delete the ${selected.size} selected spaces?`).then((ok: any) => {
             if (ok) {
               const selectedIds = Array.from(selected);
               pushToUndo(rows);
               saveRows(rows.filter((s) => !selectedIds.includes(s.id)));
               setSelected(new Set());
-              toast.info(`Deleted ${selectedIds.length} space(s)`);
             }
           });
         }
@@ -1188,17 +1182,9 @@ function PreliminaryCoolingLoadPage() {
       alert("Please select at least one space to delete.");
       return;
     }
-    const ok = await confirm(`Are you sure you want to delete the ${selectedIds.length} selected space(s)?`, {
-      title: "Delete Spaces",
-      confirmText: "Delete",
-      cancelText: "Cancel",
-      variant: "destructive"
-    });
-    if (ok) {
-      pushToUndo(rows);
+    if (await confirm(`Are you sure you want to remove ${selectedIds.length} selected spaces?`)) {
       saveRows(rows.filter((r) => !selectedIds.includes(r.id)));
       setSelected(new Set());
-      toast.info(`Deleted ${selectedIds.length} space(s)`);
     }
   };
 
@@ -1808,6 +1794,8 @@ function PreliminaryCoolingLoadPage() {
       projectNo: projectInfo.projectNumber,
       calcNo: projectInfo.calcNumber,
       date: projectInfo.date,
+      userName: currentUserName,
+      endUser: (project as any)?.endUser || (project as any)?.location || "",
       reviewState: calcReviewState,
     });
   };
@@ -2325,14 +2313,7 @@ function PreliminaryCoolingLoadPage() {
               ? `Are you sure you want to delete space "${row.name}"?`
               : `Are you sure you want to delete the ${targetsCount} selected spaces?`;
 
-            const ok = await confirm(msg, {
-              title: "Delete Spaces",
-              confirmText: "Delete",
-              cancelText: "Cancel",
-              variant: "destructive"
-            });
-
-            if (ok) {
+            if (await confirm(msg)) {
               pushToUndo(rows);
               saveRows(rows.filter((s) => !selectedIds.includes(s.id)));
               setSelected(new Set());
@@ -2662,7 +2643,6 @@ function PreliminaryCoolingLoadPage() {
                             onClick={() => {
                               try {
                                 localStorage.removeItem("mep_grid_preliminary-cooling-load");
-                                window.dispatchEvent(new CustomEvent("mep-reset-column-widths"));
                                 window.dispatchEvent(new Event("resize"));
                                 toast.success("Column widths reset to auto-distribution");
                               } catch (e) {}
@@ -2978,10 +2958,10 @@ function PreliminaryCoolingLoadPage() {
                                               <td className="p-2 border-r border-border text-center font-mono">
                                                 {Math.round(wattsVal).toLocaleString()}
                                               </td>
-                                              <td className="p-2 border-r border-border text-center font-mono">
+                                              <td className="p-2 border-r border-border text-center font-mono bg-sky-50/60 dark:bg-sky-950/20 font-bold text-foreground">
                                                 {kwVal.toFixed(2)}
                                               </td>
-                                              <td className="p-2 text-center font-mono">
+                                              <td className="p-2 text-center font-mono bg-sky-50/60 dark:bg-sky-950/20 font-bold text-foreground">
                                                 {trVal.toFixed(2)}
                                               </td>
                                             </tr>
@@ -3006,10 +2986,10 @@ function PreliminaryCoolingLoadPage() {
                                           <td className="p-2 border-r border-border text-center font-mono font-bold">
                                             {Math.round(floorWatts).toLocaleString()}
                                           </td>
-                                          <td className="p-2 border-r border-border text-center font-mono font-bold">
+                                          <td className="p-2 border-r border-border text-center font-mono font-bold bg-sky-100/70 dark:bg-sky-900/30 text-foreground">
                                             {floorKw.toFixed(2)}
                                           </td>
-                                          <td className="p-2 text-center font-mono font-bold">
+                                          <td className="p-2 text-center font-mono font-bold bg-sky-100/70 dark:bg-sky-900/30 text-foreground">
                                             {floorTr.toFixed(2)}
                                           </td>
                                         </tr>
@@ -3059,9 +3039,9 @@ function PreliminaryCoolingLoadPage() {
                           <div className="pt-2">
                             <div className="border border-border rounded-xl overflow-hidden text-xs">
                               <table className="w-full border-collapse">
-                                <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
+                                <thead className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
                                   <tr className="divide-x divide-border">
-                                    <th className="p-2.5 w-28 text-center"></th>
+                                    <th className="p-2.5 w-28 text-center bg-card"></th>
                                     <th className="p-2.5 text-center w-1/3">Originator</th>
                                     <th className="p-2.5 text-center w-1/3">Reviewer</th>
                                     <th className="p-2.5 text-center w-1/3">Approver</th>

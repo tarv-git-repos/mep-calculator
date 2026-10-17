@@ -3,6 +3,7 @@ import { authService, clearAllAuthStorage, AuthUserData } from '@/services/authS
 import { api } from '@/services/api';
 import { toast } from 'sonner';
 import { loadOrgHierarchyFromStorage } from '@/utils/hierarchy';
+import { saveCompanyBranding } from '@/utils/branding';
 
 export type Role = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'PROJECT_MANAGER' | 'ENGINEER' | 'VIEWER' | 'USER';
 
@@ -128,8 +129,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (data.id) {
         if (data.profile_photo) {
           localStorage.setItem(`mep_profile_photo_${data.id}`, data.profile_photo);
-        } else if (data.profile_photo === '') {
+          if (data.features) data.features.profile_photo = data.profile_photo;
+        } else if (data.profile_photo === '' || data.profile_photo === null) {
           localStorage.removeItem(`mep_profile_photo_${data.id}`);
+          data.profile_photo = '';
+          if (data.features) data.features.profile_photo = '';
         } else {
           const savedPhoto = localStorage.getItem(`mep_profile_photo_${data.id}`);
           if (savedPhoto) {
@@ -148,6 +152,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem('mep_user_data', jsonStr);
         localStorage.setItem('mep_profile', jsonStr);
         setIsLoggedin(true);
+
+        if (data.organization_id) {
+          api.getOrgBranding(data.organization_id).then(res => {
+            if (res && res.success && res.branding) {
+              saveCompanyBranding(res.branding);
+            }
+          }).catch(() => {});
+        }
       } else {
         localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
         localStorage.removeItem('mep_user_data');
@@ -217,7 +229,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const match = allUsers.find((u: any) => u.email?.toLowerCase() === currentEmail.toLowerCase());
           if (match) {
             setUserDataState(prev => {
-              const updated = prev ? { ...prev, ...match } : match;
+              const updated = prev ? {
+                ...prev,
+                ...match,
+                settings: {
+                  ...(prev.settings || {}),
+                  ...(match.settings || {}),
+                },
+                features: {
+                  ...(prev.features || {}),
+                  ...(match.features || {}),
+                  settings: {
+                    ...(prev.features?.settings || prev.settings || {}),
+                    ...(match.features?.settings || match.settings || {}),
+                  },
+                },
+              } : match;
               if (typeof window !== 'undefined') {
                 localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(updated));
                 if (updated.company && updated.company !== 'Consitent' && updated.id) {
@@ -270,6 +297,43 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const updateProfileDetails = async (updates: Record<string, any>) => {
+    // Optimistically update local state & localStorage immediately
+    setUserDataState(prev => {
+      if (!prev) return prev;
+      const updated = {
+        ...prev,
+        ...updates,
+        ...(updates.profile_photo !== undefined ? { profile_photo: updates.profile_photo } : {}),
+        settings: {
+          ...(prev.settings || {}),
+          ...(updates.settings || {})
+        },
+        features: {
+          ...(prev.features || {}),
+          ...(updates.features || {}),
+          ...(updates.profile_photo !== undefined ? { profile_photo: updates.profile_photo } : {}),
+          settings: {
+            ...(prev.features?.settings || prev.settings || {}),
+            ...(updates.settings || {})
+          }
+        }
+      };
+      if (typeof window !== 'undefined') {
+        const jsonStr = JSON.stringify(updated);
+        localStorage.setItem(LOCAL_STORAGE_USER_KEY, jsonStr);
+        localStorage.setItem('mep_user_data', jsonStr);
+        localStorage.setItem('mep_profile', jsonStr);
+        if (prev.id) {
+          if (updates.profile_photo) {
+            localStorage.setItem(`mep_profile_photo_${prev.id}`, updates.profile_photo);
+          } else if (updates.profile_photo === '' || updates.profile_photo === null) {
+            localStorage.removeItem(`mep_profile_photo_${prev.id}`);
+          }
+        }
+      }
+      return updated;
+    });
+
     const res = await authService.updateProfile(updates);
     if (res.success && res.userData) {
       setUserData(res.userData);
@@ -310,9 +374,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const handleProfileUpdate = (e?: any) => {
-      if (e?.detail?.updates) {
-        const updates = e.detail.updates;
-        const targetId = String(e.detail.profileId || '').toLowerCase();
+      const updates = e?.detail?.updates || (e?.detail?.role ? { role: e.detail.role, designation: e.detail.designation || (e.detail.role === 'ORG_ADMIN' ? 'Organization Admin' : e.detail.role) } : null);
+      if (updates) {
+        const targetId = String(e?.detail?.profileId || '').toLowerCase();
         setUserDataState(prev => {
           if (!prev) return prev;
           const matches = !targetId || 
@@ -323,10 +387,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             const updated = {
               ...prev,
               ...updates,
+              ...(updates.profile_photo !== undefined ? { profile_photo: updates.profile_photo } : {}),
               designation: updates.designation || prev.designation,
               features: {
                 ...(prev.features || {}),
                 ...(updates.features || {}),
+                ...(updates.profile_photo !== undefined ? { profile_photo: updates.profile_photo } : {}),
                 designation: updates.designation || (prev.features as any)?.designation
               }
             };
@@ -336,6 +402,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             localStorage.setItem('mep_profile', jsonStr);
             if (updates.designation && prev.id) {
               localStorage.setItem(`mep_user_designation_${prev.id}`, updates.designation);
+            }
+            if (prev.id) {
+              if (updates.profile_photo) {
+                localStorage.setItem(`mep_profile_photo_${prev.id}`, updates.profile_photo);
+              } else if (updates.profile_photo === '' || updates.profile_photo === null) {
+                localStorage.removeItem(`mep_profile_photo_${prev.id}`);
+              }
             }
             return updated;
           }
@@ -396,9 +469,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             const mId = String(m.id || '').toLowerCase().trim();
             return (uEmail && mEmail === uEmail) || 
                    (uId && mId === uId) ||
-                   (uName && mName === uName) ||
-                   (uEmail && mEmail && (uEmail.includes(mEmail) || mEmail.includes(uEmail))) ||
-                   (uName && mName && (uName.includes(mName) || mName.includes(uName)));
+                   (!mEmail && uName && mName && uName === mName);
           });
           if (found) {
             hierarchyDesignation = found.designation || '';
@@ -426,9 +497,42 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       USER: "Jr. Design Engineer"
     };
 
-    const effectiveRole = hierarchyRole || (userData.features as any)?.role || (userData.role !== 'USER' ? userData.role : null);
-    const finalRole = effectiveRole || (userData.email === 'admin@tarv.ai' ? 'SUPER_ADMIN' : 'Jr. Design Engineer');
-    const effectiveDesignation = hierarchyDesignation || (hierarchyRole ? (ROLE_MAP[hierarchyRole] || hierarchyRole) : '') || userData.designation || (userData.features as any)?.designation || ROLE_MAP[finalRole] || finalRole;
+    const userRoleUpper = String(userData.role || (userData.features as any)?.role || '').toUpperCase().trim();
+    const userDesigUpper = String(userData.designation || (userData.features as any)?.designation || '').toUpperCase().trim();
+    const userEmailLower = String(userData.email || '').toLowerCase().trim();
+
+    const isSuperAdmin =
+      userEmailLower === 'admin@tarv.ai' ||
+      String(userData.id || '').toLowerCase().trim() === 'usr_admin_tarv_ai' ||
+      String(userData.name || '').toLowerCase().trim() === 'system admin' ||
+      userRoleUpper === 'SUPER_ADMIN';
+
+    const isOrgAdmin =
+      !isSuperAdmin && (
+        userRoleUpper === 'ORG_ADMIN' ||
+        userRoleUpper === 'ORGANIZATION_ADMIN' ||
+        userRoleUpper === 'ORGANIZATION ADMIN' ||
+        userRoleUpper === 'ORG ADMIN' ||
+        (userRoleUpper.includes('ORG') && userRoleUpper.includes('ADMIN')) ||
+        userDesigUpper === 'ORGANIZATION ADMIN' ||
+        userDesigUpper === 'ORG ADMIN' ||
+        userDesigUpper === 'ORG_ADMIN' ||
+        hierarchyRole === 'ORG_ADMIN' ||
+        Boolean(userData.is_org_admin) ||
+        Boolean((userData.features as any)?.is_org_admin)
+      );
+
+    const effectiveRole = isSuperAdmin
+      ? 'SUPER_ADMIN'
+      : (isOrgAdmin
+        ? 'ORG_ADMIN'
+        : (hierarchyRole || (userData.features as any)?.role || (userData.role !== 'USER' ? userData.role : null)));
+    const finalRole = effectiveRole || 'Jr. Design Engineer';
+    const effectiveDesignation = isSuperAdmin
+      ? (userData.designation || (userData.features as any)?.designation || ROLE_MAP['SUPER_ADMIN'])
+      : (isOrgAdmin
+        ? (userData.designation && userData.designation !== 'Lead Project Manager' ? userData.designation : ROLE_MAP['ORG_ADMIN'])
+        : (hierarchyDesignation || (hierarchyRole ? (ROLE_MAP[hierarchyRole] || hierarchyRole) : '') || userData.designation || (userData.features as any)?.designation || ROLE_MAP[finalRole] || finalRole));
 
     return {
       id: userData.id,

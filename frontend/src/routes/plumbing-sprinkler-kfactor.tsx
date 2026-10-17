@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { exportSprinklerKFactorPDF, type SprinklerExportRow } from "@/lib/exportSprinklerKFactorPDF";
 import { exportSprinklerKFactorExcel } from "@/lib/exportSprinklerKFactorExcel";
-import { addPdfSignatureBlock, resolveLatestReviewState, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, resolveLatestReviewState } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -66,7 +66,6 @@ function SprinklerKFactorPage() {
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-sprinkler-kfactor", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
-  const sigDetails = getSignatureBlockDetails(project?.id || "default", "/plumbing-sprinkler-kfactor", currentUserName, calcReviewState);
 
   const confirm = useConfirm();
   const prompt = usePrompt();
@@ -1268,7 +1267,7 @@ function SprinklerKFactorPage() {
             onDoubleClick(e);
           }
         }}
-        className={`bg-transparent w-full border border-transparent hover:border-border hover:bg-surface-2 focus:bg-background focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-xl px-1.5 py-1 text-foreground transition-all cursor-pointer focus:cursor-text disabled:opacity-40 outline-none ${className}`}
+        className={`bg-transparent w-full border border-transparent hover:border-border hover:bg-surface-2 focus:bg-background focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-xl px-1.5 py-1 text-foreground transition-all cursor-text disabled:opacity-40 outline-none ${className}`}
       />
     );
   }
@@ -2023,223 +2022,218 @@ function SprinklerKFactorPage() {
               </div>
             )}
 
-            {/* Reports Tab - Matching Canonical Ventilation / Condensate Standard */}
+            {/* Reports Tab */}
             {tab === "report" && (
-              <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
-                  
-                  {/* 1. Title */}
-                  <div className="flex justify-between items-start pb-1">
+              <div className="flex-1 min-h-0 overflow-y-auto p-6 flex flex-col gap-6 w-full">
+                {/* Toolbar */}
+                <div className="flex justify-between items-center pb-4 border-b border-border">
+                  <div>
+                    <h3 className="text-[16px] font-bold text-foreground">Sizing Report Summary</h3>
+                    <p className="text-[12.5px] text-muted-foreground mt-0.5">Review system compliance and download reports.</p>
+                  </div>
+                  <div className="flex items-center gap-1 no-print print:hidden">
+                    <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export</TBtn>
+                    <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print Report</TBtn>
+                  </div>
+                </div>
+
+                {/* Aggregate Summary Cards */}
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex items-center gap-4 hover:border-primary/20 transition-all">
+                    <div className="size-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+                      <Search className="size-5" />
+                    </div>
                     <div>
-                      <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground uppercase tracking-wide">
-                        Sprinkler K-Factor & Nozzle Sizing Calculation
-                      </h2>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        NFPA 13 Standard for the Installation of Sprinkler Systems Hydraulic Verification
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 no-print print:hidden">
-                      <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export</TBtn>
-                      <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print</TBtn>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Sprinklers Sized</span>
+                      <div className="text-[20px] font-extrabold font-mono text-foreground mt-0.5">{rows.length} heads</div>
+                      <span className="text-[10.5px] text-muted-foreground mt-0.5 block">Active nodes in project</span>
                     </div>
                   </div>
 
-                  {/* 2. Metadata Box (2-column x 3-row) */}
-                  <div className="border border-border rounded-xl overflow-hidden text-xs">
-                    <table className="w-full border-collapse">
-                      <tbody>
-                        <tr className="border-b border-border divide-x divide-border">
-                          <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
-                          <td className="p-2.5 font-mono text-foreground font-medium">
-                            {(project as any)?.calcNo || `TRV-CAL-SKF-${(project?.id || "0000").slice(-4).toUpperCase()}`}
-                          </td>
-                          <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
-                          <td className="p-2.5 font-mono font-medium">
-                            {formatDateStr(new Date().toISOString())}
-                          </td>
-                        </tr>
-                        <tr className="border-b border-border divide-x divide-border">
-                          <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
-                          <td className="p-2.5 font-mono">
-                            {project?.code || (project?.id ? project.id.slice(0, 8) : "MEP-SKF-2026")}
-                          </td>
-                          <td className="p-2.5 font-bold bg-muted/20">Client:</td>
-                          <td className="p-2.5">{project?.client || "-"}</td>
-                        </tr>
-                        <tr className="divide-x divide-border">
-                          <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
-                          <td className="p-2.5">{project?.name || "Fire Sprinkler Protection System"}</td>
-                          <td className="p-2.5 font-bold bg-muted/20">End User:</td>
-                          <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                  <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex items-center gap-4 hover:border-primary/20 transition-all">
+                    <div className="size-10 rounded-xl bg-red-500/10 text-red-500 flex items-center justify-center shrink-0">
+                      <Activity className="size-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Max Node Pressure</span>
+                      <div className="text-[20px] font-extrabold font-mono text-primary mt-0.5">
+                        {aggregateMetrics.maxPressure.toFixed(1)} <span className="text-[11px] font-normal text-muted-foreground">{unitSystem === "si" ? "bar" : "psi"}</span>
+                      </div>
+                      <span className="text-[10.5px] text-muted-foreground mt-0.5 block">Highest node pressure</span>
+                    </div>
                   </div>
 
-                  {/* 3. Table 1: Sprinkler Sizing Schedule & Head Performance */}
-                  <div className="space-y-2">
-                    <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
-                      1. Sprinkler Hydraulic Sizing Schedule
-                    </h3>
-                    <div className="border border-border rounded-xl overflow-hidden text-xs">
-                      <table className="w-full text-left border-collapse">
+                  <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex items-center gap-4 hover:border-primary/20 transition-all">
+                    <div className="size-10 rounded-xl bg-sky-500/10 text-amber-500 flex items-center justify-center shrink-0">
+                      <Droplet className="size-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Sprinkler Discharge</span>
+                      <div className="text-[20px] font-extrabold font-mono text-primary mt-0.5">
+                        {aggregateMetrics.totalFlow.toFixed(1)} <span className="text-[11px] font-normal text-muted-foreground">{unitSystem === "si" ? "L/min" : "GPM"}</span>
+                      </div>
+                      <span className="text-[10.5px] text-muted-foreground mt-0.5 block">Sum of sprinkler flows</span>
+                    </div>
+                  </div>
+
+                  <div className="border border-border rounded-3xl p-4 bg-background shadow-xs flex items-center gap-4 hover:border-primary/20 transition-all">
+                    <div className="size-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+                      <Settings className="size-5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Total Water Demand</span>
+                      <div className="text-[20px] font-extrabold font-mono text-red-500 mt-0.5">
+                        {aggregateMetrics.systemDemand.toFixed(1)} <span className="text-[11px] font-normal text-muted-foreground">{unitSystem === "si" ? "L/min" : "GPM"}</span>
+                      </div>
+                      <span className="text-[10.5px] text-muted-foreground mt-0.5 block">With hose stream allowance</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Two Column Layout: Table (left) and Breakdowns + Audit (right) */}
+                <div className="flex flex-col lg:flex-row gap-6 items-start">
+                  
+                  {/* Left Column: Sizing Grid Preview Table */}
+                  <div className="flex-1 min-w-0 w-full border border-border rounded-3xl bg-background shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 border-b border-border bg-surface-2/15 flex items-center justify-between">
+                      <span className="text-[13px] font-bold text-foreground">Sprinkler Sizing Grid Preview</span>
+                      <span className="text-[11px] text-muted-foreground font-mono">{rows.length} Sized Nodes</span>
+                    </div>
+                    <div className="overflow-x-auto w-full">
+                      <table className="w-full border-collapse text-[12.5px] text-left">
                         <thead>
-                          <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
-                            <th className="p-2 w-12 text-center border-r border-border">Sr.</th>
-                            <th className="p-2 text-left border-r border-border">Label / Location</th>
-                            <th className="p-2 text-center border-r border-border w-24">K-Factor</th>
-                            <th className="p-2 text-center border-r border-border w-28">Pressure ({unitSystem === "si" ? "bar" : "psi"})</th>
-                            <th className="p-2 text-right border-r border-border w-32">Flow ({unitSystem === "si" ? "L/min" : "GPM"})</th>
-                            <th className="p-2 text-right border-r border-border w-28">Coverage ({unitSystem === "si" ? "m²" : "ft²"})</th>
-                            <th className="p-2 text-center border-r border-border w-28">Hazard Rating</th>
-                            <th className="p-2 text-center w-28">NFPA 13 Status</th>
+                          <tr className="border-b border-border bg-surface/50 font-bold text-muted-foreground text-[11px] uppercase tracking-wider">
+                            <th className="p-3 w-16 text-center">S.No</th>
+                            <th className="p-3">Label / Location</th>
+                            <th className="p-3">K-Factor</th>
+                            <th className="p-3">Sizing Mode</th>
+                            <th className="p-3 text-right">Pressure ({unitSystem === "si" ? "bar" : "psi"})</th>
+                            <th className="p-3 text-right">Flow ({unitSystem === "si" ? "L/min" : "GPM"})</th>
+                            <th className="p-3 text-right">Coverage ({unitSystem === "si" ? "m²" : "ft²"})</th>
+                            <th className="p-3">Hazard</th>
+                            <th className="p-3 w-28 text-center">Status</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-border">
+                        <tbody className="divide-y divide-border font-medium text-foreground">
                           {rows.map((r, idx) => {
                             const isLowPressure = r.pressure < (unitSystem === "si" ? 0.48 : 7.0);
+                            const baseLimit = HAZARD_LIMITS[r.hazard] || 130;
+                            const limit = unitSystem === "si" ? parseFloat((baseLimit / 10.7639).toFixed(1)) : baseLimit;
+                            const isOverCoverage = r.coverage > limit;
+
                             return (
-                              <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2 text-center font-mono text-muted-foreground border-r border-border">{idx + 1}</td>
-                                <td className="p-2 font-medium border-r border-border">{r.label || `Node #${idx + 1}`}</td>
-                                <td className="p-2 text-center font-mono border-r border-border">K-{r.kFactor}</td>
-                                <td className={`p-2 text-center font-mono border-r border-border ${isLowPressure ? "text-amber-600 font-bold" : ""}`}>
-                                  {r.pressure.toFixed(2)}
+                              <tr key={r.id} className="hover:bg-surface/30 transition-colors">
+                                <td className="p-3 text-muted-foreground text-center font-mono">{idx + 1}</td>
+                                <td className="p-3 text-foreground font-semibold">{r.label}</td>
+                                <td className="p-3 font-mono">K-{r.kFactor.toFixed(1)}</td>
+                                <td className="p-3">
+                                  <span className="px-1.5 py-0.5 rounded-xl text-[11px] font-bold bg-muted text-muted-foreground">
+                                    {r.solveFor === "Q" ? "Flow (Q)" : "Pressure (P)"}
+                                  </span>
                                 </td>
-                                <td className="p-2 text-right font-mono font-bold border-r border-border">{r.flow.toFixed(1)}</td>
-                                <td className="p-2 text-right font-mono border-r border-border">{r.coverage.toFixed(1)}</td>
-                                <td className="p-2 text-center text-muted-foreground border-r border-border">{r.hazard}</td>
-                                <td className="p-2 text-center">
+                                <td className="p-3 text-right font-mono font-bold text-foreground">{r.pressure.toFixed(2)}</td>
+                                <td className="p-3 text-right font-mono font-bold text-foreground">{r.flow.toFixed(2)}</td>
+                                <td className="p-3 text-right font-mono text-muted-foreground">{r.coverage}</td>
+                                <td className="p-3 text-muted-foreground text-[12px]">{r.hazard}</td>
+                                <td className="p-3 text-center">
                                   {isLowPressure ? (
-                                    <span className="text-amber-600 dark:text-amber-400 font-bold text-[11px]">Low Pressure</span>
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-xl text-[10.5px] font-bold bg-destructive/10 text-destructive border border-destructive/20 uppercase tracking-wide">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-destructive shrink-0 mr-1.5" />
+                                      Low Press
+                                    </span>
+                                  ) : isOverCoverage ? (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-xl text-[10.5px] font-bold bg-warning/15 text-warning border border-warning/20 uppercase tracking-wide">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-warning shrink-0 mr-1.5" />
+                                      Over Area
+                                    </span>
                                   ) : (
-                                    <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">Compliant</span>
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-xl text-[10.5px] font-bold bg-success/10 text-success border border-success/20 uppercase tracking-wide">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-success shrink-0 mr-1.5" />
+                                      Complied
+                                    </span>
                                   )}
                                 </td>
                               </tr>
                             );
                           })}
-                          {/* Summary Row */}
-                          <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold border-t-2 border-border text-foreground">
-                            <td className="p-2 text-center border-r border-border">TOTAL</td>
-                            <td className="p-2 border-r border-border font-bold">{rows.length} Sprinkler Heads</td>
-                            <td className="p-2 border-r border-border text-center">-</td>
-                            <td className="p-2 border-r border-border text-center font-mono">Max {aggregateMetrics.maxPressure.toFixed(2)}</td>
-                            <td className="p-2 text-right font-mono font-bold text-primary border-r border-border">
-                              {aggregateMetrics.totalFlow.toFixed(1)} {unitSystem === "si" ? "L/min" : "GPM"}
-                            </td>
-                            <td className="p-2 text-right font-mono border-r border-border">
-                              {rows.reduce((acc, r) => acc + (r.coverage || 0), 0).toFixed(1)}
-                            </td>
-                            <td className="p-2 border-r border-border text-center">-</td>
-                            <td className="p-2 text-center text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">ALL VERIFIED</td>
-                          </tr>
                         </tbody>
                       </table>
                     </div>
                   </div>
 
-                  {/* 4. Table 2: Hydraulic Demand & Sizing Summary */}
-                  <div className="space-y-2">
-                    <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
-                      2. Hydraulic Demand & Operating Summary
-                    </h3>
-                    <div className="border border-border rounded-xl overflow-hidden text-xs">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
-                            <th className="p-2.5 w-12 text-center border-r border-border">No.</th>
-                            <th className="p-2.5 text-left border-r border-border">Sizing Parameter Description</th>
-                            <th className="p-2.5 text-center border-r border-border w-44">Calculated Value</th>
-                            <th className="p-2.5 text-center border-r border-border w-24">Unit</th>
-                            <th className="p-2.5 text-left">Governing Standard & Design Criteria</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                            <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">1</td>
-                            <td className="p-2.5 font-medium border-r border-border">Total Sprinklers Sized in Project</td>
-                            <td className="p-2.5 text-center font-mono font-bold border-r border-border">{rows.length} heads</td>
-                            <td className="p-2.5 text-center text-muted-foreground border-r border-border">units</td>
-                            <td className="p-2.5 text-muted-foreground">Active sprinkler heads in hydraulic node calculation</td>
-                          </tr>
-                          {/* Highlight 1: Maximum Node Operating Pressure */}
-                          <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                            <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">2</td>
-                            <td className="p-2.5 font-bold text-foreground border-r border-border">Maximum Node Operating Pressure</td>
-                            <td className="p-2.5 text-center font-mono text-primary font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
-                              {aggregateMetrics.maxPressure.toFixed(2)} {unitSystem === "si" ? "bar" : "psi"}
-                            </td>
-                            <td className="p-2.5 text-center font-mono border-r border-border">{unitSystem === "si" ? "bar" : "psi"}</td>
-                            <td className="p-2.5 text-muted-foreground">NFPA 13 min required pressure: {unitSystem === "si" ? "0.48 bar (7.0 psi)" : "7.0 psi"}</td>
-                          </tr>
-                          {/* Highlight 2: Total Sprinkler Discharge */}
-                          <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                            <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">3</td>
-                            <td className="p-2.5 font-bold text-foreground border-r border-border">Aggregate Sprinkler Discharge Flow</td>
-                            <td className="p-2.5 text-center font-mono text-primary font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
-                              {aggregateMetrics.totalFlow.toFixed(1)} {unitSystem === "si" ? "L/min" : "GPM"}
-                            </td>
-                            <td className="p-2.5 text-center font-mono border-r border-border">{unitSystem === "si" ? "L/min" : "GPM"}</td>
-                            <td className="p-2.5 text-muted-foreground">Sum of simultaneous discharge from all scheduled heads (Q = K × √P)</td>
-                          </tr>
-                          {/* Highlight 3: Total System Water Demand with Hose Stream */}
-                          <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                            <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">4</td>
-                            <td className="p-2.5 font-bold text-foreground border-r border-border">Total System Fire Water Demand</td>
-                            <td className="p-2.5 text-center font-mono text-primary font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
-                              {aggregateMetrics.systemDemand.toFixed(1)} {unitSystem === "si" ? "L/min" : "GPM"}
-                            </td>
-                            <td className="p-2.5 text-center font-mono border-r border-border">{unitSystem === "si" ? "L/min" : "GPM"}</td>
-                            <td className="p-2.5 text-muted-foreground">Sprinkler demand + NFPA 13 inside/outside hose stream allowance</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                  {/* Right Column: Audits & Breakdowns */}
+                  <div className="w-full lg:w-[350px] shrink-0 flex flex-col gap-4">
+                    
+                    {/* Compliance Auditor Card */}
+                    {(() => {
+                      const hasErrors = rows.some(r => r.pressure < (unitSystem === "si" ? 0.48 : 7.0));
+                      return hasErrors ? (
+                        <div className="border border-destructive/20 bg-destructive/5 rounded-3xl p-4 flex gap-3 shadow-xs">
+                          <AlertTriangle className="size-5 text-destructive shrink-0 mt-0.5 animate-pulse" />
+                          <div>
+                            <h4 className="text-[13px] font-bold text-destructive">NFPA 13 Warnings</h4>
+                            <p className="text-[12px] text-muted-foreground mt-1 leading-normal">
+                              Hydraulic violations detected in layout grid. Sized pressures must exceed the code limit of {unitSystem === "si" ? "0.48 bar" : "7.0 psi"}.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="border border-success/20 bg-success/5 rounded-3xl p-4 flex gap-3 shadow-xs">
+                          <CheckCircle2 className="size-5 text-success shrink-0 mt-0.5" />
+                          <div>
+                            <h4 className="text-[13px] font-bold text-success">NFPA 13 Sizing Audit</h4>
+                            <p className="text-[12px] text-muted-foreground mt-1 leading-normal">
+                              System demand fully complies. All node calculations are within NFPA 13 pressure and coverage limits.
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Classification breakdown card */}
+                    <div className="border border-border rounded-3xl bg-background p-5 shadow-sm flex flex-col gap-4">
+                      <p className="text-[13px] font-bold text-foreground leading-snug">Design Classification</p>
+                      
+                      <div className="flex flex-col gap-3.5">
+                        {Object.entries(reportBreakdowns.hazardCounts).map(([hazardName, count]) => {
+                          const percentage = reportBreakdowns.totalRows > 0 ? (count / reportBreakdowns.totalRows) * 100 : 0;
+                          return (
+                            <div key={hazardName} className="flex flex-col gap-1.5 text-[12px]">
+                              <div className="flex justify-between font-medium">
+                                <span className="text-muted-foreground truncate pr-2">{hazardName}</span>
+                                <span className="text-foreground font-mono font-bold">{count} ({percentage.toFixed(0)}%)</span>
+                              </div>
+                              <div className="h-1.5 w-full bg-surface-2 rounded-full overflow-hidden">
+                                <div className="h-full bg-primary rounded-full" style={{ width: `${percentage}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* K-factor breakdown card */}
+                    <div className="border border-border rounded-3xl bg-background p-5 shadow-sm flex flex-col gap-4">
+                      <p className="text-[13px] font-bold text-foreground leading-snug">Orifice / K-Factor Ratios</p>
+                      
+                      <div className="flex flex-col gap-3.5">
+                        {Object.entries(reportBreakdowns.kCounts).map(([kValue, count]) => {
+                          const percentage = reportBreakdowns.totalRows > 0 ? (count / reportBreakdowns.totalRows) * 100 : 0;
+                          return (
+                            <div key={kValue} className="flex flex-col gap-1.5 text-[12px]">
+                              <div className="flex justify-between font-medium">
+                                <span className="text-muted-foreground truncate">{kValue} Coefficient</span>
+                                <span className="text-foreground font-mono font-bold">{count} ({percentage.toFixed(0)}%)</span>
+                              </div>
+                              <div className="h-1.5 w-full bg-surface-2 rounded-full overflow-hidden">
+                                <div className="h-full bg-primary/80 rounded-full" style={{ width: `${percentage}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
-
-                  {/* 5. 3-Tier Signature Sign-Off Block (Peach #FFE6CC Header) */}
-                  <div className="pt-2">
-                    <div className="border border-border rounded-xl overflow-hidden text-xs">
-                      <table className="w-full border-collapse">
-                        <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
-                          <tr className="divide-x divide-border">
-                            <th className="p-2.5 w-28 text-center"></th>
-                            <th className="p-2.5 text-center w-1/3">Originator</th>
-                            <th className="p-2.5 text-center w-1/3">Reviewer</th>
-                            <th className="p-2.5 text-center w-1/3">Approver</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          <tr className="divide-x divide-border">
-                            <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
-                            <td className="p-2.5 text-center font-medium">
-                              {sigDetails?.originatedName || currentUserName || "MEP Engineer"}
-                            </td>
-                            <td className="p-2.5 text-center font-medium">
-                              {sigDetails?.reviewerName || ""}
-                            </td>
-                            <td className="p-2.5 text-center font-medium">
-                              {sigDetails?.approverName || ""}
-                            </td>
-                          </tr>
-                          <tr className="divide-x divide-border">
-                            <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
-                            <td className="p-2.5 text-center font-mono">
-                              {sigDetails?.originatedDate || formatDateStr(new Date().toISOString())}
-                            </td>
-                            <td className="p-2.5 text-center font-mono">
-                              {sigDetails?.reviewerDate || ""}
-                            </td>
-                            <td className="p-2.5 text-center font-mono">
-                              {sigDetails?.approverDate || ""}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
                 </div>
               </div>
             )}

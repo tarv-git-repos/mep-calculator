@@ -3,8 +3,8 @@ import { workspaceStore } from '@/lib/workspace-store';
 
 export type ActivityAction = 'LOGIN' | 'VIEW_CALCULATOR' | 'EXPORT' | 'LOGOUT' | 'UPDATE_SETTINGS' | 'VIEWED' | 'UPDATED';
 
-let lastLoggedView = { path: '', timestamp: 0 };
-let lastLoggedUpdate = { path: '', timestamp: 0 };
+// Per-module/path map to prevent alternating routes from bypassing debounce
+const lastLoggedUpdateMap = new Map<string, number>();
 
 export function getCalculatorTitleFromPath(pathname: string): string {
   if (!pathname || pathname === '/login' || pathname === '/privacy' || pathname.includes('admin')) {
@@ -62,16 +62,29 @@ export const logCalculatorView = async (_calculatorTitle?: string, _pathName?: s
   return Promise.resolve();
 };
 
-export const logCalculatorUpdate = async (calculatorTitle: string, details?: string | Record<string, any>) => {
+export interface LogUpdateOptions {
+  immediate?: boolean;
+  throttleMs?: number;
+}
+
+export const logCalculatorUpdate = async (
+  calculatorTitle: string, 
+  details?: string | Record<string, any>,
+  options?: LogUpdateOptions
+) => {
   const currentPath = window.location.pathname;
   const now = Date.now();
+  const throttleMs = options?.throttleMs ?? (options?.immediate ? 0 : 30000); // 30s default debounce for auto-updates
 
-  // Deduplicate save event logs within 5 seconds for the same route
-  if (lastLoggedUpdate.path === currentPath && (now - lastLoggedUpdate.timestamp) < 5000) {
+  const key = `${currentPath}:${calculatorTitle}`;
+  const lastTime = lastLoggedUpdateMap.get(key) || 0;
+
+  // Deduplicate save event logs within throttle window for the same module/route
+  if (!options?.immediate && (now - lastTime) < throttleMs) {
     return Promise.resolve();
   }
 
-  lastLoggedUpdate = { path: currentPath, timestamp: now };
+  lastLoggedUpdateMap.set(key, now);
   const calcTitle = getCalculatorTitleFromPath(currentPath) || calculatorTitle || 'Calculation';
   const detailPayload = typeof details === 'string' ? { summary: details } : (details || {});
   

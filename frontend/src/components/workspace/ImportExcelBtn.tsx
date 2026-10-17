@@ -19,12 +19,14 @@ export interface ImportExcelBtnProps {
 
   className?: string;
   children?: React.ReactNode;
+  disabled?: boolean;
 }
 
-export function ImportExcelBtn({ columnMapping, onImport, className, children }: ImportExcelBtnProps) {
+export function ImportExcelBtn({ columnMapping, onImport, className, children, disabled }: ImportExcelBtnProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleClick = () => {
+    if (disabled) return;
     if (fileInputRef.current) {
       fileInputRef.current.value = ""; // Reset input so same file can be selected again
       fileInputRef.current.click();

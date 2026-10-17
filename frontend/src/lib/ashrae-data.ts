@@ -1056,8 +1056,18 @@ export function getOccupancyCategories(): string[] {
 }
 
 export function getOccupancyData(category: string): OccupancyData | null {
-  const normalized = toTitleCase(category);
-  if (normalized === "Rest Room / Changing Room" || category === "Rest Room / Changing Room") {
+  if (!category || category.trim() === "" || category === "-") return null;
+  const raw = category.trim();
+  const lower = raw.toLowerCase();
+
+  if (
+    lower === "rest room / changing room" ||
+    lower === "restroom" ||
+    lower === "rest room" ||
+    lower === "toilet" ||
+    lower === "bathroom" ||
+    lower === "washroom"
+  ) {
     return {
       category: "Rest Room / Changing Room",
       peopleOA: 0.0,
@@ -1069,7 +1079,27 @@ export function getOccupancyData(category: string): OccupancyData | null {
       airClass: 2
     };
   }
-  return ASHRAE_OCCUPANCY_DATA.find(d => d.category === normalized || d.category === category) || null;
+
+  // Exact or normalized match
+  const normalized = toTitleCase(raw);
+  let found = ASHRAE_OCCUPANCY_DATA.find(
+    d => d.category.toLowerCase() === lower || d.category.toLowerCase() === normalized.toLowerCase()
+  );
+  if (found) return found;
+
+  // Handle common aliases
+  if (
+    lower === "general office / space" ||
+    lower === "general office" ||
+    lower === "office" ||
+    lower === "offices" ||
+    lower === "open office" ||
+    lower.includes("office")
+  ) {
+    return ASHRAE_OCCUPANCY_DATA.find(d => d.category.toLowerCase().includes("office space")) || null;
+  }
+
+  return null;
 }
 
 export function getOutdoorAirRates(category: string): { peopleOA: number; areaOA: number } {

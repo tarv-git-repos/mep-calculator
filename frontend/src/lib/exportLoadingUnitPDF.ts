@@ -1,6 +1,6 @@
 import { workspaceStore } from "@/lib/workspace-store";
 import { toast } from "sonner";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
 import {
   type LUSpace,
@@ -40,11 +40,14 @@ export interface LoadingUnitExportData {
     date?: string;
     endUser?: string;
     userName?: string;
+    revNo?: string;
+    includeStamp?: boolean;
+    returnBuffer?: boolean;
     reviewState?: any;
   };
 }
 
-export const exportLoadingUnitPDF = async (data: LoadingUnitExportData) => {
+export const exportLoadingUnitPDF = async (data: LoadingUnitExportData): Promise<Uint8Array | boolean | void> => {
   const {
     iopSpaces,
     floorSections,
@@ -93,6 +96,7 @@ export const exportLoadingUnitPDF = async (data: LoadingUnitExportData) => {
     };
 
     const calcNo = meta.calcNo || activeProj?.calcNo || "TRV-LU-CALC-R01";
+    const revNo = meta.revNo || activeProj?.revNo || "Rev 0 - IFC";
     const today = meta.date || new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
     const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
     const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "Water Supply Fixture Unit & Pipe Sizing";
@@ -102,56 +106,20 @@ export const exportLoadingUnitPDF = async (data: LoadingUnitExportData) => {
     const primaryFill: [number, number, number] = [217, 217, 217]; // Uniform Gray #D9D9D9 (Matching Ventilation)
     const blueFill: [number, number, number] = [218, 233, 248];    // Soft Blue Highlight #DAE9F8 (Matching Ventilation)
 
-    // 1. Header Title
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.text("Fixture Unit & Pipe Sizing Calculation Report", 14, 12);
-
-    // 2. Metadata Block (Landscape 2-column format: width 269mm from 14mm to 283mm)
-    doc.setFontSize(8.5);
-    doc.setLineWidth(0.25);
-    doc.rect(14, 15, 269, 17); // Outer box (269mm width, 17mm height)
-
-    // Vertical line dividing left and right metadata
-    doc.line(148, 15, 148, 32);
-
-    // Horizontal lines
-    doc.line(14, 20.7, 283, 20.7);
-    doc.line(14, 26.4, 283, 26.4);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 19);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 48, 19);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 150, 19);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 168, 19);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 24.5);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 48, 24.5);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 150, 24.5);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 168, 24.5);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 30.2);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName, 48, 30.2);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 150, 30.2);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, 168, 30.2);
+    // 1. Header Title & Metadata Block (Using standard branded format)
+    const startY = addPdfHeader(doc, "Loading Unit & Water Supply Fixture Sizing", {
+      calcNo,
+      revNo,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser,
+      date: today
+    });
 
     const appTitle = getStandardDemandHeaderTitle(standardPreset);
 
-    // 3. Table 1: Executive Design Parameter & Demand Sizing Summary
+    // 2. Table 1: Executive Design Parameter & Demand Sizing Summary
     const summaryTableRows = [
       [
         { content: "No.", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } },
@@ -175,7 +143,7 @@ export const exportLoadingUnitPDF = async (data: LoadingUnitExportData) => {
     ];
 
     callAutoTable(doc, {
-      startY: 35,
+      startY: startY + 2,
       body: summaryTableRows,
       theme: "grid",
       pageBreak: "avoid",
@@ -405,72 +373,38 @@ export const exportLoadingUnitPDF = async (data: LoadingUnitExportData) => {
       currentY = 14;
     }
 
-    // 6. Professional Engineering Review & Sign-Off Block
-    const sigDetails = getSignatureBlockDetails(
-      activeProj?.id || "default",
-      "/plumbing-fixture-unit",
-      currentUserName,
-      meta.reviewState
-    );
+    // 6. Professional Engineering Review & Sign-Off Block & Branding
+    if (meta.includeStamp !== false) {
+      const sigDetails = getSignatureBlockDetails(
+        activeProj?.id || "default",
+        "/plumbing-loading-unit",
+        meta.userName || currentUserName,
+        meta.reviewState
+      );
+      addPdfSignatureBlock(doc, currentY, sigDetails, activeProj?.id || "default", "/plumbing-loading-unit");
+    }
 
-    const sigTableRows = [
-      [
-        { content: "Approval Role", styles: { fontStyle: "bold", halign: "left", fillColor: primaryFill, textColor: [0, 0, 0] } },
-        { content: "Engineer Name", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } },
-        { content: "Status / Role Title", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } },
-        { content: "Signature / Date", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } }
-      ],
-      [
-        { content: "Originator / Prepared By", styles: { fontStyle: "bold", halign: "left" } },
-        { content: sigDetails.originatedName, styles: { halign: "center" } },
-        { content: "MEP Design Engineer", styles: { halign: "center" } },
-        { content: sigDetails.originatedDate || today, styles: { halign: "center" } }
-      ],
-      [
-        { content: "Reviewer / Checked By", styles: { fontStyle: "bold", halign: "left" } },
-        { content: sigDetails.reviewerName || "Pending Review", styles: { halign: "center" } },
-        { content: "Senior Plumbing Lead", styles: { halign: "center" } },
-        { content: sigDetails.reviewerDate || "—", styles: { halign: "center" } }
-      ],
-      [
-        { content: "Approver / Verified By", styles: { fontStyle: "bold", halign: "left" } },
-        { content: sigDetails.approverName || "Pending Approval", styles: { halign: "center" } },
-        { content: "Principal / MEP Director", styles: { halign: "center" } },
-        { content: sigDetails.approverDate || "—", styles: { halign: "center" } }
-      ]
-    ];
-
-    callAutoTable(doc, {
-      startY: currentY + 5,
-      body: sigTableRows,
-      theme: "grid",
-      pageBreak: "avoid",
-      styles: {
-        font: "helvetica",
-        fontSize: 7.5,
-        textColor: [0, 0, 0],
-        halign: "center",
-        valign: "middle",
-        lineColor: [110, 110, 110],
-        lineWidth: 0.1,
-        cellPadding: { top: 2.5, bottom: 2.5, left: 2.5, right: 2.5 },
-        minCellHeight: 7.0
-      },
-      columnStyles: {
-        0: { cellWidth: 67, halign: "left" },
-        1: { cellWidth: 67, halign: "center" },
-        2: { cellWidth: 67, halign: "center" },
-        3: { cellWidth: 68, halign: "center" }
-      },
-      margin: { left: 14, right: 14 }
-    });
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
 
     const pdfBuffer = doc.output("arraybuffer");
-    await downloadFile(new Uint8Array(pdfBuffer), `Fixture_Unit_Calculation_${projectNo}.pdf`, "PDF Document", ["pdf"]);
-    toast.success("PDF exported successfully!");
+    if (meta.returnBuffer) {
+      return new Uint8Array(pdfBuffer);
+    }
+
+    await downloadFile(new Uint8Array(pdfBuffer), `Loading_Unit_Calculation_${projectNo}.pdf`, "PDF Document", ["pdf"]);
+    toast.success("Loading Unit Calculation PDF exported successfully!");
+    return true;
 
   } catch (err: any) {
     console.error("PDF export error:", err);
-    toast.error(err?.message || "Failed to generate PDF export.");
+    if (!meta.returnBuffer) {
+      toast.error(err?.message || "Failed to generate PDF export.");
+    }
+    return false;
   }
 };

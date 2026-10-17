@@ -969,12 +969,12 @@ function FM200SizerPage() {
                       <div className="border border-border rounded-xl overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs">
                           <thead>
-                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                            <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
                               <th colSpan={5} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
                                 1. Design Parameters &amp; Enclosure Properties
                               </th>
                             </tr>
-                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                            <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
                               <th className="p-2.5 border-r border-border text-center w-12">No.</th>
                               <th className="p-2.5 border-r border-border text-left">Input Parameter</th>
                               <th className="p-2.5 border-r border-border text-center w-28">Value</th>
@@ -1049,12 +1049,12 @@ function FM200SizerPage() {
                         <div className="border border-border rounded-xl overflow-x-auto">
                           <table className="w-full text-left border-collapse text-xs">
                             <thead>
-                              <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
                                 <th colSpan={5} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
                                   2. Agent Quantity &amp; Sizing Summary
                                 </th>
                               </tr>
-                              <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
                                 <th className="p-2.5 border-r border-border text-center w-12">No.</th>
                                 <th className="p-2.5 border-r border-border text-left">Clean Agent Sizing Metric</th>
                                 <th className="p-2.5 border-r border-border text-center w-28">Value</th>
@@ -1064,7 +1064,7 @@ function FM200SizerPage() {
                             </thead>
                             <tbody className="divide-y divide-border">
                               {/* Highlighted Agent Weight Row */}
-                              <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-primary font-bold border-b border-border">
+                              <tr className="bg-emerald-50/70 dark:bg-emerald-950/30 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/50 font-bold border-b border-border">
                                 <td className="p-2.5 border-r border-border text-center text-emerald-700 dark:text-emerald-300 font-mono">1</td>
                                 <td className="p-2.5 border-r border-border font-bold text-emerald-700 dark:text-emerald-300">Required FM-200 Net Agent Weight (W)</td>
                                 <td className="p-2.5 border-r border-border text-center font-bold font-mono text-emerald-600 dark:text-emerald-400 text-sm">{calcResults.weight.toFixed(2)}</td>
@@ -1130,12 +1130,12 @@ function FM200SizerPage() {
                         <div className="border border-border rounded-xl overflow-x-auto">
                           <table className="w-full text-left border-collapse text-xs">
                             <thead>
-                              <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
                                 <th colSpan={3} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
                                   3. Mandatory Design Standards &amp; Engineering Criteria
                                 </th>
                               </tr>
-                              <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
                                 <th className="p-2.5 border-r border-border text-center w-12">No.</th>
                                 <th className="p-2.5 border-r border-border text-left w-64">Mandatory Design Standard</th>
                                 <th className="p-2.5 text-left">Compliance &amp; Engineering Criteria</th>

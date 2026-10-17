@@ -8,6 +8,27 @@ interface ImportSourceModalProps {
   onSelect3DViewer: () => void;
   onSelectVentilation?: () => void;
   onSelectPreliminary?: () => void;
+  onSelectSync3DAndLoadSummary?: () => void;
+  onSelectBenchmark?: () => void;
+  title?: string;
+  subtitle?: string;
+  excelTitle?: string;
+  excelSubtitle?: string;
+  viewerTitle?: string;
+  viewerSubtitle?: string;
+  viewerBadge?: string;
+  sync3DTitle?: string;
+  sync3DSubtitle?: string;
+  sync3DBadge?: string;
+  ventilationTitle?: string;
+  ventilationSubtitle?: string;
+  ventilationBadge?: string;
+  preliminaryTitle?: string;
+  preliminarySubtitle?: string;
+  preliminaryBadge?: string;
+  benchmarkTitle?: string;
+  benchmarkSubtitle?: string;
+  benchmarkBadge?: string;
   footerNote?: string;
 }
 
@@ -18,6 +39,27 @@ export function ImportSourceModal({
   onSelect3DViewer,
   onSelectVentilation,
   onSelectPreliminary,
+  onSelectSync3DAndLoadSummary,
+  onSelectBenchmark,
+  title,
+  subtitle,
+  excelTitle,
+  excelSubtitle,
+  viewerTitle,
+  viewerSubtitle,
+  viewerBadge,
+  sync3DTitle,
+  sync3DSubtitle,
+  sync3DBadge,
+  ventilationTitle,
+  ventilationSubtitle,
+  ventilationBadge,
+  preliminaryTitle,
+  preliminarySubtitle,
+  preliminaryBadge,
+  benchmarkTitle,
+  benchmarkSubtitle,
+  benchmarkBadge,
   footerNote,
 }: ImportSourceModalProps) {
   if (!isOpen) return null;
@@ -35,8 +77,8 @@ export function ImportSourceModal({
               <Sparkles className="size-5" />
             </div>
             <div>
-              <h2 className="font-bold text-base text-foreground tracking-tight">Import Space Schedule</h2>
-              <p className="text-xs text-muted-foreground">Select data source to generate schedule</p>
+              <h2 className="font-bold text-base text-foreground tracking-tight">{title || "Import Space Schedule"}</h2>
+              <p className="text-xs text-muted-foreground">{subtitle || "Select data source to generate schedule"}</p>
             </div>
           </div>
           <button 
@@ -48,7 +90,7 @@ export function ImportSourceModal({
         </div>
 
         {/* Body Options */}
-        <div className="p-5 grid grid-cols-1 gap-3.5">
+        <div className="p-5 grid grid-cols-1 gap-3.5 max-h-[75vh] overflow-y-auto">
           {/* Option 1: Excel File */}
           <button
             onClick={() => {
@@ -63,12 +105,12 @@ export function ImportSourceModal({
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
-                  Import from Excel (.xlsx)
+                  {excelTitle || "Import from Excel (.xlsx)"}
                 </span>
                 <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Upload Revit schedule or spreadsheet formatted with Level, Floor, Name & Area.
+                {excelSubtitle || "Upload Revit schedule or spreadsheet formatted with Level, Floor, Name & Area."}
               </p>
             </div>
           </button>
@@ -88,19 +130,50 @@ export function ImportSourceModal({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
-                    Import from 3D Studio
+                    {viewerTitle || "Import from 3D Studio"}
                   </span>
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-primary/15 text-primary">
-                    3D Studio
+                    {viewerBadge || "3D Studio"}
                   </span>
                 </div>
                 <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                Extract spatial geometry, room names, levels, and floor areas directly from active 3D model.
+                {viewerSubtitle || "Extract spatial geometry, room names, levels, and floor areas directly from active 3D model."}
               </p>
             </div>
           </button>
+
+          {/* Option: Sync 3D & Load Summary (if provided) */}
+          {onSelectSync3DAndLoadSummary && (
+            <button
+              onClick={() => {
+                onClose();
+                onSelectSync3DAndLoadSummary();
+              }}
+              className="group relative flex items-start gap-4 p-4 rounded-xl border border-border bg-surface-1/30 hover:bg-primary/5 hover:border-primary/40 transition-all text-left shadow-sm hover:shadow-md cursor-pointer"
+            >
+              <div className="p-3 rounded-xl bg-primary/10 text-primary group-hover:scale-105 transition-transform">
+                <Sparkles className="size-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-foreground group-hover:text-primary transition-colors">
+                      {sync3DTitle || "Sync 3D & Load Summary"}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-primary/15 text-primary">
+                      {sync3DBadge || "3D & Load Summary"}
+                    </span>
+                  </div>
+                  <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  {sync3DSubtitle || "Automatically generate vertical busduct riser from 3D Studio floor heights & Load Summary active kW."}
+                </p>
+              </div>
+            </button>
+          )}
 
           {/* Option 3: Ventilation Schedule (if provided) */}
           {onSelectVentilation && (
@@ -118,16 +191,16 @@ export function ImportSourceModal({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-sm text-foreground group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
-                      Import from Ventilation
+                      {ventilationTitle || "Import from Ventilation"}
                     </span>
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-sky-500/15 text-sky-600 dark:text-sky-400">
-                      Ventilation
+                      {ventilationBadge || "Ventilation"}
                     </span>
                   </div>
                   <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                  Import all room names, floor levels, and areas directly from the active Ventilation schedule.
+                  {ventilationSubtitle || "Import all room names, floor levels, and areas directly from the active Ventilation schedule."}
                 </p>
               </div>
             </button>
@@ -149,16 +222,47 @@ export function ImportSourceModal({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-sm text-foreground group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
-                      Import from Preliminary Cooling Load
+                      {preliminaryTitle || "Import from Preliminary Cooling Load"}
                     </span>
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400">
-                      Cooling Load
+                      {preliminaryBadge || "Cooling Load"}
                     </span>
                   </div>
                   <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                  Import room names, floor levels, areas, and space categories from the Preliminary Cooling Load calculation.
+                  {preliminarySubtitle || "Import room names, floor levels, areas, and space categories from the Preliminary Cooling Load calculation."}
+                </p>
+              </div>
+            </button>
+          )}
+
+          {/* Option 5: Benchmark Spaces (if provided) */}
+          {onSelectBenchmark && (
+            <button
+              onClick={() => {
+                onClose();
+                onSelectBenchmark();
+              }}
+              className="group relative flex items-start gap-4 p-4 rounded-xl border border-border bg-surface-1/30 hover:bg-purple-500/5 hover:border-purple-500/40 transition-all text-left shadow-sm hover:shadow-md cursor-pointer"
+            >
+              <div className="p-3 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 group-hover:scale-105 transition-transform">
+                <Sparkles className="size-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-foreground group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
+                      {benchmarkTitle || "Load 10 Benchmark Spaces"}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-purple-500/15 text-purple-600 dark:text-purple-400">
+                      {benchmarkBadge || "Benchmarks"}
+                    </span>
+                  </div>
+                  <ArrowRight className="size-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  {benchmarkSubtitle || "Populate calculation with standard reference architectural spaces for quick verification."}
                 </p>
               </div>
             </button>

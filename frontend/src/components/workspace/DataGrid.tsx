@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { getMergedItemComments } from "@/utils/commentHelpers";
+import { RowCommentCornerBadge } from "./RowCommentCornerBadge";
 
 export interface Column<T> {
   key: keyof T | string;
@@ -58,7 +59,12 @@ export function DataGrid<T extends { id: string }>({
 }) {
   const [isClientReadOnly, setIsClientReadOnly] = useState(false);
   useEffect(() => {
-    setIsClientReadOnly(Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly));
+    const syncFlag = () =>
+      setIsClientReadOnly(Boolean((window as any).__mep_is_readonly || (window as any).__mep_approved_readonly));
+    syncFlag();
+    // Follow live lock/unlock changes (e.g. another user started/stopped editing this calculator)
+    window.addEventListener("mep_readonly_changed", syncFlag);
+    return () => window.removeEventListener("mep_readonly_changed", syncFlag);
   }, []);
   const isReadOnly = Boolean(isReadOnlyProp || isClientReadOnly);
   const onToggle = onToggleProp;
@@ -97,31 +103,6 @@ export function DataGrid<T extends { id: string }>({
     }
 
     setColRatios(initialRatios);
-  }, [columns, gridId]);
-
-  // Support live column auto-distribution reset across all workspaces
-  useEffect(() => {
-    const handleReset = () => {
-      const totalDefault = columns.reduce((sum, c) => sum + c.width, 0);
-      const initialRatios: Record<string, number> = {};
-      columns.forEach((c) => {
-        initialRatios[String(c.key)] = c.width / totalDefault;
-      });
-      setColRatios(initialRatios);
-    };
-
-    const handleWindowResize = () => {
-      if (gridId && !localStorage.getItem(`mep_grid_${gridId}`)) {
-        handleReset();
-      }
-    };
-
-    window.addEventListener("mep-reset-column-widths", handleReset);
-    window.addEventListener("resize", handleWindowResize);
-    return () => {
-      window.removeEventListener("mep-reset-column-widths", handleReset);
-      window.removeEventListener("resize", handleWindowResize);
-    };
   }, [columns, gridId]);
 
   const handleMouseDown = (key: string, e: React.MouseEvent) => {
@@ -212,7 +193,12 @@ export function DataGrid<T extends { id: string }>({
   // Pre-process items if grouping is enabled
   const items = useMemo(() => {
     if (!groupBy) {
-      return rows.map((r) => ({ type: "row" as const, id: r.id, data: r }));
+      return rows.map((r, idx) => ({
+        type: "row" as const,
+        id: r.id,
+        data: r,
+        groupRowIndex: idx,
+      }));
     }
 
     const groups: Record<string, T[]> = {};
@@ -222,7 +208,13 @@ export function DataGrid<T extends { id: string }>({
       groups[val].push(r);
     });
 
-    const result: Array<{ type: "group" | "row"; id: string; groupValue?: string; data?: T }> = [];
+    const result: Array<{
+      type: "group" | "row";
+      id: string;
+      groupValue?: string;
+      data?: T;
+      groupRowIndex?: number;
+    }> = [];
     const sortedGroupValues = Object.keys(groups).sort((a, b) => {
       if (groupOrder && groupOrder.length > 0) {
         const idxA = groupOrder.indexOf(a);
@@ -241,11 +233,13 @@ export function DataGrid<T extends { id: string }>({
         groupValue: groupVal,
       });
       if (!collapsedGroups.has(groupVal)) {
-        groups[groupVal].forEach((r) => {
+        groups[groupVal].forEach((r, groupIdx) => {
           result.push({
             type: "row",
             id: r.id,
             data: r,
+            groupRowIndex: groupIdx,
+            groupValue: groupVal,
           });
         });
       }
@@ -399,7 +393,7 @@ export function DataGrid<T extends { id: string }>({
       <div
         ref={headerRef}
         style={isSticky ? { position: "sticky", top: stickyHeaderTop, zIndex: 25 } : undefined}
-        className={`bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong overflow-hidden w-full transition-all duration-300 shadow-2xs ${activeRowId ? "blur-[1px] opacity-35 pointer-events-none" : ""
+        className={`bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong overflow-hidden w-full transition-all duration-300 shadow-2xs ${activeRowId ? "blur-[3px] opacity-30 pointer-events-none" : ""
           }`}
       >
         <div
@@ -494,7 +488,7 @@ export function DataGrid<T extends { id: string }>({
                 const groupContent = (
                   <div
                     onClick={handleGroupClick}
-                    className={`col-span-full h-full bg-primary/5 hover:bg-primary/10 border-b border-border flex items-center border-l-4 border-l-primary pl-1.5 text-[12.5px] font-semibold text-primary select-none cursor-pointer gap-1.5 w-full transition-colors duration-150 ${isGroupBlurred ? "blur-[1px] opacity-30 pointer-events-none scale-[0.99]" : ""
+                    className={`col-span-full h-full bg-primary/5 hover:bg-primary/10 border-b border-border flex items-center border-l-4 border-l-primary pl-1.5 text-[12.5px] font-semibold text-primary select-none cursor-pointer gap-1.5 w-full transition-colors duration-150 ${isGroupBlurred ? "blur-[3px] opacity-30 pointer-events-none scale-[0.99]" : ""
                       }`}
                   >
                     <button
@@ -542,6 +536,7 @@ export function DataGrid<T extends { id: string }>({
 
               const row = item.data!;
               const rowIndex = rows.indexOf(row);
+              const displaySrNo = (item.groupRowIndex !== undefined ? item.groupRowIndex : rowIndex) + 1;
               const sel = selected.has(row.id);
               const isActiveRow = activeRowId === row.id;
               const isBlurred = activeRowId !== undefined && !isActiveRow;
@@ -577,65 +572,47 @@ export function DataGrid<T extends { id: string }>({
                       blurActiveInput();
                       onToggle(row.id, e.shiftKey, true);
                     }}
-                    title={sel ? `Row ${rowIndex + 1} selected. Click to deselect.` : `Click to select row ${rowIndex + 1}.`}
+                    title={sel ? `Row ${displaySrNo} selected. Click to deselect.` : `Click to select row ${displaySrNo}.`}
                   >
                     {/* Modern Bespoke Curved Corner Comment Indicator */}
                     {(() => {
                       const rowComments = (Array.isArray((row as any).comments) && (row as any).comments.length > 0)
                         ? (row as any).comments
                         : getMergedItemComments(
-                          row.id,
-                          (row as any).name || (row as any).description || (row as any).desc || (row as any).tag || (row as any).ref || (row as any).tapOff,
-                          (row as any).comments,
-                          typeof window !== "undefined" ? window.location.pathname : undefined
-                        );
+                            row.id,
+                            (row as any).name || (row as any).description || (row as any).desc || (row as any).tag || (row as any).ref || (row as any).tapOff,
+                            (row as any).comments,
+                            typeof window !== "undefined" ? window.location.pathname : undefined
+                          );
 
                       if (!rowComments || rowComments.length === 0) return null;
 
                       return (
-                        <button
-                          type="button"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
+                        <RowCommentCornerBadge
+                          id={row.id}
+                          count={rowComments.length}
+                          position="left"
+                          title={`${rowComments.length} comment(s)/task(s) assigned. Click to view.`}
+                          onClick={() => {
                             if (onCommentClick) {
-                              onCommentClick(row)
-                                ;
+                              onCommentClick(row);
                             } else {
                               window.dispatchEvent(
                                 new CustomEvent("open-mep-row-comment", {
                                   detail: {
                                     id: row.id,
                                     name: (row as any).name || (row as any).description || (row as any).desc || (row as any).tag || (row as any).code,
-                                    // type: (row as any).tag ? "equipment" : (row as any).zone && !(row as any).area ? "zone" : "space"
+                                    type: (row as any).tag ? "equipment" : (row as any).zone && !(row as any).area ? "zone" : "space"
                                   }
                                 })
                               );
                             }
                           }}
-                          title={`${rowComments.length} comment(s)/task(s) assigned. Click to view.`}
-                          className="absolute top-0 left-0 w-5 h-5 flex items-start justify-start p-0 cursor-pointer z-20 hover:scale-125 active:scale-95 transition-all duration-150 focus:outline-none group/comment-mark pointer-events-auto"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 10 10" className="overflow-visible drop-shadow-[0_1px_2px_rgba(99,102,241,0.35)]">
-                            <defs>
-                              <linearGradient id={`commentGrad-${row.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                                <stop offset="0%" stopColor="#6366f1" />
-                                <stop offset="50%" stopColor="#8b5cf6" />
-                                <stop offset="100%" stopColor="#a855f7" />
-                              </linearGradient>
-                            </defs>
-                            <path
-                              d="M 10 0 H 0 V 10 C 0 5.5 4.5 0 10 0 Z"
-                              fill={`url(#commentGrad-${row.id})`}
-                              className="group-hover/comment-mark:opacity-90 transition-opacity"
-                            />
-                          </svg>
-                        </button>
+                        />
                       );
                     })()}
                     <span className="text-[11px] font-mono leading-none tracking-tight">
-                      {rowIndex + 1}
+                      {displaySrNo}
                     </span>
                   </div>
                   {columns.map((c, colIdx) => {
@@ -646,10 +623,25 @@ export function DataGrid<T extends { id: string }>({
                         key={String(c.key)}
                         className={`px-2 truncate min-w-0 flex items-center h-full ${!isLast ? "border-r border-border/40" : ""} ${c.align === "right" ? "justify-end text-right" :
                           c.align === "center" ? "justify-center text-center w-full" : ""
-                          } ${c.mono ? "font-mono tabular text-[13.5px]" : ""} ${isEditable && !isReadOnly ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors" : ""}`}
-                        title={isEditable && !isReadOnly ? "Double-click to edit" : undefined}
+                          } ${c.mono ? "font-mono tabular text-[13.5px]" : ""} ${
+                            isEditable && !isReadOnly
+                              ? sel
+                                ? "group/cell cursor-text"
+                                : "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                              : ""
+                          }`}
+                        title={isEditable && !isReadOnly ? (sel ? undefined : "Click to select row, click again to edit") : undefined}
                       >
-                        {c.render ? c.render(row) : (row as any)[c.key]}
+                        <div
+                          className={`w-full h-full flex items-center min-w-0 ${
+                            c.align === "right" ? "justify-end text-right" :
+                            c.align === "center" ? "justify-center text-center" : ""
+                          } ${
+                            isEditable && !sel && !isReadOnly ? "pointer-events-none select-none" : ""
+                          }`}
+                        >
+                          {c.render ? c.render(row) : (row as any)[c.key]}
+                        </div>
                       </div>
                     );
                   })}
@@ -668,26 +660,56 @@ export function DataGrid<T extends { id: string }>({
                         onMouseDownCapture={(e) => {
                           if (isReadOnly) return;
                           const target = e.target as HTMLElement;
-                          if (target.closest('.group\\/row-cell') || target.closest('button[title*="comment"]')) {
+                          if (
+                            target.closest('.group\\/row-cell') ||
+                            target.closest('button[title*="comment"]') ||
+                            target.closest('.mep-comment-badge')
+                          ) {
                             return;
                           }
-                          const isInputTarget = (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "checkbox" && (target as HTMLInputElement).type !== "radio") ||
+                          const isInputTarget =
+                            target.tagName === "INPUT" ||
                             target.tagName === "TEXTAREA" ||
                             target.tagName === "SELECT" ||
                             target.isContentEditable ||
-                            target.getAttribute("contenteditable") === "true";
+                            target.getAttribute("contenteditable") === "true" ||
+                            Boolean(target.closest("input, textarea, select, [contenteditable='true'], [role='combobox']"));
 
                           if (!sel) {
+                            blurActiveInput();
                             if (isInputTarget) {
                               e.preventDefault();
+                              e.stopPropagation();
                             }
-                            blurActiveInput();
                             onToggle(row.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                            return;
+                          }
+                        }}
+                        onClickCapture={(e) => {
+                          const target = e.target as HTMLElement;
+                          if (
+                            target.closest('.group\\/row-cell') ||
+                            target.closest('button[title*="comment"]') ||
+                            target.closest('.mep-comment-badge')
+                          ) {
+                            return;
+                          }
+                          const isInputTarget =
+                            target.tagName === "INPUT" ||
+                            target.tagName === "TEXTAREA" ||
+                            target.tagName === "SELECT" ||
+                            target.isContentEditable ||
+                            target.getAttribute("contenteditable") === "true" ||
+                            Boolean(target.closest("input, textarea, select, [contenteditable='true'], [role='combobox']"));
+
+                          if (!sel && isInputTarget) {
+                            e.preventDefault();
+                            e.stopPropagation();
                           }
                         }}
                         onClick={(e) => {
                           const target = e.target as HTMLElement;
-                          if (target.closest('.group\\/row-cell') || target.closest('button[title*="comment"]')) {
+                          if (target.closest('.group\\/row-cell') || target.closest('button[title*="comment"]') || target.closest('.mep-comment-badge')) {
                             return;
                           }
                           const isTextInputTarget = (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "checkbox" && (target as HTMLInputElement).type !== "radio") ||
@@ -736,7 +758,7 @@ export function DataGrid<T extends { id: string }>({
                           } ${highlightedRowId === row.id
                             ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                             : ""
-                          } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
+                          } ${isBlurred ? "blur-[3.5px] opacity-25 select-none pointer-events-none transition-all duration-200" : ""}`}
                         style={{ gridTemplateColumns: gridTemplate, height: ROW_H, minWidth: "100%" }}
                       >
                         {renderRowContent()}
@@ -757,26 +779,56 @@ export function DataGrid<T extends { id: string }>({
                   onMouseDownCapture={(e) => {
                     if (isReadOnly) return;
                     const target = e.target as HTMLElement;
-                    if (target.closest('.group\\/row-cell') || target.closest('button[title*="comment"]')) {
+                    if (
+                      target.closest('.group\\/row-cell') ||
+                      target.closest('button[title*="comment"]') ||
+                      target.closest('.mep-comment-badge')
+                    ) {
                       return;
                     }
-                    const isInputTarget = (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "checkbox" && (target as HTMLInputElement).type !== "radio") ||
+                    const isInputTarget =
+                      target.tagName === "INPUT" ||
                       target.tagName === "TEXTAREA" ||
                       target.tagName === "SELECT" ||
                       target.isContentEditable ||
-                      target.getAttribute("contenteditable") === "true";
+                      target.getAttribute("contenteditable") === "true" ||
+                      Boolean(target.closest("input, textarea, select, [contenteditable='true'], [role='combobox']"));
 
                     if (!sel) {
+                      blurActiveInput();
                       if (isInputTarget) {
                         e.preventDefault();
+                        e.stopPropagation();
                       }
-                      blurActiveInput();
                       onToggle(row.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                      return;
+                    }
+                  }}
+                  onClickCapture={(e) => {
+                    const target = e.target as HTMLElement;
+                    if (
+                      target.closest('.group\\/row-cell') ||
+                      target.closest('button[title*="comment"]') ||
+                      target.closest('.mep-comment-badge')
+                    ) {
+                      return;
+                    }
+                    const isInputTarget =
+                      target.tagName === "INPUT" ||
+                      target.tagName === "TEXTAREA" ||
+                      target.tagName === "SELECT" ||
+                      target.isContentEditable ||
+                      target.getAttribute("contenteditable") === "true" ||
+                      Boolean(target.closest("input, textarea, select, [contenteditable='true'], [role='combobox']"));
+
+                    if (!sel && isInputTarget) {
+                      e.preventDefault();
+                      e.stopPropagation();
                     }
                   }}
                   onClick={(e) => {
                     const target = e.target as HTMLElement;
-                    if (target.closest('.group\\/row-cell') || target.closest('button[title*="comment"]')) {
+                    if (target.closest('.group\\/row-cell') || target.closest('button[title*="comment"]') || target.closest('.mep-comment-badge')) {
                       return;
                     }
                     const isTextInputTarget = (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "checkbox" && (target as HTMLInputElement).type !== "radio") ||
@@ -812,7 +864,7 @@ export function DataGrid<T extends { id: string }>({
                     } ${highlightedRowId === row.id
                       ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/25 z-20 relative font-bold"
                       : ""
-                    } ${isBlurred ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
+                    } ${isBlurred ? "blur-[3.5px] opacity-25 select-none pointer-events-none transition-all duration-200" : ""}`}
                   style={{ gridTemplateColumns: gridTemplate, height: ROW_H, minWidth: "100%" }}
                 >
                   {renderRowContent()}

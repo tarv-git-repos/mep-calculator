@@ -1,6 +1,8 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { workspaceStore } from "@/lib/workspace-store";
+import { getCompanyBranding } from "@/utils/branding";
+export { getCompanyBranding };
 
 export function formatDateStr(rawDate?: string): string {
   if (!rawDate) return "";
@@ -205,6 +207,11 @@ export function getSignatureBlockDetails(
   const appDisplay = approverName || "-";
   const appDateDisplay = approverDate || "-";
 
+  const branding = getCompanyBranding();
+  const preparedByTitle = branding.preparedByTitle || "Prepared By";
+  const reviewedByTitle = branding.reviewedByTitle || "Reviewed By";
+  const approvedByTitle = branding.approvedByTitle || "Approved By";
+
   return {
     originatedName,
     originatedDate,
@@ -212,21 +219,26 @@ export function getSignatureBlockDetails(
     reviewerDate,
     approverName,
     approverDate,
+    preparedByTitle,
+    reviewedByTitle,
+    approvedByTitle,
+    disclaimerText: branding.disclaimerText,
+    enableStampBox: branding.enableStampBox,
     originator: {
       name: origDisplay,
-      role: "Design Engineer",
+      role: preparedByTitle,
       date: origDateDisplay,
       status: originatedName ? "Signed" : "-"
     },
     reviewer: {
       name: revDisplay,
-      role: "Sr. Design Engineer",
+      role: reviewedByTitle,
       date: revDateDisplay,
       status: reviewerName ? "Reviewed" : "-"
     },
     approver: {
       name: appDisplay,
-      role: "Discipline Coordinator",
+      role: approvedByTitle,
       date: appDateDisplay,
       status: approverName ? "Approved" : "-"
     }
@@ -260,6 +272,10 @@ export function addPdfSignatureBlock(
     );
   }
 
+  const branding = (details && typeof details === "object" && details.branding)
+    ? details.branding
+    : getCompanyBranding();
+
   const {
     originatedName = "System Admin",
     originatedDate = formatDateStr(new Date().toISOString()),
@@ -268,6 +284,10 @@ export function addPdfSignatureBlock(
     approverName = "",
     approverDate = ""
   } = details;
+
+  const preparedTitle = details.preparedByTitle || branding.preparedByTitle || "Prepared By";
+  const reviewedTitle = details.reviewedByTitle || branding.reviewedByTitle || "Reviewed By";
+  const approvedTitle = details.approvedByTitle || branding.approvedByTitle || "Approved By";
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const leftMargin = marginOptions?.left ?? (pageWidth > 500 ? 40 : 14);
@@ -279,7 +299,7 @@ export function addPdfSignatureBlock(
   const colSigWidth = Math.floor(remainingWidth / 3);
   const lastColWidth = remainingWidth - (colSigWidth * 2);
 
-  const head = [["", "Originator", "Reviewer", "Approver"]];
+  const head = [["", preparedTitle, reviewedTitle, approvedTitle]];
   const body = [
     ["Name:", originatedName || "-", reviewerName || "-", approverName || "-"],
     ["Date:", originatedDate || "-", reviewerDate || "-", approverDate || "-"],
@@ -328,7 +348,71 @@ export function addPdfSignatureBlock(
     margin: { left: leftMargin, right: rightMargin }
   });
 
-  return (doc as any).lastAutoTable?.finalY || (startY + 70);
+  let endY = (doc as any).lastAutoTable?.finalY || (startY + 70);
+
+  // 1. Engineering Stamp & Seal Box (if enabled)
+  const shouldStamp = details.enableStampBox ?? branding.enableStampBox ?? branding.showStampBox;
+  if (shouldStamp) {
+    const stampWidth = 54;
+    const stampHeight = 22;
+    const stampX = pageWidth - rightMargin - stampWidth;
+    const stampY = endY + 4;
+
+    doc.setDrawColor(148, 163, 184);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(stampX, stampY, stampWidth, stampHeight, 1.5, 1.5);
+
+    const stampImg = branding.stampUrl || branding.sealUrl || details.stampUrl || details.sealUrl;
+    if (stampImg) {
+      try {
+        let imgFormat = "PNG";
+        if (stampImg.startsWith("data:image/jpeg") || stampImg.startsWith("data:image/jpg")) {
+          imgFormat = "JPEG";
+        } else if (stampImg.startsWith("data:image/webp")) {
+          imgFormat = "WEBP";
+        }
+        // Center the stamp image inside the seal box with 1.2mm inner margin
+        doc.addImage(stampImg, imgFormat, stampX + 1.2, stampY + 1.2, stampWidth - 2.4, stampHeight - 2.4);
+      } catch (err) {
+        console.warn("Could not render stamp image in PDF:", err);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text("ENGINEERING STAMP & SEAL", stampX + (stampWidth / 2), stampY + 5.5, { align: "center" });
+
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(6.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text("[ Consulting PE / Reg. Stamp ]", stampX + (stampWidth / 2), stampY + 13.5, { align: "center" });
+      }
+    } else {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text("ENGINEERING STAMP & SEAL", stampX + (stampWidth / 2), stampY + 5.5, { align: "center" });
+
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(6.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text("[ Consulting PE / Reg. Stamp ]", stampX + (stampWidth / 2), stampY + 13.5, { align: "center" });
+    }
+
+    endY = stampY + stampHeight;
+  }
+
+  // 2. Standard Legal Disclaimer (if configured)
+  const disclaimer = details.disclaimerText || branding.disclaimerText;
+  if (disclaimer) {
+    const discY = endY + 4;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    const splitDisclaimer = doc.splitTextToSize(disclaimer, availableWidth);
+    doc.text(splitDisclaimer, leftMargin, discY);
+    endY = discY + (splitDisclaimer.length * 3.2);
+  }
+
+  return endY;
 }
 
 export interface PdfHeaderOptions {
@@ -339,6 +423,7 @@ export interface PdfHeaderOptions {
   client?: string;
   endUser?: string;
   date?: string;
+  branding?: any;
 }
 
 export function addPdfHeader(
@@ -348,8 +433,10 @@ export function addPdfHeader(
 ): number {
   const opts: PdfHeaderOptions = typeof options === "object" && options !== null ? options : {};
   const activeProj: any = workspaceStore.getState()?.project || {};
+  const branding = (opts.branding && typeof opts.branding === "object") ? opts.branding : getCompanyBranding();
 
   const calcNo = opts.calcNo || activeProj?.calcNo || "TRV-CAL-101-R01";
+  const revNo = opts.revNo || activeProj?.revNo || "Rev 0 - IFC";
   const today = opts.date || formatDateStr(new Date().toISOString());
   const projectNo = opts.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
   const projectName = opts.projectName || activeProj?.name || activeProj?.projectName || "";
@@ -360,57 +447,319 @@ export function addPdfHeader(
   const leftMargin = 14;
   const rightMargin = pageWidth - 14;
   const contentWidth = rightMargin - leftMargin;
+  const isLandscape = pageWidth > 250;
 
-  // Title
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
-  doc.text(title, leftMargin, 14);
+  const hasBranding = Boolean(
+    (branding.companyName && branding.companyName.trim()) ||
+    branding.logoUrl ||
+    branding.licenseId ||
+    branding.isoCertNumber ||
+    (Array.isArray(branding.headerFields) && branding.headerFields.length > 0)
+  );
 
-  // Metadata Outer Box
-  doc.setFontSize(9);
-  doc.setLineWidth(0.3);
-  doc.rect(leftMargin, 18, contentWidth, 18);
+  if (hasBranding) {
+    // 1. Corporate Identity Header Bar
+    let compTextX = leftMargin;
+    if (branding.logoUrl) {
+      try {
+        let imgFormat = "PNG";
+        if (branding.logoUrl.startsWith("data:image/jpeg") || branding.logoUrl.startsWith("data:image/jpg")) {
+          imgFormat = "JPEG";
+        } else if (branding.logoUrl.startsWith("data:image/webp")) {
+          imgFormat = "WEBP";
+        }
+        doc.addImage(branding.logoUrl, imgFormat, leftMargin, 5, 26, 10);
+        compTextX = leftMargin + 29;
+      } catch (e) {
+        console.warn("Could not add branding logo to PDF:", e);
+        compTextX = leftMargin;
+      }
+    }
 
-  const midX = leftMargin + contentWidth / 2;
+    // Right-aligned Credentials & Custom Header Fields
+    const fieldItems: string[] = [];
 
-  // Vertical dividing line
-  doc.line(midX, 18, midX, 36);
+    if (Array.isArray(branding.headerFields) && branding.headerFields.length > 0) {
+      branding.headerFields.forEach((f: any) => {
+        if (!f) return;
+        const lbl = (f.label || "").trim();
+        const val = (f.value || "").trim();
+        if (lbl && val) {
+          if (val.toLowerCase().startsWith(lbl.toLowerCase())) {
+            fieldItems.push(val);
+          } else {
+            fieldItems.push(`${lbl}: ${val}`);
+          }
+        } else if (val) {
+          fieldItems.push(val);
+        } else if (lbl) {
+          fieldItems.push(lbl);
+        }
+      });
+    } else {
+      if (branding.licenseId) fieldItems.push(`License ID: ${branding.licenseId}`);
+      if (branding.isoCertNumber) fieldItems.push(`ISO Cert: ${branding.isoCertNumber}`);
+      if (branding.phone) fieldItems.push(`Tel: ${branding.phone}`);
+      if (branding.email) fieldItems.push(`Email: ${branding.email}`);
+      if (branding.website) fieldItems.push(branding.website);
+      if (branding.address) fieldItems.push(branding.address);
+    }
 
-  // Horizontal dividing lines
-  doc.line(leftMargin, 24, rightMargin, 24);
-  doc.line(leftMargin, 30, rightMargin, 30);
+    // Wrap field items into lines of max width so they NEVER collide with company logo/title
+    const maxRightWidth = isLandscape ? 135 : 98;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
 
-  // Column 1
-  doc.setFont("helvetica", "bold");
-  doc.text("Calculation No.:", leftMargin + 2, 22);
-  doc.setFont("helvetica", "normal");
-  doc.text(String(calcNo), leftMargin + 31, 22);
+    const headerLines: string[] = [];
+    let currentLine = "";
 
-  doc.setFont("helvetica", "bold");
-  doc.text("Project No.:", leftMargin + 2, 28);
-  doc.setFont("helvetica", "normal");
-  doc.text(String(projectNo), leftMargin + 26, 28);
+    fieldItems.forEach((item) => {
+      const candidate = currentLine ? `${currentLine}   •   ${item}` : item;
+      if (doc.getTextWidth(candidate) <= maxRightWidth || !currentLine) {
+        currentLine = candidate;
+      } else {
+        headerLines.push(currentLine);
+        currentLine = item;
+      }
+    });
+    if (currentLine) {
+      headerLines.push(currentLine);
+    }
 
-  doc.setFont("helvetica", "bold");
-  doc.text("Project Name:", leftMargin + 2, 34);
-  doc.setFont("helvetica", "normal");
-  doc.text(String(projectName), leftMargin + 28, 34);
+    // Company Name & Tagline (constrained so it never overlaps right credentials)
+    const maxCompNameWidth = Math.max(50, pageWidth - leftMargin - maxRightWidth - (compTextX - leftMargin) - 8);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10.5);
+    doc.setTextColor(15, 23, 42);
+    const splitCompName = doc.splitTextToSize(branding.companyName || "MEP ENGINEERING CONSULTANCY", maxCompNameWidth);
+    doc.text(splitCompName[0], compTextX, 9.5);
 
-  // Column 2
-  doc.setFont("helvetica", "bold");
-  doc.text("Date:", midX + 2, 22);
-  doc.setFont("helvetica", "normal");
-  doc.text(String(today), midX + 15, 22);
+    if (branding.tagline) {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(6.8);
+      doc.setTextColor(100, 116, 139);
+      const splitTagline = doc.splitTextToSize(branding.tagline, maxCompNameWidth);
+      doc.text(splitTagline[0], compTextX, 13.5);
+    }
 
-  doc.setFont("helvetica", "bold");
-  doc.text("Client:", midX + 2, 28);
-  doc.setFont("helvetica", "normal");
-  doc.text(String(clientName), midX + 15, 28);
+    // Render header lines right-aligned
+    if (headerLines.length === 1) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.0);
+      doc.setTextColor(30, 41, 59);
+      doc.text(headerLines[0], rightMargin, 11, { align: "right" });
+    } else if (headerLines.length === 2) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.8);
+      doc.setTextColor(30, 41, 59);
+      doc.text(headerLines[0], rightMargin, 8.8, { align: "right" });
 
-  doc.setFont("helvetica", "bold");
-  doc.text("End User:", midX + 2, 34);
-  doc.setFont("helvetica", "normal");
-  doc.text(String(endUser), midX + 20, 34);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.2);
+      doc.setTextColor(71, 85, 105);
+      doc.text(headerLines[1], rightMargin, 13.0, { align: "right" });
+    } else if (headerLines.length >= 3) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.6);
+      doc.setTextColor(30, 41, 59);
+      doc.text(headerLines[0], rightMargin, 7.5, { align: "right" });
 
-  return 42;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.2);
+      doc.setTextColor(51, 65, 85);
+      doc.text(headerLines[1], rightMargin, 10.8, { align: "right" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.0);
+      doc.setTextColor(100, 116, 139);
+      doc.text(headerLines[2], rightMargin, 14.0, { align: "right" });
+    }
+
+    // Divider Line
+    doc.setDrawColor(218, 225, 233);
+    doc.setLineWidth(0.3);
+    doc.line(leftMargin, 15.5, rightMargin, 15.5);
+
+    // Document Title
+    doc.setFontSize(12.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(15, 23, 42);
+    doc.text(title, leftMargin, 20.5);
+
+    // Metadata Outer Box
+    const boxStartY = 22.5;
+    const boxHeight = 15;
+    const rowHeight = 5;
+
+    doc.setFontSize(8);
+    doc.setLineWidth(0.3);
+    doc.setDrawColor(0, 0, 0);
+    doc.rect(leftMargin, boxStartY, contentWidth, boxHeight);
+
+    const midX = isLandscape ? leftMargin + (contentWidth / 2) : 105;
+    const dateColX = isLandscape ? midX + 67 : 155;
+
+    // Vertical dividing line
+    doc.line(midX, boxStartY, midX, boxStartY + boxHeight);
+
+    // Horizontal dividing lines
+    doc.line(leftMargin, boxStartY + rowHeight, rightMargin, boxStartY + rowHeight);
+    doc.line(leftMargin, boxStartY + (rowHeight * 2), rightMargin, boxStartY + (rowHeight * 2));
+
+    // Row 1 divider for Date
+    doc.line(dateColX, boxStartY, dateColX, boxStartY + rowHeight);
+
+    // Column 1 - Row 1
+    doc.setFont("helvetica", "bold");
+    doc.text("Calculation No.:", leftMargin + 2, boxStartY + 3.8);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(calcNo), leftMargin + 31, boxStartY + 3.8);
+
+    // Column 1 - Row 2
+    doc.setFont("helvetica", "bold");
+    doc.text("Project No.:", leftMargin + 2, boxStartY + rowHeight + 3.8);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(projectNo), leftMargin + 26, boxStartY + rowHeight + 3.8);
+
+    // Column 1 - Row 3
+    doc.setFont("helvetica", "bold");
+    doc.text("Project Name:", leftMargin + 2, boxStartY + (rowHeight * 2) + 3.8);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(projectName), leftMargin + 28, boxStartY + (rowHeight * 2) + 3.8);
+
+    // Column 2 - Row 1: Rev No & Date
+    doc.setFont("helvetica", "bold");
+    doc.text("Rev No.:", midX + 2, boxStartY + 3.8);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(revNo), midX + 17, boxStartY + 3.8);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Date:", dateColX + 2, boxStartY + 3.8);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(today), dateColX + 12, boxStartY + 3.8);
+
+    // Column 2 - Row 2: Client
+    doc.setFont("helvetica", "bold");
+    doc.text("Client:", midX + 2, boxStartY + rowHeight + 3.8);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(clientName), midX + 15, boxStartY + rowHeight + 3.8);
+
+    // Column 2 - Row 3: End User
+    doc.setFont("helvetica", "bold");
+    doc.text("End User:", midX + 2, boxStartY + (rowHeight * 2) + 3.8);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(endUser), midX + 20, boxStartY + (rowHeight * 2) + 3.8);
+
+    return 42;
+  } else {
+    // Standard layout (when no custom company branding is configured)
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0, 0, 0);
+    doc.text(title, leftMargin, 14);
+
+    // Metadata Outer Box
+    doc.setFontSize(8.5);
+    doc.setLineWidth(0.3);
+    doc.rect(leftMargin, 18, contentWidth, 18);
+
+    const midX = isLandscape ? leftMargin + 134.5 : 105;
+    const dateColX = isLandscape ? midX + 67 : 155;
+
+    // Vertical dividing line
+    doc.line(midX, 18, midX, 36);
+
+    // Horizontal dividing lines
+    doc.line(leftMargin, 24, rightMargin, 24);
+    doc.line(leftMargin, 30, rightMargin, 30);
+
+    // Row 1 divider for Date
+    doc.line(dateColX, 18, dateColX, 24);
+
+    // Column 1 - Row 1
+    doc.setFont("helvetica", "bold");
+    doc.text("Calculation No.:", leftMargin + 2, 22);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(calcNo), leftMargin + 31, 22);
+
+    // Column 1 - Row 2
+    doc.setFont("helvetica", "bold");
+    doc.text("Project No.:", leftMargin + 2, 28);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(projectNo), leftMargin + 26, 28);
+
+    // Column 1 - Row 3
+    doc.setFont("helvetica", "bold");
+    doc.text("Project Name:", leftMargin + 2, 34);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(projectName), leftMargin + 28, 34);
+
+    // Column 2 - Row 1: Rev No & Date
+    doc.setFont("helvetica", "bold");
+    doc.text("Rev No.:", midX + 2, 22);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(revNo), midX + 17, 22);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Date:", dateColX + 2, 22);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(today), dateColX + 12, 22);
+
+    // Column 2 - Row 2: Client
+    doc.setFont("helvetica", "bold");
+    doc.text("Client:", midX + 2, 28);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(clientName), midX + 15, 28);
+
+    // Column 2 - Row 3: End User
+    doc.setFont("helvetica", "bold");
+    doc.text("End User:", midX + 2, 34);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(endUser), midX + 20, 34);
+
+    return 42;
+  }
 }
+
+/**
+ * Appends a corporate footer with document confidentiality and page numbers.
+ */
+export function addPdfFooter(
+  doc: jsPDF,
+  pageNo?: number,
+  totalPages?: number,
+  brandingOverride?: any
+): void {
+  const branding = (brandingOverride && typeof brandingOverride === "object") ? brandingOverride : getCompanyBranding();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const leftMargin = 14;
+  const rightMargin = pageWidth - 14;
+  const footerY = pageHeight - 8;
+
+  // Thin dividing line
+  doc.setDrawColor(218, 225, 233);
+  doc.setLineWidth(0.25);
+  doc.line(leftMargin, footerY - 3, rightMargin, footerY - 3);
+
+  // Left side: Company Name & Confidentiality (or Custom Left Footer Text)
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.5);
+  doc.setTextColor(130, 140, 150);
+  const leftText = branding.footerLeftText || branding.footerText || (branding.companyName
+    ? `${branding.companyName}  •  Confidential & Proprietary`
+    : "MEP Engineering Calculation  •  Confidential & Proprietary");
+  doc.text(leftText, leftMargin, footerY);
+
+  // Right side: Page X of Y or Custom Right Footer Text
+  if (branding.showPageNumbers !== false && pageNo !== undefined) {
+    const pageText = totalPages ? `Page ${pageNo} of ${totalPages}` : `Page ${pageNo}`;
+    const rightSideText = branding.footerRightText ? `${branding.footerRightText}   •   ${pageText}` : pageText;
+    doc.text(rightSideText, rightMargin, footerY, { align: "right" });
+  } else if (branding.footerRightText) {
+    doc.text(branding.footerRightText, rightMargin, footerY, { align: "right" });
+  } else {
+    doc.text(formatDateStr(new Date().toISOString()), rightMargin, footerY, { align: "right" });
+  }
+}
+

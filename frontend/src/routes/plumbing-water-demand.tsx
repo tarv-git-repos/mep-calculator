@@ -5,10 +5,11 @@ import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
-import { Trash2, Plus, Download, Save, Info, Droplet, Building2, Layers, Globe, Sparkles, FileSpreadsheet, MessageSquare, Copy, Calculator, X, FileText, Printer, SlidersHorizontal, Check, Filter, ArrowUpDown, Search, Flag, Gauge, RefreshCw, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { Trash2, Plus, Download, Upload, Save, Info, Droplet, Building2, Layers, Globe, Sparkles, FileSpreadsheet, MessageSquare, Copy, Calculator, X, FileText, Printer, SlidersHorizontal, Check, Filter, ArrowUpDown, Search, Flag, Gauge, Activity, BookOpen, Sliders, RefreshCw, RotateCcw, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, ContextMenuShortcut } from "@/components/ui/context-menu";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -17,6 +18,7 @@ import { downloadFile } from "@/lib/download";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import { useConfirm } from "@/hooks/use-confirm";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
@@ -35,6 +37,41 @@ import {
   computeWaterDemandCalculations
 } from "@/lib/calc-plumbing-water-demand";
 
+export function getWdRowValidation(r: WDRow) {
+  const isNoName = !r.name || r.name.trim() === "";
+  const isNoPeople = !r.ppl || Number(r.ppl) <= 0 || isNaN(Number(r.ppl));
+  const isNoCategory = !r.cat || r.cat.trim() === "" || r.cat.toLowerCase().includes("select category");
+  const isNoRate = !r.lpd || Number(r.lpd) <= 0 || isNaN(Number(r.lpd));
+  const dailyDemand = (Number(r.ppl) || 0) * (Number(r.lpd) || 0) * (Number(r.multiplier) || 1);
+  const isZeroDemand = dailyDemand <= 0;
+  const isFlagged = Boolean(r.flagged || isNoName || isNoPeople || isNoCategory || isNoRate || isZeroDemand);
+  return {
+    isFlagged,
+    isNoName,
+    isNoPeople,
+    isNoCategory,
+    isNoRate,
+    isZeroDemand,
+    isManual: Boolean(r.flagged),
+  };
+}
+
+export function getIrrRowValidation(r: IrrRow) {
+  const isNoArea = !r.area || Number(r.area) <= 0 || isNaN(Number(r.area));
+  const isNoVegType = !r.vegType || r.vegType.trim() === "" || r.vegType.toLowerCase().includes("select");
+  const isNoRate = !r.lpd || Number(r.lpd) <= 0 || isNaN(Number(r.lpd));
+  const dailyDemand = (Number(r.area) || 0) * (Number(r.lpd) || 0);
+  const isZeroDemand = dailyDemand <= 0;
+  const isFlagged = Boolean(r.flagged || isNoArea || isNoVegType || isNoRate || isZeroDemand);
+  return {
+    isFlagged,
+    isNoArea,
+    isNoVegType,
+    isNoRate,
+    isZeroDemand,
+    isManual: Boolean(r.flagged),
+  };
+}
 
 export const Route = createFileRoute("/plumbing-water-demand")({
   head: () => ({
@@ -47,6 +84,7 @@ export const Route = createFileRoute("/plumbing-water-demand")({
 });
 
 function WaterDemandPage() {
+  const confirm = useConfirm();
   const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/plumbing-water-demand", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-water-demand", activeProjectId || project?.id);
@@ -189,6 +227,7 @@ function WaterDemandPage() {
 
   // Double-Click Calculation Breakdown Preview Modal State
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [showFormulaModal, setShowFormulaModal] = useState(false);
   const [showModalPreview, setShowModalPreview] = useState(true);
   const [previewTarget, setPreviewTarget] = useState<{
     type: "domestic" | "irrigation" | "summary" | "tank" | "pump" | "pool" | "fire";
@@ -198,6 +237,7 @@ function WaterDemandPage() {
   // Search, Filter, Sort state for toolbar
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCatFilter, setSelectedCatFilter] = useState<string>("");
+  const [filterFlaggedOnly, setFilterFlaggedOnly] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<"name" | "ppl" | "lpd" | "load" | "none">("none");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -218,23 +258,114 @@ function WaterDemandPage() {
     }
   }, [isLocked]);
 
-  // Dynamic Column Width Adjusting State
-  const [colWidths, setColWidths] = useState<Record<string, number>>({
-    select: 48,
+  useEffect(() => {
+    if (previewModalOpen) {
+      document.body.classList.add("modal-open-blur");
+      return () => {
+        document.body.classList.remove("modal-open-blur");
+      };
+    }
+  }, [previewModalOpen]);
+
+  const DEFAULT_WD_COL_WIDTHS: Record<string, number> = useMemo(() => ({
+    select: 36,
     name: 240,
     ppl: 110,
     multiplier: 120,
-    cat: 220,
-    lpd: 140,
-    load: 130,
-    actions: 90,
-    irr_select: 48,
+    cat: 240,
+    lpd: 150,
+    load: 140,
+    actions: 36,
+    irr_select: 36,
     irr_vegType: 240,
     irr_area: 130,
     irr_rate: 130,
-    irr_load: 130,
-    irr_actions: 90,
+    irr_load: 140,
+    irr_actions: 36,
+  }), []);
+
+  // Dynamic Column Width Adjusting State
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_grid_water_demand");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === "object") {
+            const sanitized = { ...DEFAULT_WD_COL_WIDTHS, ...parsed };
+            // Auto-heal any squashed column widths from localStorage
+            Object.keys(DEFAULT_WD_COL_WIDTHS).forEach((k) => {
+              if (k !== "select" && k !== "actions" && k !== "irr_select" && k !== "irr_actions") {
+                if (!sanitized[k] || sanitized[k] < 80) {
+                  sanitized[k] = DEFAULT_WD_COL_WIDTHS[k];
+                }
+              }
+            });
+            return sanitized;
+          }
+        }
+      } catch (e) {}
+    }
+    return DEFAULT_WD_COL_WIDTHS;
   });
+
+  const totalWdTableWidth = useMemo(() => {
+    return (
+      (colWidths.select || 36) +
+      (colWidths.name || 240) +
+      (colWidths.ppl || 110) +
+      (colWidths.multiplier || 120) +
+      (colWidths.cat || 240) +
+      (colWidths.lpd || 150) +
+      (colWidths.load || 140) +
+      (colWidths.actions || 36)
+    );
+  }, [colWidths]);
+
+  const totalIrrTableWidth = useMemo(() => {
+    return (
+      (colWidths.irr_select || 36) +
+      (colWidths.irr_vegType || 240) +
+      (colWidths.irr_area || 130) +
+      (colWidths.irr_rate || 130) +
+      (colWidths.irr_load || 140) +
+      (colWidths.irr_actions || 36)
+    );
+  }, [colWidths]);
+
+  const getWdColStyle = (key: string): React.CSSProperties => {
+    if (key === "select" || key === "actions") {
+      return { width: "36px", minWidth: "36px", maxWidth: "36px" };
+    }
+    const val = colWidths[key] ?? DEFAULT_WD_COL_WIDTHS[key] ?? 120;
+    const totalDataWidth =
+      (colWidths.name || 240) +
+      (colWidths.ppl || 110) +
+      (colWidths.multiplier || 120) +
+      (colWidths.cat || 240) +
+      (colWidths.lpd || 150) +
+      (colWidths.load || 140);
+    const pct = ((val / totalDataWidth) * 100).toFixed(2);
+    return {
+      width: `calc((100% - 72px) * ${pct} / 100)`,
+    };
+  };
+
+  const getIrrColStyle = (key: string): React.CSSProperties => {
+    if (key === "irr_select" || key === "irr_actions") {
+      return { width: "36px", minWidth: "36px", maxWidth: "36px" };
+    }
+    const val = colWidths[key] ?? DEFAULT_WD_COL_WIDTHS[key] ?? 120;
+    const totalDataWidth =
+      (colWidths.irr_vegType || 240) +
+      (colWidths.irr_area || 130) +
+      (colWidths.irr_rate || 130) +
+      (colWidths.irr_load || 140);
+    const pct = ((val / totalDataWidth) * 100).toFixed(2);
+    return {
+      width: `calc((100% - 72px) * ${pct} / 100)`,
+    };
+  };
 
   const startResizing = (colKey: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -243,9 +374,13 @@ function WaterDemandPage() {
     const startWidth = colWidths[colKey] || 120;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const minW = colKey.includes("select") ? 36 : colKey.includes("actions") ? 70 : 80;
+      const minW = colKey.includes("select") ? 36 : colKey.includes("actions") ? 36 : 80;
       const newWidth = Math.max(minW, startWidth + (moveEvent.clientX - startX));
-      setColWidths((prev) => ({ ...prev, [colKey]: newWidth }));
+      setColWidths((prev) => {
+        const next = { ...prev, [colKey]: newWidth };
+        try { localStorage.setItem("mep_grid_water_demand", JSON.stringify(next)); } catch(err) {}
+        return next;
+      });
     };
 
     const handleMouseUp = () => {
@@ -257,10 +392,11 @@ function WaterDemandPage() {
     window.addEventListener("mouseup", handleMouseUp);
   };
 
-  const activeFiltersCount = (selectedCatFilter ? 1 : 0) + (searchQuery.trim() ? 1 : 0);
+  const activeFiltersCount = (selectedCatFilter ? 1 : 0) + (filterFlaggedOnly ? 1 : 0) + (searchQuery.trim() ? 1 : 0);
 
   const handleResetFilters = () => {
     setSelectedCatFilter("");
+    setFilterFlaggedOnly(false);
     setSearchQuery("");
   };
 
@@ -381,6 +517,9 @@ function WaterDemandPage() {
     if (selectedCatFilter) {
       list = list.filter((r) => r.cat === selectedCatFilter);
     }
+    if (filterFlaggedOnly) {
+      list = list.filter((r) => getWdRowValidation(r).isFlagged);
+    }
     if (sortBy !== "none") {
       list.sort((a, b) => {
         let valA: any = a.name;
@@ -404,7 +543,19 @@ function WaterDemandPage() {
       });
     }
     return list;
-  }, [wdRows, searchQuery, selectedCatFilter, sortBy, sortOrder]);
+  }, [wdRows, searchQuery, selectedCatFilter, filterFlaggedOnly, sortBy, sortOrder]);
+
+  const filteredAndSortedIrrRows = useMemo(() => {
+    let list = [...irrRows];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter((r) => r.vegType.toLowerCase().includes(q));
+    }
+    if (filterFlaggedOnly) {
+      list = list.filter((r) => getIrrRowValidation(r).isFlagged);
+    }
+    return list;
+  }, [irrRows, searchQuery, filterFlaggedOnly]);
 
   // Domestic selection handlers
   const toggleWdRowSelection = (id: number, isShift?: boolean, isCtrl?: boolean) => {
@@ -578,22 +729,50 @@ function WaterDemandPage() {
         return;
       }
 
-      // 3. Delete / Backspace: Delete selected rows
+      // 3. Delete / Backspace: Delete selected rows (with ventilation-style confirmation)
       if (e.key === "Delete" || e.key === "Backspace") {
         if (tab === "demand" && demandSection === "domestic" && selectedWdRows.size > 0) {
           e.preventDefault();
           const count = selectedWdRows.size;
-          setWdRows((prev) => prev.filter((r) => !selectedWdRows.has(r.id)));
-          setSelectedWdRows(new Set());
-          setLastClickedWdIndex(null);
-          toast.info(`Deleted ${count} selected domestic entry(s)`);
+          const firstRow = wdRows.find((r) => selectedWdRows.has(r.id));
+          const msg = count === 1 && firstRow
+            ? `Are you sure you want to delete space "${firstRow.name}"?`
+            : `Are you sure you want to delete the ${count} selected spaces?`;
+
+          confirm(msg, {
+            title: count === 1 ? "Delete Space" : "Delete Spaces",
+            confirmText: "Delete",
+            cancelText: "Cancel",
+            variant: "destructive",
+          }).then((ok: any) => {
+            if (ok) {
+              setWdRows((prev) => prev.filter((r) => !selectedWdRows.has(r.id)));
+              setSelectedWdRows(new Set());
+              setLastClickedWdIndex(null);
+              toast.info(`Deleted ${count} space(s)`);
+            }
+          });
         } else if (tab === "demand" && demandSection === "irrigation" && selectedIrrRows.size > 0) {
           e.preventDefault();
           const count = selectedIrrRows.size;
-          setIrrRows((prev) => prev.filter((r) => !selectedIrrRows.has(r.id)));
-          setSelectedIrrRows(new Set());
-          setLastClickedIrrIndex(null);
-          toast.info(`Deleted ${count} selected irrigation entry(s)`);
+          const firstRow = irrRows.find((r) => selectedIrrRows.has(r.id));
+          const msg = count === 1 && firstRow
+            ? `Are you sure you want to delete zone "${firstRow.vegType}"?`
+            : `Are you sure you want to delete the ${count} selected zones?`;
+
+          confirm(msg, {
+            title: count === 1 ? "Delete Zone" : "Delete Zones",
+            confirmText: "Delete",
+            cancelText: "Cancel",
+            variant: "destructive",
+          }).then((ok: any) => {
+            if (ok) {
+              setIrrRows((prev) => prev.filter((r) => !selectedIrrRows.has(r.id)));
+              setSelectedIrrRows(new Set());
+              setLastClickedIrrIndex(null);
+              toast.info(`Deleted ${count} zone(s)`);
+            }
+          });
         }
         return;
       }
@@ -937,29 +1116,27 @@ function WaterDemandPage() {
   };
 
   const handleToggleWdFlag = (id: number) => {
+    const isTargetSelected = selectedWdRows.has(id);
+    const targetIds = isTargetSelected && selectedWdRows.size > 1 ? Array.from(selectedWdRows) : [id];
+    const targetRow = wdRows.find((r) => r.id === id);
+    const nextState = !targetRow?.flagged;
+
     setWdRows((prev) =>
-      prev.map((r) => {
-        if (r.id === id) {
-          const nextState = !r.flagged;
-          toast.info(nextState ? `Flagged "${r.name}" for review` : `Unflagged "${r.name}"`);
-          return { ...r, flagged: nextState };
-        }
-        return r;
-      })
+      prev.map((r) => (targetIds.includes(r.id) ? { ...r, flagged: nextState } : r))
     );
+    toast.info(nextState ? `Flagged ${targetIds.length} space(s) for review` : `Unflagged ${targetIds.length} space(s)`);
   };
 
   const handleToggleIrrFlag = (id: number) => {
+    const isTargetSelected = selectedIrrRows.has(id);
+    const targetIds = isTargetSelected && selectedIrrRows.size > 1 ? Array.from(selectedIrrRows) : [id];
+    const targetRow = irrRows.find((r) => r.id === id);
+    const nextState = !targetRow?.flagged;
+
     setIrrRows((prev) =>
-      prev.map((r) => {
-        if (r.id === id) {
-          const nextState = !r.flagged;
-          toast.info(nextState ? `Flagged "${r.vegType}" for review` : `Unflagged "${r.vegType}"`);
-          return { ...r, flagged: nextState };
-        }
-        return r;
-      })
+      prev.map((r) => (targetIds.includes(r.id) ? { ...r, flagged: nextState } : r))
     );
+    toast.info(nextState ? `Flagged ${targetIds.length} zone(s) for review` : `Unflagged ${targetIds.length} zone(s)`);
   };
 
   // PDF Exporter (Matching Ventilation & Preliminary Cooling Load Standard)
@@ -983,9 +1160,9 @@ function WaterDemandPage() {
         meta: {
           projectName: project?.name,
           client: project?.client,
-          projectNo: project?.code || project?.projectNo,
-          calcNo: project?.calcNo,
-          endUser: project?.endUser || project?.location,
+          projectNo: project?.code || (project as any)?.projectNo,
+          calcNo: (project as any)?.calcNo,
+          endUser: (project as any)?.endUser || (project as any)?.location,
           date: formatDateStr(new Date().toISOString()),
           userName: currentUserName,
           reviewState: calcReviewState,
@@ -1000,13 +1177,15 @@ function WaterDemandPage() {
   return (
     <AppShell title="Water Demand & Tank Sizer" hideSubHeader={true} onIntelClick={() => setIntelOpen((v) => !v)} intelOpen={intelOpen}>
       <div className="flex h-full min-h-0 bg-transparent font-sans">
-        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           {/* Header Bar */}
-          <div className="flex justify-between items-center shrink-0 select-none no-print py-0.5 flex-wrap gap-2">
+          <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-[28px] font-bold tracking-tight text-foreground">
-                Water Demand &amp; Tank Sizer
-              </h1>
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">
+                  Water Demand &amp; Tank Sizer
+                </h1>
+              </div>
               <button 
                 type="button"
                 onClick={() => setIntelOpen((v) => !v)}
@@ -1039,46 +1218,56 @@ function WaterDemandPage() {
             : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
             {/* Row 1: Header / Main Tabs on Left + Standard Selector on Right */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/50 gap-4 flex-wrap">
-              <div className="flex bg-slate-100 dark:bg-slate-900/70 p-1 rounded-full gap-1 border border-border/80">
-                <button
-                  type="button"
-                  onClick={() => setTab("demand")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "demand"
-                      ? "bg-background text-foreground shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Demand Sizing
-                </button>
+              <div className="flex items-center gap-2 select-none shrink-0 flex-wrap">
+                <div className="flex bg-slate-100 dark:bg-slate-900/70 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    type="button"
+                    onClick={() => setTab("demand")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "demand"
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Demand Sizing
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setTab("tanks")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "tanks"
-                      ? "bg-background text-foreground shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Storage &amp; Pumps
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setTab("tanks")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "tanks"
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Storage &amp; Pumps
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setTab("report")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "report"
-                      ? "bg-background text-foreground shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  <button
+                    type="button"
+                    onClick={() => setTab("report")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "report"
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Report
+                  </button>
+                </div>
+
+                {/* Formula Breakdown button placed on left side right after tabs */}
+                <TBtn
+                  onClick={() => setShowFormulaModal(true)}
+                  title="View Step-by-Step Formula Breakdown"
                 >
-                  Report
-                </button>
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
               </div>
 
-              {/* Right Side Header Controls: Standard Dropdown */}
-              <div className="flex items-center gap-2 flex-wrap">
+              {/* Right Side Header Controls: Standard Dropdown and Export */}
+              <div className="flex items-center gap-2 select-none shrink-0 flex-wrap">
                 <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900/60 p-1 px-3 rounded-full border border-border/80 text-xs font-semibold select-none">
                   <Globe className="size-3.5 text-primary shrink-0" />
                   <label className="text-[11px] font-bold text-muted-foreground whitespace-nowrap">Standard:</label>
@@ -1095,127 +1284,176 @@ function WaterDemandPage() {
                     ))}
                   </select>
                 </div>
+                <TBtn onClick={handleExportPDF} title="Export PDF Calculation">
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
               </div>
             </div>
 
-            {/* Row 2: Action Toolbar (Search, Filter, Sort, Auto-Calculate, Import, Export, + New Entry) */}
-            {tab !== "report" && (
-              <div className="flex items-center justify-between px-4 py-2 bg-slate-50/50 dark:bg-slate-900/30 shrink-0 select-none no-print border-b border-border/50 gap-3 flex-wrap">
-                {/* Left Side: Search Filter & Sort Options */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="relative flex items-center">
-                    <Search className="size-3.5 absolute left-3 text-muted-foreground pointer-events-none" />
-                    <input
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Filter entries..."
-                      className="h-8 w-48 pl-8 pr-3 bg-background border border-border rounded-full text-xs outline-none focus:border-primary transition-all"
-                    />
-                  </div>
+            {/* Row 2: Action Toolbar (Search, Filter, Sort, View Options, Auto-Calculate, Import, Export, + New Entry Matching Ventilation) */}
+            {tab === "demand" && (
+              <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print modal-blur-bg select-none">
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter spaces..."
+                  className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
+                />
 
-                  {/* Filter Popover */}
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${
-                          activeFiltersCount > 0
-                            ? "bg-primary/10 border-primary/45 text-primary font-medium"
-                            : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
-                        }`}
-                        title="Filter entries"
-                      >
-                        <Filter className="size-3.5 shrink-0" />
-                        {activeFiltersCount > 0 && (
-                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-xs">
-                            {activeFiltersCount}
-                          </span>
-                        )}
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
-                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">Filters</span>
-                        {activeFiltersCount > 0 && (
-                          <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold cursor-pointer">
-                            Clear All
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Occupancy Category</span>
-                        <select
-                          value={selectedCatFilter}
-                          onChange={(e) => setSelectedCatFilter(e.target.value)}
-                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                        >
-                          <option value="">All Categories</option>
-                          {Object.keys(WD_TYPE_MAP).map((c) => (
-                            <option key={c} value={c}>{c}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-
-                  {/* Sort Popover */}
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <button
-                        className={`relative inline-flex items-center justify-center h-8 w-8 rounded-full border transition-all cursor-pointer group overflow-visible ${
-                          sortBy !== "none"
-                            ? "bg-primary/10 border-primary/45 text-primary font-medium"
-                            : "border-border text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-foreground"
-                        }`}
-                        title="Sort entries"
-                      >
-                        <ArrowUpDown className="size-3.5 shrink-0" />
-                        {sortBy !== "none" && (
-                          <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-xs">
-                            ✓
-                          </span>
-                        )}
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
-                      <div className="flex items-center justify-between pb-1.5 border-b border-border">
-                        <span className="text-xs font-semibold text-foreground">Sort Options</span>
-                        {sortBy !== "none" && (
-                          <button onClick={handleResetSort} className="text-[10px] text-primary hover:underline font-semibold cursor-pointer">
-                            Reset Sort
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</label>
-                        <select
-                          value={sortBy}
-                          onChange={(e) => setSortBy(e.target.value as any)}
-                          className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                        >
-                          <option value="none">Default Order</option>
-                          <option value="name">Description Name</option>
-                          <option value="ppl">People / Units Count</option>
-                          <option value="lpd">Per Capita Rate (LPD)</option>
-                          <option value="load">Daily Water Load</option>
-                        </select>
-                      </div>
-                      {sortBy !== "none" && (
-                        <div className="flex items-center justify-between pt-1 border-t border-border/60">
-                          <span className="text-[11px] font-semibold text-muted-foreground">Order</span>
-                          <button
-                            onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
-                            className="px-2 py-1 text-[11px] font-bold text-primary bg-primary/10 rounded-md hover:bg-primary/20 cursor-pointer"
-                          >
-                            {sortOrder === "asc" ? "Ascending ↑" : "Descending ↓"}
-                          </button>
-                        </div>
+                {/* Filter Popover */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                        activeFiltersCount > 0
+                          ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                          : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                      }`}
+                      title="Filter entries"
+                    >
+                      <Filter className="size-3.5 shrink-0" />
+                      <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                        Filter
+                      </span>
+                      {activeFiltersCount > 0 && (
+                        <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                          {activeFiltersCount}
+                        </span>
                       )}
-                    </PopoverContent>
-                  </Popover>
-                </div>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                      <span className="text-xs font-semibold text-foreground">Filters</span>
+                      {activeFiltersCount > 0 && (
+                        <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold cursor-pointer">
+                          Clear All
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Occupancy Category</span>
+                      <select
+                        value={selectedCatFilter}
+                        onChange={(e) => setSelectedCatFilter(e.target.value)}
+                        className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                      >
+                        <option value="">All Categories</option>
+                        {Object.keys(WD_TYPE_MAP).map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center justify-between pt-1 border-t border-border/60">
+                      <span className="text-[11.5px] font-medium text-foreground">Flagged spaces only</span>
+                      <input
+                        type="checkbox"
+                        checked={filterFlaggedOnly}
+                        onChange={(e) => setFilterFlaggedOnly(e.target.checked)}
+                        className="size-4 rounded accent-primary cursor-pointer"
+                      />
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {/* Sort Popover */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                        sortBy !== "none"
+                          ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                          : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                      }`}
+                      title="Sort entries"
+                    >
+                      <ArrowUpDown className="size-3.5 shrink-0" />
+                      <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                        Sort
+                      </span>
+                      {sortBy !== "none" && (
+                        <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                          ✓
+                        </span>
+                      )}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                      <span className="text-xs font-semibold text-foreground">Sort Options</span>
+                      {sortBy !== "none" && (
+                        <button onClick={handleResetSort} className="text-[10px] text-primary hover:underline font-semibold cursor-pointer">
+                          Reset Sort
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</label>
+                      <select
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value as any)}
+                        className="h-8 w-full px-2 bg-slate-100 dark:bg-slate-900 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                      >
+                        <option value="none">Default Order</option>
+                        <option value="name">Description Name</option>
+                        <option value="ppl">People / Units Count</option>
+                        <option value="lpd">Per Capita Rate (LPD)</option>
+                        <option value="load">Daily Water Load</option>
+                      </select>
+                    </div>
+                    {sortBy !== "none" && (
+                      <div className="flex items-center justify-between pt-1 border-t border-border/60">
+                        <span className="text-[11px] font-semibold text-muted-foreground">Order</span>
+                        <button
+                          onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
+                          className="px-2 py-1 text-[11px] font-bold text-primary bg-primary/10 rounded-md hover:bg-primary/20 cursor-pointer"
+                        >
+                          {sortOrder === "asc" ? "Ascending ↑" : "Descending ↓"}
+                        </button>
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
+
+                {/* View Options & Column Distribution Popover */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="relative inline-flex items-center justify-center h-7 w-7 rounded-full border border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible"
+                      title="View / Column Distribution"
+                    >
+                      <SlidersHorizontal className="size-3.5 shrink-0" />
+                      <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                        View Options
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50 text-xs">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                      <span className="text-[12px] font-semibold text-foreground">Column Distribution</span>
+                    </div>
+                    <p className="text-[10.5px] text-muted-foreground leading-snug">
+                      Drag column divider lines in table headers to adjust custom widths. Click below to restore auto-distribution.
+                    </p>
+                    <button
+                      onClick={() => {
+                        try {
+                          localStorage.removeItem("mep_grid_water_demand");
+                          setColWidths(DEFAULT_WD_COL_WIDTHS);
+                          window.dispatchEvent(new Event("resize"));
+                          toast.success("Column widths reset to auto-distribution");
+                        } catch (e) {}
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground font-semibold text-[11.5px] border border-border transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="size-3 text-primary" />
+                      Reset Column Widths
+                    </button>
+                  </PopoverContent>
+                </Popover>
 
                 {/* Right Side Actions */}
-                <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                <div className="ml-auto flex items-center gap-1">
                   <input
                     type="file"
                     ref={importFileRef}
@@ -1246,10 +1484,7 @@ function WaterDemandPage() {
                       importFileRef.current?.click();
                     }}
                   >
-                    <Download className="size-3.5" /> Import
-                  </TBtn>
-                  <TBtn onClick={handleExportPDF} title="Generate and Export PDF Report">
-                    <FileText className="size-3.5" /> Export
+                    <Upload className="size-3.5" /> Import
                   </TBtn>
                   <TBtn
                     primary
@@ -1259,13 +1494,214 @@ function WaterDemandPage() {
                         toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to add entries.", { id: "readonly-notice" });
                         return;
                       }
-                      if (demandSection === "irrigation") setShowAddIrrModal(true);
-                      else setShowAddWdModal(true);
+                      if (demandSection === "irrigation") {
+                        const newId = Date.now();
+                        const areaVal = 100;
+                        const vegType = "Lawn with pop-up sprays";
+                        const lpd = IRR_TYPE_MAP[vegType] || 10;
+                        const newRow = { id: newId, area: areaVal, vegType, lpd, comments: [] };
+                        setIrrRows((prev) => [...prev, newRow]);
+                        setPreviewTarget({ type: "irrigation", rowId: newId });
+                        setPreviewModalOpen(true);
+                        toast.success("New Irrigation Zone added! Edit details in popup.");
+                      } else {
+                        const newId = Date.now();
+                        const nextNum = wdRows.length + 1;
+                        const cat = "Offices";
+                        const baseLpd = WD_TYPE_MAP[cat] || 60;
+                        const mult = PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.multiplier || 1.0;
+                        const lpd = Math.round(baseLpd * mult);
+                        const newRow = {
+                          id: newId,
+                          name: `Space ${nextNum}`,
+                          ppl: 10,
+                          cat,
+                          lpd,
+                          multiplier: 1,
+                          autoDetected: false,
+                          comments: [],
+                        };
+                        setWdRows((prev) => [...prev, newRow]);
+                        setPreviewTarget({ type: "domestic", rowId: newId });
+                        setPreviewModalOpen(true);
+                        toast.success("New Domestic Space added! Edit details in popup.");
+                      }
                     }}
                   >
                     <Plus className="size-3.5" /> New Entry
                   </TBtn>
                 </div>
+
+                {/* Bulk actions bar overlay */}
+                {demandSection === "domestic" && selectedWdRows.size > 0 && (
+                  <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                    <span className="font-semibold">{selectedWdRows.size} selected</span>
+                    <span className="text-primary/30">·</span>
+                    <BulkBtn
+                      icon={Calculator}
+                      onClick={() => {
+                        const firstId = Array.from(selectedWdRows)[0];
+                        const row = wdRows.find((r) => r.id === firstId);
+                        if (row) {
+                          setPreviewTarget({ type: "domestic", rowId: row.id });
+                          setPreviewModalOpen(true);
+                        }
+                      }}
+                    >
+                      Breakdown
+                    </BulkBtn>
+                    <BulkBtn
+                      icon={Flag}
+                      onClick={() => {
+                        setWdRows((prev) =>
+                          prev.map((r) =>
+                            selectedWdRows.has(r.id) ? { ...r, flagged: !r.flagged } : r
+                          )
+                        );
+                        toast.info(`Updated flag status for ${selectedWdRows.size} entry(s)`);
+                      }}
+                    >
+                      Flag
+                    </BulkBtn>
+                    <BulkBtn
+                      icon={Copy}
+                      onClick={() => {
+                        const clones = wdRows
+                          .filter((r) => selectedWdRows.has(r.id))
+                          .map((r, i) => ({
+                            ...r,
+                            id: Date.now() + i,
+                            name: `${r.name} (Copy)`,
+                          }));
+                        setWdRows((prev) => [...prev, ...clones]);
+                        toast.success(`Duplicated ${clones.length} space(s)`);
+                      }}
+                    >
+                      Duplicate
+                    </BulkBtn>
+                    <BulkBtn
+                      icon={Trash2}
+                      onClick={() => {
+                        const count = selectedWdRows.size;
+                        const firstRow = wdRows.find((r) => selectedWdRows.has(r.id));
+                        const msg = count === 1 && firstRow
+                          ? `Are you sure you want to delete space "${firstRow.name}"?`
+                          : `Are you sure you want to delete the ${count} selected spaces?`;
+
+                        confirm(msg, {
+                          title: count === 1 ? "Delete Space" : "Delete Spaces",
+                          confirmText: "Delete",
+                          cancelText: "Cancel",
+                          variant: "destructive",
+                        }).then((ok: any) => {
+                          if (ok) {
+                            setWdRows((prev) => prev.filter((r) => !selectedWdRows.has(r.id)));
+                            setSelectedWdRows(new Set());
+                            setLastClickedWdIndex(null);
+                            toast.info(`Deleted ${count} space(s)`);
+                          }
+                        });
+                      }}
+                    >
+                      Delete
+                    </BulkBtn>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedWdRows(new Set());
+                        setLastClickedWdIndex(null);
+                      }}
+                      className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+                    >
+                      <X className="size-3" /> Clear
+                    </button>
+                  </div>
+                )}
+
+                {demandSection === "irrigation" && selectedIrrRows.size > 0 && (
+                  <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                    <span className="font-semibold">{selectedIrrRows.size} selected</span>
+                    <span className="text-primary/30">·</span>
+                    <BulkBtn
+                      icon={Calculator}
+                      onClick={() => {
+                        const firstId = Array.from(selectedIrrRows)[0];
+                        const row = irrRows.find((r) => r.id === firstId);
+                        if (row) {
+                          setPreviewTarget({ type: "irrigation", rowId: row.id });
+                          setPreviewModalOpen(true);
+                        }
+                      }}
+                    >
+                      Breakdown
+                    </BulkBtn>
+                    <BulkBtn
+                      icon={Flag}
+                      onClick={() => {
+                        setIrrRows((prev) =>
+                          prev.map((r) =>
+                            selectedIrrRows.has(r.id) ? { ...r, flagged: !r.flagged } : r
+                          )
+                        );
+                        toast.info(`Updated flag status for ${selectedIrrRows.size} irrigation entry(s)`);
+                      }}
+                    >
+                      Flag
+                    </BulkBtn>
+                    <BulkBtn
+                      icon={Copy}
+                      onClick={() => {
+                        const clones = irrRows
+                          .filter((r) => selectedIrrRows.has(r.id))
+                          .map((r, i) => ({
+                            ...r,
+                            id: Date.now() + i,
+                            vegType: `${r.vegType} (Copy)`,
+                          }));
+                        setIrrRows((prev) => [...prev, ...clones]);
+                        toast.success(`Duplicated ${clones.length} irrigation zone(s)`);
+                      }}
+                    >
+                      Duplicate
+                    </BulkBtn>
+                    <BulkBtn
+                      icon={Trash2}
+                      onClick={() => {
+                        const count = selectedIrrRows.size;
+                        const firstRow = irrRows.find((r) => selectedIrrRows.has(r.id));
+                        const msg = count === 1 && firstRow
+                          ? `Are you sure you want to delete zone "${firstRow.vegType}"?`
+                          : `Are you sure you want to delete the ${count} selected zones?`;
+
+                        confirm(msg, {
+                          title: count === 1 ? "Delete Zone" : "Delete Zones",
+                          confirmText: "Delete",
+                          cancelText: "Cancel",
+                          variant: "destructive",
+                        }).then((ok: any) => {
+                          if (ok) {
+                            setIrrRows((prev) => prev.filter((r) => !selectedIrrRows.has(r.id)));
+                            setSelectedIrrRows(new Set());
+                            setLastClickedIrrIndex(null);
+                            toast.info(`Deleted ${count} zone(s)`);
+                          }
+                        });
+                      }}
+                    >
+                      Delete
+                    </BulkBtn>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedIrrRows(new Set());
+                        setLastClickedIrrIndex(null);
+                      }}
+                      className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+                    >
+                      <X className="size-3" /> Clear
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1353,123 +1789,48 @@ function WaterDemandPage() {
                 <>
                   {demandSection === "domestic" && (
                     <div className="flex flex-col gap-0 flex-1 min-h-0 relative">
-                      {/* Floating Bulk Action Overlay Bar when rows selected */}
-                      {selectedWdRows.size > 0 && (
-                        <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 h-10 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg border-b border-primary/20">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">{selectedWdRows.size} selected</span>
-                            <span className="text-primary/30">·</span>
-                            <BulkBtn
-                              icon={Calculator}
-                              onClick={() => {
-                                const firstId = Array.from(selectedWdRows)[0];
-                                const row = wdRows.find((r) => r.id === firstId);
-                                if (row) {
-                                  setPreviewTarget({ type: "domestic", rowId: row.id });
-                                  setPreviewModalOpen(true);
-                                }
-                              }}
-                            >
-                              Breakdown
-                            </BulkBtn>
-                            <BulkBtn
-                              icon={Flag}
-                              onClick={() => {
-                                setWdRows((prev) =>
-                                  prev.map((r) =>
-                                    selectedWdRows.has(r.id) ? { ...r, flagged: !r.flagged } : r
-                                  )
-                                );
-                                toast.info(`Updated flag status for ${selectedWdRows.size} entry(s)`);
-                              }}
-                            >
-                              Flag
-                            </BulkBtn>
-                            <BulkBtn
-                              icon={Copy}
-                              onClick={() => {
-                                const clones = wdRows
-                                  .filter((r) => selectedWdRows.has(r.id))
-                                  .map((r, i) => ({
-                                    ...r,
-                                    id: Date.now() + i,
-                                    name: `${r.name} (Copy)`,
-                                  }));
-                                setWdRows((prev) => [...prev, ...clones]);
-                                toast.success(`Duplicated ${clones.length} space(s)`);
-                              }}
-                            >
-                              Duplicate
-                            </BulkBtn>
-                            <BulkBtn
-                              icon={Trash2}
-                              onClick={() => {
-                                const count = selectedWdRows.size;
-                                setWdRows((prev) => prev.filter((r) => !selectedWdRows.has(r.id)));
-                                setSelectedWdRows(new Set());
-                                setLastClickedWdIndex(null);
-                                toast.info(`Deleted ${count} selected entry(s)`);
-                              }}
-                            >
-                              Delete
-                            </BulkBtn>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedWdRows(new Set());
-                              setLastClickedWdIndex(null);
-                            }}
-                            className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
-                          >
-                            <X className="size-3" /> Clear
-                          </button>
-                        </div>
-                      )}
-
                     {/* Domestic Table */}
-                    <div className="overflow-x-auto overflow-y-auto w-full flex-1 min-h-0">
-                      <table className="w-full border-collapse text-[12px] font-sans text-left">
+                    <div className="overflow-x-hidden overflow-y-auto w-full flex-1 min-h-0 custom-scrollbar">
+                      <table className="w-full table-fixed border-collapse text-[13.5px] font-sans text-left">
                         <thead>
-                          <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                            <th style={{ width: colWidths.select, minWidth: colWidths.select }} className="py-2 px-2 text-center relative group">
-                              <input
-                                type="checkbox"
+                          <tr className="bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong text-muted-foreground uppercase text-[11.5px] tracking-wider font-semibold select-none h-10">
+                            <th style={getWdColStyle("select")} className="py-0 px-0 text-center relative group w-9 min-w-[36px] border-r border-border/60">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isLocked) {
+                                    toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                                    return;
+                                  }
+                                  toggleSelectAllWd();
+                                }}
                                 disabled={isLocked}
-                                checked={filteredAndSortedWdRows.length > 0 && selectedWdRows.size === filteredAndSortedWdRows.length && !isLocked}
-                                onChange={toggleSelectAllWd}
-                                className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                                title="Select All / Deselect All (Ctrl+A)"
-                              />
-                              <div onMouseDown={(e) => startResizing("select", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
+                                title={filteredAndSortedWdRows.length > 0 && selectedWdRows.size === filteredAndSortedWdRows.length ? "Deselect all rows" : "Select all rows"}
+                                className="h-full w-full flex items-center justify-center text-[11px] font-mono font-bold text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none disabled:opacity-40 disabled:cursor-not-allowed group/head-idx"
+                              >
+                                <span className={filteredAndSortedWdRows.length > 0 && selectedWdRows.size === filteredAndSortedWdRows.length ? "text-primary font-bold" : ""}>#</span>
+                              </button>
                             </th>
-                            <th style={{ width: colWidths.name, minWidth: colWidths.name }} className="py-2 px-3 text-left relative group">
+                            <th style={getWdColStyle("name")} className="py-2 px-3 text-left relative group border-r border-border/60">
                               DESCRIPTION
-                              <div onMouseDown={(e) => startResizing("name", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: colWidths.ppl, minWidth: colWidths.ppl }} className="py-2 px-3 text-center relative group">
+                            <th style={getWdColStyle("ppl")} className="py-2 px-3 text-center relative group border-r border-border/60">
                               PEOPLE / UNIT
-                              <div onMouseDown={(e) => startResizing("ppl", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: colWidths.multiplier, minWidth: colWidths.multiplier }} className="py-2 px-3 text-center relative group">
+                            <th style={getWdColStyle("multiplier")} className="py-2 px-3 text-center relative group border-r border-border/60">
                               SPACE MULTIPLIER
-                              <div onMouseDown={(e) => startResizing("multiplier", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: colWidths.cat, minWidth: colWidths.cat }} className="py-2 px-3 text-left relative group">
+                            <th style={getWdColStyle("cat")} className="py-2 px-3 text-left relative group border-r border-border/60">
                               CATEGORY
-                              <div onMouseDown={(e) => startResizing("cat", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
                             </th>
-                            <th style={{ width: colWidths.lpd, minWidth: colWidths.lpd }} className="py-2 px-3 text-right relative group">
-                              PER CAPITA RATE
-                              <div onMouseDown={(e) => startResizing("lpd", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
+                            <th style={getWdColStyle("lpd")} className="py-2 px-3 text-center relative group border-r border-border/60">
+                              PER CAPITA RATE ({ip ? "GPD" : "LPD"})
                             </th>
-                            <th style={{ width: colWidths.load, minWidth: colWidths.load }} className="py-2 px-3 text-right relative group">
-                              DAILY LOAD
-                              <div onMouseDown={(e) => startResizing("load", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
+                            <th style={getWdColStyle("load")} className="py-2 px-3 text-center relative group border-r border-border/60">
+                              DAILY LOAD ({ip ? "GAL/DAY" : "L/DAY"})
                             </th>
-                            <th style={{ width: colWidths.actions, minWidth: colWidths.actions }} className="py-2 px-2 text-center relative group">
-                              FLAG
-                              <div onMouseDown={(e) => startResizing("actions", e)} className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] transition-colors z-20" title="Drag to resize column" />
+                            <th style={getWdColStyle("actions")} className="py-0 px-0 text-center relative group w-9 min-w-[36px]">
+                              <span className="sr-only">Actions</span>
                             </th>
                           </tr>
                         </thead>
@@ -1489,9 +1850,36 @@ function WaterDemandPage() {
                                   <tr
                                     id={`row-${r.id}`}
                                     data-row-id={r.id}
+                                    onMouseDownCapture={(e) => {
+                                      if (isLocked) return;
+                                      const target = e.target as HTMLElement;
+                                      if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                      const isInputTarget = target.tagName === "INPUT" || target.tagName === "SELECT" || Boolean(target.closest("input, select"));
+                                      if (!selectedWdRows.has(r.id)) {
+                                        if (isInputTarget) {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                        }
+                                        toggleWdRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                      }
+                                    }}
+                                    onClickCapture={(e) => {
+                                      if (isLocked) return;
+                                      const target = e.target as HTMLElement;
+                                      if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                      const isInputTarget = target.tagName === "INPUT" || target.tagName === "SELECT" || Boolean(target.closest("input, select"));
+                                      if (!selectedWdRows.has(r.id) && isInputTarget) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                      }
+                                    }}
                                     onClick={(e) => {
                                       if (isLocked) return;
-                                      toggleWdRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                      const target = e.target as HTMLElement;
+                                      if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                      if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                                        toggleWdRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                      }
                                     }}
                                     onDoubleClick={(e) => {
                                       if (isLocked) return;
@@ -1499,21 +1887,30 @@ function WaterDemandPage() {
                                       setPreviewTarget({ type: "domestic", rowId: r.id });
                                       setPreviewModalOpen(true);
                                     }}
-                                    title={isLocked ? undefined : "Click to select, Shift+Click for range, Ctrl+Click for multi-select. Double-click to open parameters & calculation breakdown."}
-                                    className={`border-b border-border/40 transition-colors ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${
-                                      selectedWdRows.has(r.id)
-                                        ? "bg-[#0A7BC7]/15 dark:bg-[#0A7BC7]/25 border-l-2 border-l-[#0A7BC7]"
-                                        : r.flagged
-                                        ? "bg-red-50/60 dark:bg-amber-950/30 hover:bg-amber-100/50"
-                                        : idx % 2 === 0
-                                        ? "bg-white dark:bg-slate-950 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
-                                        : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                                    title={isLocked ? undefined : "Click to select, click again to edit, Shift+Click for range. Double-click for calculation breakdown."}
+                                    className={`group h-[30px] border-b border-border/40 hover:bg-muted/30 dark:hover:bg-white/[0.03] text-[13.5px] transition-colors ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${
+                                      previewModalOpen && previewTarget?.type === "domestic" && previewTarget?.rowId === r.id
+                                        ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
+                                        : previewModalOpen
+                                        ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
+                                        : selectedWdRows.has(r.id)
+                                        ? "bg-row-selected bg-primary/15 text-primary font-medium border-l-2 border-l-primary"
+                                        : "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80"
                                     }`}
                                   >
                                     <td 
-                                      style={{ width: colWidths.select, minWidth: colWidths.select }} 
-                                      className="py-1.5 px-2 text-center relative" 
-                                      onClick={(e) => e.stopPropagation()}
+                                      style={getWdColStyle("select")} 
+                                      className={`px-1 h-[30px] flex items-center justify-center border-r border-border/40 relative group/row-cell select-none cursor-pointer transition-colors duration-150 ${
+                                        selectedWdRows.has(r.id)
+                                          ? "bg-primary/15 text-primary font-bold shadow-inner"
+                                          : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
+                                      }`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (isLocked) return;
+                                        toggleWdRowSelection(r.id, e.shiftKey, true);
+                                      }}
+                                      title={selectedWdRows.has(r.id) ? `Row ${idx + 1} selected. Click to deselect.` : `Click to select row ${idx + 1}.`}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1536,28 +1933,18 @@ function WaterDemandPage() {
                                           })
                                         }
                                       />
-                                      <div className="flex items-center justify-center gap-1.5">
-                                        <input
-                                          type="checkbox"
-                                          disabled={isLocked}
-                                          checked={selectedWdRows.has(r.id) && !isLocked}
-                                          onChange={() => {
-                                            if (isLocked) return;
-                                            toggleWdRowSelection(r.id, false, true);
-                                          }}
-                                          className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                                        />
-                                        <span className="text-muted-foreground font-mono text-xs">{idx + 1}</span>
-                                        {r.flagged && (
-                                          <span title="Flagged for review" className="inline-flex">
-                                            <Flag className="size-3 text-red-500 fill-red-500" />
-                                          </span>
-                                        )}
-                                      </div>
+                                      <span className="text-[11px] font-mono leading-none tracking-tight">
+                                        {idx + 1}
+                                      </span>
                                     </td>
                                     <td 
-                                      style={{ width: colWidths.name, minWidth: colWidths.name }} 
-                                      className="py-1.5 px-3 cursor-pointer"
+                                      style={getWdColStyle("name")} 
+                                      className={`py-0 px-2 h-[30px] border-r border-border/40 ${
+                                        !selectedWdRows.has(r.id)
+                                          ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                          : "group/cell cursor-text"
+                                      }`}
+                                      title={!selectedWdRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1566,33 +1953,25 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      <div className="flex items-center gap-2 w-full">
-                                        {r.autoDetected && (
-                                          <span
-                                            className="size-1.5 rounded-full bg-[#0A7BC7] shrink-0 inline-block"
-                                            title="Auto-detected according to ASHRAE / DEWA standard"
-                                          />
-                                        )}
+                                      <div className={`flex items-center gap-2 w-full h-full min-w-0 ${!selectedWdRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
                                         <input
                                           type="text"
                                           value={r.name}
                                           disabled={isLocked}
-                                          onClick={(e) => e.stopPropagation()}
-                                          onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            if (isLocked) return;
-                                            setSelectedWdRows(new Set([r.id]));
-                                            setPreviewTarget({ type: "domestic", rowId: r.id });
-                                            setPreviewModalOpen(true);
-                                          }}
                                           onChange={(e) => handleWdRowChange(r.id, "name", e.target.value)}
-                                          className="w-full bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-semibold text-foreground text-xs cursor-pointer focus:cursor-text"
+                                          onDoubleClick={(e) => e.stopPropagation()}
+                                          className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded font-medium text-[13.5px] text-foreground transition-colors"
                                         />
                                       </div>
                                     </td>
                                     <td 
-                                      style={{ width: colWidths.ppl, minWidth: colWidths.ppl }} 
-                                      className="py-1.5 px-3 text-center font-bold cursor-pointer"
+                                      style={getWdColStyle("ppl")} 
+                                      className={`py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] border-r border-border/40 ${
+                                        !selectedWdRows.has(r.id)
+                                          ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                          : "group/cell cursor-text"
+                                      }`}
+                                      title={!selectedWdRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1601,25 +1980,31 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      <input
-                                        type="number"
-                                        value={r.ppl}
-                                        disabled={isLocked}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (isLocked) return;
-                                          setSelectedWdRows(new Set([r.id]));
-                                          setPreviewTarget({ type: "domestic", rowId: r.id });
-                                          setPreviewModalOpen(true);
-                                        }}
-                                        onChange={(e) => handleWdRowChange(r.id, "ppl", Number(e.target.value))}
-                                        className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono font-medium text-xs cursor-pointer focus:cursor-text"
-                                      />
+                                      <div className={`w-full h-full flex items-center justify-center gap-1.5 min-w-0 ${!selectedWdRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
+                                        {r.autoDetected && (
+                                          <span
+                                            className="size-1.5 rounded-full bg-blue-500 shrink-0 inline-block"
+                                            title="Auto-detected occupancy benchmark according to ASHRAE / DEWA standard"
+                                          />
+                                        )}
+                                        <input
+                                          type="number"
+                                          value={r.ppl}
+                                          disabled={isLocked}
+                                          onChange={(e) => handleWdRowChange(r.id, "ppl", Number(e.target.value))}
+                                          onDoubleClick={(e) => e.stopPropagation()}
+                                          className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        />
+                                      </div>
                                     </td>
                                     <td 
-                                      style={{ width: colWidths.multiplier, minWidth: colWidths.multiplier }} 
-                                      className="py-1.5 px-3 text-center font-bold cursor-pointer"
+                                      style={getWdColStyle("multiplier")} 
+                                      className={`py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] border-r border-border/40 ${
+                                        !selectedWdRows.has(r.id)
+                                          ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                          : "group/cell cursor-text"
+                                      }`}
+                                      title={!selectedWdRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1628,27 +2013,27 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      <input
-                                        type="number"
-                                        min={1}
-                                        value={r.multiplier || 1}
-                                        disabled={isLocked}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (isLocked) return;
-                                          setSelectedWdRows(new Set([r.id]));
-                                          setPreviewTarget({ type: "domestic", rowId: r.id });
-                                          setPreviewModalOpen(true);
-                                        }}
-                                        onChange={(e) => handleWdRowChange(r.id, "multiplier", Math.max(1, Number(e.target.value)))}
-                                        className="w-14 text-center bg-transparent border border-slate-200/80 dark:border-slate-800 hover:border-[#0A7BC7] focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-mono text-xs font-bold outline-none cursor-pointer focus:cursor-text"
-                                        title="Space multiplier / quantity of identical spaces"
-                                      />
+                                      <div className={`w-full h-full flex items-center justify-center min-w-0 ${!selectedWdRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          value={r.multiplier || 1}
+                                          disabled={isLocked}
+                                          onChange={(e) => handleWdRowChange(r.id, "multiplier", Math.max(1, Number(e.target.value)))}
+                                          onDoubleClick={(e) => e.stopPropagation()}
+                                          className="w-14 bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] font-bold text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          title="Space multiplier / quantity of identical spaces"
+                                        />
+                                      </div>
                                     </td>
                                     <td 
-                                      style={{ width: colWidths.cat, minWidth: colWidths.cat }} 
-                                      className="py-1.5 px-3 cursor-pointer"
+                                      style={getWdColStyle("cat")} 
+                                      className={`py-0 px-2 h-[30px] border-r border-border/40 ${
+                                        !selectedWdRows.has(r.id)
+                                          ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                          : "group/cell cursor-pointer"
+                                      }`}
+                                      title={!selectedWdRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1657,30 +2042,34 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      <select
-                                        value={r.cat}
-                                        disabled={isLocked}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (isLocked) return;
-                                          setSelectedWdRows(new Set([r.id]));
-                                          setPreviewTarget({ type: "domestic", rowId: r.id });
-                                          setPreviewModalOpen(true);
-                                        }}
-                                        onChange={(e) => handleWdRowChange(r.id, "cat", e.target.value)}
-                                        className="w-full bg-transparent border border-transparent hover:border-border/60 focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 outline-none cursor-pointer py-0.5 px-1 rounded text-xs font-medium"
-                                      >
-                                        {Object.keys(WD_TYPE_MAP).map((k) => (
-                                          <option key={k} value={k}>
-                                            {k}
-                                          </option>
-                                        ))}
-                                      </select>
+                                      <div className={`relative w-full h-full flex items-center min-w-0 ${!selectedWdRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
+                                        <select
+                                          value={r.cat}
+                                          disabled={isLocked}
+                                          onChange={(e) => handleWdRowChange(r.id, "cat", e.target.value)}
+                                          className="w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 pl-1 pr-5 rounded text-[13px] font-medium transition-all cursor-pointer text-foreground appearance-none truncate"
+                                        >
+                                          <option value="" disabled hidden>Select Category...</option>
+                                          <option value="Custom Rate / Category">Other (Custom Rate)</option>
+                                          {Object.keys(WD_TYPE_MAP).filter(k => k !== "Custom Rate / Category").map((k) => (
+                                            <option key={k} value={k}>
+                                              {k}
+                                            </option>
+                                          ))}
+                                          {r.cat && !WD_TYPE_MAP[r.cat] && r.cat !== "Custom Rate / Category" && (
+                                            <option value={r.cat}>{r.cat}</option>
+                                          )}
+                                        </select>
+                                      </div>
                                     </td>
                                     <td 
-                                      style={{ width: colWidths.lpd, minWidth: colWidths.lpd }} 
-                                      className="py-1.5 px-3 text-right font-mono font-medium cursor-pointer"
+                                      style={getWdColStyle("lpd")} 
+                                      className={`py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] border-r border-border/40 ${
+                                        !selectedWdRows.has(r.id)
+                                          ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                          : "group/cell cursor-text"
+                                      }`}
+                                      title={!selectedWdRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1689,33 +2078,25 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      <div className="flex items-center justify-end gap-1">
+                                      <div className={`flex items-center justify-center w-full h-full min-w-0 ${!selectedWdRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
                                         <input
                                           type="number"
                                           value={ip ? Math.round(r.lpd / 3.78541) : r.lpd}
                                           disabled={isLocked}
-                                          onClick={(e) => e.stopPropagation()}
-                                          onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            if (isLocked) return;
-                                            setSelectedWdRows(new Set([r.id]));
-                                            setPreviewTarget({ type: "domestic", rowId: r.id });
-                                            setPreviewModalOpen(true);
-                                          }}
                                           onChange={(e) => {
                                             const val = Number(e.target.value);
                                             const lpdVal = ip ? Math.round(val * 3.78541) : val;
                                             handleWdRowChange(r.id, "lpd", lpdVal);
                                           }}
-                                          className="w-16 text-right bg-transparent border border-slate-200/80 dark:border-slate-800 hover:border-[#0A7BC7] focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 px-1 py-0.5 rounded font-mono text-xs font-bold text-foreground outline-none transition-colors cursor-pointer focus:cursor-text"
-                                          title="Click or type to edit custom per capita consumption rate"
+                                          onDoubleClick={(e) => e.stopPropagation()}
+                                          className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] font-bold text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          title="Per capita consumption rate"
                                         />
-                                        <span className="text-[10.5px] text-muted-foreground font-semibold select-none">{ip ? "gpd" : "LPD"}</span>
                                       </div>
                                     </td>
                                     <td 
-                                      style={{ width: colWidths.load, minWidth: colWidths.load }} 
-                                      className="py-1.5 px-3 text-right font-mono font-bold text-xs text-[#0A7BC7] cursor-pointer"
+                                      style={getWdColStyle("load")} 
+                                      className="py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] font-semibold text-foreground cursor-pointer border-r border-border/40"
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1724,40 +2105,64 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      {(ip ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541) : r.ppl * r.lpd * (r.multiplier || 1)).toLocaleString()} {ip ? "gal" : "L"}
+                                      {(ip ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541) : r.ppl * r.lpd * (r.multiplier || 1)).toLocaleString()}
                                     </td>
-                                    <td style={{ width: colWidths.actions, minWidth: colWidths.actions }} className="py-1.5 px-2 text-center" onDoubleClick={(e) => e.stopPropagation()}>
-                                      <div className="flex items-center justify-center gap-1">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleToggleWdFlag(r.id)}
-                                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                            r.flagged
-                                              ? "text-red-500 bg-red-50 dark:bg-red-950/40"
-                                              : "text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
-                                          }`}
-                                          title={r.flagged ? "Flagged for review" : "Flag for review"}
-                                        >
-                                          <Flag className={`size-3.5 ${r.flagged ? "fill-red-500 text-red-500" : ""}`} />
-                                        </button>
-
-                                        
-                                      </div>
+                                    <td style={getWdColStyle("actions")} className="py-0 px-1 h-[30px] text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                      {(() => {
+                                        const val = getWdRowValidation(r);
+                                        return (
+                                          <TooltipProvider delayDuration={150}>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleToggleWdFlag(r.id);
+                                                  }}
+                                                  className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+                                                >
+                                                  <Flag
+                                                    className={`size-3.5 transition-all duration-200 ${
+                                                      val.isFlagged
+                                                        ? "fill-red-500 text-red-500 scale-110"
+                                                        : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+                                                    }`}
+                                                  />
+                                                </button>
+                                              </TooltipTrigger>
+                                              <TooltipContent
+                                                side="left"
+                                                align="center"
+                                                className="max-w-[280px] p-2.5 text-left bg-zinc-900 text-white dark:bg-zinc-800 border border-zinc-700 shadow-xl rounded-xl z-50 animate-in fade-in zoom-in-95 pointer-events-none text-xs"
+                                              >
+                                                {val.isNoPeople && val.isNoCategory ? (
+                                                  <div className="text-[11.5px]">Missing occupancy headcount and space category</div>
+                                                ) : val.isNoPeople ? (
+                                                  <div className="text-[11.5px]">Missing occupancy headcount (People / Unit must be &gt; 0)</div>
+                                                ) : val.isNoCategory ? (
+                                                  <div className="text-[11.5px]">Missing space category</div>
+                                                ) : val.isNoName ? (
+                                                  <div className="text-[11.5px]">Missing space description</div>
+                                                ) : val.isNoRate ? (
+                                                  <div className="text-[11.5px]">Missing water consumption rate (LPD / GPD)</div>
+                                                ) : val.isZeroDemand ? (
+                                                  <div className="text-[11.5px]">Daily water demand is 0</div>
+                                                ) : val.isManual ? (
+                                                  <div className="text-[11.5px]">Flagged space (Click to unflag)</div>
+                                                ) : (
+                                                  <div className="text-[11.5px]">Click to flag space for manual review</div>
+                                                )}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          </TooltipProvider>
+                                        );
+                                      })()}
                                     </td>
                                   </tr>
                                 </ContextMenuTrigger>
-                                <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
-                                  <ContextMenuItem
-                                    onClick={() => {
-                                      setPreviewTarget({ type: "domestic", rowId: r.id });
-                                      setPreviewModalOpen(true);
-                                    }}
-                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                                  >
-                                    <Calculator className="size-3.5 text-muted-foreground" />
-                                    <span>Calculation Breakdown</span>
-                                    <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                                  </ContextMenuItem>
+                                <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                  {/* Add Comment - AT THE TOP with blue ventilation styling */}
                                   <ContextMenuItem
                                     onClick={() =>
                                       setCommentTarget({
@@ -1772,14 +2177,25 @@ function WaterDemandPage() {
                                     className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                                   >
                                     <MessageSquare className="size-3.5" />
-                                    <span>Add / View Comment</span>
+                                    <span>Add Comment</span>
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => {
+                                      setPreviewTarget({ type: "domestic", rowId: r.id });
+                                      setPreviewModalOpen(true);
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                                  >
+                                    <Calculator className="size-3.5 text-muted-foreground" />
+                                    <span>Calculation Breakdown</span>
+                                    <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
                                   </ContextMenuItem>
                                   <ContextMenuItem
                                     onClick={() => handleToggleWdFlag(r.id)}
                                     className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
                                   >
-                                    <Flag className={`size-3.5 ${r.flagged ? "text-red-500 fill-red-500" : "text-red-500"}`} />
-                                    <span>{r.flagged ? "Unflag Row" : "Flag for Review"}</span>
+                                    <Flag className={`size-3.5 ${r.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+                                    <span>{r.flagged ? "Unflag Space" : "Flag Space"}</span>
                                   </ContextMenuItem>
                                   <ContextMenuItem
                                     onClick={() => {
@@ -1794,9 +2210,17 @@ function WaterDemandPage() {
                                   </ContextMenuItem>
                                   <ContextMenuSeparator className="h-px bg-border my-1" />
                                   <ContextMenuItem
-                                    onClick={() => {
-                                      setWdRows((prev) => prev.filter((x) => x.id !== r.id));
-                                      toast.success(`Deleted "${r.name}"`);
+                                    onClick={async () => {
+                                      const ok = await confirm(`Are you sure you want to delete space "${r.name}"?`, {
+                                        title: "Delete Space",
+                                        confirmText: "Delete",
+                                        cancelText: "Cancel",
+                                        variant: "destructive",
+                                      });
+                                      if (ok) {
+                                        setWdRows((prev) => prev.filter((x) => x.id !== r.id));
+                                        toast.info(`Deleted "${r.name}"`);
+                                      }
                                     }}
                                     className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
                                   >
@@ -1826,152 +2250,90 @@ function WaterDemandPage() {
                   {/* 2. Irrigation Water Demand Schedule */}
                   {demandSection === "irrigation" && (
                     <div className="flex flex-col gap-0 flex-1 min-h-0 relative">
-                      {/* Floating Bulk Action Overlay Bar when rows selected */}
-                      {selectedIrrRows.size > 0 && (
-                        <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 h-10 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg border-b border-primary/20">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">{selectedIrrRows.size} selected</span>
-                            <span className="text-primary/30">·</span>
-                            <BulkBtn
-                              icon={Calculator}
-                              onClick={() => {
-                                const firstId = Array.from(selectedIrrRows)[0];
-                                const row = irrRows.find((r) => r.id === firstId);
-                                if (row) {
-                                  setPreviewTarget({ type: "irrigation", rowId: row.id });
-                                  setPreviewModalOpen(true);
-                                }
-                              }}
-                            >
-                              Breakdown
-                            </BulkBtn>
-                            <BulkBtn
-                              icon={Flag}
-                              onClick={() => {
-                                setIrrRows((prev) =>
-                                  prev.map((r) =>
-                                    selectedIrrRows.has(r.id) ? { ...r, flagged: !r.flagged } : r
-                                  )
-                                );
-                                toast.info(`Updated flag status for ${selectedIrrRows.size} irrigation entry(s)`);
-                              }}
-                            >
-                              Flag
-                            </BulkBtn>
-                            <BulkBtn
-                              icon={Copy}
-                              onClick={() => {
-                                const clones = irrRows
-                                  .filter((r) => selectedIrrRows.has(r.id))
-                                  .map((r, i) => ({
-                                    ...r,
-                                    id: Date.now() + i,
-                                    vegType: `${r.vegType} (Copy)`,
-                                  }));
-                                setIrrRows((prev) => [...prev, ...clones]);
-                                toast.success(`Duplicated ${clones.length} irrigation zone(s)`);
-                              }}
-                            >
-                              Duplicate
-                            </BulkBtn>
-                            <BulkBtn
-                              icon={Trash2}
-                              onClick={() => {
-                                const count = selectedIrrRows.size;
-                                setIrrRows((prev) => prev.filter((r) => !selectedIrrRows.has(r.id)));
-                                setSelectedIrrRows(new Set());
-                                setLastClickedIrrIndex(null);
-                                toast.info(`Deleted ${count} selected irrigation entry(s)`);
-                              }}
-                            >
-                              Delete
-                            </BulkBtn>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedIrrRows(new Set());
-                              setLastClickedIrrIndex(null);
-                            }}
-                            className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
-                          >
-                            <X className="size-3" /> Clear
-                          </button>
-                        </div>
-                      )}
-
-                      <div className="overflow-x-auto overflow-y-auto w-full flex-1 min-h-0">
-                        <table className="w-full border-collapse text-[12px] font-sans text-left">
+                      <div className="overflow-x-hidden overflow-y-auto w-full flex-1 min-h-0 custom-scrollbar">
+                        <table className="w-full table-fixed border-collapse text-[13.5px] font-sans text-left">
                           <thead>
-                            <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-border/80 text-muted-foreground uppercase text-[11px] tracking-wider font-bold select-none">
-                              <th style={{ width: colWidths.irr_select, minWidth: colWidths.irr_select }} className="py-2 px-2 text-center relative group">
-                                <input
-                                  type="checkbox"
+                            <tr className="bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong text-muted-foreground uppercase text-[11.5px] tracking-wider font-semibold select-none h-10">
+                              <th style={getIrrColStyle("irr_select")} className="py-0 px-0 text-center relative group w-9 min-w-[36px] border-r border-border/60">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (isLocked) {
+                                      toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                                      return;
+                                    }
+                                    toggleSelectAllIrr();
+                                  }}
                                   disabled={isLocked}
-                                  checked={irrRows.length > 0 && selectedIrrRows.size === irrRows.length && !isLocked}
-                                  onChange={toggleSelectAllIrr}
-                                  className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                                  title="Select All / Deselect All (Ctrl+A)"
-                                />
-                                <div
-                                  onMouseDown={(e) => startResizing("irr_select", e)}
-                                  className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] z-20"
-                                />
+                                  title={irrRows.length > 0 && selectedIrrRows.size === irrRows.length ? "Deselect all rows" : "Select all rows"}
+                                  className="h-full w-full flex items-center justify-center text-[11px] font-mono font-bold text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none disabled:opacity-40 disabled:cursor-not-allowed group/head-idx"
+                                >
+                                  <span className={irrRows.length > 0 && selectedIrrRows.size === irrRows.length ? "text-primary font-bold" : ""}>#</span>
+                                </button>
                               </th>
-                              <th style={{ width: colWidths.irr_vegType, minWidth: colWidths.irr_vegType }} className="py-2 px-3 text-left relative group">
+                              <th style={getIrrColStyle("irr_vegType")} className="py-2 px-3 text-left relative group border-r border-border/60">
                                 VEGETATION TYPE
-                                <div
-                                  onMouseDown={(e) => startResizing("irr_vegType", e)}
-                                  className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] z-20"
-                                />
                               </th>
-                              <th style={{ width: colWidths.irr_area, minWidth: colWidths.irr_area }} className="py-2 px-3 text-center relative group">
+                              <th style={getIrrColStyle("irr_area")} className="py-2 px-3 text-center relative group border-r border-border/60">
                                 AREA ({ip ? "FT²" : "M²"})
-                                <div
-                                  onMouseDown={(e) => startResizing("irr_area", e)}
-                                  className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] z-20"
-                                />
                               </th>
-                              <th style={{ width: colWidths.irr_rate, minWidth: colWidths.irr_rate }} className="py-2 px-3 text-right relative group">
-                                RATE
-                                <div
-                                  onMouseDown={(e) => startResizing("irr_rate", e)}
-                                  className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] z-20"
-                                />
+                              <th style={getIrrColStyle("irr_rate")} className="py-2 px-3 text-center relative group border-r border-border/60">
+                                RATE ({ip ? "GAL/FT²" : "L/M²"})
                               </th>
-                              <th style={{ width: colWidths.irr_load, minWidth: colWidths.irr_load }} className="py-2 px-3 text-right relative group">
-                                TOTAL LOAD
-                                <div
-                                  onMouseDown={(e) => startResizing("irr_load", e)}
-                                  className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] z-20"
-                                />
+                              <th style={getIrrColStyle("irr_load")} className="py-2 px-3 text-center relative group border-r border-border/60">
+                                TOTAL LOAD ({ip ? "GAL/DAY" : "L/DAY"})
                               </th>
-                              <th style={{ width: colWidths.irr_actions, minWidth: colWidths.irr_actions }} className="py-2 px-2 text-center relative group">
-                                FLAG
-                                <div
-                                  onMouseDown={(e) => startResizing("irr_actions", e)}
-                                  className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#0A7BC7] active:bg-[#0A7BC7] z-20"
-                                />
+                              <th style={getIrrColStyle("irr_actions")} className="py-0 px-0 text-center relative group w-9 min-w-[36px]">
+                                <span className="sr-only">Actions</span>
                               </th>
                             </tr>
                           </thead>
                           <tbody>
-                            {irrRows.length === 0 ? (
+                            {filteredAndSortedIrrRows.length === 0 ? (
                               <tr>
                                 <td colSpan={6} className="py-8 text-center text-muted-foreground italic">
-                                  No irrigation entries added. Fill in the form above to calculate plant water demand.
+                                  {irrRows.length === 0
+                                    ? "No irrigation entries added. Fill in the form above to calculate plant water demand."
+                                    : "No irrigation entries match the active search/filter criteria."}
                                 </td>
                               </tr>
                             ) : (
-                              irrRows.map((r, idx) => (
+                              filteredAndSortedIrrRows.map((r, idx) => (
                                     <ContextMenu key={r.id}>
                                       <ContextMenuTrigger asChild>
                                         <tr
                                           id={`row-${r.id}`}
                                           data-row-id={r.id}
+                                          onMouseDownCapture={(e) => {
+                                            if (isLocked) return;
+                                            const target = e.target as HTMLElement;
+                                            if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                            const isInputTarget = target.tagName === "INPUT" || target.tagName === "SELECT" || Boolean(target.closest("input, select"));
+                                            if (!selectedIrrRows.has(r.id)) {
+                                              if (isInputTarget) {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                              }
+                                              toggleIrrRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                            }
+                                          }}
+                                          onClickCapture={(e) => {
+                                            if (isLocked) return;
+                                            const target = e.target as HTMLElement;
+                                            if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                            const isInputTarget = target.tagName === "INPUT" || target.tagName === "SELECT" || Boolean(target.closest("input, select"));
+                                            if (!selectedIrrRows.has(r.id) && isInputTarget) {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                            }
+                                          }}
                                           onClick={(e) => {
                                             if (isLocked) return;
-                                            toggleIrrRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                            const target = e.target as HTMLElement;
+                                            if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                            if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                                              toggleIrrRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                            }
                                           }}
                                           onDoubleClick={(e) => {
                                             if (isLocked) return;
@@ -1979,21 +2341,30 @@ function WaterDemandPage() {
                                             setPreviewTarget({ type: "irrigation", rowId: r.id });
                                             setPreviewModalOpen(true);
                                           }}
-                                          title={isLocked ? undefined : "Click to select, Shift+Click for range, Ctrl+Click for multi-select. Double-click to open parameters & calculation breakdown."}
-                                          className={`group border-b border-border/40 transition-colors ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${
-                                            selectedIrrRows.has(r.id)
-                                              ? "bg-emerald-500/15 dark:bg-emerald-500/25 border-l-2 border-l-emerald-600"
-                                              : r.flagged
-                                              ? "bg-red-50/60 dark:bg-amber-950/30 hover:bg-amber-100/50"
-                                              : idx % 2 === 0
-                                              ? "bg-white dark:bg-slate-950 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
-                                              : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                                          title={isLocked ? undefined : "Click to select, click again to edit, Shift+Click for range. Double-click for calculation breakdown."}
+                                          className={`group h-[30px] border-b border-border/40 hover:bg-muted/30 dark:hover:bg-white/[0.03] text-[13.5px] transition-colors ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${
+                                            previewModalOpen && previewTarget?.type === "irrigation" && previewTarget?.rowId === r.id
+                                              ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
+                                              : previewModalOpen
+                                              ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
+                                              : selectedIrrRows.has(r.id)
+                                              ? "bg-row-selected bg-primary/15 text-primary font-medium border-l-2 border-l-primary"
+                                              : "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80"
                                           }`}
                                         >
                                           <td 
-                                            style={{ width: colWidths.irr_select, minWidth: colWidths.irr_select }} 
-                                            className="py-1.5 px-2 text-center relative" 
-                                            onClick={(e) => e.stopPropagation()}
+                                            style={getIrrColStyle("irr_select")} 
+                                            className={`px-1 h-[30px] flex items-center justify-center border-r border-border/40 relative group/row-cell select-none cursor-pointer transition-colors duration-150 ${
+                                              selectedIrrRows.has(r.id)
+                                                ? "bg-primary/15 text-primary font-bold shadow-inner"
+                                                : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
+                                            }`}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (isLocked) return;
+                                              toggleIrrRowSelection(r.id, e.shiftKey, true);
+                                            }}
+                                            title={selectedIrrRows.has(r.id) ? `Zone ${idx + 1} selected. Click to deselect.` : `Click to select zone ${idx + 1}.`}
                                             onDoubleClick={(e) => {
                                               e.stopPropagation();
                                               if (isLocked) return;
@@ -2016,28 +2387,18 @@ function WaterDemandPage() {
                                                 })
                                               }
                                             />
-                                            <div className="flex items-center justify-center gap-1.5">
-                                              <input
-                                                type="checkbox"
-                                                disabled={isLocked}
-                                                checked={selectedIrrRows.has(r.id) && !isLocked}
-                                                onChange={() => {
-                                                  if (isLocked) return;
-                                                  toggleIrrRowSelection(r.id, false, true);
-                                                }}
-                                                className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                                              />
-                                              <span className="text-muted-foreground font-mono text-xs">{idx + 1}</span>
-                                              {r.flagged && (
-                                                <span title="Flagged for review" className="inline-flex">
-                                                  <Flag className="size-3 text-red-500 fill-red-500" />
-                                                </span>
-                                              )}
-                                            </div>
+                                            <span className="text-[11px] font-mono leading-none tracking-tight">
+                                              {idx + 1}
+                                            </span>
                                           </td>
                                           <td 
-                                            style={{ width: colWidths.irr_vegType, minWidth: colWidths.irr_vegType }} 
-                                            className="py-1.5 px-3 cursor-pointer"
+                                            style={getIrrColStyle("irr_vegType")} 
+                                            className={`py-0 px-2 h-[30px] font-medium text-[13.5px] ${
+                                              !selectedIrrRows.has(r.id)
+                                                ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                                : "group/cell cursor-pointer"
+                                            }`}
+                                            title={!selectedIrrRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                             onDoubleClick={(e) => {
                                               e.stopPropagation();
                                               if (isLocked) return;
@@ -2046,33 +2407,57 @@ function WaterDemandPage() {
                                               setPreviewModalOpen(true);
                                             }}
                                           >
-                                            <div className="flex items-center gap-2 w-full">
+                                            <div className={`flex items-center gap-2 w-full h-full min-w-0 ${!selectedIrrRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
                                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 inline-block" />
-                                              <select
-                                                value={r.vegType}
+                                              <div className="relative w-full flex items-center min-w-0">
+                                                <select
+                                                  value={r.vegType}
+                                                  disabled={isLocked}
+                                                  onChange={(e) => handleIrrRowChange(r.id, "vegType", e.target.value)}
+                                                  className="w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 pl-1 pr-5 rounded text-[13px] font-medium text-foreground transition-all cursor-pointer appearance-none truncate"
+                                                >
+                                                  <option value="" disabled hidden>Select Vegetation Type...</option>
+                                                  <option value="Custom Vegetation">Other (Custom Vegetation)</option>
+                                                  {Object.keys(IRR_TYPE_MAP).map((k) => (
+                                                    <option key={k} value={k}>
+                                                      {k}
+                                                    </option>
+                                                  ))}
+                                                  {r.vegType && !IRR_TYPE_MAP[r.vegType] && r.vegType !== "Custom Vegetation" && (
+                                                    <option value={r.vegType}>{r.vegType}</option>
+                                                  )}
+                                                </select>
+                                              </div>
+                                            </div>
+                                          </td>
+                                          <td 
+                                            style={getIrrColStyle("irr_area")} 
+                                            className={`py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] ${
+                                              !selectedIrrRows.has(r.id)
+                                                ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                                : "group/cell cursor-text"
+                                            }`}
+                                            title={!selectedIrrRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
+                                            onDoubleClick={(e) => {
+                                              e.stopPropagation();
+                                              if (isLocked) return;
+                                              setSelectedIrrRows(new Set([r.id]));
+                                              setPreviewTarget({ type: "irrigation", rowId: r.id });
+                                              setPreviewModalOpen(true);
+                                            }}
+                                          >
+                                            <div className={`w-full h-full flex items-center justify-center min-w-0 ${!selectedIrrRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
+                                              <input
+                                                type="number"
+                                                value={r.area}
                                                 disabled={isLocked}
-                                                onClick={(e) => e.stopPropagation()}
-                                                onDoubleClick={(e) => {
-                                                  e.stopPropagation();
-                                                  if (isLocked) return;
-                                                  setSelectedIrrRows(new Set([r.id]));
-                                                  setPreviewTarget({ type: "irrigation", rowId: r.id });
-                                                  setPreviewModalOpen(true);
-                                                }}
-                                                onChange={(e) => handleIrrRowChange(r.id, "vegType", e.target.value)}
-                                                className="w-full bg-transparent border border-transparent hover:border-border/60 focus:border-[#0A7BC7] focus:bg-white dark:focus:bg-slate-950 outline-none cursor-pointer py-0.5 px-1 rounded text-xs font-semibold text-foreground"
-                                              >
-                                                {Object.keys(IRR_TYPE_MAP).map((k) => (
-                                                  <option key={k} value={k}>
-                                                    {k}
-                                                  </option>
-                                                ))}
-                                              </select>
+                                                onDoubleClick={(e) => e.stopPropagation()}
+                                                onChange={(e) => handleIrrRowChange(r.id, "area", Number(e.target.value))}
+                                                className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
+                                              />
                                             </div>
                                           </td>
-                                          <td 
-                                            style={{ width: colWidths.irr_area, minWidth: colWidths.irr_area }} 
-                                            className="py-1.5 px-3 text-center font-bold font-mono cursor-pointer"
+                                          <td style={getIrrColStyle("irr_rate")} className="py-1.5 px-3 text-center font-mono tabular font-medium text-foreground text-[13.5px] cursor-pointer border-r border-border/40"
                                             onDoubleClick={(e) => {
                                               e.stopPropagation();
                                               if (isLocked) return;
@@ -2081,25 +2466,9 @@ function WaterDemandPage() {
                                               setPreviewModalOpen(true);
                                             }}
                                           >
-                                            <input
-                                              type="number"
-                                              value={r.area}
-                                              disabled={isLocked}
-                                              onClick={(e) => e.stopPropagation()}
-                                              onDoubleClick={(e) => {
-                                                e.stopPropagation();
-                                                if (isLocked) return;
-                                                setSelectedIrrRows(new Set([r.id]));
-                                                setPreviewTarget({ type: "irrigation", rowId: r.id });
-                                                setPreviewModalOpen(true);
-                                              }}
-                                              onChange={(e) => handleIrrRowChange(r.id, "area", Number(e.target.value))}
-                                              className="w-full text-center bg-transparent border-0 outline-none focus:bg-white dark:focus:bg-slate-950 py-0.5 rounded font-mono font-medium text-xs cursor-pointer focus:cursor-text"
-                                            />
+                                            {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)}
                                           </td>
-                                          <td 
-                                            style={{ width: colWidths.irr_rate, minWidth: colWidths.irr_rate }} 
-                                            className="py-1.5 px-3 text-right font-mono font-medium text-muted-foreground text-xs cursor-pointer"
+                                          <td style={getIrrColStyle("irr_load")} className="py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] font-semibold text-emerald-600 dark:text-emerald-400 cursor-pointer border-r border-border/40"
                                             onDoubleClick={(e) => {
                                               e.stopPropagation();
                                               if (isLocked) return;
@@ -2108,53 +2477,62 @@ function WaterDemandPage() {
                                               setPreviewModalOpen(true);
                                             }}
                                           >
-                                            {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)} {ip ? "gal/ft²" : "L/m²"}
+                                            {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()}
                                           </td>
-                                          <td 
-                                            style={{ width: colWidths.irr_load, minWidth: colWidths.irr_load }} 
-                                            className="py-1.5 px-3 text-right font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400 cursor-pointer"
-                                            onDoubleClick={(e) => {
-                                              e.stopPropagation();
-                                              if (isLocked) return;
-                                              setSelectedIrrRows(new Set([r.id]));
-                                              setPreviewTarget({ type: "irrigation", rowId: r.id });
-                                              setPreviewModalOpen(true);
-                                            }}
-                                          >
-                                            {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()} {ip ? "gal" : "L"}
-                                          </td>
-                                          <td style={{ width: colWidths.irr_actions, minWidth: colWidths.irr_actions }} className="py-1.5 px-2 text-center" onDoubleClick={(e) => e.stopPropagation()}>
-                                            <div className="flex items-center justify-center gap-1">
-                                              <button
-                                                type="button"
-                                                onClick={() => handleToggleIrrFlag(r.id)}
-                                                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                                                  r.flagged
-                                                    ? "text-red-500 bg-red-50 dark:bg-red-950/40 opacity-100"
-                                                    : "text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 opacity-100"
-                                                }`}
-                                                title={r.flagged ? "Flagged for review" : "Flag for review"}
-                                              >
-                                                <Flag className={`size-3.5 ${r.flagged ? "fill-red-500 text-red-500" : ""}`} />
-                                              </button>
-
-                                              
-                                            </div>
+                                          <td style={getIrrColStyle("irr_actions")} className="py-0 px-1 h-[30px] text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                            {(() => {
+                                              const val = getIrrRowValidation(r);
+                                              return (
+                                                <TooltipProvider delayDuration={150}>
+                                                  <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleToggleIrrFlag(r.id);
+                                                        }}
+                                                        className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+                                                      >
+                                                        <Flag
+                                                          className={`size-3.5 transition-all duration-200 ${
+                                                            val.isFlagged
+                                                              ? "fill-red-500 text-red-500 scale-110"
+                                                              : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+                                                          }`}
+                                                        />
+                                                      </button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent
+                                                      side="left"
+                                                      align="center"
+                                                      className="max-w-[280px] p-2.5 text-left bg-zinc-900 text-white dark:bg-zinc-800 border border-zinc-700 shadow-xl rounded-xl z-50 animate-in fade-in zoom-in-95 pointer-events-none text-xs"
+                                                    >
+                                                      {val.isNoArea && val.isNoVegType ? (
+                                                        <div className="text-[11.5px]">Missing zone area and vegetation type</div>
+                                                      ) : val.isNoArea ? (
+                                                        <div className="text-[11.5px]">Missing zone area (Area must be &gt; 0)</div>
+                                                      ) : val.isNoVegType ? (
+                                                        <div className="text-[11.5px]">Missing vegetation type</div>
+                                                      ) : val.isNoRate ? (
+                                                        <div className="text-[11.5px]">Missing irrigation consumption rate</div>
+                                                      ) : val.isZeroDemand ? (
+                                                        <div className="text-[11.5px]">Daily irrigation demand is 0</div>
+                                                      ) : val.isManual ? (
+                                                        <div className="text-[11.5px]">Flagged zone (Click to unflag)</div>
+                                                      ) : (
+                                                        <div className="text-[11.5px]">Click to flag zone for manual review</div>
+                                                      )}
+                                                    </TooltipContent>
+                                                  </Tooltip>
+                                                </TooltipProvider>
+                                              );
+                                            })()}
                                           </td>
                                         </tr>
                                       </ContextMenuTrigger>
-                                      <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
-                                        <ContextMenuItem
-                                          onClick={() => {
-                                            setPreviewTarget({ type: "irrigation", rowId: r.id });
-                                            setPreviewModalOpen(true);
-                                          }}
-                                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                                        >
-                                          <Calculator className="size-3.5 text-muted-foreground" />
-                                          <span>Calculation Breakdown</span>
-                                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                                        </ContextMenuItem>
+                                      <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                                        {/* Add Comment - AT THE TOP with blue ventilation styling */}
                                         <ContextMenuItem
                                           onClick={() =>
                                             setCommentTarget({
@@ -2169,14 +2547,25 @@ function WaterDemandPage() {
                                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                                         >
                                           <MessageSquare className="size-3.5" />
-                                          <span>Add / View Comment</span>
+                                          <span>Add Comment</span>
+                                        </ContextMenuItem>
+                                        <ContextMenuItem
+                                          onClick={() => {
+                                            setPreviewTarget({ type: "irrigation", rowId: r.id });
+                                            setPreviewModalOpen(true);
+                                          }}
+                                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                                        >
+                                          <Calculator className="size-3.5 text-muted-foreground" />
+                                          <span>Calculation Breakdown</span>
+                                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
                                         </ContextMenuItem>
                                         <ContextMenuItem
                                           onClick={() => handleToggleIrrFlag(r.id)}
                                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
                                         >
-                                          <Flag className={`size-3.5 ${r.flagged ? "text-red-500 fill-red-500" : "text-red-500"}`} />
-                                          <span>{r.flagged ? "Unflag Row" : "Flag for Review"}</span>
+                                          <Flag className={`size-3.5 ${r.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+                                          <span>{r.flagged ? "Unflag Zone" : "Flag Zone"}</span>
                                         </ContextMenuItem>
                                         <ContextMenuItem
                                           onClick={() => {
@@ -2191,9 +2580,17 @@ function WaterDemandPage() {
                                         </ContextMenuItem>
                                         <ContextMenuSeparator className="h-px bg-border my-1" />
                                         <ContextMenuItem
-                                          onClick={() => {
-                                            setIrrRows((prev) => prev.filter((x) => x.id !== r.id));
-                                            toast.success(`Deleted "${r.vegType}"`);
+                                          onClick={async () => {
+                                            const ok = await confirm(`Are you sure you want to delete zone "${r.vegType}"?`, {
+                                              title: "Delete Zone",
+                                              confirmText: "Delete",
+                                              cancelText: "Cancel",
+                                              variant: "destructive",
+                                            });
+                                            if (ok) {
+                                              setIrrRows((prev) => prev.filter((x) => x.id !== r.id));
+                                              toast.info(`Deleted "${r.vegType}"`);
+                                            }
                                           }}
                                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
                                         >
@@ -2211,7 +2608,7 @@ function WaterDemandPage() {
 
                       {/* Table Summary Footer Bar */}
                       <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none no-print">
-                        <div>Showing <span className="text-foreground font-medium tabular">{irrRows.length}</span> of {irrRows.length} vegetation zones</div>
+                        <div>Showing <span className="text-foreground font-medium tabular">{filteredAndSortedIrrRows.length}</span> of {irrRows.length} vegetation zones</div>
                         <div className="flex items-center gap-4 tabular">
                           <span>Total Area: <strong className="text-foreground font-mono font-bold">{irrRows.reduce((a, b) => a + (b.area || 0), 0).toLocaleString()} {ip ? "ft²" : "m²"}</strong></span>
                           <span>Total Daily Load: <strong className="text-emerald-600 dark:text-emerald-400 font-mono font-bold text-xs">{calculations.displayIrrigation}</strong></span>
@@ -2234,7 +2631,7 @@ function WaterDemandPage() {
                           title="Double-click to open swimming pool makeup calculation breakdown"
                           className={`bg-card border rounded-2xl p-5 flex flex-col gap-4 shadow-xs transition-colors cursor-pointer select-none relative overflow-hidden ${
                             poolFlagged
-                              ? "border-red-400/80 bg-red-50/40 dark:bg-red-950/20"
+                              ? "border-amber-400/80 bg-amber-50/40 dark:bg-amber-950/20"
                               : "border-border hover:border-border/80"
                           }`}
                         >
@@ -2260,7 +2657,7 @@ function WaterDemandPage() {
                                 🏊 Swimming Pool Makeup
                                 {poolFlagged && (
                                   <span title="Flagged for review" className="inline-flex">
-                                    <Flag className="size-3 text-red-500 fill-red-500" />
+                                    <Flag className="size-3 text-amber-500 fill-amber-500" />
                                   </span>
                                 )}
                               </h3>
@@ -2293,12 +2690,12 @@ function WaterDemandPage() {
                                   }}
                                   className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                                     poolFlagged
-                                      ? "text-red-500 bg-red-50 dark:bg-red-950/40"
-                                      : "text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
+                                      ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40"
+                                      : "text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
                                   }`}
                                   title={poolFlagged ? "Flagged for review" : "Flag for review"}
                                 >
-                                  <Flag className={`size-3.5 ${poolFlagged ? "fill-red-500 text-red-500" : ""}`} />
+                                  <Flag className={`size-3.5 ${poolFlagged ? "fill-amber-500" : ""}`} />
                                 </button>
                               </div>
                             </div>
@@ -2343,18 +2740,7 @@ function WaterDemandPage() {
                           </div>
                         </div>
                       </ContextMenuTrigger>
-                      <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
-                        <ContextMenuItem
-                          onClick={() => {
-                            setPreviewTarget({ type: "pool" });
-                            setPreviewModalOpen(true);
-                          }}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                        >
-                          <Calculator className="size-3.5 text-muted-foreground" />
-                          <span>Calculation Breakdown</span>
-                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                        </ContextMenuItem>
+                      <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
                         <ContextMenuItem
                           onClick={() =>
                             setCommentTarget({
@@ -2368,7 +2754,18 @@ function WaterDemandPage() {
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                         >
                           <MessageSquare className="size-3.5" />
-                          <span>Add / View Comment</span>
+                          <span>Add Comment</span>
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => {
+                            setPreviewTarget({ type: "pool" });
+                            setPreviewModalOpen(true);
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                        >
+                          <Calculator className="size-3.5 text-muted-foreground" />
+                          <span>Calculation Breakdown</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
                         </ContextMenuItem>
                         <ContextMenuItem
                           onClick={() => {
@@ -2378,7 +2775,7 @@ function WaterDemandPage() {
                           }}
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
                         >
-                          <Flag className={`size-3.5 ${poolFlagged ? "text-red-500 fill-red-500" : "text-red-500"}`} />
+                          <Flag className={`size-3.5 ${poolFlagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
                           <span>{poolFlagged ? "Unflag Item" : "Flag for Review"}</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
@@ -2397,7 +2794,7 @@ function WaterDemandPage() {
                           title="Double-click to open fire reserve calculation breakdown"
                           className={`bg-card border rounded-2xl p-5 flex flex-col gap-4 shadow-xs transition-colors cursor-pointer select-none ${
                             fireFlagged
-                              ? "border-amber-400/80 bg-red-50/40 dark:bg-amber-950/20"
+                              ? "border-amber-400/80 bg-amber-50/40 dark:bg-amber-950/20"
                               : "border-border hover:border-border/80"
                           }`}
                         >
@@ -2408,7 +2805,7 @@ function WaterDemandPage() {
                                 🔥 Fire Fighting Reserve Sizing
                                 {fireFlagged && (
                                   <span title="Flagged for review" className="inline-flex">
-                                    <Flag className="size-3 text-red-500 fill-red-500" />
+                                    <Flag className="size-3 text-amber-500 fill-amber-500" />
                                   </span>
                                 )}
                               </h3>
@@ -2441,12 +2838,12 @@ function WaterDemandPage() {
                                   }}
                                   className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                                     fireFlagged
-                                      ? "text-red-500 bg-red-50 dark:bg-red-950/40"
-                                      : "text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
+                                      ? "text-amber-500 bg-amber-50 dark:bg-amber-950/40"
+                                      : "text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
                                   }`}
                                   title={fireFlagged ? "Flagged for review" : "Flag for review"}
                                 >
-                                  <Flag className={`size-3.5 ${fireFlagged ? "fill-red-500 text-red-500" : ""}`} />
+                                  <Flag className={`size-3.5 ${fireFlagged ? "fill-amber-500" : ""}`} />
                                 </button>
                               </div>
                             </div>
@@ -2478,18 +2875,7 @@ function WaterDemandPage() {
                           </div>
                         </div>
                       </ContextMenuTrigger>
-                      <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
-                        <ContextMenuItem
-                          onClick={() => {
-                            setPreviewTarget({ type: "fire" });
-                            setPreviewModalOpen(true);
-                          }}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                        >
-                          <Calculator className="size-3.5 text-muted-foreground" />
-                          <span>Calculation Breakdown</span>
-                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                        </ContextMenuItem>
+                      <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
                         <ContextMenuItem
                           onClick={() =>
                             setCommentTarget({
@@ -2503,7 +2889,18 @@ function WaterDemandPage() {
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
                         >
                           <MessageSquare className="size-3.5" />
-                          <span>Add / View Comment</span>
+                          <span>Add Comment</span>
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => {
+                            setPreviewTarget({ type: "fire" });
+                            setPreviewModalOpen(true);
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                        >
+                          <Calculator className="size-3.5 text-muted-foreground" />
+                          <span>Calculation Breakdown</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
                         </ContextMenuItem>
                         <ContextMenuItem
                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
@@ -2513,7 +2910,7 @@ function WaterDemandPage() {
                             toast.info(nextState ? "Flagged Fire Fighting Reserve for review" : "Unflagged Fire Fighting Reserve");
                           }}
                         >
-                          <Flag className={`size-3.5 ${fireFlagged ? "text-red-500 fill-red-500" : "text-red-500"}`} />
+                          <Flag className={`size-3.5 ${fireFlagged ? "text-amber-500 fill-amber-500" : "text-amber-500"}`} />
                           <span>{fireFlagged ? "Unflag Item" : "Flag for Review"}</span>
                         </ContextMenuItem>
                       </ContextMenuContent>
@@ -2526,299 +2923,429 @@ function WaterDemandPage() {
 
           {/* -------------------- TAB 2: STORAGE & PUMPS -------------------- */}
           {tab === "tanks" && (
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-8">
-                
-                {/* 1. Domestic Water Storage Tank Sizing Card */}
-                <div className="lg:col-span-6 space-y-5">
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild>
-                      <div
-                        onDoubleClick={() => {
-                          setPreviewTarget({ type: "tank" });
-                          setPreviewModalOpen(true);
-                        }}
-                        title="Double-click to open storage tank sizing calculation breakdown"
-                        className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-sm cursor-pointer select-none"
-                      >
-                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1 h-3.5 bg-primary rounded-full"></div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans flex items-center gap-1.5">
-                              <Building2 className="size-4 text-primary" /> 1. Storage Tank Capacity &amp; Split Sizing
-                            </h3>
-                          </div>
+                {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
+                <div className="lg:col-span-5 space-y-5">
+                  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                      <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                        📥 Sizing Parameters
+                      </span>
+                    </div>
+
+                    {/* STORAGE RETENTION */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div className="relative p-3 rounded-xl border bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all">
+                          <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1.5">
+                            Storage Retention Days
+                          </label>
+                          <select
+                            disabled={isEffectiveReadOnly}
+                            value={storageDays}
+                            onChange={(e) => {
+                              setStorageDays(Number(e.target.value));
+                              dirtyStore.set(true);
+                            }}
+                            className="w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold text-foreground focus:outline-none focus:border-[#0A7BC7] cursor-pointer"
+                          >
+                            <option value={1}>1 Day Storage (24 Hours — Standard)</option>
+                            <option value={1.5}>1.5 Day Storage (36 Hours — Intermediate Reserve)</option>
+                            <option value={2}>2 Days Storage (48 Hours — DEWA/ADDC Reserve)</option>
+                            <option value={3}>3 Days Storage (72 Hours — Emergency Reserve)</option>
+                          </select>
                         </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          disabled={isEffectiveReadOnly}
+                          onClick={() => {
+                            if (isEffectiveReadOnly) return;
+                            setStorageDays(1);
+                            dirtyStore.set(true);
+                            toast.success("Storage retention reset to standard (1 Day)");
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                        >
+                          <RotateCcw className="size-3.5 text-muted-foreground" />
+                          <span>Reset to 1 Day</span>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => {
+                            setPreviewTarget({ type: "tank" });
+                            setPreviewModalOpen(true);
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                        >
+                          <Calculator className="size-3.5 text-primary" />
+                          <span>Calculation Breakdown</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Storage Retention Days</label>
-                            <select
-                              value={storageDays}
-                              onChange={(e) => setStorageDays(Number(e.target.value))}
-                              className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-primary cursor-pointer"
-                            >
-                              <option value={1}>1 Day Storage (24 Hours — Standard)</option>
-                              <option value={1.5}>1.5 Day Storage (36 Hours — Intermediate Reserve)</option>
-                              <option value={2}>2 Days Storage (48 Hours — DEWA/ADDC Reserve)</option>
-                              <option value={3}>3 Days Storage (72 Hours — Emergency Reserve)</option>
-                            </select>
-                          </div>
-
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Target Storage Volume</label>
-                            <div className="bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 text-xs font-mono font-extrabold text-primary flex items-center justify-between">
-                              <span>{calculations.displayTotalStorage}</span>
-                              <span className="text-[10px] text-muted-foreground font-sans font-medium">({storageDays} Day Retention)</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col gap-3 mt-2">
-                          {/* Ground Water Break Tank */}
-                          <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-foreground">
-                                  Ground Water Break Tank
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <div className="flex items-center gap-1 bg-white dark:bg-slate-950 border border-border rounded px-2 py-0.5">
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    max={500}
-                                    value={groundTankPct}
-                                    onChange={(e) => setGroundTankPct(Number(e.target.value))}
-                                    className="w-12 bg-transparent text-xs font-mono font-bold text-primary text-right outline-none"
-                                  />
-                                  <span className="text-[10px] font-bold text-muted-foreground">%</span>
-                                </div>
-                                <span className="text-xs font-mono font-extrabold text-primary">{calculations.displayGroundTank}</span>
-                              </div>
-                            </div>
-                            <div className="text-[11.5px] text-muted-foreground">
-                              Suggested Dimensions: <strong className="text-foreground font-mono">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H</strong> (+ 0.3m freeboard)
-                            </div>
-                          </div>
-
-                          {/* Overhead Roof Tanks Container */}
-                          <div className="flex flex-col gap-2.5 pt-2 border-t border-border/60">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Building2 className="size-4 text-primary" />
-                                <span className="text-xs font-bold text-foreground">
-                                  Overhead Roof Tanks ({overheadTanks.length})
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAddOverheadTank();
-                                }}
-                                className="text-xs text-primary hover:text-white bg-primary/10 hover:bg-primary font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all cursor-pointer shadow-xs"
-                              >
-                                <Plus className="size-3.5" /> Add Overhead Tank
-                              </button>
-                            </div>
-
-                            {overheadTanks.length === 0 ? (
-                              <div className="p-3 bg-slate-50 dark:bg-slate-900/30 border border-dashed border-border rounded-xl text-center text-xs text-muted-foreground italic">
-                                No overhead roof tanks configured. Click &quot;+ Add Overhead Tank&quot; above to add overhead roof storage tanks.
-                              </div>
-                            ) : (
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {calculations.overheadTanksCalculated.map((t) => (
-                                  <div
-                                    key={t.id}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="p-3.5 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2 relative group"
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <input
-                                        type="text"
-                                        value={t.name}
-                                        onChange={(e) => handleRenameOverheadTank(t.id, e.target.value)}
-                                        className="bg-transparent font-bold text-xs text-foreground outline-none focus:bg-white dark:focus:bg-slate-950 px-1.5 py-0.5 rounded border border-transparent hover:border-slate-300 focus:border-primary w-full"
-                                        placeholder="Overhead Tank Name"
-                                      />
-                                      <div className="flex items-center gap-2 shrink-0">
-                                        <div className="flex items-center gap-1 bg-white dark:bg-slate-950 border border-border rounded px-1.5 py-0.5">
-                                          <input
-                                            type="number"
-                                            min={0}
-                                            max={100}
-                                            value={t.splitPct}
-                                            onChange={(e) => handleUpdateOverheadTankPct(t.id, Number(e.target.value))}
-                                            className="w-10 bg-transparent text-xs font-mono font-bold text-primary text-right outline-none"
-                                          />
-                                          <span className="text-[10px] font-bold text-muted-foreground">%</span>
-                                        </div>
-                                        <span className="text-xs font-mono font-extrabold text-primary">
-                                          {t.displayVol}
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleRemoveOverheadTank(t.id);
-                                          }}
-                                          className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
-                                          title="Remove Overhead Tank"
-                                        >
-                                          <Trash2 className="size-3.5" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                    <div className="text-[11.5px] text-muted-foreground">
-                                      Suggested Dimensions: <strong className="text-foreground font-mono">{t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H</strong> (+ 0.3m freeboard)
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                    {/* GROUND WATER BREAK TANK */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Ground Water Break Tank
+                        </span>
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-slate-50/70 dark:bg-zinc-800/50 border-slate-200/80 dark:border-zinc-700">
+                          <span className="text-[11px] font-medium text-slate-500">Allocation:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={500}
+                            disabled={isEffectiveReadOnly}
+                            value={groundTankPct}
+                            onChange={(e) => {
+                              setGroundTankPct(Number(e.target.value));
+                              dirtyStore.set(true);
+                            }}
+                            className="w-12 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-100 font-bold font-mono text-center border border-slate-200 dark:border-zinc-700 rounded px-1 py-0.5 outline-none focus:border-primary text-xs"
+                          />
+                          <span className="text-[10.5px] text-slate-400">%</span>
                         </div>
                       </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
-                      <ContextMenuItem
-                        onClick={() => {
-                          setPreviewTarget({ type: "tank" });
-                          setPreviewModalOpen(true);
-                        }}
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                      >
-                        <Calculator className="size-3.5 text-muted-foreground" />
-                        <span>Calculation Breakdown</span>
-                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        onClick={() =>
-                          setCommentTarget({
-                            targetId: "storage_tanks",
-                            targetName: "Water Storage Tanks",
-                            targetType: "Storage Tanks",
-                            existingComments: [],
-                          })
-                        }
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                      >
-                        <MessageSquare className="size-3.5" />
-                        <span>Add / View Comment</span>
-                      </ContextMenuItem>
-                      <ContextMenuSeparator className="h-px bg-border my-1" />
-                      <ContextMenuItem
-                        onClick={handleExportPDF}
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
-                      >
-                        <FileText className="size-3.5" />
-                        <span>Export PDF Report</span>
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
+
+                      <div className="p-3 rounded-xl border bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600 dark:text-zinc-400 font-medium">Break Tank Volume:</span>
+                          <span className="font-mono font-bold text-primary">{calculations.displayGroundTank}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-slate-200/40 dark:border-zinc-800/60">
+                          <span>Suggested Dimensions:</span>
+                          <span className="font-mono text-foreground font-semibold">
+                            {calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H <span className="text-[10px] text-muted-foreground">(+ 0.3m freeboard)</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* OVERHEAD ROOF TANKS */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Overhead Roof Tanks ({overheadTanks.length})
+                        </span>
+                        {!isEffectiveReadOnly && (
+                          <button
+                            type="button"
+                            onClick={handleAddOverheadTank}
+                            className="text-[10.5px] font-bold text-[#0A7BC7] hover:underline cursor-pointer flex items-center gap-1"
+                          >
+                            <Plus className="size-3" /> Add Overhead Tank
+                          </button>
+                        )}
+                      </div>
+
+                      {overheadTanks.length === 0 ? (
+                        <div className="p-3 bg-slate-50/50 dark:bg-zinc-800/20 border border-dashed border-slate-200 dark:border-zinc-800 rounded-xl text-center text-xs text-muted-foreground italic">
+                          No overhead roof tanks configured. Click &quot;Add Overhead Tank&quot; above to add overhead storage.
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5">
+                          {calculations.overheadTanksCalculated.map((t) => (
+                            <div
+                              key={t.id}
+                              className="p-3 bg-slate-50/50 dark:bg-zinc-800/40 border border-slate-200/80 dark:border-zinc-800 rounded-xl flex flex-col gap-2 hover:border-slate-300 dark:hover:border-zinc-700 transition-all text-xs"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <input
+                                  type="text"
+                                  disabled={isEffectiveReadOnly}
+                                  value={t.name}
+                                  onChange={(e) => handleRenameOverheadTank(t.id, e.target.value)}
+                                  className="bg-transparent font-bold text-xs text-foreground outline-none focus:bg-white dark:focus:bg-zinc-900 px-1.5 py-0.5 rounded border border-transparent hover:border-slate-300 dark:hover:border-zinc-700 focus:border-primary flex-1"
+                                  placeholder="Overhead Tank Name"
+                                />
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <div className="flex items-center gap-1 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded px-1.5 py-0.5">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      disabled={isEffectiveReadOnly}
+                                      value={t.splitPct}
+                                      onChange={(e) => handleUpdateOverheadTankPct(t.id, Number(e.target.value))}
+                                      className="w-10 bg-transparent text-xs font-mono font-bold text-primary text-center outline-none"
+                                    />
+                                    <span className="text-[10px] font-bold text-muted-foreground">%</span>
+                                  </div>
+                                  <span className="text-xs font-mono font-extrabold text-primary">
+                                    {t.displayVol}
+                                  </span>
+                                  {!isEffectiveReadOnly && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveOverheadTank(t.id)}
+                                      className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
+                                      title="Remove Overhead Tank"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-[11px] text-muted-foreground flex items-center justify-between pt-1 border-t border-slate-200/40 dark:border-zinc-800/60">
+                                <span>Suggested Dimensions:</span>
+                                <span className="font-mono text-foreground font-semibold">
+                                  {t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H <span className="text-[10px] text-muted-foreground">(+ 0.3m freeboard)</span>
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* PEAK FLOW & TRANSFER PUMP PARAMETERS */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Domestic Peak Flow &amp; Transfer Pump Sizing
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="relative p-3 rounded-xl border bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all">
+                          <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                            Diversity / Peak Multiplier (K)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            disabled={isEffectiveReadOnly}
+                            value={peakFactor}
+                            onChange={(e) => {
+                              setPeakFactor(Number(e.target.value));
+                              dirtyStore.set(true);
+                            }}
+                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs font-bold text-foreground focus:outline-none focus:border-[#0A7BC7]"
+                          />
+                        </div>
+
+                        <div className="relative p-3 rounded-xl border bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all">
+                          <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                            Transfer Filling Duration
+                          </label>
+                          <select
+                            disabled={isEffectiveReadOnly}
+                            value={fillWindowHours}
+                            onChange={(e) => {
+                              setFillWindowHours(Number(e.target.value));
+                              dirtyStore.set(true);
+                            }}
+                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs font-bold text-foreground focus:outline-none focus:border-[#0A7BC7] cursor-pointer"
+                          >
+                            <option value={1}>1 Hour Filling Window</option>
+                            <option value={2}>2 Hours Filling Window (Standard)</option>
+                            <option value={3}>3 Hours Filling Window</option>
+                            <option value={4}>4 Hours Filling Window</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* 2. Domestic Peak Flow & Transfer Pump Capacity Card */}
-                <div className="lg:col-span-6 space-y-5">
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild>
-                      <div
-                        onDoubleClick={() => {
-                          setPreviewTarget({ type: "pump" });
-                          setPreviewModalOpen(true);
-                        }}
-                        title="Double-click to open transfer pump duty calculation breakdown"
-                        className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-sm cursor-pointer select-none"
-                      >
-                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1 h-3.5 bg-primary rounded-full"></div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans flex items-center gap-1.5">
-                              <Sparkles className="size-4 text-primary" /> 2. Domestic Peak Flow &amp; Transfer Pump Sizing
-                            </h3>
-                          </div>
-                        </div>
+                {/* RIGHT COLUMN: CALCULATION RESULTS (lg:col-span-7) */}
+                <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
+                  {/* PRIMARY RESULTS CARD */}
+                  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                      <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                        ⚡ Sizing Results Summary
+                      </span>
+                    </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-sans">
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Diversity / Peak Multiplier (K)</label>
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={peakFactor}
-                              onChange={(e) => setPeakFactor(Number(e.target.value))}
-                              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-primary"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Transfer Filling Duration</label>
-                            <select
-                              value={fillWindowHours}
-                              onChange={(e) => setFillWindowHours(Number(e.target.value))}
-                              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-primary cursor-pointer"
-                            >
-                              <option value={1}>1 Hour Filling Window</option>
-                              <option value={2}>2 Hours Filling Window (Standard)</option>
-                              <option value={3}>3 Hours Filling Window</option>
-                              <option value={4}>4 Hours Filling Window</option>
-                            </select>
-                          </div>
-
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Calculated Peak Flow</label>
-                            <div className="bg-slate-100 dark:bg-slate-900 border border-border rounded-lg px-3 py-2 text-xs font-mono font-extrabold text-foreground">
-                              {calculations.displayDomesticPeak}
+                    {/* DISPLAY STAT CARDS (4 CARDS MATCHING PUMP SIZING) */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {/* Card 1: Target Storage (Blue) */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            onDoubleClick={() => {
+                              setPreviewTarget({ type: "tank" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="relative bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 transition-all hover:border-blue-300 dark:hover:border-blue-700 cursor-context-menu"
+                          >
+                            <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Target Storage</div>
+                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                              {ip ? Math.round(calculations.reqStorageGal).toLocaleString() : Math.round(calculations.reqStorageL).toLocaleString()} <span className="text-xs font-normal text-muted-foreground">{ip ? "gal" : "L"}</span>
                             </div>
                           </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => {
+                              setPreviewTarget({ type: "tank" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Calculator className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
 
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Required Transfer Pump Flow</label>
-                            <div className="bg-primary text-primary-foreground border border-primary rounded-lg px-3 py-2 text-xs font-mono font-extrabold">
+                      {/* Card 2: Ground Break Tank (Amber) */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            onDoubleClick={() => {
+                              setPreviewTarget({ type: "tank" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="relative bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 transition-all hover:border-amber-300 dark:hover:border-amber-700 cursor-context-menu"
+                          >
+                            <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Ground Tank</div>
+                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                              {ip ? Math.round(calculations.groundTankL / 3.78541).toLocaleString() : Math.round(calculations.groundTankL).toLocaleString()} <span className="text-xs font-normal text-muted-foreground">{ip ? "gal" : "L"}</span>
+                            </div>
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => {
+                              setPreviewTarget({ type: "tank" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Calculator className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+
+                      {/* Card 3: Domestic Peak Flow (Emerald) */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            onDoubleClick={() => {
+                              setPreviewTarget({ type: "pump" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="relative bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 transition-all hover:border-emerald-300 dark:hover:border-emerald-700 cursor-context-menu"
+                          >
+                            <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Calculated Peak Flow</div>
+                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                              {ip ? Math.round(calculations.peakGPM).toLocaleString() : calculations.peakLPS.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">{ip ? "GPM" : "L/s"}</span>
+                            </div>
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => {
+                              setPreviewTarget({ type: "pump" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Calculator className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+
+                      {/* Card 4: Required Transfer Flow (Purple) */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            onDoubleClick={() => {
+                              setPreviewTarget({ type: "pump" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="relative bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 transition-all hover:border-purple-300 dark:hover:border-purple-700 cursor-context-menu"
+                          >
+                            <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Transfer Pump Flow</div>
+                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                              {ip ? calculations.transferPumpGPM.toFixed(1) : calculations.transferPumpLPS.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">{ip ? "GPM" : "L/s"}</span>
+                            </div>
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => {
+                              setPreviewTarget({ type: "pump" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Calculator className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                    </div>
+
+                    {/* DETAILED METRICS TABLE */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div className="relative bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs transition-all hover:border-slate-300 dark:hover:border-zinc-700 cursor-context-menu">
+                          <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                            <span className="text-slate-600 dark:text-zinc-400">Total Daily Water Demand:</span>
+                            <span className="font-mono font-bold">{calculations.displayGrandTotal}</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                            <span className="text-slate-600 dark:text-zinc-400">Storage Retention Period:</span>
+                            <span className="font-mono font-bold">{storageDays} Day{storageDays > 1 ? "s" : ""} ({storageDays * 24} Hours)</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                            <span className="text-slate-600 dark:text-zinc-400">Suggested Ground Tank Dimensions:</span>
+                            <span className="font-mono font-bold">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H (+0.3m freeboard)</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                            <span className="text-slate-600 dark:text-zinc-400">Overhead Roof Storage Tanks:</span>
+                            <span className="font-mono font-bold">
+                              {overheadTanks.length > 0
+                                ? `${overheadTanks.reduce((s, t) => s + t.splitPct, 0)}% Total (${calculations.overheadTanksCalculated.map(t => `${t.name}: ${t.displayVol}`).join(", ")})`
+                                : "None configured"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                            <span className="text-slate-600 dark:text-zinc-400">Domestic Peak Diversity Multiplier:</span>
+                            <span className="font-mono font-bold">K = {peakFactor}</span>
+                          </div>
+                          <div className="flex justify-between py-1 font-bold text-foreground">
+                            <span>Estimated Transfer Pump Flow:</span>
+                            <span className="font-mono text-[#0A7BC7] font-bold">
                               {calculations.displayTransferPump}
-                            </div>
+                            </span>
                           </div>
                         </div>
-                      </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="w-52 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
-                      <ContextMenuItem
-                        onClick={() => {
-                          setPreviewTarget({ type: "pump" });
-                          setPreviewModalOpen(true);
-                        }}
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                      >
-                        <Calculator className="size-3.5 text-muted-foreground" />
-                        <span>Calculation Breakdown</span>
-                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        onClick={() =>
-                          setCommentTarget({
-                            targetId: "transfer_pumps",
-                            targetName: "Transfer Pumps",
-                            targetType: "Transfer Pumps",
-                            existingComments: [],
-                          })
-                        }
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                      >
-                        <MessageSquare className="size-3.5" />
-                        <span>Add / View Comment</span>
-                      </ContextMenuItem>
-                      <ContextMenuSeparator className="h-px bg-border my-1" />
-                      <ContextMenuItem
-                        onClick={handleExportPDF}
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
-                      >
-                        <FileText className="size-3.5" />
-                        <span>Export PDF Report</span>
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          onClick={() => {
+                            setPreviewTarget({ type: "pump" });
+                            setPreviewModalOpen(true);
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                        >
+                          <Calculator className="size-3.5 text-primary" />
+                          <span>Calculation Preview</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={handleExportPDF}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                        >
+                          <FileText className="size-3.5" />
+                          <span>Export PDF Report</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2883,37 +3410,32 @@ function WaterDemandPage() {
       {previewModalOpen && previewTarget && (
         <div
           onClick={() => setPreviewModalOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/10 dark:bg-black/30 p-4 animate-fade-in font-sans"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/20 dark:bg-black/50 p-4 animate-fade-in font-sans"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className={`bg-white/70 dark:bg-neutral-950/70 backdrop-blur-2xl border border-white/50 dark:border-white/10 rounded-[24px] shadow-[0_30px_70px_rgba(0,0,0,0.12),0_0_0_1px_rgba(0,0,0,0.02)] dark:shadow-[0_30px_70px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)] flex flex-col w-full h-[85vh] max-h-[85vh] overflow-hidden transition-[max-width] duration-300 ease-in-out ${
-              showModalPreview ? "max-w-5xl" : "max-w-2xl"
+            className={`bg-white/80 dark:bg-neutral-950/80 backdrop-blur-2xl border border-white/50 dark:border-white/10 rounded-2xl shadow-2xl flex flex-col w-full max-h-[88vh] overflow-hidden transition-[max-width] duration-300 ease-in-out ${
+              showModalPreview ? "max-w-4xl" : "max-w-xl"
             }`}
           >
             {/* Modal Header */}
-            <header className="px-6 h-[72px] flex items-center justify-between border-b border-black/5 dark:border-white/5 shrink-0 bg-white/10 dark:bg-black/10">
-              <div className="flex flex-col justify-center min-w-0 pr-4">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <h2 className="text-[15px] font-bold text-neutral-800 dark:text-neutral-100 truncate flex items-center gap-2">
-                    <Calculator className="size-4 text-primary" /> Water Demand Parameters &amp; Calculations
-                  </h2>
-                  <span className="px-2.5 py-0.75 rounded-md bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-neutral-800 dark:text-neutral-200 text-[11px] font-bold font-mono tracking-tight shrink-0 uppercase">
-                    {PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name} ({unitSystem === "ip" ? "IP Imperial" : "SI Metric"})
-                  </span>
-                </div>
-                <p className="text-[11.5px] text-neutral-500 dark:text-neutral-400 font-normal mt-0.5 truncate">
-                  Configure occupancy demand rates, retention reserve days, tank split allocations, and view live step-by-step calculations.
-                </p>
+            <header className="px-5 h-14 flex items-center justify-between border-b border-black/5 dark:border-white/5 shrink-0 bg-white/20 dark:bg-black/20">
+              <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                <h2 className="text-[14.5px] font-bold text-neutral-800 dark:text-neutral-100 truncate flex items-center gap-2">
+                  <Calculator className="size-4 text-primary" /> Water Demand Parameters &amp; Calculations
+                </h2>
+                <span className="px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-neutral-800 dark:text-neutral-200 text-[10.5px] font-bold font-mono tracking-tight shrink-0 uppercase">
+                  {PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name} ({unitSystem === "ip" ? "IP" : "SI"})
+                </span>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowModalPreview((prev) => !prev)}
-                  className={`flex items-center gap-1.5 h-9.5 px-4 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer shadow-sm ${
+                  className={`flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11.5px] font-semibold border transition-all cursor-pointer shadow-xs ${
                     showModalPreview
-                      ? "bg-primary text-primary-foreground border-primary hover:bg-primary/95 shadow-md shadow-primary/15"
+                      ? "bg-primary text-primary-foreground border-primary hover:bg-primary/95"
                       : "bg-white/50 dark:bg-white/5 border-black/10 dark:border-white/10 text-neutral-700 dark:text-neutral-300 hover:bg-white/80 dark:hover:bg-white/10"
                   }`}
                 >
@@ -2923,7 +3445,7 @@ function WaterDemandPage() {
                 <button
                   type="button"
                   onClick={() => setPreviewModalOpen(false)}
-                  className="size-9 grid place-items-center rounded-xl hover:bg-black/5 dark:hover:bg-white/5 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+                  className="size-8 grid place-items-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors cursor-pointer"
                 >
                   <X className="size-4" />
                 </button>
@@ -2933,7 +3455,7 @@ function WaterDemandPage() {
             {/* Modal Body: Left Inputs + Right Calculations Preview */}
             <div className="flex-1 min-h-0 flex overflow-hidden">
               {/* Left Side: Form Controls & Navigation */}
-              <div className="flex-1 min-w-0 p-6 space-y-6 overflow-y-auto">
+              <div className="flex-1 min-w-0 p-5 space-y-4 overflow-y-auto custom-scrollbar">
                 {/* Navigation Tabs */}
                 <div className="flex items-center gap-1.5 p-1 bg-white/40 dark:bg-white/5 rounded-2xl border border-black/5 dark:border-white/5 overflow-x-auto">
                   <button
@@ -3209,7 +3731,7 @@ function WaterDemandPage() {
                         <thead>
                           <tr className="bg-neutral-900 text-white font-semibold">
                             <th className="p-2.5 text-left">Parameter</th>
-                            <th className="p-2.5 text-right">Calculated Value</th>
+                            <th className="p-2.5 text-center">Calculated Value</th>
                             <th className="p-2.5 text-center">Unit</th>
                             <th className="p-2.5 text-left">Design Guideline / Code Reference</th>
                           </tr>
@@ -3217,57 +3739,57 @@ function WaterDemandPage() {
                         <tbody className="divide-y divide-black/5 dark:divide-white/5 font-mono">
                           <tr>
                             <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Domestic Daily Demand</td>
-                            <td className="p-2.5 text-right font-bold text-primary">{calculations.displayDomestic}</td>
+                            <td className="p-2.5 text-center font-bold text-primary">{calculations.displayDomestic}</td>
                             <td className="p-2.5 text-center">{ip ? "gal/day" : "L/day"}</td>
                             <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">{PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name}</td>
                           </tr>
                           <tr>
                             <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Domestic Peak Flow Rate</td>
-                            <td className="p-2.5 text-right font-bold text-primary">{calculations.displayDomesticPeak}</td>
+                            <td className="p-2.5 text-center font-bold text-primary">{calculations.displayDomesticPeak}</td>
                             <td className="p-2.5 text-center">{ip ? "GPM" : "L/s"}</td>
                             <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Peak Factor K = {peakFactor}</td>
                           </tr>
                           <tr>
                             <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Irrigation Daily Load</td>
-                            <td className="p-2.5 text-right font-bold text-emerald-600 dark:text-emerald-400">{calculations.displayIrrigation}</td>
+                            <td className="p-2.5 text-center font-bold text-emerald-600 dark:text-emerald-400">{calculations.displayIrrigation}</td>
                             <td className="p-2.5 text-center">{ip ? "gal/day" : "L/day"}</td>
                             <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Landscaping Area Schedule ({irrRows.length} zones)</td>
                           </tr>
                           <tr>
                             <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Pool Daily Evaporation Makeup</td>
-                            <td className="p-2.5 text-right font-bold text-sky-600 dark:text-sky-400">{calculations.displayPoolDemand}</td>
+                            <td className="p-2.5 text-center font-bold text-sky-600 dark:text-sky-400">{calculations.displayPoolDemand}</td>
                             <td className="p-2.5 text-center">{ip ? "gal/day" : "L/day"}</td>
                             <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Evaporation Rate = {poolEvap}%/day</td>
                           </tr>
                           <tr className="bg-white/40 dark:bg-white/5 font-bold">
                             <td className="p-2.5 font-sans text-neutral-800 dark:text-neutral-100">GRAND TOTAL DAILY CONSUMPTION</td>
-                            <td className="p-2.5 text-right text-base text-primary">{calculations.displayGrandTotal}</td>
+                            <td className="p-2.5 text-center text-base text-primary">{calculations.displayGrandTotal}</td>
                             <td className="p-2.5 text-center">{ip ? "gal/day" : "L/day"}</td>
                             <td className="p-2.5 font-sans text-neutral-700 dark:text-neutral-300">Combined Site Water Demand</td>
                           </tr>
                           <tr>
                             <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Total Water Storage Requirement</td>
-                            <td className="p-2.5 text-right font-bold text-neutral-800 dark:text-neutral-100">{calculations.displayTotalStorage}</td>
+                            <td className="p-2.5 text-center font-bold text-neutral-800 dark:text-neutral-100">{calculations.displayTotalStorage}</td>
                             <td className="p-2.5 text-center">{ip ? "gal" : "m³"}</td>
                             <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">{storageDays} Day(s) Retention Reserve</td>
                           </tr>
                           <tr>
                             <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">Ground Break Tank Capacity</td>
-                            <td className="p-2.5 text-right font-bold text-primary">{calculations.displayGroundTank}</td>
+                            <td className="p-2.5 text-center font-bold text-primary">{calculations.displayGroundTank}</td>
                             <td className="p-2.5 text-center">{ip ? "gal" : "L"}</td>
                             <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Ground Split Allocation: {calculations.groundPct}%</td>
                           </tr>
                           {calculations.overheadTanksCalculated.map((t) => (
                             <tr key={t.id}>
                               <td className="p-2.5 font-sans font-semibold text-neutral-800 dark:text-neutral-100">{t.name} Capacity</td>
-                              <td className="p-2.5 text-right font-bold text-primary">{t.displayVol}</td>
+                              <td className="p-2.5 text-center font-bold text-primary">{t.displayVol}</td>
                               <td className="p-2.5 text-center">{ip ? "gal" : "L"}</td>
                               <td className="p-2.5 font-sans text-neutral-500 dark:text-neutral-400">Roof Split Allocation: {t.sharePct.toFixed(0)}%</td>
                             </tr>
                           ))}
                           <tr className="bg-primary/10 font-bold">
                             <td className="p-2.5 font-sans text-primary">Transfer Pump Duty Flow</td>
-                            <td className="p-2.5 text-right text-primary">{calculations.displayTransferPump}</td>
+                            <td className="p-2.5 text-center text-primary">{calculations.displayTransferPump}</td>
                             <td className="p-2.5 text-center text-primary">{ip ? "GPM" : "L/s"}</td>
                             <td className="p-2.5 font-sans text-primary">{fillWindowHours}-Hour Roof Tank Filling Window</td>
                           </tr>
@@ -3279,15 +3801,12 @@ function WaterDemandPage() {
               </div>
 
               {/* Right Side: Calculations Preview Sidebar (Matching Ventilation) */}
-              <div
-                className={`shrink-0 bg-white/30 dark:bg-black/20 backdrop-blur-md border-l border-black/5 dark:border-white/5 overflow-hidden transition-[width,opacity] duration-300 ease-in-out flex flex-col ${
-                  showModalPreview ? "w-[400px] opacity-100 p-6 border-l-border" : "w-0 opacity-0 p-0 border-l-transparent"
-                }`}
-              >
-                <div className="w-[352px] space-y-5 flex flex-col h-full overflow-y-auto">
-                  <h3 className="text-[11px] uppercase font-bold text-neutral-400 dark:text-neutral-500 tracking-wider pb-1.5 border-b border-black/5 dark:border-white/5 shrink-0">
-                    Calculations Preview
-                  </h3>
+              {showModalPreview && (
+                <div className="w-[360px] border-l border-black/5 dark:border-white/5 bg-black/[0.015] dark:bg-white/[0.015] p-5 space-y-4 overflow-y-auto custom-scrollbar shrink-0 animate-fade-in flex flex-col">
+                  <div className="space-y-4 flex flex-col flex-1">
+                    <h3 className="text-[10.5px] uppercase font-bold text-neutral-400 dark:text-neutral-500 tracking-wider pb-1.5 border-b border-black/5 dark:border-white/5 shrink-0">
+                      Calculations Preview
+                    </h3>
 
                   {/* Domestic Calculations Card */}
                   {previewTarget.type === "domestic" && (() => {
@@ -3527,19 +4046,20 @@ function WaterDemandPage() {
                   )}
                 </div>
               </div>
-            </div>
+            )}
+          </div>
 
             {/* Modal Footer */}
-            <footer className="px-6 h-16 border-t border-black/5 dark:border-white/5 bg-white/10 dark:bg-black/10 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2 text-[12px] text-emerald-600 dark:text-emerald-400 font-medium">
-                <CheckCircle2 className="size-4 text-emerald-500" />
+            <footer className="px-5 h-14 border-t border-black/5 dark:border-white/5 bg-white/20 dark:bg-black/20 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                <CheckCircle2 className="size-3.5 text-emerald-500" />
                 <span>Changes apply live to project calculation schedule</span>
               </div>
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setPreviewModalOpen(false)}
-                  className="h-10 px-5 border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-neutral-700 dark:text-neutral-300 rounded-xl text-[12.5px] font-medium transition-colors cursor-pointer shadow-sm"
+                  className="px-4 h-9 rounded-lg text-xs font-semibold border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -3549,7 +4069,7 @@ function WaterDemandPage() {
                     setPreviewModalOpen(false);
                     toast.success("Changes saved to schedule");
                   }}
-                  className="h-10 px-5 bg-primary text-primary-foreground hover:bg-primary/95 rounded-xl text-[12.5px] font-semibold transition-all shadow-md shadow-primary/10 active:scale-[0.98] cursor-pointer"
+                  className="px-4.5 h-9 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/95 transition-all shadow-md shadow-primary/20 cursor-pointer"
                 >
                   Done / Apply Changes
                 </button>
@@ -3902,6 +4422,21 @@ function WaterDemandPage() {
           </div>
         </div>
       )}
+      {/* Formula Breakdown Modal */}
+      {showFormulaModal && (
+        <WaterDemandFormulaBreakdownModal
+          onClose={() => setShowFormulaModal(false)}
+          unitSystem={unitSystem}
+          calculations={calculations}
+          wdRows={wdRows}
+          irrRows={irrRows}
+          poolArea={poolArea}
+          poolDepth={poolDepth}
+          fireFlow={fireFlow}
+          storageDays={storageDays}
+          presetStandard={presetStandard}
+        />
+      )}
     </AppShell>
   );
 }
@@ -3960,476 +4495,424 @@ function WaterDemandReportView({
   });
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50 no-print">
-        <span className="text-[12px] text-muted-foreground font-semibold">
-          Generated: <span className="text-foreground font-mono">{new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-        </span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <TBtn primary onClick={onExportPdf}>
-            <FileText className="size-3.5" /> Export PDF
-          </TBtn>
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-      <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+      <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
         
-        {/* Document Header */}
-        <div className="flex justify-between items-start pb-4 border-b border-border">
-          <div>
-            <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-              Water Demand &amp; Storage Tank Sizing Calculation
-            </h2>
-            <p className="text-[12px] text-muted-foreground mt-0.5">
-              Comprehensive Water Consumption, Storage Autonomy &amp; Transfer Pumping Analysis
-            </p>
-          </div>
-          <div className="text-right">
-            <span className="text-[11px] text-muted-foreground block mt-0.5">
-              Date: {new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' })}
-            </span>
-          </div>
+        {/* 1. Title */}
+        <div className="pb-1">
+          <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+            Water Demand &amp; Storage Tank Sizing Calculation
+          </h2>
         </div>
 
-        
-        {/* Project Metadata Header Box (Canonical 2-column x 3-row format) */}
+        {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format) */}
         <div className="border border-border rounded-xl overflow-hidden text-xs">
           <table className="w-full border-collapse">
             <tbody>
               <tr className="border-b border-border divide-x divide-border">
                 <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
-                <td className="p-2.5 font-mono text-foreground font-medium">
-                  {(project as any)?.calcNo || `TRV-CAL-WDM-${(project?.id || "0000").slice(-4).toUpperCase()}`}
-                </td>
+                <td className="p-2.5 font-mono text-foreground font-medium">{(project as any)?.calcNo || "CALC-PLUM-WD01"}</td>
                 <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
-                <td className="p-2.5 font-mono font-medium">
-                  {new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' })}
-                </td>
+                <td className="p-2.5 font-mono font-medium">{formatDateStr(new Date().toISOString())}</td>
               </tr>
               <tr className="border-b border-border divide-x divide-border">
                 <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
-                <td className="p-2.5 font-mono">
-                  {project?.code || (project?.id ? project.id.slice(0, 8) : "MEP-WDM-2026")}
-                </td>
+                <td className="p-2.5 font-mono">{project?.code || (project as any)?.projectNo || "MEP-P001"}</td>
                 <td className="p-2.5 font-bold bg-muted/20">Client:</td>
-                <td className="p-2.5">{project?.client || "-"}</td>
+                <td className="p-2.5">{project?.client || "Prestige Group developers"}</td>
               </tr>
               <tr className="divide-x divide-border">
                 <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
-                <td className="p-2.5">{project?.name || "MEP Water Distribution Project"}</td>
+                <td className="p-2.5">{project?.name || "Water Demand & Storage Tank Sizing"}</td>
                 <td className="p-2.5 font-bold bg-muted/20">End User:</td>
-                <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
+                <td className="p-2.5">{(project as any)?.endUser || "Building Authority"}</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        {/* Table 1: Design Parameters & Overall Summary */}
+        {/* 3. Table 1: Design Parameters & Overall Summary */}
         <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
             1. Executive Design Parameter Summary
           </h3>
-          <table className="w-full text-[12px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-center w-12">No.</th>
-                <th className="border border-border p-2 text-left">Executive Design Parameter Summary</th>
-                <th className="border border-border p-2 text-center w-32">Value</th>
-                <th className="border border-border p-2 text-center w-24">Unit</th>
-                <th className="border border-border p-2 text-left">Standard / Code Reference</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                <td className="border border-border p-2 font-bold">Total Occupied Spaces</td>
-                <td className="border border-border p-2 text-center font-bold">{wdRows.length}</td>
-                <td className="border border-border p-2 text-center">spaces</td>
-                <td className="border border-border p-2 text-muted-foreground">Architectural Space Inventory</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                <td className="border border-border p-2 font-bold">Total Occupancy Headcount</td>
-                <td className="border border-border p-2 text-center font-bold">{(calculations.totalPeople || 0).toLocaleString()}</td>
-                <td className="border border-border p-2 text-center">people</td>
-                <td className="border border-border p-2 text-muted-foreground">Scheduled Design Occupancy</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                <td className="border border-border p-2 font-bold">Domestic Daily Water Demand</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {(ip ? Math.round((calculations.totalWaterL || 0) / 3.78541) : Math.round(calculations.totalWaterL || 0)).toLocaleString()}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "gal/day" : "L/day"}</td>
-                <td className="border border-border p-2 text-muted-foreground">Governing Standard Allowance</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                <td className="border border-border p-2 font-bold">Domestic Peak Flow Rate</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {ip ? Math.round(calculations.peakGPM || 0).toLocaleString() : (calculations.peakLPS || 0).toFixed(2)}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "GPM" : "L/s"}</td>
-                <td className="border border-border p-2 text-muted-foreground">Peak Multiplier K = {peakFactor}</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">5</td>
-                <td className="border border-border p-2 font-bold">Irrigation Daily Water Load</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {(ip ? Math.round((calculations.totalIrrL || 0) / 3.78541) : Math.round(calculations.totalIrrL || 0)).toLocaleString()}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "gal/day" : "L/day"}</td>
-                <td className="border border-border p-2 text-muted-foreground">Landscaping Vegetation Schedule</td>
-              </tr>
-              {poolArea && poolDepth && (
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">6</td>
-                  <td className="border border-border p-2 font-bold">Swimming Pool Makeup Water</td>
-                  <td className="border border-border p-2 text-center font-bold">
-                    {(ip ? Math.round((calculations.poolDemandL || 0) / 3.78541) : Math.round(calculations.poolDemandL || 0)).toLocaleString()}
-                  </td>
-                  <td className="border border-border p-2 text-center">{ip ? "gal/day" : "L/day"}</td>
-                  <td className="border border-border p-2 text-muted-foreground">Evaporation Loss {poolEvap}%/day + Backwash</td>
-                </tr>
-              )}
-              {fireFlow && (
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">7</td>
-                  <td className="border border-border p-2 font-bold">Fire Fighting Dedicated Reserve</td>
-                  <td className="border border-border p-2 text-center font-bold text-red-600 dark:text-red-400">
-                    {(ip ? Math.round((calculations.fireCapL || 0) / 3.78541) : Math.round(calculations.fireCapL || 0)).toLocaleString()}
-                  </td>
-                  <td className="border border-border p-2 text-center">{ip ? "gal" : "L"}</td>
-                  <td className="border border-border p-2 text-muted-foreground">60-Min Standard Duration (NFPA 13/14)</td>
-                </tr>
-              )}
-              <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                <td className="border border-border p-2 text-center text-muted-foreground">—</td>
-                <td className="border border-border p-2">TOTAL DAILY WATER DEMAND</td>
-                <td className="border border-border p-2 text-center text-pink-600 dark:text-pink-400 font-bold">
-                  {(ip ? Math.round((calculations.grandTotalL || 0) / 3.78541) : Math.round(calculations.grandTotalL || 0)).toLocaleString()}
-                </td>
-                <td className="border border-border p-2 text-center font-bold">{ip ? "gal/day" : "L/day"}</td>
-                <td className="border border-border p-2">Combined Site Daily Service Load</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">8</td>
-                <td className="border border-border p-2 font-bold">Total Storage Autonomy Retention</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {ip ? Math.round(calculations.reqStorageGal || 0).toLocaleString() : (calculations.reqStorageM3 || 0).toFixed(2)}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "gal" : "m³"}</td>
-                <td className="border border-border p-2 text-muted-foreground">{storageDays} Day(s) Mandatory Storage Duration</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">9</td>
-                <td className="border border-border p-2 font-bold">Ground Water Break Tank</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {(ip ? Math.round((calculations.groundTankL || 0) / 3.78541) : Math.round(calculations.groundTankL || 0)).toLocaleString()}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "gal" : "L"}</td>
-                <td className="border border-border p-2 text-muted-foreground">{calculations.groundPct}% Ground Split ({calculations.groundDim.l}m × {calculations.groundDim.w}m × {calculations.groundDim.h}m)</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">10</td>
-                <td className="border border-border p-2 font-bold">Transfer Pumping Duty Flow Rate</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {ip ? (calculations.transferPumpGPM || 0).toFixed(1) : (calculations.transferPumpLPS || 0).toFixed(2)}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "GPM" : "L/s"}</td>
-                <td className="border border-border p-2 text-muted-foreground">Designed for {fillWindowHours}-Hour Roof Tank Filling Window</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* Table 2: Water Storage Tanks & Transfer Pump Physical Sizing */}
-        <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-            2. Water Storage Tanks &amp; Transfer Pump Physical Sizing
-          </h3>
-          <table className="w-full text-[12px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-center w-12">No.</th>
-                <th className="border border-border p-2 text-left">Facility / Equipment</th>
-                <th className="border border-border p-2 text-left">Specification &amp; Tank Type</th>
-                <th className="border border-border p-2 text-center w-24">Allocation</th>
-                <th className="border border-border p-2 text-right w-28">Effective Capacity</th>
-                <th className="border border-border p-2 text-center w-20">Unit</th>
-                <th className="border border-border p-2 text-left">Suggested Dimensions / Operating Duty</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                <td className="border border-border p-2 font-bold">Ground Water Break Tank</td>
-                <td className="border border-border p-2 text-muted-foreground">Reinforced Concrete / Sectional GRP</td>
-                <td className="border border-border p-2 text-center font-mono font-bold">{calculations.groundPct}%</td>
-                <td className="border border-border p-2 text-right font-mono font-bold">{calculations.displayGroundTank}</td>
-                <td className="border border-border p-2 text-center font-mono">{ip ? "gal" : "L"}</td>
-                <td className="border border-border p-2 font-mono text-muted-foreground">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H (+0.3m Freeboard)</td>
-              </tr>
-              {calculations.overheadTanksCalculated.map((t: any, idx: number) => (
-                <tr key={t.id}>
-                  <td className="border border-border p-2 text-center text-muted-foreground">{idx + 2}</td>
-                  <td className="border border-border p-2 font-bold">{t.name}</td>
-                  <td className="border border-border p-2 text-muted-foreground">Modular Sectional GRP / Polyethylene</td>
-                  <td className="border border-border p-2 text-center font-mono font-bold">{t.sharePct.toFixed(0)}%</td>
-                  <td className="border border-border p-2 text-right font-mono font-bold">{t.displayVol}</td>
-                  <td className="border border-border p-2 text-center font-mono">{ip ? "gal" : "L"}</td>
-                  <td className="border border-border p-2 font-mono text-muted-foreground">{t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H (+0.3m Freeboard)</td>
-                </tr>
-              ))}
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">{calculations.overheadTanksCalculated.length + 2}</td>
-                <td className="border border-border p-2 font-bold">Roof Transfer Pump</td>
-                <td className="border border-border p-2 text-muted-foreground">Vertical Multistage Booster (1W + 1S)</td>
-                <td className="border border-border p-2 text-center font-mono font-bold">100% Roof</td>
-                <td className="border border-border p-2 text-right font-mono font-bold text-pink-600 dark:text-pink-400">{calculations.displayTransferPump}</td>
-                <td className="border border-border p-2 text-center font-mono">{ip ? "GPM" : "L/s"}</td>
-                <td className="border border-border p-2 text-muted-foreground">Designed for {fillWindowHours}-Hour Roof Tank Filling Window</td>
-              </tr>
-              <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                <td colSpan={3} className="border border-border p-2 text-center">TOTAL STORAGE RETENTION</td>
-                <td className="border border-border p-2 text-center font-mono">100%</td>
-                <td className="border border-border p-2 text-right font-mono text-pink-600 dark:text-pink-400">{calculations.displayTotalStorage}</td>
-                <td className="border border-border p-2 text-center">{ip ? "gal" : "m³"}</td>
-                <td className="border border-border p-2 text-muted-foreground">{storageDays} Day(s) Total Autonomy Reserve</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* Table 3: Comprehensive Space Water Demand Schedule */}
-        <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-            3. Comprehensive Space Water Demand Schedule
-          </h3>
-          <table className="w-full text-left text-[11px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-center w-12">No.</th>
-                <th className="border border-border p-2 text-left">Name of Space / Description</th>
-                <th className="border border-border p-2 text-center w-28">Occupancy (People)</th>
-                <th className="border border-border p-2 text-center w-20">Multiplier</th>
-                <th className="border border-border p-2 text-left">Type of Space / Category</th>
-                <th className="border border-border p-2 text-right w-28">Rate ({ip ? "gpd" : "LPD"})</th>
-                <th className="border border-border p-2 text-right w-32">Daily Demand ({ip ? "gal" : "L"})</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(() => {
-                let sNo = 1;
-                return (
-                  <>
-                    {Object.keys(groupedWd).sort().map((cat) => (
-                      <React.Fragment key={cat}>
-                        <tr className="bg-[#DCEFFB] dark:bg-blue-950/40 font-bold text-[#06456F] dark:text-blue-300">
-                          <td colSpan={7} className="border border-border p-2 font-sans">Occupancy Category: {cat}</td>
-                        </tr>
-                        {groupedWd[cat].map((r) => {
-                          const rowTotal = ip
-                            ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541)
-                            : Math.round(r.ppl * r.lpd * (r.multiplier || 1));
-                          const rowRate = ip ? Math.round(r.lpd / 3.78541) : r.lpd;
-                          return (
-                            <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                              <td className="border border-border p-2 text-center text-muted-foreground">{sNo++}</td>
-                              <td className="border border-border p-2 font-medium">{r.name}</td>
-                              <td className="border border-border p-2 text-center font-mono font-semibold">{r.ppl}</td>
-                              <td className="border border-border p-2 text-center font-mono text-muted-foreground">×{r.multiplier || 1}</td>
-                              <td className="border border-border p-2 text-muted-foreground">{r.cat}</td>
-                              <td className="border border-border p-2 text-right font-mono text-muted-foreground">{rowRate}</td>
-                              <td className="border border-border p-2 text-right font-mono font-bold text-foreground">{rowTotal.toLocaleString()}</td>
-                            </tr>
-                          );
-                        })}
-                      </React.Fragment>
-                    ))}
-                    <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                      <td colSpan={2} className="border border-border p-2 font-sans">TOTAL DOMESTIC DEMAND</td>
-                      <td className="border border-border p-2 text-center font-mono">{calculations.totalPeople}</td>
-                      <td colSpan={3} className="border border-border p-2"></td>
-                      <td className="border border-border p-2 text-right font-mono text-pink-600 dark:text-pink-400">{calculations.displayDomestic}</td>
-                    </tr>
-                  </>
-                );
-              })()}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Table 4: Irrigation Landscaping Schedule */}
-        <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-            4. Irrigation Landscaping Schedule
-          </h3>
-          <table className="w-full text-left text-[11px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-center w-12">No.</th>
-                <th className="border border-border p-2 text-left">Vegetation / Plant Type</th>
-                <th className="border border-border p-2 text-center w-32">Landscaping Area ({ip ? "ft²" : "m²"})</th>
-                <th className="border border-border p-2 text-right w-36">Unit Rate ({ip ? "gal/ft²" : "L/m²"})</th>
-                <th className="border border-border p-2 text-right w-36">Daily Demand ({ip ? "gal" : "L"})</th>
-                <th className="border border-border p-2 text-left">Irrigation Method / Basis</th>
-              </tr>
-            </thead>
-            <tbody>
-              {irrRows.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="border border-border p-3 text-center text-muted-foreground italic">
-                    No landscaping / irrigation zones configured.
-                  </td>
-                </tr>
-              ) : (
-                irrRows.map((r, idx) => (
-                  <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="border border-border p-2 text-center text-muted-foreground">{idx + 1}</td>
-                    <td className="border border-border p-2 font-medium">{r.vegType}</td>
-                    <td className="border border-border p-2 text-center font-mono font-semibold">{r.area}</td>
-                    <td className="border border-border p-2 text-right font-mono text-muted-foreground">
-                      {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)}
-                    </td>
-                    <td className="border border-border p-2 text-right font-mono font-bold text-foreground">
-                      {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()}
-                    </td>
-                    <td className="border border-border p-2 text-muted-foreground">Automatic Drip / Spray System</td>
-                  </tr>
-                ))
-              )}
-              <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                <td colSpan={2} className="border border-border p-2 font-sans">TOTAL IRRIGATION DEMAND</td>
-                <td className="border border-border p-2 text-center font-mono">
-                  {irrRows.reduce((a, b) => a + (Number(b.area) || 0), 0)} {ip ? "ft²" : "m²"}
-                </td>
-                <td colSpan={1} className="border border-border p-2"></td>
-                <td className="border border-border p-2 text-right font-mono text-pink-600 dark:text-pink-400">{calculations.displayIrrigation}</td>
-                <td className="border border-border p-2 text-muted-foreground">Automated Irrigation Autonomy</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* Table 5: Auxiliary Water Reserves (Swimming Pool & Fire Fighting) - if present */}
-        {(poolArea || fireFlow) && (
-          <div className="space-y-2">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              5. Auxiliary Water Reserves (Swimming Pool &amp; Fire Fighting)
-            </h3>
-            <table className="w-full text-left text-[11px] border-collapse border border-border font-sans">
-              <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                <tr>
-                  <th className="border border-border p-2 text-center w-12">No.</th>
-                  <th className="border border-border p-2 text-left">Auxiliary Facility</th>
-                  <th className="border border-border p-2 text-center w-48">Design Sizing Parameters</th>
-                  <th className="border border-border p-2 text-right w-36">Daily Demand / Reserve</th>
-                  <th className="border border-border p-2 text-left">Engineering Sizing Standard</th>
+          <div className="border border-border rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <th className="p-2 border-r border-border text-center w-12">No.</th>
+                  <th className="p-2 border-r border-border text-left">Executive Design Parameter Summary</th>
+                  <th className="p-2 border-r border-border text-center w-32">Value</th>
+                  <th className="p-2 border-r border-border text-center w-24">Unit</th>
+                  <th className="p-2 text-left">Standard / Code Reference</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                  <td className="p-2 border-r border-border font-bold">Total Occupied Spaces</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">{wdRows.length}</td>
+                  <td className="p-2 border-r border-border text-center">spaces</td>
+                  <td className="p-2 text-muted-foreground">Architectural Space Inventory</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                  <td className="p-2 border-r border-border font-bold">Total Occupancy Headcount</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">{(calculations.totalPeople || 0).toLocaleString()}</td>
+                  <td className="p-2 border-r border-border text-center">people</td>
+                  <td className="p-2 text-muted-foreground">Scheduled Design Occupancy</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                  <td className="p-2 border-r border-border font-bold">Domestic Daily Water Demand</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {(ip ? Math.round((calculations.totalWaterL || 0) / 3.78541) : Math.round(calculations.totalWaterL || 0)).toLocaleString()}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "gal/day" : "L/day"}</td>
+                  <td className="p-2 text-muted-foreground">Governing Standard Allowance</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                  <td className="p-2 border-r border-border font-bold">Domestic Peak Flow Rate</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {ip ? Math.round(calculations.peakGPM || 0).toLocaleString() : (calculations.peakLPS || 0).toFixed(2)}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "GPM" : "L/s"}</td>
+                  <td className="p-2 text-muted-foreground">Peak Multiplier K = {peakFactor}</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">5</td>
+                  <td className="p-2 border-r border-border font-bold">Irrigation Daily Water Load</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {(ip ? Math.round((calculations.totalIrrL || 0) / 3.78541) : Math.round(calculations.totalIrrL || 0)).toLocaleString()}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "gal/day" : "L/day"}</td>
+                  <td className="p-2 text-muted-foreground">Landscaping Vegetation Schedule</td>
+                </tr>
                 {poolArea && poolDepth && (
-                  <tr>
-                    <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                    <td className="border border-border p-2 font-medium">Swimming Pool Makeup</td>
-                    <td className="border border-border p-2 text-center font-mono">{poolArea} {ip ? "ft²" : "m²"} Area × {poolDepth} {ip ? "ft" : "m"} Depth</td>
-                    <td className="border border-border p-2 text-right font-mono font-bold text-foreground">{calculations.displayPoolDemand}</td>
-                    <td className="border border-border p-2 text-muted-foreground">Evaporation Rate {poolEvap}%/day + Filter Backwash Loss</td>
+                  <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                    <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">6</td>
+                    <td className="p-2 border-r border-border font-bold">Swimming Pool Makeup Water</td>
+                    <td className="p-2 border-r border-border text-center font-bold font-mono">
+                      {(ip ? Math.round((calculations.poolDemandL || 0) / 3.78541) : Math.round(calculations.poolDemandL || 0)).toLocaleString()}
+                    </td>
+                    <td className="p-2 border-r border-border text-center">{ip ? "gal/day" : "L/day"}</td>
+                    <td className="p-2 text-muted-foreground">Evaporation Loss {poolEvap}%/day + Backwash</td>
                   </tr>
                 )}
                 {fireFlow && (
-                  <tr>
-                    <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                    <td className="border border-border p-2 font-medium">Fire Fighting Dedicated Reserve</td>
-                    <td className="border border-border p-2 text-center font-mono">{fireFlow} USGPM Dedicated Pump Flow</td>
-                    <td className="border border-border p-2 text-right font-mono font-bold text-red-600 dark:text-red-400">{calculations.displayFireCap}</td>
-                    <td className="border border-border p-2 text-muted-foreground">60-Min Standard Duration (NFPA 13/14 Life Safety)</td>
+                  <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                    <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">7</td>
+                    <td className="p-2 border-r border-border font-bold">Fire Fighting Dedicated Reserve</td>
+                    <td className="p-2 border-r border-border text-center font-bold font-mono text-red-600 dark:text-red-400">
+                      {(ip ? Math.round((calculations.fireCapL || 0) / 3.78541) : Math.round(calculations.fireCapL || 0)).toLocaleString()}
+                    </td>
+                    <td className="p-2 border-r border-border text-center">{ip ? "gal" : "L"}</td>
+                    <td className="p-2 text-muted-foreground">60-Min Standard Duration (NFPA 13/14)</td>
                   </tr>
                 )}
+                <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t-2 border-b border-border">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground">—</td>
+                  <td className="p-2 border-r border-border font-bold">TOTAL DAILY WATER DEMAND</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold bg-sky-100/70 dark:bg-sky-900/30 text-foreground">
+                    {(ip ? Math.round((calculations.grandTotalL || 0) / 3.78541) : Math.round(calculations.grandTotalL || 0)).toLocaleString()}
+                  </td>
+                  <td className="p-2 border-r border-border text-center font-bold">{ip ? "gal/day" : "L/day"}</td>
+                  <td className="p-2 text-muted-foreground">Combined Site Daily Service Load</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">8</td>
+                  <td className="p-2 border-r border-border font-bold">Total Storage Autonomy Retention</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {ip ? Math.round(calculations.reqStorageGal || 0).toLocaleString() : (calculations.reqStorageM3 || 0).toFixed(2)}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "gal" : "m³"}</td>
+                  <td className="p-2 text-muted-foreground">{storageDays} Day(s) Mandatory Storage Duration</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">9</td>
+                  <td className="p-2 border-r border-border font-bold">Ground Water Break Tank</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {(ip ? Math.round((calculations.groundTankL || 0) / 3.78541) : Math.round(calculations.groundTankL || 0)).toLocaleString()}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "gal" : "L"}</td>
+                  <td className="p-2 text-muted-foreground">{calculations.groundPct}% Ground Split ({calculations.groundDim.l}m × {calculations.groundDim.w}m × {calculations.groundDim.h}m)</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">10</td>
+                  <td className="p-2 border-r border-border font-bold">Transfer Pumping Duty Flow Rate</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {ip ? (calculations.transferPumpGPM || 0).toFixed(1) : (calculations.transferPumpLPS || 0).toFixed(2)}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "GPM" : "L/s"}</td>
+                  <td className="p-2 text-muted-foreground">Designed for {fillWindowHours}-Hour Roof Tank Filling Window</td>
+                </tr>
               </tbody>
             </table>
           </div>
-        )}
-
-        {/* Table 6: Engineering Design Standards & Compliance Guidelines */}
-        <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-            {(poolArea || fireFlow) ? "6" : "5"}. Engineering Design Standards &amp; Compliance Guidelines
-          </h3>
-          <table className="w-full text-[12px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-center w-12">No.</th>
-                <th className="border border-border p-2 text-left w-60">Standard / Authority Reference</th>
-                <th className="border border-border p-2 text-left">Mandatory Engineering Compliance &amp; Criteria</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                <td className="border border-border p-2 font-bold">DEWA / Dubai Municipality Guidelines</td>
-                <td className="border border-border p-2 text-muted-foreground">Mandatory domestic per capita daily consumption quotas and minimum 24-hour autonomy storage reserve for residential/commercial developments.</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                <td className="border border-border p-2 font-bold">Uniform Plumbing Code (UPC) / IPC Section 604</td>
-                <td className="border border-border p-2 text-muted-foreground">Fixture unit diversity calculations, maximum transfer line fluid velocity limits (2.4 m/s), and backflow prevention isolation.</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                <td className="border border-border p-2 font-bold">BS EN 806 / CIBSE Guide G (Public Health)</td>
-                <td className="border border-border p-2 text-muted-foreground">Cold water storage tank sizing methodology, dual compartment segregation, and turnover requirements to prevent water stagnation.</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                <td className="border border-border p-2 font-bold">NFPA 13 / 14 &amp; Civil Defence Regulations</td>
-                <td className="border border-border p-2 text-muted-foreground">Dedicated hydraulic fire reserve allocation baffled or isolated from domestic water suction to ensure life safety continuity.</td>
-              </tr>
-            </tbody>
-          </table>
         </div>
 
-        {/* Table 7: Professional Engineering Review & Sign-Off Block */}
+        {/* 4. Table 2: Water Storage Tanks & Transfer Pump Physical Sizing */}
         <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-            {(poolArea || fireFlow) ? "7" : "6"}. Professional Engineering Review &amp; Sign-Off Block
+          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+            2. Water Storage Tanks &amp; Transfer Pump Physical Sizing
           </h3>
-          <table className="w-full text-[12px] border-collapse border border-border font-sans">
-            <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
-              <tr>
-                <th className="border border-border p-2 text-left w-1/4">Approval Role</th>
-                <th className="border border-border p-2 text-center w-1/4">Engineer Name</th>
-                <th className="border border-border p-2 text-center w-1/4">Status / Role Title</th>
-                <th className="border border-border p-2 text-center w-1/4">Signature / Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border border-border p-2 font-bold text-foreground">Originator / Prepared By</td>
-                <td className="border border-border p-2 text-center font-medium text-foreground">{sigDetails.originatedName}</td>
-                <td className="border border-border p-2 text-center text-muted-foreground">MEP Design Engineer</td>
-                <td className="border border-border p-2 text-center font-mono text-muted-foreground">{sigDetails.originatedDate}</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 font-bold text-foreground">Reviewer / Checked By</td>
-                <td className="border border-border p-2 text-center font-medium text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
-                <td className="border border-border p-2 text-center text-muted-foreground">Senior Plumbing Lead</td>
-                <td className="border border-border p-2 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 font-bold text-foreground">Approver / Verified By</td>
-                <td className="border border-border p-2 text-center font-medium text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
-                <td className="border border-border p-2 text-center text-muted-foreground">Principal / MEP Director</td>
-                <td className="border border-border p-2 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="border border-border rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <th className="p-2 border-r border-border text-center w-12">No.</th>
+                  <th className="p-2 border-r border-border text-left">Facility / Equipment</th>
+                  <th className="p-2 border-r border-border text-left">Specification &amp; Tank Type</th>
+                  <th className="p-2 border-r border-border text-center w-24">Allocation</th>
+                  <th className="p-2 border-r border-border text-center w-28">Effective Capacity</th>
+                  <th className="p-2 border-r border-border text-center w-20">Unit</th>
+                  <th className="p-2 text-left">Suggested Dimensions / Operating Duty</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                  <td className="p-2 border-r border-border font-bold">Ground Water Break Tank</td>
+                  <td className="p-2 border-r border-border text-muted-foreground">Reinforced Concrete / Sectional GRP</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">{calculations.groundPct}%</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">{calculations.displayGroundTank}</td>
+                  <td className="p-2 border-r border-border text-center font-mono">{ip ? "gal" : "L"}</td>
+                  <td className="p-2 font-mono text-muted-foreground">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H (+0.3m Freeboard)</td>
+                </tr>
+                {calculations.overheadTanksCalculated.map((t: any, idx: number) => (
+                  <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                    <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">{idx + 2}</td>
+                    <td className="p-2 border-r border-border font-bold">{t.name}</td>
+                    <td className="p-2 border-r border-border text-muted-foreground">Modular Sectional GRP / Polyethylene</td>
+                    <td className="p-2 border-r border-border text-center font-mono font-bold">{t.sharePct.toFixed(0)}%</td>
+                    <td className="p-2 border-r border-border text-center font-mono font-bold">{t.displayVol}</td>
+                    <td className="p-2 border-r border-border text-center font-mono">{ip ? "gal" : "L"}</td>
+                    <td className="p-2 font-mono text-muted-foreground">{t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H (+0.3m Freeboard)</td>
+                  </tr>
+                ))}
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">{calculations.overheadTanksCalculated.length + 2}</td>
+                  <td className="p-2 border-r border-border font-bold">Roof Transfer Pump</td>
+                  <td className="p-2 border-r border-border text-muted-foreground">Vertical Multistage Booster (1W + 1S)</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">100% Roof</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold text-sky-600 dark:text-sky-400">{calculations.displayTransferPump}</td>
+                  <td className="p-2 border-r border-border text-center font-mono">{ip ? "GPM" : "L/s"}</td>
+                  <td className="p-2 text-muted-foreground">Designed for {fillWindowHours}-Hour Roof Tank Filling Window</td>
+                </tr>
+                <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t-2 border-b border-border">
+                  <td colSpan={3} className="p-2 border-r border-border text-center font-bold">TOTAL STORAGE RETENTION</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">100%</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold bg-sky-100/70 dark:bg-sky-900/30 text-foreground">{calculations.displayTotalStorage}</td>
+                  <td className="p-2 border-r border-border text-center font-bold">{ip ? "gal" : "m³"}</td>
+                  <td className="p-2 text-muted-foreground">{storageDays} Day(s) Total Autonomy Reserve</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 5. Table 3: Comprehensive Space Water Demand Schedule */}
+        <div className="space-y-2">
+          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+            3. Comprehensive Space Water Demand Schedule
+          </h3>
+          <div className="border border-border rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <th className="p-2 border-r border-border text-center w-12">No.</th>
+                  <th className="p-2 border-r border-border text-left">Name of Space / Description</th>
+                  <th className="p-2 border-r border-border text-center w-28">Occupancy (People)</th>
+                  <th className="p-2 border-r border-border text-center w-20">Multiplier</th>
+                  <th className="p-2 border-r border-border text-left">Type of Space / Category</th>
+                  <th className="p-2 border-r border-border text-center w-28">Rate ({ip ? "gpd" : "LPD"})</th>
+                  <th className="p-2 text-center w-32">Daily Demand ({ip ? "gal" : "L"})</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {(() => {
+                  let sNo = 1;
+                  return (
+                    <>
+                      {Object.keys(groupedWd).sort().map((cat) => (
+                        <React.Fragment key={cat}>
+                          <tr className="bg-slate-100/80 dark:bg-zinc-800/60 font-bold text-foreground">
+                            <td colSpan={7} className="p-2 border-r border-border">Occupancy Category: {cat}</td>
+                          </tr>
+                          {groupedWd[cat].map((r) => {
+                            const rowTotal = ip
+                              ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541)
+                              : Math.round(r.ppl * r.lpd * (r.multiplier || 1));
+                            const rowRate = ip ? Math.round(r.lpd / 3.78541) : r.lpd;
+                            return (
+                              <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                                <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">{sNo++}</td>
+                                <td className="p-2 border-r border-border font-medium">{r.name}</td>
+                                <td className="p-2 border-r border-border text-center font-mono font-semibold">{r.ppl}</td>
+                                <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">×{r.multiplier || 1}</td>
+                                <td className="p-2 border-r border-border text-muted-foreground">{r.cat}</td>
+                                <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">{rowRate}</td>
+                                <td className="p-2 text-center font-mono font-bold text-foreground">{rowTotal.toLocaleString()}</td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
+                      ))}
+                      <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t-2 border-b border-border">
+                        <td colSpan={2} className="p-2 border-r border-border font-bold">TOTAL DOMESTIC DEMAND</td>
+                        <td className="p-2 border-r border-border text-center font-mono font-bold">{calculations.totalPeople}</td>
+                        <td colSpan={3} className="p-2 border-r border-border"></td>
+                        <td className="p-2 text-center font-mono font-bold bg-sky-100/70 dark:bg-sky-900/30 text-foreground">{calculations.displayDomestic}</td>
+                      </tr>
+                    </>
+                  );
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 6. Table 4: Irrigation Landscaping Schedule */}
+        <div className="space-y-2">
+          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+            4. Irrigation Landscaping Schedule
+          </h3>
+          <div className="border border-border rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <th className="p-2 border-r border-border text-center w-12">No.</th>
+                  <th className="p-2 border-r border-border text-left">Vegetation / Plant Type</th>
+                  <th className="p-2 border-r border-border text-center w-32">Landscaping Area ({ip ? "ft²" : "m²"})</th>
+                  <th className="p-2 border-r border-border text-center w-36">Unit Rate ({ip ? "gal/ft²" : "L/m²"})</th>
+                  <th className="p-2 border-r border-border text-center w-36">Daily Demand ({ip ? "gal" : "L"})</th>
+                  <th className="p-2 text-left">Irrigation Method / Basis</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {irrRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-3 text-center text-muted-foreground italic">
+                      No landscaping / irrigation zones configured.
+                    </td>
+                  </tr>
+                ) : (
+                  irrRows.map((r, idx) => (
+                    <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                      <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">{idx + 1}</td>
+                      <td className="p-2 border-r border-border font-medium">{r.vegType}</td>
+                      <td className="p-2 border-r border-border text-center font-mono font-semibold">{r.area}</td>
+                      <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">
+                        {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)}
+                      </td>
+                      <td className="p-2 border-r border-border text-center font-mono font-bold text-foreground">
+                        {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()}
+                      </td>
+                      <td className="p-2 text-muted-foreground">Automatic Drip / Spray System</td>
+                    </tr>
+                  ))
+                )}
+                <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t-2 border-b border-border">
+                  <td colSpan={2} className="p-2 border-r border-border font-bold">TOTAL IRRIGATION DEMAND</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">
+                    {irrRows.reduce((a, b) => a + (Number(b.area) || 0), 0)} {ip ? "ft²" : "m²"}
+                  </td>
+                  <td colSpan={1} className="p-2 border-r border-border"></td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold bg-sky-100/70 dark:bg-sky-900/30 text-foreground">{calculations.displayIrrigation}</td>
+                  <td className="p-2 text-muted-foreground">Automated Irrigation Autonomy</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 7. Table 5: Auxiliary Water Reserves (Swimming Pool & Fire Fighting) - if present */}
+        {(poolArea || fireFlow) && (
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+              5. Auxiliary Water Reserves (Swimming Pool &amp; Fire Fighting)
+            </h3>
+            <div className="border border-border rounded-xl overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2 border-r border-border text-center w-12">No.</th>
+                    <th className="p-2 border-r border-border text-left">Auxiliary Facility</th>
+                    <th className="p-2 border-r border-border text-center w-48">Design Sizing Parameters</th>
+                    <th className="p-2 border-r border-border text-center w-36">Daily Demand / Reserve</th>
+                    <th className="p-2 text-left">Engineering Sizing Standard</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {poolArea && poolDepth && (
+                    <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                      <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                      <td className="p-2 border-r border-border font-medium">Swimming Pool Makeup</td>
+                      <td className="p-2 border-r border-border text-center font-mono">{poolArea} {ip ? "ft²" : "m²"} Area × {poolDepth} {ip ? "ft" : "m"} Depth</td>
+                      <td className="p-2 border-r border-border text-center font-mono font-bold text-foreground">{calculations.displayPoolDemand}</td>
+                      <td className="p-2 text-muted-foreground">Evaporation Rate {poolEvap}%/day + Filter Backwash Loss</td>
+                    </tr>
+                  )}
+                  {fireFlow && (
+                    <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                      <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                      <td className="p-2 border-r border-border font-medium">Fire Fighting Dedicated Reserve</td>
+                      <td className="p-2 border-r border-border text-center font-mono">{fireFlow} USGPM Dedicated Pump Flow</td>
+                      <td className="p-2 border-r border-border text-center font-mono font-bold text-red-600 dark:text-red-400">{calculations.displayFireCap}</td>
+                      <td className="p-2 text-muted-foreground">60-Min Standard Duration (NFPA 13/14 Life Safety)</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* 8. 3-Tier Signature Sign-Off Block matching Preliminary */}
+        <div className="pt-2">
+          <div className="border border-border rounded-xl overflow-hidden text-xs">
+            <table className="w-full border-collapse">
+              <thead className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <tr className="divide-x divide-border">
+                  <th className="p-2.5 w-28 text-center bg-card"></th>
+                  <th className="p-2.5 text-center w-1/3">Originator</th>
+                  <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                  <th className="p-2.5 text-center w-1/3">Approver</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.originatedName || currentUserName || "Abubakar Chanda"}
+                  </td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.reviewerName || ""}
+                  </td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.approverName || ""}
+                  </td>
+                </tr>
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.originatedDate || formatDateStr(new Date().toISOString())}
+                  </td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.reviewerDate || ""}
+                  </td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.approverDate || ""}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
       </div>
     </div>
-  </div>
   );
 }
 
@@ -4485,7 +4968,8 @@ function WaterDemandIntelligenceDrawer({
         </div>
         <button
           onClick={onClose}
-          className="size-7 grid place-items-center rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
+          className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+          title="Close Intelligence Drawer"
         >
           <X className="size-3.5" />
         </button>
@@ -4590,21 +5074,415 @@ function WaterDemandIntelligenceDrawer({
         {/* Calculation Issues & Warnings */}
         <div className="p-3.5 bg-card border border-border rounded-xl space-y-2 shadow-xs">
           <div className="flex items-center gap-2">
-            <AlertTriangle className={`size-4 ${flaggedTotal > 0 ? "text-red-500" : "text-muted-foreground"}`} />
+            <AlertTriangle className={`size-4 ${flaggedTotal > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
             <span className="text-xs font-bold text-foreground">Audit &amp; Flagged Items</span>
           </div>
           <div className="space-y-1 text-xs">
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Flagged domestic spaces:</span>
-              <span className={`font-mono font-bold ${flaggedWd > 0 ? "text-red-500" : "text-muted-foreground"}`}>{flaggedWd}</span>
+              <span className={`font-mono font-bold ${flaggedWd > 0 ? "text-amber-500" : "text-muted-foreground"}`}>{flaggedWd}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Flagged irrigation zones:</span>
-              <span className={`font-mono font-bold ${flaggedIrr > 0 ? "text-red-500" : "text-muted-foreground"}`}>{flaggedIrr}</span>
+              <span className={`font-mono font-bold ${flaggedIrr > 0 ? "text-amber-500" : "text-muted-foreground"}`}>{flaggedIrr}</span>
             </div>
           </div>
         </div>
 
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Compact Step-by-Step Formula Breakdown & Hydraulic Sizing Modal (Matching Fresh Air Cooling Load Standard)
+// ─────────────────────────────────────────────────────────────────────────────
+function WaterDemandFormulaBreakdownModal({
+  onClose,
+  unitSystem,
+  calculations,
+  wdRows,
+  irrRows,
+  poolArea,
+  poolDepth,
+  fireFlow,
+  storageDays,
+  presetStandard,
+}: {
+  onClose: () => void;
+  unitSystem: "si" | "ip";
+  calculations: any;
+  wdRows: WDRow[];
+  irrRows: IrrRow[];
+  poolArea: number | "";
+  poolDepth: number | "";
+  fireFlow: number | "";
+  storageDays: number;
+  presetStandard: string;
+}) {
+  const [activeTab, setActiveTab] = useState<"trace" | "formulas" | "variables">("trace");
+  const [copied, setCopied] = useState(false);
+  const ip = unitSystem === "ip";
+  const volUnit = ip ? "gal" : "L";
+  const m3OrGal = ip ? "gal" : "m³";
+  const flowUnit = ip ? "GPM" : "m³/h";
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  const sampleRow = wdRows[0] || {
+    name: "Standard Residential / Commercial Space",
+    ppl: 50,
+    lpd: 135,
+    cat: "Residential buildings (flat)",
+    multiplier: 1,
+  };
+
+  const ppl = sampleRow.ppl || 50;
+  const rateLpd = ip ? Math.round((sampleRow.lpd || 135) / 3.78541) : (sampleRow.lpd || 135);
+  const sampleDemand = ip ? Math.round((ppl * (sampleRow.lpd || 135)) / 3.78541) : ppl * (sampleRow.lpd || 135);
+
+  const totalDomestic = calculations.displayDomestic || "0 L/day";
+  const totalIrrigation = calculations.displayIrrigation || "0 L/day";
+  const totalWater = calculations.displayTotalWater || "0 L/day";
+  const tankTotalVol = calculations.displayTotalTankVol || "0 m³";
+  const pumpRate = calculations.displayTransferPumpRate || "0 m³/h";
+
+  const handleCopySummary = () => {
+    const text = `=== WATER DEMAND & STORAGE TANK SIZING FORMULA BREAKDOWN ===
+Governing Design Standards: IPC (International Plumbing Code), BS EN 806 & NBC 2016
+Design Standard Preset: ${PRESET_STANDARDS[presetStandard as keyof typeof PRESET_STANDARDS]?.name || "Standard Baseline"}
+Unit System: ${ip ? "IP Imperial (US Gallons, GPD, GPM)" : "SI Metric (Liters, LPD, m³, m³/h)"}
+
+--- 1. ACTIVE SIZING PARAMETERS ---
+• Sample Space: ${sampleRow.name} (${sampleRow.cat})
+• Population / Units: ${ppl} Persons @ ${rateLpd} ${volUnit}/person/day = ${sampleDemand.toLocaleString()} ${volUnit}/day
+• Total Daily Domestic Demand: ${totalDomestic}
+• Total Daily Landscape Irrigation Demand: ${totalIrrigation}
+• Gross Building Daily Water Demand: ${totalWater}
+• Storage Retention Period: ${storageDays} Day(s) Reserve Autonomy
+• Recommended Total Storage Reservoir: ${tankTotalVol}
+• Transfer Pump Flow Duty: ${pumpRate}
+
+--- 2. STEP-BY-STEP CALCULATION STEPS ---
+[1] Occupant Domestic Consumption:
+    Q_domestic = ∑ (Persons × Per_Capita_LPD × Multiplier) = ${totalDomestic}
+
+[2] Landscape Irrigation Requirement:
+    Q_irrigation = ∑ (Plant_Area × Evapotranspiration_Rate) = ${totalIrrigation}
+
+[3] Swimming Pool Evaporative Makeup (if applicable):
+    Q_pool = Pool_Surface_Area × Mean_Depth × 0.02 Evaporation_Rate
+
+[4] Gross Daily Consumption:
+    Q_total = Q_domestic + Q_irrigation + Q_pool = ${totalWater}
+
+[5] Domestic Storage Reservoir Volume (UG Tank + OH Tank):
+    V_storage = Q_total × Retention_Days × 1.15 (15% Freeboard/Ullage) = ${tankTotalVol}
+
+[6] Dedicated Fire Reserve Compartment:
+    V_fire = ${calculations.displayFireDemand || "150,000 L / 40,000 gal (Dedicated uncompromised suction)"}
+
+[7] Transfer Pump Sizing:
+    Q_pump = V_overhead_tank / Refill_Window_Hours = ${pumpRate}
+`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    toast.success("Water demand calculation breakdown copied to clipboard!");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-150 font-sans"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-card border border-border rounded-2xl shadow-2xl max-w-xl w-full max-h-[86vh] flex flex-col overflow-hidden text-xs animate-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header matching Fresh Air Cooling Load Standard */}
+        <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-muted/30 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 pr-2">
+            <div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+              <Calculator className="size-3.5" />
+            </div>
+            <div className="truncate">
+              <h2 className="text-[13px] font-bold text-foreground truncate">
+                Water Demand &amp; Tank Sizing Formula Breakdown
+              </h2>
+            </div>
+            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[10px] font-mono font-semibold shrink-0">
+              IPC / BS EN 806
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border text-[10px] font-mono font-medium shrink-0">
+              {ip ? "IP" : "SI"}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="size-7 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title="Close modal (Esc)"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+
+        {/* Navigation Tabs Bar */}
+        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border bg-muted/10 shrink-0 select-none">
+          <button
+            type="button"
+            onClick={() => setActiveTab("trace")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "trace"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <Activity className="size-3" />
+            <span>Calculation Steps</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("formulas")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "formulas"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <BookOpen className="size-3" />
+            <span>Master Formulas</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("variables")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "variables"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <Layers className="size-3" />
+            <span>Variables Reference</span>
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-4 overflow-y-auto space-y-3 flex-1 custom-scrollbar">
+          {/* TAB 1: CALCULATION STEPS */}
+          {activeTab === "trace" && (
+            <div className="space-y-2.5">
+              {/* Active Conditions Banner */}
+              <div className="p-2.5 bg-muted/40 rounded-xl border border-border">
+                <div className="flex items-center justify-between text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider pb-1.5 mb-1.5 border-b border-border/60">
+                  <span className="flex items-center gap-1 text-foreground">
+                    <Sliders className="size-3 text-primary" /> Active Space ({sampleRow.name})
+                  </span>
+                  <span className="font-mono text-primary normal-case font-bold">
+                    Standard: {presetStandard}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="bg-background rounded p-1.5 border border-border/60">
+                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Design Allowance</span>
+                    <span className="font-mono font-bold text-foreground">{ppl} Persons @ {rateLpd} {volUnit}/day</span>
+                  </div>
+                  <div className="bg-background rounded p-1.5 border border-border/60">
+                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Total Building Demand</span>
+                    <span className="font-mono font-bold text-foreground">{totalWater}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 1: DOMESTIC WATER DEMAND */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-primary/10 text-primary text-[10px] font-mono font-bold flex items-center justify-center">1</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Occupant Domestic Demand</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                    {sampleDemand.toLocaleString()} {volUnit}/day
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: Q_domestic = Persons × Per_Capita_LPD</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{ppl} Persons × {rateLpd} {volUnit}/day</span>
+                    <span className="text-primary font-bold">= {sampleDemand.toLocaleString()} {volUnit}/day</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 2: LANDSCAPE IRRIGATION DEMAND */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-mono font-bold flex items-center justify-center">2</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Landscape Irrigation Requirement</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
+                    {totalIrrigation}
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: Q_irrigation = ∑ (Plant_Area × Water_Allowance)</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{irrRows.length} Irrigation Zones</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-bold">= {totalIrrigation}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 3: STORAGE RESERVOIR CAPACITY */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-bold flex items-center justify-center">3</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Storage Reservoir Autonomy ({storageDays} Days)</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                    {tankTotalVol}
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: V_tank = (Daily_Water × Days_Storage) × 1.15 Freeboard</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{totalWater} × {storageDays} day(s)</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">= {tankTotalVol}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 4: TRANSFER PUMP FLOW RATE */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-bold flex items-center justify-center">4</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Roof Transfer Pump Sizing</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
+                    {pumpRate}
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: Q_pump = Overhead_Tank_Vol / Refill_Window_Hours</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">Standard 2-Hour Tank Refill Cycle</span>
+                    <span className="text-amber-600 dark:text-amber-400 font-bold">= {pumpRate}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: MASTER FORMULAS */}
+          {activeTab === "formulas" && (
+            <div className="space-y-3">
+              <div className="p-3 bg-card border border-border rounded-xl space-y-2">
+                <div className="font-bold text-foreground text-[12px] flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-primary" /> 1. Domestic Water Demand (Fixture Unit &amp; Per-Capita)
+                </div>
+                <div className="bg-muted/50 p-2.5 rounded-lg font-mono text-[11px] space-y-1 border border-border/60">
+                  <div className="text-primary font-bold">Q_domestic = ∑ (N_occupants × Rate_LPD × Multiplier)</div>
+                  <div className="text-foreground">Q_total = Q_domestic + Q_irrigation + Q_pool</div>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Per-capita daily water allowance is derived from BS EN 806, IPC, and NBC 2016 occupancy benchmarks (e.g. 135-200 LPD for residential, 45-60 LPD for commercial offices).
+                </p>
+              </div>
+
+              <div className="p-3 bg-card border border-border rounded-xl space-y-2">
+                <div className="font-bold text-foreground text-[12px] flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-blue-500" /> 2. Reservoir Storage Volume &amp; Distribution
+                </div>
+                <div className="bg-muted/50 p-2.5 rounded-lg font-mono text-[11px] space-y-1 border border-border/60">
+                  <div className="text-blue-600 dark:text-blue-400 font-bold">V_storage = Q_total × Days_Retention × 1.15 (Freeboard)</div>
+                  <div className="text-foreground">V_underground = V_storage × 67% | V_overhead = V_storage × 33%</div>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  The standard architectural convention distributes 2/3 of total domestic storage in the underground water reservoir and 1/3 in roof overhead tanks for gravity feed.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: VARIABLES REFERENCE */}
+          {activeTab === "variables" && (
+            <div className="space-y-2">
+              <div className="border border-border rounded-xl overflow-hidden text-xs">
+                <table className="w-full border-collapse">
+                  <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <tr className="divide-x divide-border">
+                      <th className="p-2 text-left w-24">Symbol</th>
+                      <th className="p-2 text-left">Description</th>
+                      <th className="p-2 text-left w-24">Code Basis</th>
+                      <th className="p-2 text-left w-20">Unit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">N_ppl</td>
+                      <td className="p-2 text-muted-foreground">Count of permanent or transient occupants</td>
+                      <td className="p-2 font-mono text-[11px]">Architectural</td>
+                      <td className="p-2 font-mono text-[11px]">Persons</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">LPD</td>
+                      <td className="p-2 text-muted-foreground">Daily per-capita water consumption allowance</td>
+                      <td className="p-2 font-mono text-[11px]">IPC / BS EN 806</td>
+                      <td className="p-2 font-mono text-[11px]">{volUnit}/person/day</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">Q_total</td>
+                      <td className="p-2 text-muted-foreground">Gross combined daily water demand of facility</td>
+                      <td className="p-2 font-mono text-[11px]">Calculated</td>
+                      <td className="p-2 font-mono text-[11px]">{volUnit}/day</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">Retention</td>
+                      <td className="p-2 text-muted-foreground">Emergency reserve autonomy without municipal refill</td>
+                      <td className="p-2 font-mono text-[11px]">1.0 - 2.0 Days</td>
+                      <td className="p-2 font-mono text-[11px]">Days</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">Q_pump</td>
+                      <td className="p-2 text-muted-foreground">Water transfer pump rated delivery discharge flow</td>
+                      <td className="p-2 font-mono text-[11px]">Hydraulic</td>
+                      <td className="p-2 font-mono text-[11px]">{flowUnit}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer matching Fresh Air Cooling Load Standard */}
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted/20 shrink-0">
+          <button
+            type="button"
+            onClick={handleCopySummary}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground border border-border transition-colors cursor-pointer"
+          >
+            <Copy className="size-3.5" />
+            {copied ? "Copied!" : "Copy Breakdown"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer shadow-xs"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );

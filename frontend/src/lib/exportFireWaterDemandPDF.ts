@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
 import { workspaceStore } from "./workspace-store";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { toast } from "sonner";
 import {
   type CivilDefenseBuilding,
@@ -94,54 +94,15 @@ export const exportFireWaterDemandPDF = async (
     const clientName = meta.client || activeProj?.client || "-";
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "-";
 
-    // Header Title matching Ventilation standard
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(0, 0, 0);
-    doc.text("Fire Water Demand Calculation Report", 14, 14);
-
-    // Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
-    doc.setFontSize(9);
-    doc.setLineWidth(0.3);
-    doc.setDrawColor(100, 100, 100);
-    doc.rect(14, 18, 182, 18); // Outer box for metadata
-
-    // Vertical line to separate left/right metadata
-    doc.line(105, 18, 105, 36);
-
-    // Horizontal lines
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 120, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName.substring(0, 32), 120, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName.substring(0, 32), 42, 34);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser.substring(0, 32), 125, 34);
+    // 1. Header & Standard Metadata Box (Central Org Branding)
+    const startY = addPdfHeader(doc, "Fire Water Demand Calculation Report", {
+      calcNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser
+    });
 
     const primaryFill = [217, 217, 217] as [number, number, number]; // Standard header grey #D9D9D9
     const blueFill = [218, 233, 248] as [number, number, number]; // Soft blue highlight #DAE9F8
@@ -220,7 +181,7 @@ export const exportFireWaterDemandPDF = async (
 
     // Call AutoTable for Multi-Building Schedule
     callAutoTable(doc, {
-      startY: 40,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
@@ -315,52 +276,15 @@ export const exportFireWaterDemandPDF = async (
       meta.reviewState
     );
 
-    callAutoTable(doc, {
-      startY: finalY1 + 6,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      styles: {
-        fontSize: 7.5,
-        halign: "center",
-        valign: "middle",
-        lineColor: [100, 100, 100],
-        lineWidth: 0.1,
-        cellPadding: { top: 1.8, bottom: 1.8, left: 1, right: 1 },
-      },
-      headStyles: {
-        fillColor: [255, 230, 204], // Standard #FFE6CC peach signature header
-        textColor: 0,
-        fontStyle: "bold",
-      },
-      head: [
-        [
-          { content: "" },
-          { content: "Originator" },
-          { content: "Reviewer" },
-          { content: "Approver" },
-        ],
-      ],
-      body: [
-        [
-          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedName, styles: { halign: "center" } },
-          { content: reviewerName, styles: { halign: "center" } },
-          { content: approverName, styles: { halign: "center" } },
-        ],
-        [
-          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedDate, styles: { halign: "center" } },
-          { content: reviewerDate, styles: { halign: "center" } },
-          { content: approverDate, styles: { halign: "center" } },
-        ],
-      ],
-      columnStyles: {
-        0: { cellWidth: 32 },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 50 },
-      },
-    });
+    // Engineering 3-Tier Signature Block & Branding
+    addPdfSignatureBlock(doc, finalY1 + 6, sigDetails, activeProj?.id || "default", "/plumbing-fire-water-demand");
+
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
 
     const pdfBuffer = doc.output("arraybuffer");
     await downloadFile(

@@ -1460,21 +1460,21 @@ function SumpPumpReportView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-primary font-bold">
+                <tr className="bg-blue-50/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 font-bold">
                   <td className="p-2.5 text-center font-mono">1</td>
                   <td className="p-2.5">Calculated Pump Duty Flow (Q)</td>
                   <td className="p-2.5 text-center font-mono text-sm">{flow.toFixed(2)} {flowUnit}</td>
                   <td className="p-2.5 text-center">Duty Flow</td>
                   <td className="p-2.5 text-muted-foreground font-normal">Q = Volume / Drawdown Time</td>
                 </tr>
-                <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-primary font-bold">
+                <tr className="bg-blue-50/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 font-bold">
                   <td className="p-2.5 text-center font-mono">2</td>
                   <td className="p-2.5">Sump Pit Active Storage Volume</td>
                   <td className="p-2.5 text-center font-mono">{pitV.toFixed(2)} {pitVUnit}</td>
                   <td className="p-2.5 text-center">Pit Volume</td>
                   <td className="p-2.5 text-muted-foreground font-normal">V = Inflow Rate × Holding Time</td>
                 </tr>
-                <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-primary font-bold">
+                <tr className="bg-blue-50/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 font-bold">
                   <td className="p-2.5 text-center font-mono">3</td>
                   <td className="p-2.5">Total Dynamic Head (TDH)</td>
                   <td className="p-2.5 text-center font-mono">{tdh.toFixed(3)} {tdhUnit}</td>
@@ -1495,7 +1495,7 @@ function SumpPumpReportView({
                   <td className="p-2.5 text-center">Friction</td>
                   <td className="p-2.5 text-muted-foreground font-normal">Equivalent Length × Friction Factor</td>
                 </tr>
-                <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-primary font-bold">
+                <tr className="bg-blue-50/70 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 font-bold">
                   <td className="p-2.5 text-center font-mono">6</td>
                   <td className="p-2.5">Recommended Motor Power Rating</td>
                   <td className="p-2.5 text-center font-mono">{isSI ? `${calcResults.P_motor.toFixed(2)} kW (${calcResults.HP.toFixed(2)} HP)` : `${calcResults.HP.toFixed(2)} HP (${calcResults.P_motor.toFixed(2)} kW)`}</td>
@@ -1524,7 +1524,7 @@ function SumpPumpReportView({
           <div className="border border-border rounded-xl overflow-hidden text-xs">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
+                <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-slate-900 dark:text-slate-100 font-bold border-b border-border">
                   <th className="p-2.5">Approval Role</th>
                   <th className="p-2.5 text-center">Engineers Name</th>
                   <th className="p-2.5 text-center">Status / Role Title</th>

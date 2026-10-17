@@ -1,4 +1,4 @@
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
@@ -44,6 +44,9 @@ export interface SprinklerDensityProjectMetaData {
   date?: string;
   userName?: string;
   unitSystem?: "ip" | "si";
+  includeStamp?: boolean;
+  reviewState?: any;
+  returnBuffer?: boolean;
 }
 
 export const exportSprinklerDensityPDF = async (
@@ -82,62 +85,25 @@ export const exportSprinklerDensityPDF = async (
 
     const isSI = data.unitSystem === "si";
     const calcNo = meta.calcNo || activeProj?.calcNo || "TRV-CAL-SDF-001";
+    const revNo = meta.revNo || activeProj?.revNo || "0";
     const today = meta.date || formatDateStr(new Date().toISOString());
     const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
     const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "Sprinkler Hydraulic Calculation";
     const clientName = meta.client || activeProj?.client || "";
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "";
 
-    // 1. Header Title & Subtitle (Left aligned at 14, 14)
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(0, 0, 0);
-    doc.text("Sprinkler Density & Flow Calculation Report", 14, 14);
+    // 1. Standard Header & Metadata Block
+    const startY = addPdfHeader(doc, "Sprinkler Density & Flow Calculation Report", {
+      calcNo,
+      revNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser,
+    });
 
-    // 2. Metadata Block (Exact 182mm width: left 14mm to right 196mm)
-    doc.setFontSize(9);
-    doc.setLineWidth(0.3);
-    doc.setDrawColor(100, 100, 100);
-    doc.rect(14, 18, 182, 18); // Outer box for metadata
-
-    // Vertical line to separate left/right metadata
-    doc.line(105, 18, 105, 36);
-
-    // Horizontal lines
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 120, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 120, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName.substring(0, 32), 42, 34);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser.substring(0, 32), 125, 34);
-
-    // 3. Color Hierarchy
+    // 2. Color Hierarchy
     const primaryFill: [number, number, number] = [217, 217, 217]; // #D9D9D9 standard header
     const blueFill: [number, number, number] = [218, 233, 248];    // #DAE9F8 key output highlight
     const signatureFill: [number, number, number] = [255, 230, 204]; // #FFE6CC signature header
@@ -167,7 +133,7 @@ export const exportSprinklerDensityPDF = async (
     ];
 
     callAutoTable(doc, {
-      startY: 40,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       pageBreak: "avoid",
@@ -295,83 +261,51 @@ export const exportSprinklerDensityPDF = async (
 
     currentY = (doc as any).lastAutoTable?.finalY || 140;
 
-    // 5. Table 3: 3-Tier Dynamic Signature Block (Originator, Reviewer, Approver)
-    const {
-      originatedName,
-      originatedDate,
-      reviewerName,
-      reviewerDate,
-      approverName,
-      approverDate,
-    } = getSignatureBlockDetails(
-      activeProjectId || activeProj?.id || "default",
-      "/plumbing-sprinkler-density",
-      currentUserName
-    );
+    // Check page break for signature block (needs ~35mm)
+    if (currentY + 35 > 280) {
+      doc.addPage("a4", "portrait");
+      currentY = 14;
+    }
 
-    callAutoTable(doc, {
-      startY: currentY + 3,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      pageBreak: "avoid",
-      styles: {
-        fontSize: 7.2,
-        halign: "center",
-        valign: "middle",
-        lineColor: [100, 100, 100],
-        lineWidth: 0.1,
-        cellPadding: { top: 1.5, bottom: 1.5, left: 1, right: 1 },
-        minCellHeight: 5,
-      },
-      headStyles: {
-        fillColor: signatureFill,
-        textColor: 0,
-        fontStyle: "bold",
-        cellPadding: { top: 1.5, bottom: 1.5, left: 1, right: 1 },
-      },
-      columnStyles: {
-        0: { cellWidth: 35, fontStyle: "bold", halign: "right" },
-        1: { cellWidth: 49 },
-        2: { cellWidth: 49 },
-        3: { cellWidth: 49 },
-      },
-      head: [
-        [
-          { content: "Designation" },
-          { content: "Originator" },
-          { content: "Reviewer" },
-          { content: "Approver" },
-        ],
-      ],
-      body: [
-        [
-          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedName || currentUserName || "Design Engineer", styles: { halign: "center" } },
-          { content: reviewerName || "-", styles: { halign: "center" } },
-          { content: approverName || "-", styles: { halign: "center" } },
-        ],
-        [
-          { content: "Role:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: "Design Engineer", styles: { halign: "center" } },
-          { content: "Sr. Design Engineer", styles: { halign: "center" } },
-          { content: "Discipline Coordinator", styles: { halign: "center" } },
-        ],
-        [
-          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedDate || today, styles: { halign: "center" } },
-          { content: reviewerDate || "-", styles: { halign: "center" } },
-          { content: approverDate || "-", styles: { halign: "center" } },
-        ],
-      ],
-    });
+    // 5. Professional Engineering Review & Sign-Off Block & Branding
+    if (meta.includeStamp !== false) {
+      const sigDetails = getSignatureBlockDetails(
+        activeProjectId || activeProj?.id || "default",
+        "/plumbing-sprinkler-density",
+        meta.userName || currentUserName,
+        meta.reviewState
+      );
+      addPdfSignatureBlock(
+        doc,
+        currentY,
+        sigDetails,
+        activeProjectId || activeProj?.id || "default",
+        "/plumbing-sprinkler-density"
+      );
+    }
 
-    // Download generated PDF
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
+
+    // Output / Download generated PDF
     const pdfBuffer = doc.output("arraybuffer");
+    if (meta.returnBuffer) {
+      return new Uint8Array(pdfBuffer);
+    }
+
     const fileName = `Sprinkler_Density_Flow_${projectNo}_${new Date().toISOString().slice(0, 10)}.pdf`;
-    downloadFile(new Uint8Array(pdfBuffer), fileName, "PDF Document", ["pdf"]);
+    await downloadFile(new Uint8Array(pdfBuffer), fileName, "PDF Document", ["pdf"]);
     toast.success("Sprinkler Density & Flow PDF report generated successfully!");
+    return true;
   } catch (error: any) {
     console.error("Failed to export Sprinkler Density PDF:", error);
-    toast.error(`Export failed: ${error?.message || "Unknown error"}`);
+    if (!meta.returnBuffer) {
+      toast.error(`Export failed: ${error?.message || "Unknown error"}`);
+    }
+    return false;
   }
 };

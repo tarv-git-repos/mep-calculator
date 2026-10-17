@@ -87,6 +87,7 @@ export class CacheManager {
                     longName: getVal(line?.LongName),
                     type: Object.keys(WEBIFC).find(k => (WEBIFC as any)[k] === line?.type),
                     spaceId: this.relationshipManager.getSpaceId(id),
+                    storeyId: this.relationshipManager.relContained.get(id),
                     width: getVal(line?.OverallWidth) ?? this.propertyManager.findProp(id, ["Width", "OverallWidth", "NominalWidth"], this.relationshipManager.relDefines),
                     height: getVal(line?.OverallHeight) ?? this.propertyManager.findProp(id, ["Height", "OverallHeight", "NominalHeight"], this.relationshipManager.relDefines),
                     quantities: this.propertyManager.getQuantities(id, this.relationshipManager.relDefines),

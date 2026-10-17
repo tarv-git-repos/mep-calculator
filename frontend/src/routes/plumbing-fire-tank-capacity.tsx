@@ -36,7 +36,7 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut,
 } from "@/components/ui/context-menu";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
 import {
   GPM_TO_LPS,
   GPM_TO_LMIN,
@@ -70,7 +70,6 @@ function FireTankCapacityPage() {
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-fire-tank-capacity", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
-  const sigDetails = getSignatureBlockDetails(project?.id || "default", "/plumbing-fire-tank-capacity", currentUserName, calcReviewState);
 
   const isApprovedLocked = useCalculationLock("/plumbing-fire-tank-capacity", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
@@ -1395,199 +1394,99 @@ function FireTankCapacityPage() {
                     </div>
 
                   </div>
-) : (
-                  /* Standardized Report Tab View */
-                  <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                    <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
+                ) : (
+                  /* REPORT TAB */
+                  <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
+                    
+                    {/* Report Sheet */}
+                    <div className="bg-background border border-border rounded-2xl shadow-xs p-6 md:p-8 space-y-6 max-w-5xl mx-auto">
                       
-                      {/* 1. Title */}
-                      <div className="flex justify-between items-start pb-1">
+                      <div className="border-b border-border/80 pb-4 flex items-center justify-between flex-wrap gap-3">
                         <div>
-                          <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground uppercase tracking-wide">
-                            Fire Water Tank Capacity Sizing Calculation
+                          <h2 className="text-xl font-bold text-foreground">
+                            Fire Water Tank Capacity Sizing Report
                           </h2>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            NFPA 22 Dedicated Storage Volume, Standpipe & Sprinkler Autonomy Verification
+                            Engineering Calculation & NFPA 22 Dedicated Storage Verification
                           </p>
                         </div>
-                        <div className="flex items-center gap-1.5 no-print print:hidden">
-                          <TBtn onClick={exportPdf}><FileText className="size-3.5" /> Export</TBtn>
-                          <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print</TBtn>
+                        <div className="flex items-center gap-2">
+                          <TBtn onClick={exportPdf}>
+                            <FileText className="size-3.5" /> Export
+                          </TBtn>
                         </div>
                       </div>
 
-                      {/* 2. Metadata Box (2-column x 3-row) */}
-                      <div className="border border-border rounded-xl overflow-hidden text-xs">
-                        <table className="w-full border-collapse">
-                          <tbody>
-                            <tr className="border-b border-border divide-x divide-border">
-                              <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
-                              <td className="p-2.5 font-mono text-foreground font-medium">
-                                {(project as any)?.calcNo || `TRV-CAL-FTC-${(project?.id || "0000").slice(-4).toUpperCase()}`}
-                              </td>
-                              <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
-                              <td className="p-2.5 font-mono font-medium">
-                                {formatDateStr(new Date().toISOString())}
-                              </td>
-                            </tr>
-                            <tr className="border-b border-border divide-x divide-border">
-                              <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
-                              <td className="p-2.5 font-mono">
-                                {project?.code || (project?.id ? project.id.slice(0, 8) : "MEP-FTC-2026")}
-                              </td>
-                              <td className="p-2.5 font-bold bg-muted/20">Client:</td>
-                              <td className="p-2.5">{project?.client || "-"}</td>
-                            </tr>
-                            <tr className="divide-x divide-border">
-                              <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
-                              <td className="p-2.5">{project?.name || "Fire Water Storage System"}</td>
-                              <td className="p-2.5 font-bold bg-muted/20">End User:</td>
-                              <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
-                            </tr>
-                          </tbody>
-                        </table>
+                      {/* Metadata Box */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-muted/20 border border-border/70 text-xs">
+                        <div>
+                          <span className="text-muted-foreground block">Project Name:</span>
+                          <span className="font-bold text-foreground">{project?.name || "Fire Water System"}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block">System Type:</span>
+                          <span className="font-bold text-foreground">{params.systemType.toUpperCase()}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block">Standard:</span>
+                          <span className="font-bold text-foreground">NFPA 22 / 13 / 14</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block">Date:</span>
+                          <span className="font-bold text-foreground">{new Date().toISOString().split("T")[0]}</span>
+                        </div>
                       </div>
 
-                      {/* 3. Table 1: Hydraulic Demand Breakdown */}
+                      {/* Design Summary Table */}
                       <div className="space-y-2">
-                        <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
+                        <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+                          <Layers className="size-4 text-primary" />
                           1. Hydraulic Demand Breakdown
                         </h3>
                         <div className="border border-border rounded-xl overflow-hidden text-xs">
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
-                                <th className="p-2.5 w-12 text-center border-r border-border">No.</th>
-                                <th className="p-2.5 text-left border-r border-border">System Component</th>
-                                <th className="p-2.5 text-center border-r border-border w-44">Design Flow</th>
-                                <th className="p-2.5 text-center border-r border-border w-28">Duration</th>
-                                <th className="p-2.5 text-right w-48">Required Storage Volume</th>
+                          <table className="w-full text-left">
+                            <thead className="bg-muted/50 border-b border-border text-[11px] font-bold text-muted-foreground uppercase">
+                              <tr>
+                                <th className="p-3">Component</th>
+                                <th className="p-3">Design Flow</th>
+                                <th className="p-3">Duration</th>
+                                <th className="p-3 text-right">Required Volume</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-border">
+                            <tbody className="divide-y divide-border/60">
                               {params.systemType !== "standpipe" && (
-                                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                  <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">1</td>
-                                  <td className="p-2.5 font-semibold text-foreground border-r border-border">Sprinkler System (NFPA 13)</td>
-                                  <td className="p-2.5 text-center font-mono border-r border-border">{results.spQ} GPM ({ (results.spQ * GPM_TO_LMIN).toFixed(0) } L/min)</td>
-                                  <td className="p-2.5 text-center font-mono border-r border-border">{results.spD} min</td>
-                                  <td className="p-2.5 text-right font-mono font-bold text-foreground">{results.spV.toLocaleString()} gal ({ (results.spV * GAL_TO_M3).toFixed(1) } m³)</td>
+                                <tr>
+                                  <td className="p-3 font-semibold text-foreground">Sprinkler System (NFPA 13)</td>
+                                  <td className="p-3 text-muted-foreground">{results.spQ} GPM ({ (results.spQ * GPM_TO_LMIN).toFixed(0) } L/min)</td>
+                                  <td className="p-3 text-muted-foreground">{results.spD} min</td>
+                                  <td className="p-3 text-right font-bold text-foreground">{results.spV.toLocaleString()} gal ({ (results.spV * GAL_TO_M3).toFixed(1) } m³)</td>
                                 </tr>
                               )}
                               {params.systemType !== "sprinkler" && (
-                                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                  <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">2</td>
-                                  <td className="p-2.5 font-semibold text-foreground border-r border-border">Standpipe System (NFPA 14)</td>
-                                  <td className="p-2.5 text-center font-mono border-r border-border">{results.stQ} GPM ({ (results.stQ * GPM_TO_LMIN).toFixed(0) } L/min)</td>
-                                  <td className="p-2.5 text-center font-mono border-r border-border">{results.stD} min</td>
-                                  <td className="p-2.5 text-right font-mono font-bold text-foreground">{results.stV.toLocaleString()} gal ({ (results.stV * GAL_TO_M3).toFixed(1) } m³)</td>
+                                <tr>
+                                  <td className="p-3 font-semibold text-foreground">Standpipe System (NFPA 14)</td>
+                                  <td className="p-3 text-muted-foreground">{results.stQ} GPM ({ (results.stQ * GPM_TO_LMIN).toFixed(0) } L/min)</td>
+                                  <td className="p-3 text-muted-foreground">{results.stD} min</td>
+                                  <td className="p-3 text-right font-bold text-foreground">{results.stV.toLocaleString()} gal ({ (results.stV * GAL_TO_M3).toFixed(1) } m³)</td>
                                 </tr>
                               )}
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">3</td>
-                                <td className="p-2.5 font-semibold text-foreground border-r border-border">Hose Stream / Hydrant Allowance</td>
-                                <td className="p-2.5 text-center font-mono border-r border-border">{results.hsQ} GPM ({ (results.hsQ * GPM_TO_LMIN).toFixed(0) } L/min)</td>
-                                <td className="p-2.5 text-center font-mono border-r border-border">{results.hsD} min</td>
-                                <td className="p-2.5 text-right font-mono font-bold text-foreground">{results.hsV.toLocaleString()} gal ({ (results.hsV * GAL_TO_M3).toFixed(1) } m³)</td>
+                              <tr>
+                                <td className="p-3 font-semibold text-foreground">Hose Stream / Hydrant Allowance</td>
+                                <td className="p-3 text-muted-foreground">{results.hsQ} GPM ({ (results.hsQ * GPM_TO_LMIN).toFixed(0) } L/min)</td>
+                                <td className="p-3 text-muted-foreground">{results.hsD} min</td>
+                                <td className="p-3 text-right font-bold text-foreground">{results.hsV.toLocaleString()} gal ({ (results.hsV * GAL_TO_M3).toFixed(1) } m³)</td>
                               </tr>
                               {results.makeupCredit > 0 && (
                                 <tr className="bg-emerald-500/5 text-emerald-700 dark:text-emerald-300">
-                                  <td className="p-2.5 text-center font-mono border-r border-border">4</td>
-                                  <td className="p-2.5 font-semibold border-r border-border">Certified Makeup Inflow Deduction</td>
-                                  <td className="p-2.5 text-center font-mono border-r border-border">{results.mu} GPM</td>
-                                  <td className="p-2.5 text-center font-mono border-r border-border">{results.maxDur} min max</td>
-                                  <td className="p-2.5 text-right font-mono font-bold">-{results.makeupCredit.toLocaleString()} gal (-{ (results.makeupCredit * GAL_TO_M3).toFixed(1) } m³)</td>
+                                  <td className="p-3 font-semibold">Makeup Supply Inflow Credit</td>
+                                  <td className="p-3">{results.mu} GPM</td>
+                                  <td className="p-3">{results.maxDur} min max</td>
+                                  <td className="p-3 text-right font-bold">-{results.makeupCredit.toLocaleString()} gal (-{ (results.makeupCredit * GAL_TO_M3).toFixed(1) } m³)</td>
                                 </tr>
                               )}
-                              {/* Total Dedicated Storage Highlight Row */}
-                              <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold border-t-2 border-border text-foreground">
-                                <td className="p-2.5 text-center border-r border-border">TOTAL</td>
-                                <td className="p-2.5 font-bold uppercase border-r border-border" colSpan={3}>MINIMUM DEDICATED FIRE WATER TANK CAPACITY</td>
-                                <td className="p-2.5 text-right font-mono font-bold text-primary text-sm">
-                                  {results.totalGal.toLocaleString()} gal ({results.totalM3.toFixed(1)} m³)
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {/* 4. Table 2: Indicative Tank Physical Dimensions */}
-                      <div className="space-y-2">
-                        <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
-                          2. Indicative Tank Physical Dimensions
-                        </h3>
-                        <div className="border border-border rounded-xl overflow-hidden text-xs">
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
-                                <th className="p-2.5 w-12 text-center border-r border-border">No.</th>
-                                <th className="p-2.5 text-left border-r border-border">Tank Configuration</th>
-                                <th className="p-2.5 text-center border-r border-border w-36">Effective Depth</th>
-                                <th className="p-2.5 text-center border-r border-border w-44">Footprint Dimensions</th>
-                                <th className="p-2.5 text-left">Freeboard & Structural Allowance</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">1</td>
-                                <td className="p-2.5 font-bold text-foreground border-r border-border">Rectangular Tank (L:W ratio 2:1)</td>
-                                <td className="p-2.5 text-center font-mono font-bold border-r border-border">{isSI ? `${params.waterDepthM} m` : `${params.waterDepthFt} ft`}</td>
-                                <td className="p-2.5 text-center font-mono font-bold border-r border-border">
-                                  {isSI ? `${results.rectLengthM.toFixed(2)} m × ${results.rectWidthM.toFixed(2)} m` : `${results.rectLengthFt.toFixed(1)} ft × ${results.rectWidthFt.toFixed(1)} ft`}
-                                </td>
-                                <td className="p-2.5 text-muted-foreground">+300 mm (12") min freeboard per NFPA 22</td>
-                              </tr>
-                              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">2</td>
-                                <td className="p-2.5 font-bold text-foreground border-r border-border">Vertical Cylindrical Tank</td>
-                                <td className="p-2.5 text-center font-mono font-bold border-r border-border">{isSI ? `${params.waterDepthM} m` : `${params.waterDepthFt} ft`}</td>
-                                <td className="p-2.5 text-center font-mono font-bold border-r border-border">
-                                  {isSI ? `Ø ${results.cylDiamM.toFixed(2)} m` : `Ø ${results.cylDiamFt.toFixed(1)} ft`}
-                                </td>
-                                <td className="p-2.5 text-muted-foreground">Internal vortex plate and overflow pipe included</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {/* 5. 3-Tier Signature Sign-Off Block (Peach #FFE6CC Header) */}
-                      <div className="pt-2">
-                        <div className="border border-border rounded-xl overflow-hidden text-xs">
-                          <table className="w-full border-collapse">
-                            <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
-                              <tr className="divide-x divide-border">
-                                <th className="p-2.5 w-28 text-center"></th>
-                                <th className="p-2.5 text-center w-1/3">Originator</th>
-                                <th className="p-2.5 text-center w-1/3">Reviewer</th>
-                                <th className="p-2.5 text-center w-1/3">Approver</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                              <tr className="divide-x divide-border">
-                                <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
-                                <td className="p-2.5 text-center font-medium">
-                                  {sigDetails?.originatedName || currentUserName || "MEP Engineer"}
-                                </td>
-                                <td className="p-2.5 text-center font-medium">
-                                  {sigDetails?.reviewerName || ""}
-                                </td>
-                                <td className="p-2.5 text-center font-medium">
-                                  {sigDetails?.approverName || ""}
-                                </td>
-                              </tr>
-                              <tr className="divide-x divide-border">
-                                <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
-                                <td className="p-2.5 text-center font-mono">
-                                  {sigDetails?.originatedDate || formatDateStr(new Date().toISOString())}
-                                </td>
-                                <td className="p-2.5 text-center font-mono">
-                                  {sigDetails?.reviewerDate || ""}
-                                </td>
-                                <td className="p-2.5 text-center font-mono">
-                                  {sigDetails?.approverDate || ""}
-                                </td>
+                              <tr className="bg-primary/10 text-primary font-bold text-sm">
+                                <td className="p-3" colSpan={3}>MINIMUM DEDICATED TANK CAPACITY</td>
+                                <td className="p-3 text-right">{results.totalGal.toLocaleString()} gal ({results.totalM3.toFixed(1)} m³)</td>
                               </tr>
                             </tbody>
                           </table>
@@ -1595,6 +1494,7 @@ function FireTankCapacityPage() {
                       </div>
 
                     </div>
+
                   </div>
                 )}
               </div>

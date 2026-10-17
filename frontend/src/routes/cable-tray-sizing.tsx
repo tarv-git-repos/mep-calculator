@@ -1660,8 +1660,9 @@ function CableTraySizingPage() {
                                 )}
                                 onClick={(e) => {
                                   if (isLocked) return;
-                                  const tagName = (e.target as HTMLElement).tagName;
-                                  if (tagName === 'TD') {
+                                  const target = e.target as HTMLElement;
+                                  if (target.closest('input[type="checkbox"]') || target.closest('button[title*="comment"]') || target.closest('.mep-comment-badge')) return;
+                                  if (!selectedRows.has(c.id)) {
                                     toggleRowSelect(c.id, e.shiftKey, e.ctrlKey || e.metaKey);
                                   }
                                 }}
@@ -1707,7 +1708,7 @@ function CableTraySizingPage() {
                                     <span>{idx + 1}</span>
                                   </div>
                                 </td>
-                                <td style={{ width: colWidths.type, minWidth: colWidths.type }} className="p-0">
+                                <td style={{ width: colWidths.type, minWidth: colWidths.type }} className={`p-0 ${!selectedRows.has(c.id) ? "pointer-events-none select-none" : ""}`}>
                                   <select 
                                     className="w-full bg-transparent outline-none h-full focus:bg-background px-2 cursor-pointer"
                                     value={c.type}
@@ -1720,7 +1721,7 @@ function CableTraySizingPage() {
                                     <option value="Fire Resistant">Fire Resistant</option>
                                   </select>
                                 </td>
-                                <td style={{ width: colWidths.cores, minWidth: colWidths.cores }} className="p-0">
+                                <td style={{ width: colWidths.cores, minWidth: colWidths.cores }} className={`p-0 ${!selectedRows.has(c.id) ? "pointer-events-none select-none" : ""}`}>
                                   <select 
                                     className="w-full bg-transparent outline-none h-full focus:bg-background px-2 cursor-pointer"
                                     value={c.cores}
@@ -1737,7 +1738,7 @@ function CableTraySizingPage() {
                                     ))}
                                   </select>
                                 </td>
-                                <td style={{ width: colWidths.size, minWidth: colWidths.size }} className="p-0">
+                                <td style={{ width: colWidths.size, minWidth: colWidths.size }} className={`p-0 ${!selectedRows.has(c.id) ? "pointer-events-none select-none" : ""}`}>
                                   <select className="w-full h-8 px-3 bg-transparent outline-none focus:bg-background text-foreground cursor-pointer" value={c.size} onChange={e => {
                                     updateCable(tray.id, c.id, "size", e.target.value);
                                     updateCable(tray.id, c.id, "customOd", ""); // reset OD on size change
@@ -1748,7 +1749,7 @@ function CableTraySizingPage() {
                                     ))}
                                   </select>
                                 </td>
-                                <td style={{ width: colWidths.qty, minWidth: colWidths.qty }} className="p-0">
+                                <td style={{ width: colWidths.qty, minWidth: colWidths.qty }} className={`p-0 ${!selectedRows.has(c.id) ? "pointer-events-none select-none" : ""}`}>
                                   <select 
                                     className="w-full h-8 px-3 text-center bg-transparent outline-none focus:bg-background text-foreground cursor-pointer"
                                     value={c.qty}
@@ -1760,7 +1761,7 @@ function CableTraySizingPage() {
                                     ))}
                                   </select>
                                 </td>
-                                <td style={{ width: colWidths.od, minWidth: colWidths.od }} className="p-0 bg-surface-2 text-foreground">
+                                <td style={{ width: colWidths.od, minWidth: colWidths.od }} className={`p-0 bg-surface-2 text-foreground ${!selectedRows.has(c.id) ? "pointer-events-none select-none" : ""}`}>
                                   <input 
                                     type="number" 
                                     step="any"

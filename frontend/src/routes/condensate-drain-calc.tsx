@@ -504,7 +504,8 @@ function CondensateDrainCalcPage() {
         dbIn: convT(r.dbIn),
         wbIn: convT(r.wbIn),
         dbOut: convT(r.dbOut),
-            flow: convF(r.flow)
+        wbOut: convT(r.wbOut),
+        flow: convF(r.flow)
       }));
 
       updateRowsWithHistory(converted);
@@ -1325,7 +1326,7 @@ function CondensateDrainCalcPage() {
       <div className="flex h-full min-h-0 bg-transparent">
         <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
           {/* Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
+          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg flex-wrap gap-2">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Coil Condensate Calculator</h1>
@@ -1731,7 +1732,7 @@ function CondensateDrainCalcPage() {
                     {/* 1. Title (Exact Preliminary format with Calculation keyword) */}
                     <div className="pb-1">
                       <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
-                        Condensate Drain Sizer Calculation
+                        Coil Condensate Calculation
                       </h2>
                     </div>
 

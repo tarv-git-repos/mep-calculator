@@ -1,4 +1,4 @@
-import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
@@ -13,7 +13,7 @@ export interface SprinklerExportRow {
   solveFor: "Q" | "P";
   pressure: number; // PSI or bar
   flow: number;     // GPM or LPM
-  coverage: number; // sq ft or mÂ²
+  coverage: number; // sq ft or m²
   hazard: string;
   notes?: string;
   flagged?: boolean;
@@ -30,6 +30,9 @@ export interface SprinklerProjectMetaData {
   date?: string;
   userName?: string;
   unitSystem?: "ip" | "si";
+  includeStamp?: boolean;
+  reviewState?: any;
+  returnBuffer?: boolean;
 }
 
 export const exportSprinklerKFactorPDF = async (
@@ -77,58 +80,23 @@ export const exportSprinklerKFactorPDF = async (
     const areaUnit = isSI ? "mÂ²" : "ftÂ²";
 
     const calcNo = meta.calcNo || activeProj?.calcNo || "TRV-CAL-SKF-001";
-    const today = meta.date || new Date().toLocaleDateString("en-GB");
+    const revNo = meta.revNo || activeProj?.revNo || "0";
+    const today = meta.date || formatDateStr(new Date().toISOString());
     const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || "P000";
     const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "Sprinkler Hydraulic Calculation";
     const clientName = meta.client || activeProj?.client || "";
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "";
 
-    // 1. Header Title (Matching Ventilation)
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Sprinkler K-Factor Calculation Report", 14, 14);
-
-    // 2. Metadata Block (Exact Ventilation 2-column format)
-    doc.setFontSize(9);
-    doc.setLineWidth(0.3);
-    doc.rect(14, 18, 182, 18); // Outer box (182mm width)
-
-    // Vertical line
-    doc.line(105, 18, 105, 36);
-
-    // Horizontal lines
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 120, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 120, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName, 42, 34);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, 125, 34);
+    // 1. Standard Header & Metadata Block
+    const startY = addPdfHeader(doc, "Sprinkler K-Factor Calculation Report", {
+      calcNo,
+      revNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser,
+    });
 
     // 3. Group sprinklers by floor
     const sortedRows = [...rows].sort((a, b) => {
@@ -224,7 +192,7 @@ export const exportSprinklerKFactorPDF = async (
     const primaryFill = [217, 217, 217] as [number, number, number]; // Clean gray from Ventilation
 
     callAutoTable(doc, {
-      startY: 42,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
@@ -285,66 +253,51 @@ export const exportSprinklerKFactorPDF = async (
       }
     });
 
-    const finalY = (doc as any).lastAutoTable?.finalY ?? 150;
+    let currentY = (doc as any).lastAutoTable?.finalY ?? 150;
 
-    const {
-      originatedName,
-      originatedDate,
-      reviewerName,
-      reviewerDate,
-      approverName,
-      approverDate
-    } = getSignatureBlockDetails(activeProj?.id || "default", "/plumbing-sprinkler-kfactor", meta.userName || "");
+    // Check page break for signature block (needs ~35mm)
+    if (currentY + 35 > 280) {
+      doc.addPage("a4", "portrait");
+      currentY = 14;
+    }
 
-    // 4. Signature Block (Exact warm peach header from Ventilation)
-    callAutoTable(doc, {
-      startY: finalY + 8,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      styles: {
-        fontSize: 8,
-        halign: "center",
-        valign: "middle",
-        lineColor: [100, 100, 100],
-        lineWidth: 0.1,
-        cellPadding: { top: 2, bottom: 2, left: 1, right: 1 }
-      },
-      headStyles: { fillColor: [255, 230, 204], textColor: 0, fontStyle: "bold" },
-      head: [
-        [
-          { content: "" },
-          { content: "Originator" },
-          { content: "Reviewer" },
-          { content: "Approver" }
-        ]
-      ],
-      body: [
-        [
-          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedName, styles: { halign: "center" } },
-          { content: reviewerName, styles: { halign: "center" } },
-          { content: approverName, styles: { halign: "center" } }
-        ],
-        [
-          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedDate, styles: { halign: "center" } },
-          { content: reviewerDate, styles: { halign: "center" } },
-          { content: approverDate, styles: { halign: "center" } }
-        ]
-      ],
-      columnStyles: {
-        0: { cellWidth: 32 },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 50 }
-      }
-    });
+    // 4. Professional Engineering Review & Sign-Off Block & Branding
+    if (meta.includeStamp !== false) {
+      const sigDetails = getSignatureBlockDetails(
+        activeProj?.id || "default",
+        "/plumbing-sprinkler-kfactor",
+        meta.userName || currentUserName,
+        meta.reviewState
+      );
+      addPdfSignatureBlock(
+        doc,
+        currentY,
+        sigDetails,
+        activeProj?.id || "default",
+        "/plumbing-sprinkler-kfactor"
+      );
+    }
+
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
 
     const pdfBuffer = doc.output("arraybuffer");
-    await downloadFile(new Uint8Array(pdfBuffer), `Sprinkler_KFactor_Report_${activeProj?.code || "P000"}.pdf`, "PDF Document", ["pdf"]);
+    if (meta.returnBuffer) {
+      return new Uint8Array(pdfBuffer);
+    }
+
+    await downloadFile(new Uint8Array(pdfBuffer), `Sprinkler_KFactor_Report_${projectNo}.pdf`, "PDF Document", ["pdf"]);
     toast.success("Sprinkler K-Factor PDF exported successfully!");
+    return true;
   } catch (error: any) {
     console.error("exportSprinklerKFactorPDF error:", error);
-    toast.error(`Export PDF failed: ${error?.message || String(error)}`);
+    if (!meta.returnBuffer) {
+      toast.error(`Export PDF failed: ${error?.message || String(error)}`);
+    }
+    return false;
   }
 };

@@ -5,7 +5,36 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import path from "path";
+import fs from "fs";
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+
+// Fix Vite 8 es-module-lexer bug where `import(a, b = {}, c = true) {` class methods
+// in @thatopen/components and @thatopen/components-front are mistaken for dynamic import() calls
+function patchThatOpenMethodSyntax(code: string): string {
+  return code.replace(
+    /\bimport\(([^()\n]*=[^()\n]*)\)\s*\{/g,
+    (_match, params) => `import(..._args) { let [${params}] = _args;`
+  );
+}
+
+for (const relPath of [
+  "node_modules/@thatopen/components/dist/index.mjs",
+  "node_modules/@thatopen/components-front/dist/index.js",
+]) {
+  try {
+    const fullPath = path.resolve(__dirname, relPath);
+    if (fs.existsSync(fullPath)) {
+      const original = fs.readFileSync(fullPath, "utf8");
+      const patched = patchThatOpenMethodSyntax(original);
+      if (patched !== original) {
+        fs.writeFileSync(fullPath, patched, "utf8");
+        console.log(`[vite-patch] Patched class method import() syntax in ${relPath}`);
+      }
+    }
+  } catch (e) {
+    console.warn(`[vite-patch] Could not patch ${relPath}:`, e);
+  }
+}
 
 const asyncHooksPolyfill = {
   name: 'async-hooks-polyfill',
@@ -42,6 +71,14 @@ const asyncHooksPolyfill = {
     if (id === '\0http-external') {
       return `export default {};`;
     }
+  },
+  transform(code: string, id: string) {
+    if (id.includes('@thatopen')) {
+      const patched = patchThatOpenMethodSyntax(code);
+      if (patched !== code) {
+        return { code: patched, map: null };
+      }
+    }
   }
 };
 
@@ -52,10 +89,18 @@ const ssrErrorPrinter = {
     (globalThis as any).__LOVABLE_TANSTACK_CAPTURE_SSR_ERROR__ = (err: any) => {
       console.error('\n******************** TANSTACK SSR ERROR ********************\n', err, '\n*************************************************************\n');
     };
-    process.on('unhandledRejection', (err) => {
+    process.on('unhandledRejection', (err: any) => {
+      if (err && (err.code === 'UNKNOWN' || err.code === 'ENOENT' || err.syscall === 'stat' || err.syscall === 'lstat')) {
+        console.warn('[vite-network-warning] Transient network filesystem stat/lstat error caught and ignored:', err.message || err);
+        return;
+      }
       console.error('=== SSR UNHANDLED REJECTION ===\n', err);
     });
-    process.on('uncaughtException', (err) => {
+    process.on('uncaughtException', (err: any) => {
+      if (err && (err.code === 'UNKNOWN' || err.code === 'ENOENT' || err.syscall === 'stat' || err.syscall === 'lstat')) {
+        console.warn('[vite-network-warning] Transient network filesystem stat/lstat error caught and ignored:', err.message || err);
+        return;
+      }
       console.error('=== SSR UNCAUGHT EXCEPTION ===\n', err);
     });
   }
@@ -65,18 +110,34 @@ import os from "os";
 
 const localCacheDir = path.join(os.tmpdir(), "mep_calculator_vite_cache");
 
+// Ensure orphan temp optimization folders are resolved if Vite was previously terminated mid-optimization
+try {
+  if (fs.existsSync(localCacheDir)) {
+    const depsDir = path.join(localCacheDir, "deps");
+    if (!fs.existsSync(depsDir)) {
+      const entries = fs.readdirSync(localCacheDir);
+      const tempDir = entries.find((e) => e.startsWith("deps_temp_"));
+      if (tempDir) {
+        fs.renameSync(path.join(localCacheDir, tempDir), depsDir);
+      }
+    }
+  }
+} catch {
+  // Ignore filesystem lock/concurrency errors during startup
+}
+
 export default defineConfig({
   vite: {
     cacheDir: localCacheDir,
     plugins: [asyncHooksPolyfill, ssrErrorPrinter],
     clearScreen: false,
     server: {
-      host: true,
+      host: "0.0.0.0",
       port: 8081,
       strictPort: false,
       fs: {
         strict: false,
-        allow: [path.resolve(__dirname, '..'), path.resolve(__dirname, '.')],
+        allow: [path.resolve(__dirname, '..'), path.resolve(__dirname, '.'), localCacheDir],
       },
       proxy: {
         '/api': {
@@ -92,17 +153,27 @@ export default defineConfig({
       },
       watch: {
         usePolling: true,
-        interval: 1000,
-        ignored: [
-          "**/src-tauri/**",
-          "**/dist/**",
-          "**/dist-nitro-2/**",
-          "**/dist-electron/**",
-          "**/scratch/**",
-          "**/MEP_Calculator_App/**",
-          "**/.system_generated/**",
-          "**/.git/**"
-        ],
+        interval: 2000,
+        binaryInterval: 4000,
+        ignored: (watchPath: string) => {
+          if (!watchPath || typeof watchPath !== 'string') return false;
+          const norm = watchPath.replace(/\\/g, '/');
+          return (
+            norm.includes('/node_modules/') ||
+            norm.includes('/.vite/') ||
+            norm.includes('/.output/') ||
+            norm.includes('/.tanstack/') ||
+            norm.includes('/dist/') ||
+            norm.includes('/dist-nitro-2/') ||
+            norm.includes('/dist-electron/') ||
+            norm.includes('/src-tauri/') ||
+            norm.includes('/scratch/') ||
+            norm.includes('/MEP_Calculator_App/') ||
+            norm.includes('/.system_generated/') ||
+            norm.includes('/.git/') ||
+            norm.includes('/src/backup_calculators/')
+          );
+        },
       },
     },
     build: {
@@ -129,7 +200,13 @@ export default defineConfig({
         '@tanstack/react-query',
         'lucide-react',
         'clsx',
-        'tailwind-merge'
+        'tailwind-merge',
+        '@radix-ui/react-tooltip',
+        '@radix-ui/react-dialog',
+        '@radix-ui/react-dropdown-menu',
+        '@radix-ui/react-tabs',
+        '@radix-ui/react-select',
+        '@radix-ui/react-popover'
       ],
       exclude: ['@tanstack/react-start', 'node:async_hooks', 'async_hooks', '@thatopen/components', '@thatopen/components-front', '@thatopen/fragments', 'web-ifc'],
     },

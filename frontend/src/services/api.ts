@@ -106,7 +106,7 @@ export const api = {
         { id: 'usr_1787721176260_295', name: 'Kirtan NBN', email: 'kirtankarwa.nbnscoe.comp@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
         { id: 'usr_1787637111471_201', name: 'Kirtan Comp', email: 'kirtankarwa.nbnscoe@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
         { id: 'usr_1786083832014_386', name: 'Vaishnavi Halasage', email: 'halasagevaishu@gmail.com', role: 'Sr. Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
-        { id: 'usr_1785905869652_132', name: 'Vikram Kadam', email: 'kadamvikram0304@gmail.com', role: 'Lead Engineer', isAccountVerified: true, status: 'ACTIVE' },
+        { id: 'usr_1785905869652_132', name: 'Vikram Kadam', email: 'kadamvikram0304@gmail.com', role: 'ORG_ADMIN', designation: 'Organization Admin', isAccountVerified: true, status: 'ACTIVE' },
         { id: 'usr_1786021470630_14', name: 'Vikram Kadam', email: 'kadamvikram0308@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
         { id: 'usr_1786947574165_155', name: 'Vikram Kadam', email: 'kadamvikram774@gmail.com', role: 'Design Engineer', isAccountVerified: true, status: 'ACTIVE' },
         { id: 'usr_1787637352764_974', name: 'Salil Kulkarni', email: 'salilk.cec@gmail.com', role: 'Principal Consultant', isAccountVerified: true, status: 'ACTIVE' },
@@ -143,10 +143,13 @@ export const api = {
           } else if (!finalOrgId && c) {
             finalOrgId = c.organization_id || c.features?.organization_id;
           }
-          const finalRole = (c?.role && c?.role !== 'USER')
-            ? c.role
-            : ((u.role && u.role !== 'USER') ? u.role : (c?.features?.role || u.features?.role || 'Jr. Design Engineer'));
-          const finalDesignation = u.designation || c?.designation || u.features?.designation || c?.features?.designation || finalRole || '';
+          const isSuper = String(u.email || '').toLowerCase().trim() === 'admin@tarv.ai' || String(u.id || '').toLowerCase().trim() === 'usr_admin_tarv_ai' || u.role === 'SUPER_ADMIN';
+          const finalRole = isSuper
+            ? 'SUPER_ADMIN'
+            : ((u.role && u.role !== 'USER')
+              ? u.role
+              : ((c?.role && c?.role !== 'USER') ? c.role : (u.features?.role || c?.features?.role || 'Jr. Design Engineer')));
+          const finalDesignation = isSuper ? 'Super Administrator' : (u.designation || c?.designation || u.features?.designation || c?.features?.designation || finalRole || '');
 
           const overrideExp = expiryOverrides[String(u.email || '').toLowerCase()] !== undefined
             ? expiryOverrides[String(u.email || '').toLowerCase()]
@@ -154,13 +157,13 @@ export const api = {
 
           let finalExpires = overrideExp;
           if (finalExpires === undefined) {
-            finalExpires = (c?.subscription_expires !== undefined && c?.subscription_expires !== null)
-              ? c.subscription_expires
-              : ((c?.features && c?.features?.subscription_expires !== undefined && c?.features?.subscription_expires !== null)
-                  ? c.features.subscription_expires
-                  : ((u.subscription_expires !== undefined && u.subscription_expires !== null)
-                      ? u.subscription_expires
-                      : (u.features?.subscription_expires || null)));
+            finalExpires = (u.subscription_expires !== undefined && u.subscription_expires !== null)
+              ? u.subscription_expires
+              : ((u.features && u.features?.subscription_expires !== undefined && u.features?.subscription_expires !== null)
+                  ? u.features.subscription_expires
+                  : ((c?.subscription_expires !== undefined && c?.subscription_expires !== null)
+                      ? c.subscription_expires
+                      : (c?.features?.subscription_expires || null)));
           }
 
           const overrideAuth = authorityOverrides[String(u.email || '').toLowerCase()] !== undefined
@@ -173,6 +176,10 @@ export const api = {
           }
 
           const finalPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || c?.plan || c?.subscription_status || c?.features?.plan || (finalOrgId ? 'ENTERPRISE' : 'PRO');
+          const finalStatus = u.status || c?.status || u.features?.status || c?.features?.status || 'active';
+          const finalHwid = u.active_hwid !== undefined ? u.active_hwid : (c?.active_hwid !== undefined ? c.active_hwid : (u.features?.active_hwid || c?.features?.active_hwid || null));
+          const finalLastLogin = u.last_login || c?.last_login || u.features?.last_login || c?.features?.last_login || null;
+          const finalLastActive = u.last_active || c?.last_active || u.features?.last_active || c?.features?.last_active || finalLastLogin || null;
 
           return {
             ...(c || {}),
@@ -184,6 +191,10 @@ export const api = {
             plan: finalPlan,
             subscription_status: finalPlan,
             subscription_expires: finalExpires,
+            status: finalStatus,
+            active_hwid: finalHwid,
+            last_login: finalLastLogin,
+            last_active: finalLastActive,
             features: {
               ...(c?.features || {}),
               ...(u.features || {}),
@@ -193,6 +204,10 @@ export const api = {
               role: finalRole,
               designation: finalDesignation,
               subscription_expires: finalExpires,
+              status: finalStatus,
+              active_hwid: finalHwid,
+              last_login: finalLastLogin,
+              last_active: finalLastActive,
               ...(finalAuthority !== undefined ? { approvalAuthority: finalAuthority } : {})
             }
           };
@@ -237,42 +252,58 @@ export const api = {
       localStorage.setItem('cachedAllUsers', JSON.stringify(users));
 
       // Also sync company hierarchy if user is present
+      const newDesignation = newRole === 'ORG_ADMIN' ? 'Organization Admin' : (newRole === 'SUPER_ADMIN' ? 'Super Admin' : newRole);
       try {
+        const updateMember = (m: any) => {
+          if (String(m.id).toLowerCase().trim() === pidLower || (m.email && String(m.email).toLowerCase().trim() === pidLower)) {
+            return { ...m, role: newRole, designation: newDesignation };
+          }
+          return m;
+        };
+
         const hierStr = localStorage.getItem('mep_company_hierarchy');
         if (hierStr) {
-          let hier = JSON.parse(hierStr);
-          let hierChanged = false;
-          hier = hier.map((m: any) => {
-            if (String(m.id).toLowerCase().trim() === pidLower || (m.email && String(m.email).toLowerCase().trim() === pidLower)) {
-              hierChanged = true;
-              return { ...m, role: newRole };
-            }
-            return m;
-          });
-          if (hierChanged) {
-            localStorage.setItem('mep_company_hierarchy', JSON.stringify(hier));
+          const hier = JSON.parse(hierStr);
+          localStorage.setItem('mep_company_hierarchy', JSON.stringify(hier.map(updateMember)));
+        }
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('mep_company_hierarchy_')) {
+            try {
+              const h = JSON.parse(localStorage.getItem(k) || '[]');
+              if (Array.isArray(h)) {
+                localStorage.setItem(k, JSON.stringify(h.map(updateMember)));
+              }
+            } catch (e) {}
           }
         }
       } catch (e) {}
 
       // Sync active logged in user
       try {
-        const curUserStr = localStorage.getItem('currentUser');
+        const curUserStr = localStorage.getItem('currentUser') || localStorage.getItem('mep_profile') || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_calculator_user_data');
         if (curUserStr) {
           const curUser = JSON.parse(curUserStr);
           if (String(curUser.id).toLowerCase().trim() === pidLower || (curUser.email && String(curUser.email).toLowerCase().trim() === pidLower)) {
             curUser.role = newRole;
+            curUser.designation = newDesignation;
             if (!curUser.features) curUser.features = {};
             curUser.features.role = newRole;
-            localStorage.setItem('currentUser', JSON.stringify(curUser));
-              localStorage.setItem('mep_profile', JSON.stringify(curUser));
-              localStorage.setItem('mep_user_data', JSON.stringify(curUser));
+            curUser.features.designation = newDesignation;
+            const updatedJson = JSON.stringify(curUser);
+            localStorage.setItem('currentUser', updatedJson);
+            localStorage.setItem('mep_profile', updatedJson);
+            localStorage.setItem('mep_user_data', updatedJson);
+            localStorage.setItem('mep_calculator_user_data', updatedJson);
+            if (curUser.id) {
+              localStorage.setItem(`mep_user_designation_${curUser.id}`, newDesignation);
+            }
           }
         }
       } catch (e) {}
 
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('mep_user_profile_updated', { detail: { profileId, role: newRole } }));
+        window.dispatchEvent(new CustomEvent('mep_user_profile_updated', { detail: { profileId, role: newRole, designation: newDesignation } }));
       }
     } catch (e) {}
 
@@ -289,6 +320,31 @@ export const api = {
   },
   
   async adminDeleteUser(profileId: string) {
+    // 1. Instant local persistence cleanup (0ms UI latency)
+    try {
+      const pidLower = String(profileId || '').toLowerCase().trim();
+      const stored = localStorage.getItem('mep_local_users');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((u: any) => 
+            String(u.id || '').toLowerCase().trim() !== pidLower && 
+            String(u.email || '').toLowerCase().trim() !== pidLower
+          );
+          localStorage.setItem('mep_local_users', JSON.stringify(cleaned));
+          localStorage.setItem('cachedAllUsers', JSON.stringify(cleaned));
+        }
+      }
+      const orgOverrides = JSON.parse(localStorage.getItem('mep_user_org_overrides') || '{}');
+      delete orgOverrides[pidLower];
+      localStorage.setItem('mep_user_org_overrides', JSON.stringify(orgOverrides));
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('mep_user_deleted', { detail: { profileId } }));
+      }
+    } catch (e) {}
+
+    // 2. Call backend & Supabase DB delete
     try {
       const { data } = await axios.post(`${getBackendUrl()}/api/admin/delete-user`, { profileId }, {
         headers: getAuthHeaders()
@@ -469,6 +525,101 @@ export const api = {
     }
   },
 
+  async adminResetPassword(userId: string, newPassword: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/reset-password`, { userId, newPassword }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || error.message || 'Failed to update user password' };
+    }
+  },
+
+  async adminGenerateLoginLink(userId: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/generate-login-link`, { userId }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || error.message || 'Failed to generate one-time login link' };
+    }
+  },
+
+  async adminToggleUserStatus(userId: string, status: 'active' | 'suspended') {
+    // 1. Instant local persistence update
+    try {
+      const stored = localStorage.getItem('mep_local_users');
+      let users = stored ? JSON.parse(stored) : null;
+      if (Array.isArray(users)) {
+        users = users.map((u: any) => {
+          if (u.id === userId || u.email === userId) {
+            return {
+              ...u,
+              status,
+              features: { ...(u.features || {}), status }
+            };
+          }
+          return u;
+        });
+        localStorage.setItem('mep_local_users', JSON.stringify(users));
+        localStorage.setItem('cachedAllUsers', JSON.stringify(users));
+      }
+    } catch (e) {}
+
+    // 2. Call backend
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/toggle-user-status`, { userId, status }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || error.message || 'Failed to toggle user status' };
+    }
+  },
+
+  async adminResetHwid(userId: string) {
+    // 1. Instant local persistence update
+    try {
+      const stored = localStorage.getItem('mep_local_users');
+      let users = stored ? JSON.parse(stored) : null;
+      if (Array.isArray(users)) {
+        users = users.map((u: any) => {
+          if (u.id === userId || u.email === userId) {
+            return {
+              ...u,
+              active_hwid: null,
+              features: { ...(u.features || {}), active_hwid: null }
+            };
+          }
+          return u;
+        });
+        localStorage.setItem('mep_local_users', JSON.stringify(users));
+        localStorage.setItem('cachedAllUsers', JSON.stringify(users));
+      }
+    } catch (e) {}
+
+    // 2. Call backend
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/reset-hwid`, { userId }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || error.message || 'Failed to reset device hardware binding' };
+    }
+  },
+
+  async magicLogin(magicToken: string, email: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/auth/magic-login`, { magicToken, email });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || error.message || 'Failed to authenticate via login link' };
+    }
+  },
+
   async adminCreateUser(payload: {
     name: string;
     email: string;
@@ -553,15 +704,20 @@ export const api = {
 
   // PROJECTS
   async getProjects() {
+    const list = await api.getProjectsOrNull();
+    return list || [];
+  },
+  /** Returns the project list, or null if the request failed / user is not signed in. */
+  async getProjectsOrNull(): Promise<any[] | null> {
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
     if (!token || (typeof window !== 'undefined' && window.location.pathname.includes('/login'))) {
-      return [];
+      return null;
     }
     try {
       const { data } = await axios.get(`${getBackendUrl()}/api/projects/list`);
-      return data.success ? data.projects : [];
+      return data && data.success && Array.isArray(data.projects) ? data.projects : null;
     } catch (e) {
-      return [];
+      return null;
     }
   },
   async getProject(id: string) {
@@ -603,7 +759,18 @@ export const api = {
       return { success: false, message: error.response?.data?.message || 'Failed to save workspace' };
     }
   },
-  async updateProjectDetails(project_id: string, details: { name?: string; code?: string; client?: string; location?: string; description?: string; notes?: string }) {
+  async updateProjectDetails(project_id: string, details: {
+    name?: string;
+    code?: string;
+    client?: string;
+    location?: string;
+    description?: string;
+    notes?: string;
+    project_type?: string;
+    applicable_stages?: string[];
+    current_stage?: string;
+    stage_status?: Record<string, string>;
+  }) {
     try {
       const { data } = await axios.post(`${getBackendUrl()}/api/projects/update`, {
         project_id,
@@ -612,6 +779,19 @@ export const api = {
       return data;
     } catch (error: any) {
       return { success: false, message: error.response?.data?.message || 'Failed to update project' };
+    }
+  },
+  async updateProjectStage(project_id: string, current_stage: string, applicable_stages?: string[], stage_status?: Record<string, string>) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/update-stage`, {
+        project_id,
+        current_stage,
+        applicable_stages,
+        stage_status
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to update project stage' };
     }
   },
   async deleteProject(project_id: string) {
@@ -654,6 +834,26 @@ export const api = {
       return { success: false, message: error.response?.data?.message || 'Failed to add team' };
     }
   },
+  async toggleProjectLock(payload: { project_id: string; is_locked: boolean; reason?: string }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/toggle-lock`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to update project lock status' };
+    }
+  },
+  async getBulkProjectsExport() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/projects/bulk-export`, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to fetch bulk projects export', projects: [] };
+    }
+  },
   
   // PRIVACY
   async acceptPrivacyPolicy() {
@@ -669,7 +869,7 @@ export const api = {
   async getOrganizations() {
     let orgs: any[] = [];
     try {
-      const { data } = await axios.get(`${getBackendUrl()}/api/admin/organizations`);
+      const { data } = await axios.get(`${getBackendUrl()}/api/admin/organizations`, { headers: getAuthHeaders() });
       if (data.success && Array.isArray(data.organizations)) {
         orgs = data.organizations;
       }
@@ -834,7 +1034,7 @@ export const api = {
   async getOrgHierarchy(orgId?: string) {
     try {
       const url = orgId ? `${getBackendUrl()}/api/org/hierarchy?orgId=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/hierarchy`;
-      const { data } = await axios.get(url);
+      const { data } = await axios.get(url, { headers: getAuthHeaders() });
       if (data && data.success && Array.isArray(data.hierarchy)) {
         return data.hierarchy;
       }
@@ -844,9 +1044,21 @@ export const api = {
     return null;
   },
 
+  async getSystemHierarchyOverview() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/org/hierarchy?scope=system`, { headers: getAuthHeaders() });
+      if (data && data.success && data.is_system_overview) {
+        return data;
+      }
+    } catch (e) {
+      console.error('Error fetching system hierarchy overview:', e);
+    }
+    return null;
+  },
+
   async saveOrgHierarchy(hierarchy: any[], orgId?: string) {
     try {
-      const { data } = await axios.post(`${getBackendUrl()}/api/org/hierarchy`, { hierarchy, orgId });
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/hierarchy`, { hierarchy, org_id: orgId, orgId }, { headers: getAuthHeaders() });
       return data;
     } catch (e) {
       console.error('Error saving org hierarchy:', e);
@@ -863,16 +1075,12 @@ export const api = {
     }
   },
   async getOrgBackupSettings(orgId?: string) {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-    if (!token || (typeof window !== 'undefined' && window.location.pathname.includes('/login'))) {
-      return { success: false };
-    }
     try {
       const url = orgId ? `${getBackendUrl()}/api/org/backup-settings?org_id=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/backup-settings`;
-      const { data } = await axios.get(url);
+      const { data } = await axios.get(url, { headers: getAuthHeaders() });
       return data;
     } catch (e: any) {
-      console.error(e);
+      console.error('getOrgBackupSettings error:', e);
       return { success: false, local_backup_path: '', server_backup_path: '', versions_path: '' };
     }
   },
@@ -881,7 +1089,15 @@ export const api = {
       let finalVersionsPath = '';
       let finalOrgId = '';
 
-      if (param3 && (param3.startsWith('org_') || param3 === 'GLOBAL' || param3 === 'ALL' || param3 === 'UNASSIGNED')) {
+      const isParam3OrgId = param3 && (
+        param3.startsWith('org_') ||
+        param3 === 'GLOBAL' ||
+        param3 === 'ALL' ||
+        param3 === 'UNASSIGNED' ||
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(param3)
+      );
+
+      if (isParam3OrgId) {
         finalOrgId = param3;
         finalVersionsPath = param4 || '';
       } else {
@@ -889,15 +1105,82 @@ export const api = {
         finalOrgId = param4 || '';
       }
 
-      const { data } = await axios.post(`${getBackendUrl()}/api/org/backup-settings`, {
-        local_backup_path,
-        server_backup_path,
-        versions_path: finalVersionsPath,
-        org_id: finalOrgId
-      });
+      const { data } = await axios.post(
+        `${getBackendUrl()}/api/org/backup-settings`,
+        {
+          local_backup_path,
+          server_backup_path,
+          versions_path: finalVersionsPath,
+          org_id: finalOrgId
+        },
+        { headers: getAuthHeaders() }
+      );
       return data;
     } catch (e: any) {
-      console.error(e);
+      console.error('saveOrgBackupSettings error:', e);
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async getOrgBranding(orgId?: string) {
+    try {
+      const url = orgId ? `${getBackendUrl()}/api/org/branding?org_id=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/branding`;
+      const { data } = await axios.get(url, { headers: getAuthHeaders() });
+      return data;
+    } catch (e: any) {
+      console.error('getOrgBranding error:', e);
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async saveOrgBranding(branding: any, orgId?: string) {
+    try {
+      let finalOrgId = orgId || '';
+      if (!finalOrgId && typeof window !== 'undefined') {
+        try {
+          const uStr = localStorage.getItem('currentUser') || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile') || localStorage.getItem('mep_user');
+          if (uStr) {
+            const u = JSON.parse(uStr);
+            finalOrgId = u?.organization_id || u?.user?.organization_id || (u?.features as any)?.organization_id || '';
+          }
+        } catch (err) {}
+      }
+      if (!finalOrgId) finalOrgId = 'GLOBAL';
+
+      const { data } = await axios.post(
+        `${getBackendUrl()}/api/org/branding`,
+        { org_id: finalOrgId, branding },
+        { headers: getAuthHeaders() }
+      );
+      return data;
+    } catch (e: any) {
+      console.error('saveOrgBranding error:', e);
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async browseFolder(options?: { title?: string; initial?: string }) {
+    try {
+      const params = new URLSearchParams();
+      if (options?.title) params.append('title', options.title);
+      if (options?.initial) params.append('initial', options.initial);
+      const queryStr = params.toString() ? `?${params.toString()}` : '';
+      const { data } = await axios.get(`${getBackendUrl()}/api/browse-folder${queryStr}`);
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async openFolder(targetPath: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/open-local-backup-folder`, { targetPath });
+      return data;
+    } catch (e: any) {
+      return { success: false, message: e.response?.data?.message || e.message };
+    }
+  },
+  async verifyFolder(targetPath: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/verify-folder`, { targetPath });
+      return data;
+    } catch (e: any) {
       return { success: false, message: e.response?.data?.message || e.message };
     }
   },
@@ -1095,6 +1378,87 @@ export const api = {
       return data;
     } catch(e) {
       return { success: false };
+    }
+  },
+
+  async deactivateUserSeat(userId: string, reason?: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/users/deactivate`, { userId, reason }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to deactivate seat' };
+    }
+  },
+
+  async reactivateUserSeat(userId: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/users/reactivate`, { userId }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to reactivate seat' };
+    }
+  },
+
+  async reassignUserSeat(payload: {
+    formerUserId: string;
+    newHireName: string;
+    newHireEmail: string;
+    newHireRole?: string;
+    newHireAuthority?: string;
+  }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/users/reassign`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to reassign seat' };
+    }
+  },
+
+  async requestSeatUpgrade(payload: {
+    requestedSeats: number;
+    reason: string;
+    urgency?: string;
+    contactPhone?: string;
+  }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/license-upgrade-request`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to submit seat upgrade request' };
+    }
+  },
+
+  async getSeatUpgradeRequests() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/org/license-upgrade-request`, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, requests: [] };
+    }
+  },
+
+  async actionSeatUpgradeRequest(payload: {
+    requestId: string;
+    action: 'APPROVE' | 'REJECT';
+    note?: string;
+  }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/license-upgrade-request/action`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to process seat upgrade request' };
     }
   }
 };

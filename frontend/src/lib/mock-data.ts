@@ -26,6 +26,11 @@ export interface Space {
   // AI occupancy matching fields
   aiDetected?: boolean;
   pressureAutoDetected?: boolean;
+
+  // 3D Studio / IFC BIM tracking
+  isFromIfc?: boolean;
+  source?: string;
+  ifcOriginalArea?: number;
 }
 
 export interface Zone {

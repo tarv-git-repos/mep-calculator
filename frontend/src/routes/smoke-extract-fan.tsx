@@ -4,10 +4,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
-import { exportSmokeExtractPDF } from "@/lib/exportSmokeExtractPDF";
 import {
   AlertTriangle, Info, Printer, FileSpreadsheet, HelpCircle, X,
   Save, FolderOpen, ChevronDown, ChevronUp, Trash2, Copy, Clipboard,
@@ -330,64 +326,46 @@ function SmokeExtractFanPage() {
     saveToLocalStorage(updated);
   };
 
-  const handleUnitToggle = (targetUnit: "si" | "ip", shouldConvert: boolean = true) => {
-    if (targetUnit === unitSystem) return;
-    if (shouldConvert) {
-      if (targetUnit === "ip") {
-        if (typeof area === "number") setArea(Number((area * 10.7639).toFixed(1)));
-        if (typeof height === "number") setHeight(Number((height * 3.28084).toFixed(2)));
-        if (typeof ductLength === "number") setDuctLength(Number((ductLength * 3.28084).toFixed(1)));
-        if (typeof frictionFactor === "number") setFrictionFactor(Number((frictionFactor * 0.1233).toFixed(3)));
-        if (typeof louverLoss === "number") setLouverLoss(Number((louverLoss * 0.00401865).toFixed(3)));
-        if (typeof fanLoss === "number") setFanLoss(Number((fanLoss * 0.00401865).toFixed(3)));
-      } else {
-        if (typeof area === "number") setArea(Number((area / 10.7639).toFixed(1)));
-        if (typeof height === "number") setHeight(Number((height / 3.28084).toFixed(2)));
-        if (typeof ductLength === "number") setDuctLength(Number((ductLength / 3.28084).toFixed(1)));
-        if (typeof frictionFactor === "number") setFrictionFactor(Number((frictionFactor / 0.1233).toFixed(2)));
-        if (typeof louverLoss === "number") setLouverLoss(Math.round(louverLoss / 0.00401865));
-        if (typeof fanLoss === "number") setFanLoss(Math.round(fanLoss / 0.00401865));
-      }
-    }
-    setUnitSystem(targetUnit);
-  };
-
   const calculatedData = useMemo(() => {
-    const areaSI = unitSystem === "ip" && typeof area === "number" ? area / 10.7639 : area;
-    const heightSI = unitSystem === "ip" && typeof height === "number" ? height / 3.28084 : height;
-    const ductLengthSI = unitSystem === "ip" && typeof ductLength === "number" ? ductLength / 3.28084 : ductLength;
-    const frictionFactorSI = unitSystem === "ip" && typeof frictionFactor === "number" ? frictionFactor / 0.1233 : frictionFactor;
-    const louverLossSI = unitSystem === "ip" && typeof louverLoss === "number" ? louverLoss / 0.00401865 : louverLoss;
-    const fanLossSI = unitSystem === "ip" && typeof fanLoss === "number" ? fanLoss / 0.00401865 : fanLoss;
-    return computeSmokeExtractFanData(areaSI, heightSI, acph, fanQty, ductLengthSI, frictionFactorSI, louverLossSI, fanLossSI, effMotor, effFan, numFansMotor);
-  }, [area, height, acph, fanQty, ductLength, frictionFactor, louverLoss, fanLoss, effMotor, effFan, numFansMotor, unitSystem]);
+    return computeSmokeExtractFanData(area, height, acph, fanQty, ductLength, frictionFactor, louverLoss, fanLoss, effMotor, effFan, numFansMotor);
+  }, [area, height, acph, fanQty, ductLength, frictionFactor, louverLoss, fanLoss, effMotor, effFan, numFansMotor]);
 
-  const currentUserName = profile?.name || profile?.email || userData?.username || "Abubakar Chanda";
-  const sigDetails = getSignatureBlockDetails(
-    activeProjectId || project?.id || "default",
-    "/smoke-extract-fan",
-    currentUserName,
-    calcReviewState
-  );
-
-  const handleExportPDF = () => {
-    exportSmokeExtractPDF(
-      {
-        area: Number(area) || (unitSystem === "ip" ? 1076 : 100),
-        height: Number(height) || (unitSystem === "ip" ? 10 : 3.0),
-        acph: Number(acph) || 10,
-        fanQty: Number(fanQty) || 1,
-        ductLength: Number(ductLength) || (unitSystem === "ip" ? 65 : 20),
-        frictionFactor: Number(frictionFactor) || (unitSystem === "ip" ? 0.12 : 1.0),
-        louverLoss: Number(louverLoss) || (unitSystem === "ip" ? 0.2 : 50),
-        fanLoss: Number(fanLoss) || (unitSystem === "ip" ? 0.08 : 20),
-        effMotor: Number(effMotor) || 90,
-        effFan: Number(effFan) || 75,
-        numFansMotor: Number(numFansMotor) || 1,
-        calculatedData,
-      },
-      unitSystem
-    );
+  const handleExportExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const data = [
+      ["Smoke Extract Fan Calculation"],
+      [],
+      ["Corridor Parameters"],
+      ["Corridor Area", `${area} m²`],
+      ["Corridor Height", `${height} m`],
+      ["Corridor Volume", `${calculatedData.volume.toFixed(2)} m³`],
+      ["Air Change per Hour (ACPH)", acph],
+      ["Total Smoke Extract Rate", `${calculatedData.smokeExtractRate.toFixed(3)} m³/s`],
+      ["Quantity of Fans", fanQty],
+      ["Air Flow Rate per Fan", `${calculatedData.flowEachLsRound} L/s`],
+      ["Flow of Each Fan", `${calculatedData.flowEachM3s.toFixed(3)} m³/s`],
+      [],
+      ["Static Head Sizing"],
+      ["Ducting Length", `${ductLength} m`],
+      ["Equivalent Length of Fittings + Accessories", `${calculatedData.fittingsEqLen.toFixed(2)} m`],
+      ["Total Equivalent Length", `${calculatedData.totalEqLen.toFixed(2)} m`],
+      ["Duct Friction Factor", `${frictionFactor} Pa/m`],
+      ["Head Loss in Ducting", `${calculatedData.frictionLoss.toFixed(2)} Pa`],
+      ["Louver & Grille Drop", `${louverLoss} Pa`],
+      ["Internal Fan Drop", `${fanLoss} Pa`],
+      ["Total Static of the Fan", `${calculatedData.headRound} Pa`],
+      [],
+      ["Motor Selection"],
+      ["Motor Efficiency", `${effMotor} %`],
+      ["Fan Efficiency", `${effFan} %`],
+      ["Power Required per Fan", `${calculatedData.powerEachRound.toFixed(2)} kW`],
+      ["Number of Motor Fans", numFansMotor],
+      ["Total Motor Power (+10% Safety)", `${calculatedData.totalMotorPower.toFixed(2)} kW`],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, "Smoke Extract Fan");
+    const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    downloadFile(new Uint8Array(xlsxBuffer), "Smoke_Extract_Fan.xlsx", "Excel Document", ["xlsx"]);
   };
 
   // Helper component to render an input field wrapped with Context Menu and Comment Indicator
@@ -427,7 +405,7 @@ function SmokeExtractFanPage() {
               onClick={() => handleOpenComment(id, label)}
               title={`${itemComments.length} comment(s)/task(s) assigned`}
             />
-            <label className="text-xs font-medium text-slate-600 dark:text-zinc-300 flex items-center justify-between gap-2">
+            <label className="font-semibold text-foreground flex items-center justify-between gap-2">
               <span className="flex items-center gap-1.5">
                 <span>{label}</span>
               </span>
@@ -441,7 +419,7 @@ function SmokeExtractFanPage() {
               value={value}
               onChange={(e) => setter(e.target.value === "" ? "" : Number(e.target.value))}
               placeholder={placeholder}
-              className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono focus:outline-none focus:border-primary text-xs font-bold transition hover:border-[#0A7BC7]/50"
+              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 text-xs font-bold focus:border-[#0A7BC7] outline-none placeholder:text-muted-foreground/45 placeholder:font-normal transition hover:border-[#0A7BC7]/50"
             />
           </div>
         </ContextMenuTrigger>
@@ -452,7 +430,7 @@ function SmokeExtractFanPage() {
             className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>Add Comment</span>
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
 
           <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -548,7 +526,7 @@ function SmokeExtractFanPage() {
             className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
           >
             <MessageSquare className="size-3.5" />
-            <span>Add Comment</span>
+            <span>{hasComments ? `View / Add Comments (${itemComments.length})` : "Add Comment"}</span>
           </ContextMenuItem>
 
           <ContextMenuSeparator className="h-px bg-border my-1" />
@@ -578,40 +556,41 @@ function SmokeExtractFanPage() {
   };
 
   return (
-    <AppShell
-      title="Smoke Extract Fan"
-      hideSubHeader={true}
-      onIntelClick={() => setIntelOpen((v) => !v)}
-      intelOpen={intelOpen}
-    >
-      <div className="flex h-full min-h-0 bg-transparent">
-        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
-          {/* Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-baseline gap-2">
+    <AppShell title="Smoke Extract Fan" hideSubHeader={true}>
+      <div className="flex h-full min-h-0 bg-transparent font-sans">
+        <div className="flex-1 min-w-0 flex flex-col pt-4 gap-4 overflow-y-auto h-full">
+          <div className="flex flex-col gap-1 select-none">
+            <div className="flex flex-wrap items-center justify-between gap-4 mt-0.5">
+              <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">Corridor Smoke Extract Fan</h1>
+                <button 
+                  onClick={() => setIntelOpen(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                    intelOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                  }`}
+                >
+                  <Sparkles className="size-3.5" />
+                  Intelligence
+                </button>
+                <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/smoke-extract-fan" calculatorTitle="Corridor Smoke Extract Fan" />
+                {commentsList.length > 0 && (
+                  <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full text-xs font-semibold">
+                    <MessageSquare className="size-3.5 fill-blue-500/20" />
+                    <span>{commentsList.length} Active Task(s) / Comment(s)</span>
+                  </div>
+                )}
               </div>
-              <button 
-                onClick={() => setIntelOpen(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
-                  intelOpen
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
-                }`}
-              >
-                <Sparkles className="size-3.5" />
-                Intelligence
-              </button>
-              <CalculationReviewBar projectId={project?.id || "default"} calculatorPath="/smoke-extract-fan" calculatorTitle="Corridor Smoke Extract Fan" />
-            </div>
-            <div className="flex items-center gap-2">
-              <UnitToggle
-                unitSystem={unitSystem}
-                onChange={handleUnitToggle}
-                inputDescriptions="Corridor dimensions, duct length & friction"
-                conversionExample={unitSystem === "si" ? "Convert 100 m² → 1,076 ft², 20 m → 65.6 ft" : "Convert 1,076 ft² → 100 m², 65.6 ft → 20 m"}
-              />
+              <div className="flex items-center gap-2 shrink-0">
+                <UnitToggle
+                  unitSystem={unitSystem}
+                  onChange={setUnitSystem}
+                  ipLabel="IP"
+                  siLabel="SI"
+                  inputDescriptions="System Units"
+                />
+              </div>
             </div>
           </div>
 
@@ -628,7 +607,7 @@ function SmokeExtractFanPage() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Sizing Calculator
+                  Fan Sizer
                 </button>
                 <button
                   type="button"
@@ -642,616 +621,522 @@ function SmokeExtractFanPage() {
                   Report
                 </button>
               </div>
+
+              <button type="button" onClick={() => setTab("report")} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 bg-background hover:bg-slate-50 dark:hover:bg-slate-900 border border-border shadow-sm cursor-pointer text-foreground">
+                <HelpCircle className="size-3.5 text-primary" /> Formula Breakdown
+              </button>
             </div>
 
-            <div className="flex items-center gap-2 select-none shrink-0">
-              <TBtn onClick={handleExportPDF} title="Export PDF Calculation">
-                <FileText className="size-3.5" /> Export
-              </TBtn>
-            </div>
+            <button type="button" className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 bg-background hover:bg-slate-50 dark:hover:bg-slate-900 border border-border shadow-sm cursor-pointer text-foreground" onClick={() => window.print()}>
+              <FileText className="size-3.5 text-muted-foreground" /> Export
+            </button>
           </div>
 
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
             {tab === "calculator" && (
               <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-2">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                  {/* Inputs Column (lg:col-span-5) */}
-                  <div className="lg:col-span-5 space-y-5">
-                    <div
-                      id="card-params"
-                      data-field-id="card-params"
-                      data-comment-target="card-params"
-                      className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5"
-                    >
-                      <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-                        <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                          📥 Sizing Parameters
-                        </span>
-                        <RowCommentCornerBadge
-                          id="card-params"
-                          count={getMergedItemComments("card-params", "Sizing Parameters", commentsList, "/smoke-extract-fan", project?.id).length}
-                          onClick={() => handleOpenComment("card-params", "Sizing Parameters")}
-                        />
-                      </div>
-
-                      {/* Subsection 1: Corridor Parameters */}
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-zinc-800">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                            Corridor Parameters
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3">
-                          {renderInputBox("se-corridor-area", `Area of Corridor (${unitSystem === "ip" ? "ft²" : "m²"})`, area, setArea, unitSystem === "ip" ? 1076 : 100, unitSystem === "ip" ? "1076" : "100")}
-                          {renderInputBox("se-corridor-height", `Height of Corridor (${unitSystem === "ip" ? "ft" : "m"})`, height, setHeight, unitSystem === "ip" ? 10 : 3.0, unitSystem === "ip" ? "10.0" : "3.0")}
-                          {renderInputBox("se-acph", "Air Changes per Hour (ACPH)", acph, setAcph, 10, "10")}
-                          {renderInputBox("se-fan-qty", "Quantity of Fans", fanQty, (val) => { setFanQty(val); setNumFansMotor(val); }, 1, "1", 1, "1")}
-                        </div>
-                      </div>
-
-                      {/* Subsection 2: Duct Static Head Loss */}
-                      <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                        <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-zinc-800">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                            Duct Static Head Loss
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3">
-                          {renderInputBox("se-smoke-duct-length", `Ducting Length (${unitSystem === "ip" ? "ft" : "m"})`, ductLength, setDuctLength, unitSystem === "ip" ? 65 : 20, unitSystem === "ip" ? "65" : "20")}
-                          {renderInputBox("se-smoke-duct-friction-factor", `Frictional Factor (${unitSystem === "ip" ? "in.wg/100ft" : "Pa/m"})`, frictionFactor, setFrictionFactor, unitSystem === "ip" ? 0.12 : 1.0, unitSystem === "ip" ? "0.12" : "1.0")}
-                          {renderInputBox("se-smoke-losses-louvers", `Louver & Grille Pressure Drop (${unitSystem === "ip" ? "in.wg" : "Pa"})`, louverLoss, setLouverLoss, unitSystem === "ip" ? 0.2 : 50, unitSystem === "ip" ? "0.20" : "50")}
-                          {renderInputBox("se-smoke-losses-fan", `Fan Internal Losses (${unitSystem === "ip" ? "in.wg" : "Pa"})`, fanLoss, setFanLoss, unitSystem === "ip" ? 0.08 : 20, unitSystem === "ip" ? "0.08" : "20")}
-                        </div>
-                      </div>
-
-                      {/* Subsection 3: Fan Motor Sizing */}
-                      <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
-                        <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-zinc-800">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                            Fan Motor Sizing
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3">
-                          {renderInputBox("se-motor-eff-motor", "Motor Efficiency (%)", effMotor, setEffMotor, 90, "90")}
-                          {renderInputBox("se-motor-eff-fan", "Fan Efficiency (%)", effFan, setEffFan, 75, "75")}
-                          {renderInputBox("se-motor-fan-qty", "Number of Fans (Motor calculation)", numFansMotor, setNumFansMotor, 1, "1", 1, "1")}
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-
-                  {/* Results Column (lg:col-span-7) STICKY matching Pump Sizing */}
-                  <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
-                    <div
-                      id="card-results"
-                      data-field-id="card-results"
-                      data-comment-target="card-results"
-                      className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6"
-                    >
-                      <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-                        <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                          ⚡ Sizing Results Summary
-                        </span>
-                        <RowCommentCornerBadge
-                          id="card-results"
-                          count={getMergedItemComments("card-results", "Sizing Results Summary", commentsList, "/smoke-extract-fan", project?.id).length}
-                          onClick={() => handleOpenComment("card-results", "Sizing Results Summary")}
-                        />
-                      </div>
-
-                      {/* 4 Stat Cards in a Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        {/* Card 1: Blue - Airflow per Fan */}
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id="res-flow-fan"
-                              data-field-id="res-flow-fan"
-                              data-comment-target="res-flow-fan"
-                              className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 transition-all cursor-context-menu relative"
-                            >
-                              <RowCommentCornerBadge
-                                id="res-flow-fan"
-                                count={getMergedItemComments("res-flow-fan", "Airflow per Fan", commentsList, "/smoke-extract-fan", project?.id).length}
-                                onClick={() => handleOpenComment("res-flow-fan", "Airflow per Fan")}
-                              />
-                              <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Airflow / Fan</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {unitSystem === "ip" ? `${(calculatedData.flowEachLsRound * 2.11888).toFixed(0)} CFM` : `${calculatedData.flowEachLsRound} L/s`}
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem
-                              onClick={() => handleOpenComment("res-flow-fan", "Airflow per Fan")}
-                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                            >
-                              <MessageSquare className="size-3.5" />
-                              <span>Add Comment</span>
-                            </ContextMenuItem>
-                            <ContextMenuSeparator className="h-px bg-border my-1" />
-                            <ContextMenuItem
-                              onClick={() => handleCopyValue("Airflow per Fan", unitSystem === "ip" ? `${(calculatedData.flowEachLsRound * 2.11888).toFixed(0)} CFM` : `${calculatedData.flowEachLsRound} L/s`)}
-                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                            >
-                              <span>Copy Value</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-
-                        {/* Card 2: Amber - Total Fan Static Head */}
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id="res-total-static"
-                              data-field-id="res-total-static"
-                              data-comment-target="res-total-static"
-                              className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 transition-all cursor-context-menu relative"
-                            >
-                              <RowCommentCornerBadge
-                                id="res-total-static"
-                                count={getMergedItemComments("res-total-static", "Total Fan Static Head Loss", commentsList, "/smoke-extract-fan", project?.id).length}
-                                onClick={() => handleOpenComment("res-total-static", "Total Fan Static Head Loss")}
-                              />
-                              <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Static Head Loss</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {unitSystem === "ip" ? `${(calculatedData.headRound * 0.00401865).toFixed(3)} in.wg` : `${calculatedData.headRound} Pa`}
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem
-                              onClick={() => handleOpenComment("res-total-static", "Total Fan Static Head Loss")}
-                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                            >
-                              <MessageSquare className="size-3.5" />
-                              <span>Add Comment</span>
-                            </ContextMenuItem>
-                            <ContextMenuSeparator className="h-px bg-border my-1" />
-                            <ContextMenuItem
-                              onClick={() => handleCopyValue("Total Fan Static Head Loss", unitSystem === "ip" ? `${(calculatedData.headRound * 0.00401865).toFixed(3)} in.wg` : `${calculatedData.headRound} Pa`)}
-                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                            >
-                              <span>Copy Value</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-
-                        {/* Card 3: Emerald - Total Motor Power */}
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id="res-total-motor-power"
-                              data-field-id="res-total-motor-power"
-                              data-comment-target="res-total-motor-power"
-                              className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 transition-all cursor-context-menu relative"
-                            >
-                              <RowCommentCornerBadge
-                                id="res-total-motor-power"
-                                count={getMergedItemComments("res-total-motor-power", "Total Motor Power", commentsList, "/smoke-extract-fan", project?.id).length}
-                                onClick={() => handleOpenComment("res-total-motor-power", "Total Motor Power")}
-                              />
-                              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Total Motor Power</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {unitSystem === "ip" ? `${(calculatedData.totalMotorPower * 1.34102).toFixed(2)} HP` : `${calculatedData.totalMotorPower.toFixed(2)} kW`}
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem
-                              onClick={() => handleOpenComment("res-total-motor-power", "Total Motor Power")}
-                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                            >
-                              <MessageSquare className="size-3.5" />
-                              <span>Add Comment</span>
-                            </ContextMenuItem>
-                            <ContextMenuSeparator className="h-px bg-border my-1" />
-                            <ContextMenuItem
-                              onClick={() => handleCopyValue("Total Motor Power", unitSystem === "ip" ? `${(calculatedData.totalMotorPower * 1.34102).toFixed(2)} HP` : `${calculatedData.totalMotorPower.toFixed(2)} kW`)}
-                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                            >
-                              <span>Copy Value</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-
-                        {/* Card 4: Purple - Power per Fan */}
-                        <ContextMenu>
-                          <ContextMenuTrigger asChild>
-                            <div
-                              id="res-power-fan"
-                              data-field-id="res-power-fan"
-                              data-comment-target="res-power-fan"
-                              className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 transition-all cursor-context-menu relative"
-                            >
-                              <RowCommentCornerBadge
-                                id="res-power-fan"
-                                count={getMergedItemComments("res-power-fan", "Power Required per Fan", commentsList, "/smoke-extract-fan", project?.id).length}
-                                onClick={() => handleOpenComment("res-power-fan", "Power Required per Fan")}
-                              />
-                              <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Power / Fan</div>
-                              <div className="text-xl font-bold font-mono text-foreground mt-1">
-                                {unitSystem === "ip" ? `${(calculatedData.powerEachRound * 1.34102).toFixed(2)} HP` : `${calculatedData.powerEachRound.toFixed(2)} kW`}
-                              </div>
-                            </div>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                            <ContextMenuItem
-                              onClick={() => handleOpenComment("res-power-fan", "Power Required per Fan")}
-                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                            >
-                              <MessageSquare className="size-3.5" />
-                              <span>Add Comment</span>
-                            </ContextMenuItem>
-                            <ContextMenuSeparator className="h-px bg-border my-1" />
-                            <ContextMenuItem
-                              onClick={() => handleCopyValue("Power Required per Fan", unitSystem === "ip" ? `${(calculatedData.powerEachRound * 1.34102).toFixed(2)} HP` : `${calculatedData.powerEachRound.toFixed(2)} kW`)}
-                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                            >
-                              <span>Copy Value</span>
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      </div>
-
-                      {/* DETAILED METRICS TABLE */}
-                      <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs">
-                        <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
-                          <span className="text-slate-600 dark:text-zinc-400">Corridor Volume:</span>
-                          <span className="font-mono font-bold">{unitSystem === "ip" ? `${(calculatedData.volume * 35.3147).toFixed(1)} ft³` : `${calculatedData.volume.toFixed(1)} m³`}</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
-                          <span className="text-slate-600 dark:text-zinc-400">Total Smoke Extract Rate:</span>
-                          <span className="font-mono font-bold">{unitSystem === "ip" ? `${(calculatedData.smokeExtractRate * 2118.88).toFixed(0)} CFM` : `${calculatedData.smokeExtractRate.toFixed(3)} m³/s`}</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
-                          <span className="text-slate-600 dark:text-zinc-400">Equivalent Length of Fittings:</span>
-                          <span className="font-mono font-bold">{unitSystem === "ip" ? `${(calculatedData.fittingsEqLen * 3.28084).toFixed(1)} ft` : `${calculatedData.fittingsEqLen.toFixed(2)} m`}</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
-                          <span className="text-slate-600 dark:text-zinc-400">Total Equivalent Duct Length:</span>
-                          <span className="font-mono font-bold">{unitSystem === "ip" ? `${(calculatedData.totalEqLen * 3.28084).toFixed(1)} ft` : `${calculatedData.totalEqLen.toFixed(1)} m`}</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
-                          <span className="text-slate-600 dark:text-zinc-400">Head Loss in Ducting:</span>
-                          <span className="font-mono font-bold">{unitSystem === "ip" ? `${(calculatedData.frictionLoss * 0.00401865).toFixed(3)} in.wg` : `${calculatedData.frictionLoss.toFixed(2)} Pa`}</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
-                          <span className="text-slate-600 dark:text-zinc-400">Flow Rate per Fan:</span>
-                          <span className="font-mono font-bold">{unitSystem === "ip" ? `${(calculatedData.flowEachM3s * 2118.88).toFixed(0)} CFM` : `${calculatedData.flowEachM3s.toFixed(3)} m³/s`}</span>
-                        </div>
-                        <div className="flex justify-between py-1 font-bold text-foreground">
-                          <span>Total Motor Power (+10% Safety):</span>
-                          <span className="font-mono font-bold text-[#0A7BC7]">{unitSystem === "ip" ? `${(calculatedData.totalMotorPower * 1.34102).toFixed(2)} HP (${calculatedData.totalMotorPower.toFixed(2)} kW)` : `${calculatedData.totalMotorPower.toFixed(2)} kW`}</span>
-                        </div>
-                      </div>
-
-                      {/* Assumptions reference block */}
-                      <div className="bg-slate-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-800 rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
-                        <p className="font-semibold text-foreground mb-1">Standard Reference &amp; Assumptions:</p>
-                        <ul className="list-disc pl-4 space-y-1.5">
-                          <li>Calculates smoke extract in accordance with NFPA 92 and BS EN 12101-6.</li>
-                          <li>Friction loss calculation uses equivalent length index for typical fittings ($1.6 \times$ duct length).</li>
-                          <li>Fan motor sizing includes a $+10\%$ electrical security factor applied to nominal shaft power.</li>
-                        </ul>
-                      </div>
-
-                    </div>
-                  </div>
+            {/* Inputs Column */}
+            <div className="lg:col-span-5 flex flex-col gap-6">
+              {/* Card 1: Corridor Parameters */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">1. Corridor Parameters</h3>
                 </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  {renderInputBox("se-corridor-area", "Area of Corridor (m²)", area, setArea, 100, "100")}
+                  {renderInputBox("se-corridor-height", "Height of Corridor (m)", height, setHeight, 3.0, "3.0")}
+                  {renderInputBox("se-acph", "Air Changes per Hour (ACPH)", acph, setAcph, 10, "10")}
+                  {renderInputBox("se-fan-qty", "Quantity of Fans", fanQty, (val) => { setFanQty(val); setNumFansMotor(val); }, 1, "1", 1, "1")}
+                </div>
+              </div>
+
+              {/* Card 2: Fan Head Sizing */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">2. Duct Static Head Loss</h3>
+                </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  {renderInputBox("se-smoke-duct-length", "Ducting Length (m)", ductLength, setDuctLength, 20, "20")}
+                  {renderInputBox("se-smoke-duct-friction-factor", "Frictional Factor (Pa/m)", frictionFactor, setFrictionFactor, 1.0, "1.0")}
+                  {renderInputBox("se-smoke-losses-louvers", "Louver & Grille Pressure Drop (Pa)", louverLoss, setLouverLoss, 50, "50")}
+                  {renderInputBox("se-smoke-losses-fan", "Fan Internal Losses (Pa)", fanLoss, setFanLoss, 20, "20")}
+                </div>
+              </div>
+
+              {/* Card 3: Fan Motor Sizing */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">3. Fan Motor Sizing</h3>
+                </div>
+
+                <div className="flex flex-col gap-3.5 text-xs">
+                  {renderInputBox("se-motor-eff-motor", "Motor Efficiency (%)", effMotor, setEffMotor, 90, "90")}
+                  {renderInputBox("se-motor-eff-fan", "Fan Efficiency (%)", effFan, setEffFan, 75, "75")}
+                  {renderInputBox("se-motor-fan-qty", "Number of Fans (Motor calculation)", numFansMotor, setNumFansMotor, 1, "1", 1, "1")}
+                </div>
+              </div>
+            </div>
+
+            {/* Results Column */}
+            <div className="lg:col-span-7 flex flex-col gap-5 sticky top-0 pb-4">
+              {/* Summary card */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Airflow & static head results</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                  {renderResultRow("res-volume", "Corridor Volume", `${calculatedData.volume.toFixed(1)} m³`)}
+                  {renderResultRow("res-extract-rate", "Total Smoke Extract", `${calculatedData.smokeExtractRate.toFixed(3)} m³/s`)}
+                  {renderResultRow("res-flow-fan", "Airflow per Fan", `${calculatedData.flowEachLsRound} L/s`, true, "text-[#0A7BC7] text-[13px]")}
+                  {renderResultRow("res-fittings-eq", "Equivalent Length of Fittings", `${calculatedData.fittingsEqLen.toFixed(2)} m`)}
+                  {renderResultRow("res-total-eq", "Total Equivalent Length", `${calculatedData.totalEqLen.toFixed(1)} m`)}
+                  {renderResultRow("res-[#0A7BC7]", "Head Loss in Ducting", `${calculatedData.frictionLoss.toFixed(2)} Pa`)}
+                  {renderResultRow("res-total-static", "Total Fan Static Head Loss", `${calculatedData.headRound} Pa`, true, "text-[#0A7BC7] text-[14px]", true)}
+                </div>
+              </div>
+
+              {/* Motor sizing card */}
+              <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-xs">
+                <div className="flex items-center gap-2 pb-2 border-b border-border/60">
+                  <div className="w-1 h-3.5 bg-[#0A7BC7] rounded-full"></div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans">Motor Sizing Results</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 font-sans text-xs">
+                  {renderResultRow("res-flow-each-m3s", "Flow of each fan", `${calculatedData.flowEachM3s.toFixed(3)} m³/s`, true, "text-[#0A7BC7]")}
+                  {renderResultRow("res-static-fan", "Total Static of the Fan", `${calculatedData.headRound} Pa`, true, "text-[#0A7BC7]")}
+                  {renderResultRow("res-power-fan", "Power Required per Fan", `${calculatedData.powerEachRound.toFixed(2)} kW`)}
+                  {renderResultRow("res-total-motor-power", "Total Motor Power (+10% Safety margin)", `${calculatedData.totalMotorPower.toFixed(2)} kW`, true, "text-[#0A7BC7] text-[14px]", true)}
+                </div>
+              </div>
+
+              
+
+              {/* Assumptions reference block */}
+              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl p-4 text-xs text-muted-foreground leading-relaxed">
+                <p className="font-semibold text-foreground mb-1">Standard Reference &amp; Assumptions:</p>
+                <ul className="list-disc pl-4 space-y-1.5">
+                  <li>Calculates fresh air requirements in accordance with NFPA 92 and BS EN 12101-6.</li>
+                  <li>Friction loss calculation uses equivalent length sizers for typical fitting indices ($1.6 \times$ duct length).</li>
+                  <li>Fan motor sizing includes a $+10\%$ electrical security factor applied to nominal shaft horsepower outputs.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
               </div>
             )}
             {tab === "report" && (
-              <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-card border border-border rounded-2xl shadow-xs mx-4 mb-4 mt-2">
+                <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><HelpCircle className="size-5 text-primary"/> Detailed Calculations & Steps</h2>
+                <div className="flex flex-col gap-4 max-w-4xl mx-auto w-full">
+                  {/* Detailed Calculations Steps */}
+              <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+            : calcReviewState?.status === "REJECTED"
+            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+            : calcReviewState?.status === "REVIEWED"
+            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
+                <button
                   
-                  {/* 1. Title */}
-                  <div className="pb-1">
-                    <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
-                      Corridor Smoke Extract Fan Calculation
-                    </h2>
-                  </div>
+                  className="w-full flex items-center justify-between p-5 font-bold text-xs uppercase tracking-wider text-muted-foreground font-sans hover:bg-slate-50 dark:hover:bg-slate-900/40 select-none cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <HelpCircle className="size-4 text-primary" /> Σ Detailed Calculations Steps
+                  </span>
+                  
+                </button>
+                <div className="p-5 pt-0 border-t border-border/40 text-xs font-sans flex flex-col gap-4 max-h-[350px] overflow-y-auto">
+                    {/* Step 1 */}
+                    {(() => {
+                      const stepId = "step-1-volume";
+                      const stepLabel = "Step 1: Corridor Volume";
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">1</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                </div>
+                                <div className="font-mono text-primary my-1">V = Area × Height</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">V = {area || 100} m² × {height || 3.0} m</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.volume.toFixed(2)} m³</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 1 Volume", `${calculatedData.volume.toFixed(2)} m³`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 1 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                  {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format) */}
-                  <div className="border border-border rounded-xl overflow-hidden text-xs">
-                    <table className="w-full border-collapse">
-                      <tbody>
-                        <tr className="border-b border-border divide-x divide-border">
-                          <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
-                          <td className="p-2.5 font-mono text-foreground font-medium">{(project as any)?.calcNo || "TRV-CALC-SEF-01"}</td>
-                          <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
-                          <td className="p-2.5 font-mono font-medium">{formatDateStr(new Date().toISOString())}</td>
-                        </tr>
-                        <tr className="border-b border-border divide-x divide-border">
-                          <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
-                          <td className="p-2.5 font-mono">{project?.code || (project as any)?.projectNo || "P000"}</td>
-                          <td className="p-2.5 font-bold bg-muted/20">Client:</td>
-                          <td className="p-2.5">{project?.client || "-"}</td>
-                        </tr>
-                        <tr className="divide-x divide-border">
-                          <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
-                          <td className="p-2.5">{project?.name || "Corridor Smoke Extract Fan Sizing"}</td>
-                          <td className="p-2.5 font-bold bg-muted/20">End User:</td>
-                          <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                    {/* Step 2 */}
+                    {(() => {
+                      const stepId = "step-2-extract-rate";
+                      const stepLabel = "Step 2: Smoke Extract Rate";
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">2</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                </div>
+                                <div className="font-mono text-primary my-1">Q_smoke = (Volume × ACPH) / 3600</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Q_smoke = ({calculatedData.volume.toFixed(2)} m³ × {acph || 10} ACPH) / 3600</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.smokeExtractRate.toFixed(3)} m³/s</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 2 Extract Rate", `${calculatedData.smokeExtractRate.toFixed(3)} m³/s`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 2 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                  {/* 3. Table 1: Design Input Parameters */}
-                  <div className="border border-border rounded-xl overflow-x-auto">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                          <th className="p-2.5 w-12 text-center border-r border-border">No.</th>
-                          <th className="p-2.5 text-left border-r border-border">Design Parameter</th>
-                          <th className="p-2.5 w-28 text-center border-r border-border">Value</th>
-                          <th className="p-2.5 w-24 text-center border-r border-border">Unit</th>
-                          <th className="p-2.5 text-left">Engineering Basis / Remarks</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">1</td>
-                          <td className="p-2 border-r border-border font-medium">Area of Corridor</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{area || (unitSystem === "ip" ? 1076 : 100)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "ft²" : "m²"}</td>
-                          <td className="p-2 text-muted-foreground">Corridor floor footprint</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">2</td>
-                          <td className="p-2 border-r border-border font-medium">Height of Corridor</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{height || (unitSystem === "ip" ? 10 : 3.0)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "ft" : "m"}</td>
-                          <td className="p-2 text-muted-foreground">Floor-to-ceiling clear smoke zone height</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">3</td>
-                          <td className="p-2 border-r border-border font-medium">Air Changes per Hour (ACPH)</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{acph || 10}</td>
-                          <td className="p-2 text-center border-r border-border">ACPH</td>
-                          <td className="p-2 text-muted-foreground">Per NFPA 92 / BS EN 12101 standards</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">4</td>
-                          <td className="p-2 border-r border-border font-medium">Quantity of Operating Fans</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{fanQty || 1}</td>
-                          <td className="p-2 text-center border-r border-border">No.</td>
-                          <td className="p-2 text-muted-foreground">Operating smoke extract fan count</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">5</td>
-                          <td className="p-2 border-r border-border font-medium">Ducting Equivalent Route Length</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{ductLength || (unitSystem === "ip" ? 65 : 20)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "ft" : "m"}</td>
-                          <td className="p-2 text-muted-foreground">Physical duct run length</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">6</td>
-                          <td className="p-2 border-r border-border font-medium">Duct Friction Gradient Factor</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{frictionFactor || (unitSystem === "ip" ? 0.12 : 1.0)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "in.wg/100ft" : "Pa/m"}</td>
-                          <td className="p-2 text-muted-foreground">Duct design friction rate</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">7</td>
-                          <td className="p-2 border-r border-border font-medium">Louver & Grille Pressure Drop</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{louverLoss || (unitSystem === "ip" ? 0.2 : 50)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "in.wg" : "Pa"}</td>
-                          <td className="p-2 text-muted-foreground">Intake / discharge component head loss</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">8</td>
-                          <td className="p-2 border-r border-border font-medium">Fan Internal & Casing Losses</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{fanLoss || (unitSystem === "ip" ? 0.08 : 20)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "in.wg" : "Pa"}</td>
-                          <td className="p-2 text-muted-foreground">Internal silencer, dampers & casing losses</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">9</td>
-                          <td className="p-2 border-r border-border font-medium">Motor Efficiency</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{effMotor || 90}%</td>
-                          <td className="p-2 text-center border-r border-border">%</td>
-                          <td className="p-2 text-muted-foreground">Nominal electric motor efficiency</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">10</td>
-                          <td className="p-2 border-r border-border font-medium">Fan Aerodynamic Efficiency</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{effFan || 75}%</td>
-                          <td className="p-2 text-center border-r border-border">%</td>
-                          <td className="p-2 text-muted-foreground">Fan impeller static efficiency</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                    {/* Step 3 */}
+                    {(() => {
+                      const stepId = "step-3-flow-fan";
+                      const stepLabel = "Step 3: Sized Flow Rate per Fan";
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">3</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                </div>
+                                <div className="font-mono text-primary my-1">Q_each = Ceiling( (Q_smoke / fanQty × 1000) / 5 ) * 5</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Q_each = Ceiling( ({calculatedData.smokeExtractRate.toFixed(3)} / {fanQty || 1} × 1000) / 5 ) * 5</div>
+                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.flowEachLsRound} L/s</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 3 Flow per Fan", `${calculatedData.flowEachLsRound} L/s`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 3 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                  {/* 4. Table 2: Aerodynamic Sizing & Motor Power Results (Highlighted Rows) */}
-                  <div className="border border-border rounded-xl overflow-x-auto">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                          <th className="p-2.5 w-12 text-center border-r border-border">No.</th>
-                          <th className="p-2.5 text-left border-r border-border">Calculated Engineering Metric</th>
-                          <th className="p-2.5 w-36 text-center border-r border-border">Output Value</th>
-                          <th className="p-2.5 w-24 text-center border-r border-border">Unit</th>
-                          <th className="p-2.5 text-left">Compliance & Safety Factor</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">1</td>
-                          <td className="p-2 border-r border-border font-medium">Total Corridor Volume</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{unitSystem === "ip" ? (calculatedData.volume * 35.3147).toFixed(1) : calculatedData.volume.toFixed(1)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "ft³" : "m³"}</td>
-                          <td className="p-2 text-muted-foreground">Gross enclosed volume</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">2</td>
-                          <td className="p-2 border-r border-border font-medium">Total Required Smoke Extract</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{unitSystem === "ip" ? Math.round(calculatedData.smokeExtractRate * 2118.88) : calculatedData.smokeExtractRate.toFixed(3)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "CFM" : "m³/s"}</td>
-                          <td className="p-2 text-muted-foreground">Total exhaust airflow capacity</td>
-                        </tr>
-                        {/* Highlighted Row 3 */}
-                        <tr className="bg-[#DAE9F8] dark:bg-blue-950/40 font-bold border-y border-blue-200 dark:border-blue-900">
-                          <td className="p-2 text-center border-r border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200">3</td>
-                          <td className="p-2 border-r border-blue-200 dark:border-blue-900 text-blue-950 dark:text-blue-100">Sized Airflow per Fan (Operating)</td>
-                          <td className="p-2 text-center border-r border-blue-200 dark:border-blue-900 font-mono text-blue-950 dark:text-blue-100">{unitSystem === "ip" ? Math.round(calculatedData.flowEachLsRound * 2.11888) : `${calculatedData.flowEachLsRound} L/s`}</td>
-                          <td className="p-2 text-center border-r border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200">{unitSystem === "ip" ? "CFM" : "L/s"}</td>
-                          <td className="p-2 text-blue-900 dark:text-blue-200">Rounded up to standard fan increment (5 L/s)</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">4</td>
-                          <td className="p-2 border-r border-border font-medium">Fittings Equivalent Length</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{unitSystem === "ip" ? (calculatedData.fittingsEqLen * 3.28084).toFixed(1) : calculatedData.fittingsEqLen.toFixed(1)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "ft" : "m"}</td>
-                          <td className="p-2 text-muted-foreground">60% equivalent dynamic loss allowance</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">5</td>
-                          <td className="p-2 border-r border-border font-medium">Total Equivalent Duct Run</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{unitSystem === "ip" ? (calculatedData.totalEqLen * 3.28084).toFixed(1) : calculatedData.totalEqLen.toFixed(1)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "ft" : "m"}</td>
-                          <td className="p-2 text-muted-foreground">Straight duct + equivalent fittings</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">6</td>
-                          <td className="p-2 border-r border-border font-medium">Ductwork Friction Pressure Loss</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{unitSystem === "ip" ? (calculatedData.frictionLoss * 0.00401865).toFixed(3) : calculatedData.frictionLoss.toFixed(1)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "in.wg" : "Pa"}</td>
-                          <td className="p-2 text-muted-foreground">Calculated friction drop along route</td>
-                        </tr>
-                        {/* Highlighted Row 7 */}
-                        <tr className="bg-[#DAE9F8] dark:bg-blue-950/40 font-bold border-y border-blue-200 dark:border-blue-900">
-                          <td className="p-2 text-center border-r border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200">7</td>
-                          <td className="p-2 border-r border-blue-200 dark:border-blue-900 text-blue-950 dark:text-blue-100">Total Fan Static External Head Loss</td>
-                          <td className="p-2 text-center border-r border-blue-200 dark:border-blue-900 font-mono text-blue-950 dark:text-blue-100">{unitSystem === "ip" ? (calculatedData.headRound * 0.00401865).toFixed(3) : calculatedData.headRound}</td>
-                          <td className="p-2 text-center border-r border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200">{unitSystem === "ip" ? "in.wg" : "Pa"}</td>
-                          <td className="p-2 text-blue-900 dark:text-blue-200">Includes +10% engineering margin, rounded to 10 Pa</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">8</td>
-                          <td className="p-2 border-r border-border font-medium">Calculated Shaft Power per Fan</td>
-                          <td className="p-2 text-center border-r border-border font-mono">{unitSystem === "ip" ? (calculatedData.powerEachRound * 1.34102).toFixed(2) : calculatedData.powerEachRound.toFixed(2)}</td>
-                          <td className="p-2 text-center border-r border-border">{unitSystem === "ip" ? "HP" : "kW"}</td>
-                          <td className="p-2 text-muted-foreground">Net aerodynamic shaft horsepower</td>
-                        </tr>
-                        {/* Highlighted Row 9 */}
-                        <tr className="bg-[#DAE9F8] dark:bg-blue-950/40 font-bold border-y border-blue-200 dark:border-blue-900">
-                          <td className="p-2 text-center border-r border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200">9</td>
-                          <td className="p-2 border-r border-blue-200 dark:border-blue-900 text-blue-950 dark:text-blue-100">Recommended Total Motor Rating</td>
-                          <td className="p-2 text-center border-r border-blue-200 dark:border-blue-900 font-mono text-blue-950 dark:text-blue-100">{unitSystem === "ip" ? (calculatedData.totalMotorPower * 1.34102).toFixed(2) : calculatedData.totalMotorPower.toFixed(2)}</td>
-                          <td className="p-2 text-center border-r border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200">{unitSystem === "ip" ? "HP" : "kW"}</td>
-                          <td className="p-2 text-blue-900 dark:text-blue-200">Includes +10% electrical safety factor margin</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                    {/* Step 4 */}
+                    {(() => {
+                      const stepId = "step-4-friction-loss";
+                      const stepLabel = "Step 4: Ducting Equivalent Length & Friction Loss";
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">4</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                </div>
+                                <div className="font-mono text-primary my-1">Eq. Length = DuctLength × 1.6 | frictionLoss = Eq. Length × frictionFactor</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Eq. Length = {calculatedData.totalEqLen.toFixed(1)} m | frictionLoss = {calculatedData.totalEqLen.toFixed(1)} m × {frictionFactor || 1.0} Pa/m</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.frictionLoss.toFixed(2)} Pa</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 4 Friction Loss", `${calculatedData.frictionLoss.toFixed(2)} Pa`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 4 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                  {/* 5. Table 3: Detailed Step-by-Step Calculations */}
-                  <div className="border border-border rounded-xl overflow-x-auto">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                          <th className="p-2.5 w-12 text-center border-r border-border">Step</th>
-                          <th className="p-2.5 text-left border-r border-border">Calculation Description & Governing Formula</th>
-                          <th className="p-2.5 text-left border-r border-border">Substituted Values</th>
-                          <th className="p-2.5 w-32 text-center">Calculated Result</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">1</td>
-                          <td className="p-2 border-r border-border font-medium">Corridor Volume: V = Area × Height</td>
-                          <td className="p-2 border-r border-border font-mono text-muted-foreground">V = {area || 100} m² × {height || 3.0} m</td>
-                          <td className="p-2 text-center font-mono font-bold text-foreground">{calculatedData.volume.toFixed(2)} m³</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">2</td>
-                          <td className="p-2 border-r border-border font-medium">Smoke Extract Rate: Q = (V × ACPH) / 3600</td>
-                          <td className="p-2 border-r border-border font-mono text-muted-foreground">Q = ({calculatedData.volume.toFixed(2)} × {acph || 10}) / 3600</td>
-                          <td className="p-2 text-center font-mono font-bold text-foreground">{calculatedData.smokeExtractRate.toFixed(3)} m³/s</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">3</td>
-                          <td className="p-2 border-r border-border font-medium">Airflow per Fan: Q_fan = ceil((Q / N × 1000) / 5) * 5</td>
-                          <td className="p-2 border-r border-border font-mono text-muted-foreground">Q_fan = ceil(({calculatedData.smokeExtractRate.toFixed(3)} / {fanQty || 1} × 1000) / 5) * 5</td>
-                          <td className="p-2 text-center font-mono font-bold text-primary">{calculatedData.flowEachLsRound} L/s</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">4</td>
-                          <td className="p-2 border-r border-border font-medium">Duct Friction Loss: ΔP = L_eq × FrictionFactor</td>
-                          <td className="p-2 border-r border-border font-mono text-muted-foreground">ΔP = {calculatedData.totalEqLen.toFixed(1)} m × {frictionFactor || 1.0} Pa/m</td>
-                          <td className="p-2 text-center font-mono font-bold text-foreground">{calculatedData.frictionLoss.toFixed(2)} Pa</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">5</td>
-                          <td className="p-2 border-r border-border font-medium">Fan Static Head: H = ceil((ΔP + Louver + Fan) × 1.1, 10)</td>
-                          <td className="p-2 border-r border-border font-mono text-muted-foreground">H = ceil(({calculatedData.frictionLoss.toFixed(1)} + {louverLoss || 50} + {fanLoss || 20}) × 1.1)</td>
-                          <td className="p-2 text-center font-mono font-bold text-primary">{calculatedData.headRound} Pa</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">6</td>
-                          <td className="p-2 border-r border-border font-medium">Fan Shaft Power: P = (Q × H) / (η_m × η_f × 1000)</td>
-                          <td className="p-2 border-r border-border font-mono text-muted-foreground">P = ({calculatedData.flowEachM3s.toFixed(4)} × {calculatedData.headRound}) / ({(Number(effMotor) || 90) / 100} × {(Number(effFan) || 75) / 100} × 1000)</td>
-                          <td className="p-2 text-center font-mono font-bold text-foreground">{calculatedData.powerEachRound.toFixed(2)} kW</td>
-                        </tr>
-                        <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                          <td className="p-2 text-center border-r border-border font-mono text-muted-foreground">7</td>
-                          <td className="p-2 border-r border-border font-medium">Total Motor Power: P_tot = P_fan × 1.1 × N_fans</td>
-                          <td className="p-2 border-r border-border font-mono text-muted-foreground">P_tot = {calculatedData.powerEachRound.toFixed(2)} kW × 1.1 × {numFansMotor || 1}</td>
-                          <td className="p-2 text-center font-mono font-bold text-primary">{calculatedData.totalMotorPower.toFixed(2)} kW</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                    {/* Step 5 */}
+                    {(() => {
+                      const stepId = "step-5-static-head";
+                      const stepLabel = "Step 5: Fan Total Static Head";
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">5</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                </div>
+                                <div className="font-mono text-primary my-1">Total Head = Round( (frictionLoss + LouverDrop + FanDrop) × 1.1 ) to nearest 10</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Total Head = Round( ({calculatedData.frictionLoss.toFixed(2)} + {louverLoss || 50} + {fanLoss || 20}) × 1.1 ) to nearest 10</div>
+                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.headRound} Pa</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 5 Static Head", `${calculatedData.headRound} Pa`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 5 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
 
-                  {/* 6. Standard 3-Tier Signature Sign-Off Block (#FFE6CC Header) */}
-                  <div className="pt-2">
-                    <div className="border border-border rounded-xl overflow-hidden text-xs">
-                      <table className="w-full border-collapse">
-                        <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
-                          <tr className="divide-x border-b border-border">
-                            <th className="p-2.5 w-28 text-center"></th>
-                            <th className="p-2.5 text-center w-1/3">Originator</th>
-                            <th className="p-2.5 text-center w-1/3">Reviewer</th>
-                            <th className="p-2.5 text-center w-1/3">Approver</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                          <tr className="divide-x divide-border">
-                            <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
-                            <td className="p-2.5 text-center font-medium">
-                              {sigDetails.originatedName || currentUserName || "Abubakar Chanda"}
-                            </td>
-                            <td className="p-2.5 text-center font-medium">
-                              {sigDetails.reviewerName || ""}
-                            </td>
-                            <td className="p-2.5 text-center font-medium">
-                              {sigDetails.approverName || ""}
-                            </td>
-                          </tr>
-                          <tr className="divide-x divide-border">
-                            <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
-                            <td className="p-2.5 text-center font-mono">
-                              {sigDetails.originatedDate || formatDateStr(new Date().toISOString())}
-                            </td>
-                            <td className="p-2.5 text-center font-mono">
-                              {sigDetails.reviewerDate || ""}
-                            </td>
-                            <td className="p-2.5 text-center font-mono">
-                              {sigDetails.approverDate || ""}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
+                    {/* Step 6 */}
+                    {(() => {
+                      const stepId = "step-6-power-fan";
+                      const stepLabel = "Step 6: Sized Power per Fan";
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start border-b border-border/40 pb-2 cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">6</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                </div>
+                                <div className="font-mono text-primary my-1">Power = (FlowEachM3s × HeadRound) / (Eff_Motor × Eff_Fan × 1000)</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Power = ({calculatedData.flowEachM3s.toFixed(4)} m³/s × {calculatedData.headRound} Pa) / ({(Number(effMotor) || 90) / 100} × {(Number(effFan) || 75) / 100} × 1000)</div>
+                                <div className="font-bold text-[11px] text-foreground mt-0.5">{calculatedData.powerEachRound.toFixed(2)} kW</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 6 Power per Fan", `${calculatedData.powerEachRound.toFixed(2)} kW`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 6 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
+
+                    {/* Step 7 */}
+                    {(() => {
+                      const stepId = "step-7-total-motor-power";
+                      const stepLabel = "Step 7: Sized Total Motor Power";
+                      const stepComments = getMergedItemComments(stepId, undefined, commentsList, "/smoke-extract-fan", project?.id);
+                      const isHighlighted = highlightedTargetId === stepId || (highlightedTargetId && stepId.includes(highlightedTargetId.toLowerCase()));
+                      return (
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              id={stepId}
+                              data-item-id={stepId}
+                              data-field-id={stepId}
+                              className={`flex gap-3 items-start cursor-context-menu hover:bg-slate-100/40 dark:hover:bg-slate-800/30 p-1.5 rounded-lg transition relative ${
+                                isHighlighted ? "row-highlight-flash item-highlight-pulse ring-2 ring-primary bg-primary/20 z-20" : ""
+                              }`}
+                            >
+                              <RowCommentCornerBadge
+                                count={stepComments.length}
+                                onClick={() => handleOpenComment(stepId, stepLabel)}
+                              />
+                              <div className="size-5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[10px] shrink-0">7</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-foreground flex items-center justify-between">
+                                  <span>{stepLabel}</span>
+                                </div>
+                                <div className="font-mono text-primary my-1">Total Power = PowerEach × 1.1 × qtyFans (Motor calculation)</div>
+                                <div className="font-mono text-[10.5px] text-muted-foreground">Total Power = {calculatedData.powerEachRound.toFixed(2)} kW × 1.1 × {numFansMotor || 1}</div>
+                                <div className="font-bold text-[11px] text-[#0A7BC7] mt-0.5">{calculatedData.totalMotorPower.toFixed(2)} kW</div>
+                              </div>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment(stepId, stepLabel)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>{stepComments.length > 0 ? `View Comments (${stepComments.length})` : "Add Comment"}</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleCopyValue("Step 7 Total Motor Power", `${calculatedData.totalMotorPower.toFixed(2)} kW`)}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                            >
+                              <Copy className="size-3.5 text-muted-foreground" />
+                              <span>Copy Step 7 Result</span>
+                              <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</ContextMenuShortcut>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    })()}
+                      </div>
                     </div>
-                  </div>
-
-                </div>
-              </div>
-            )}
+                    </div>
+                    </div>
+                      )}
                     </div>
 
 {/* Intelligence Drawer (Collapsible Right Side Panel) */}

@@ -22,14 +22,21 @@ export interface LoadRow {
   remarks: string;
   flagged?: boolean;
   comments?: TaskComment[];
+  isLightingCustomized?: boolean;
+  isPowerCustomized?: boolean;
+  isHvacCustomized?: boolean;
+  isOtherCustomized?: boolean;
 }
 
 /**
- * Cleans space name by removing redundant floor prefixes like [GROUND FLOOR], [FIRST FLOOR], [L01], etc.
+ * Cleans space name by removing redundant floor prefixes like [GROUND FLOOR], [FIRST FLOOR], [L01], "GROUND FLOOR - ", etc.
  */
 export function cleanSpaceName(name: string): string {
   if (!name) return "";
-  return name.replace(/^\[.*?\]\s*/, "").trim();
+  let cleaned = name.replace(/^\[.*?\]\s*/, "").trim();
+  // Also clean prefix like "GROUND FLOOR - ", "1ST FLOOR: ", etc.
+  cleaned = cleaned.replace(/^(?:BASEMENT\s*\d*|GROUND\s*FLOOR|FIRST\s*FLOOR|SECOND\s*FLOOR|THIRD\s*FLOOR|FOURTH\s*FLOOR|FIFTH\s*FLOOR|SIXTH\s*FLOOR|ROOF\s*(?:LEVEL|FLOOR)?|TYPICAL\s*FLOOR(?:\s*\([^)]*\))?|MEZZANINE|PODIUM|LEVEL\s*\d+|L\d+|B\d+|GF|FF|SF|TF)\s*[:\-\/]\s*/i, "").trim();
+  return cleaned || name;
 }
 
 /**
@@ -50,20 +57,40 @@ export function cleanRemarks(remarks: string | undefined): string {
 }
 
 /**
- * Extracts normalized floor level name from LoadRow
+ * Extracts normalized floor level name from LoadRow or space description
  */
-export function extractFloorName(row: LoadRow): string {
-  if (row.floor && row.floor.trim()) return row.floor.trim().toUpperCase();
-  const match = (row.description || "").match(/^\[(.*?)\]/);
-  if (match && match[1]) {
-    const raw = match[1].trim().toUpperCase();
-    if (raw === "L01" || raw === "L1") return "FIRST FLOOR";
-    if (raw === "L02" || raw === "L2") return "SECOND FLOOR";
+export function extractFloorName(row: Partial<LoadRow> | { floor?: string; description?: string }): string {
+  if (row?.floor && typeof row.floor === "string" && row.floor.trim()) {
+    return row.floor.trim().toUpperCase();
+  }
+  const desc = (row?.description || "").trim();
+  const matchBracket = desc.match(/^\[(.*?)\]/);
+  if (matchBracket && matchBracket[1]) {
+    const raw = matchBracket[1].trim().toUpperCase();
+    if (raw === "L01" || raw === "L1" || raw === "FF") return "FIRST FLOOR";
+    if (raw === "L02" || raw === "L2" || raw === "SF") return "SECOND FLOOR";
+    if (raw === "L03" || raw === "L3" || raw === "TF") return "THIRD FLOOR";
     if (raw === "L00" || raw === "GF" || raw === "L0") return "GROUND FLOOR";
     if (raw === "B1") return "BASEMENT 1";
+    if (raw === "B2") return "BASEMENT 2";
     if (raw === "ROOF") return "ROOF LEVEL";
     return raw;
   }
+
+  // Check prefix like "GROUND FLOOR - ", "1ST FLOOR / ", etc.
+  const prefixMatch = desc.match(/^(BASEMENT\s*\d*|GROUND\s*FLOOR|FIRST\s*FLOOR|SECOND\s*FLOOR|THIRD\s*FLOOR|FOURTH\s*FLOOR|FIFTH\s*FLOOR|SIXTH\s*FLOOR|ROOF\s*(?:LEVEL|FLOOR)?|TYPICAL\s*FLOOR(?:\s*\([^)]*\))?|MEZZANINE|PODIUM|LEVEL\s*\d+|L\d+|B\d+|GF|FF|SF|TF)\s*[:\-\/]/i);
+  if (prefixMatch && prefixMatch[1]) {
+    const raw = prefixMatch[1].trim().toUpperCase();
+    if (raw === "GF") return "GROUND FLOOR";
+    if (raw === "FF" || raw === "L1" || raw === "L01") return "FIRST FLOOR";
+    if (raw === "SF" || raw === "L2" || raw === "L02") return "SECOND FLOOR";
+    if (raw === "TF" || raw === "L3" || raw === "L03") return "THIRD FLOOR";
+    if (raw === "B1") return "BASEMENT 1";
+    if (raw === "B2") return "BASEMENT 2";
+    if (raw === "ROOF") return "ROOF LEVEL";
+    return raw;
+  }
+
   return "FIRST FLOOR";
 }
 
@@ -71,7 +98,7 @@ export function extractFloorName(row: LoadRow): string {
  * Sorts load rows floor-wise (Basement -> Ground -> 1st -> 2nd -> Roof)
  * and then alphabetically by space name inside each floor.
  */
-export function sortLoadRowsFloorWise(rows: LoadRow[]): LoadRow[] {
+export function sortLoadRowsFloorWise(rows: LoadRow[], direction: "asc" | "desc" = "asc"): LoadRow[] {
   return [...rows].sort((a, b) => {
     const floorA = extractFloorName(a);
     const floorB = extractFloorName(b);
@@ -79,15 +106,16 @@ export function sortLoadRowsFloorWise(rows: LoadRow[]): LoadRow[] {
     const rankB = getFloorRank(floorB);
 
     if (rankA !== rankB) {
-      return rankA - rankB;
+      return direction === "asc" ? rankA - rankB : rankB - rankA;
     }
 
     if (floorA !== floorB) {
-      return floorA.localeCompare(floorB, undefined, { numeric: true, sensitivity: "base" });
+      const comp = floorA.localeCompare(floorB, undefined, { numeric: true, sensitivity: "base" });
+      return direction === "asc" ? comp : -comp;
     }
 
-    const nameA = (a.description || "").replace(/^\[.*?\]\s*/, "").trim();
-    const nameB = (b.description || "").replace(/^\[.*?\]\s*/, "").trim();
+    const nameA = cleanSpaceName(a.description || "");
+    const nameB = cleanSpaceName(b.description || "");
     return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: "base" });
   });
 }
@@ -331,6 +359,70 @@ export function getPreliminaryCoolingLoadSpaces(projectId: string = "default"): 
 }
 
 /**
+ * Retrieves lighting loads from LPD calculation (or legacy Lux calculation)
+ */
+function getLightingLoadsMap(projectId: string = "default"): Map<string, { lightingKw: number; area?: number; fixtures?: number }> {
+  const map = new Map<string, { lightingKw: number; area?: number; fixtures?: number }>();
+  if (typeof localStorage === "undefined") return map;
+
+  const pId = projectId || "default";
+
+  // 1. Try LPD Calculator (primary)
+  try {
+    const lpdRaw = localStorage.getItem(`mep_lpd_calc_${pId}`) || localStorage.getItem("mep-lpd-calc-v2");
+    if (lpdRaw) {
+      const parsed = JSON.parse(lpdRaw);
+      const projects = Array.isArray(parsed.projects) ? parsed.projects : (parsed.projects ? [parsed.projects] : []);
+      const curProj = projects.find((p: any) => p.id === pId) || projects[0];
+      if (curProj) {
+        const allGroups = [...(curProj.internalGroups || []), ...(curProj.externalGroups || [])];
+        allGroups.forEach((g: any) => {
+          (g.spaces || []).forEach((s: any) => {
+            const name = (s.name || "").trim().toLowerCase();
+            const totalWatts = (s.fixtures || []).reduce(
+              (sum: number, f: any) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0),
+              0
+            );
+            if (name && totalWatts > 0) {
+              map.set(name, {
+                lightingKw: Number((totalWatts / 1000).toFixed(2)),
+                area: parseFloat(s.areaSqM) || 0,
+                fixtures: (s.fixtures || []).reduce((q: number, f: any) => q + (parseInt(f.qty) || 0), 0),
+              });
+            }
+          });
+        });
+      }
+    }
+  } catch {}
+
+  // 2. Fallback to Lux calculation
+  try {
+    const luxRaw = localStorage.getItem(`mep_lux_calc_${pId}`) || localStorage.getItem("mep_lux_calc_default");
+    if (luxRaw) {
+      const parsed = JSON.parse(luxRaw);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((lr: any) => {
+          const name = (lr.spaceName || lr.name || "").trim().toLowerCase();
+          const kw = lr.calculatedWatts
+            ? lr.calculatedWatts / 1000
+            : ((lr.luminaireQty || 0) * (lr.luminaireWatts || 36)) / 1000;
+          if (name && kw > 0 && !map.has(name)) {
+            map.set(name, {
+              lightingKw: Number(kw.toFixed(2)),
+              area: Number(lr.area || (lr.length && lr.width ? lr.length * lr.width : 0)),
+              fixtures: lr.luminaireQty,
+            });
+          }
+        });
+      }
+    }
+  } catch {}
+
+  return map;
+}
+
+/**
  * Imports spaces directly from Preliminary Cooling Load calculation (/preliminary-cooling-load)
  * into unified LoadRow records.
  */
@@ -338,25 +430,8 @@ export function importFromPreliminaryCoolingLoad(projectId: string = "default"):
   const spaces = getPreliminaryCoolingLoadSpaces(projectId);
   if (spaces.length === 0) return [];
 
-  // Fetch Lighting Lux schedule if available in workspace
-  const luxSpaces = new Map<string, number>();
-  if (typeof localStorage !== "undefined") {
-    try {
-      const luxRaw = localStorage.getItem(`mep_lux_calc_${projectId}`) || localStorage.getItem("mep_lux_calc_default");
-      if (luxRaw) {
-        const parsed = JSON.parse(luxRaw);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((lr: any) => {
-            const name = (lr.spaceName || lr.name || "").trim().toLowerCase();
-            const kw = lr.calculatedWatts
-              ? lr.calculatedWatts / 1000
-              : ((lr.luminaireQty || 0) * (lr.luminaireWatts || 36)) / 1000;
-            if (name && kw > 0) luxSpaces.set(name, Number(kw.toFixed(2)));
-          });
-        }
-      }
-    } catch {}
-  }
+  // Fetch Lighting (LPD / Lux) schedule if available in workspace
+  const lightingMap = getLightingLoadsMap(projectId);
 
   const rows: LoadRow[] = spaces.map((r, idx) => {
     const rawName = cleanSpaceName(r.name || `Space ${idx + 1}`);
@@ -365,8 +440,8 @@ export function importFromPreliminaryCoolingLoad(projectId: string = "default"):
     const bench = getSpaceTypeBenchmark(rawName, r.type);
 
     // 1. Lighting Load (kW)
-    const luxKw = luxSpaces.get(rawName.toLowerCase());
-    const lightingKw = luxKw !== undefined ? luxKw : Number(((area * bench.lpd) / 1000).toFixed(2));
+    const lightEntry = lightingMap.get(rawName.toLowerCase());
+    const lightingKw = lightEntry !== undefined ? lightEntry.lightingKw : Number(((area * bench.lpd) / 1000).toFixed(2));
 
     // 2. Small Power Sockets (kW)
     const powerKw = Number(((area * bench.smallPower) / 1000).toFixed(2));
@@ -447,25 +522,8 @@ export function importFromVentilationCalc(projectId: string = "default"): LoadRo
   const spaces = getVentilationSpaces(projectId);
   if (spaces.length === 0) return [];
 
-  // Fetch Lighting Lux if available
-  const luxSpaces = new Map<string, number>();
-  if (typeof localStorage !== "undefined") {
-    try {
-      const luxRaw = localStorage.getItem(`mep_lux_calc_${projectId}`) || localStorage.getItem("mep_lux_calc_default");
-      if (luxRaw) {
-        const parsed = JSON.parse(luxRaw);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((lr: any) => {
-            const name = (lr.spaceName || lr.name || "").trim().toLowerCase();
-            const kw = lr.calculatedWatts
-              ? lr.calculatedWatts / 1000
-              : ((lr.luminaireQty || 0) * (lr.luminaireWatts || 36)) / 1000;
-            if (name && kw > 0) luxSpaces.set(name, Number(kw.toFixed(2)));
-          });
-        }
-      }
-    } catch {}
-  }
+  // Fetch Lighting (LPD / Lux) if available
+  const lightingMap = getLightingLoadsMap(projectId);
 
   const rows: LoadRow[] = spaces.map((sp, idx) => {
     const rawName = cleanSpaceName(sp.name || `Space ${idx + 1}`);
@@ -474,8 +532,8 @@ export function importFromVentilationCalc(projectId: string = "default"): LoadRo
     const qty = sp.multiplier && sp.multiplier > 0 ? sp.multiplier : 1;
     const bench = getSpaceTypeBenchmark(sp.name, sp.category);
 
-    const luxKw = luxSpaces.get(rawName.toLowerCase());
-    const lightingKw = luxKw !== undefined ? luxKw : Number(((area * bench.lpd) / 1000).toFixed(2));
+    const lightEntry = lightingMap.get(rawName.toLowerCase());
+    const lightingKw = lightEntry !== undefined ? lightEntry.lightingKw : Number(((area * bench.lpd) / 1000).toFixed(2));
     const powerKw = Number(((area * bench.smallPower) / 1000).toFixed(2));
 
     let hvacKw = 0;
@@ -597,31 +655,8 @@ export function pullFromOtherCalculators(
     } catch {}
   }
 
-  // 2. Fetch Lighting LUX rows if available
-  const luxSpaces = new Map<string, { lightingKw: number; area?: number; fixtures?: number }>();
-  if (typeof localStorage !== "undefined") {
-    try {
-      const luxRaw = localStorage.getItem(`mep_lux_calc_${pId}`) || localStorage.getItem("mep_lux_calc_default");
-      if (luxRaw) {
-        const parsed = JSON.parse(luxRaw);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((lr: any) => {
-            const name = (lr.spaceName || lr.name || "").trim().toLowerCase();
-            const kw = lr.calculatedWatts
-              ? lr.calculatedWatts / 1000
-              : (lr.luminaireQty || 0) * (lr.luminaireWatts || 36) / 1000;
-            if (name && kw > 0) {
-              luxSpaces.set(name, {
-                lightingKw: Number(kw.toFixed(2)),
-                area: Number(lr.area || (lr.length && lr.width ? lr.length * lr.width : 0)),
-                fixtures: lr.luminaireQty,
-              });
-            }
-          });
-        }
-      }
-    } catch {}
-  }
+  // 2. Fetch Lighting (LPD / Lux) rows if available
+  const luxSpaces = getLightingLoadsMap(pId);
 
   // 3. Fetch Ventilation spaces from workspaceStore
   const wsSpaces = (workspaceStore.getState().spaces || []).filter(
@@ -701,7 +736,7 @@ export function pullFromOtherCalculators(
   let lpdSpacesList: LoadRow[] = [];
   if (typeof localStorage !== "undefined") {
     try {
-      const lpdSaved = localStorage.getItem("mep-lpd-calc-v2");
+      const lpdSaved = localStorage.getItem(`mep_lpd_calc_${pId}`) || localStorage.getItem("mep-lpd-calc-v2");
       if (lpdSaved) {
         const parsed = JSON.parse(lpdSaved);
         const projects = Array.isArray(parsed.projects) ? parsed.projects : [];

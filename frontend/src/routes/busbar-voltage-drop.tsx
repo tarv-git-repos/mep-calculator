@@ -9,6 +9,7 @@ import { useWorkspace } from "@/lib/workspace-store";
 import { useConfirm } from "@/hooks/use-confirm";
 import { DataGrid, Column } from "@/components/workspace/DataGrid";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { EditBusbarRowModal } from "@/components/workspace/EditBusbarRowModal";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
@@ -63,6 +64,20 @@ function BusbarVoltageDropPage() {
   const [editingRow, setEditingRow] = useState<BusbarVDRow | null>(null);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [syncResult, setSyncResult] = useState<BusbarSyncResult | null>(null);
+  const [intelOpen, setIntelOpen] = useState(false);
+  const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
+
+  const handleUnitToggle = (targetUnit: "si" | "ip", shouldConvert: boolean = true) => {
+    if (targetUnit === unitSystem) return;
+    if (shouldConvert) {
+      const factor = targetUnit === "ip" ? 3.28084 : 1 / 3.28084;
+      setRows(prev => computeAllRows(prev.map(r => ({
+        ...r,
+        length: Number((r.length * factor).toFixed(2))
+      })), globalR, globalX));
+    }
+    setUnitSystem(targetUnit);
+  };
 
   const handleSync3DAndLoadSummary = async () => {
     if (isApprovedLocked) {
@@ -828,43 +843,72 @@ function BusbarVoltageDropPage() {
   return (
     <AppShell 
       title="Busbar Voltage Drop" 
-      spaceCount={rows.length}
-      spaceCountUnit={rows.length === 1 ? "run" : "runs"}
-      subtitle="Calculate busbar voltage drop with resistive and reactive components."
-      actions={
-        <div className="flex gap-2">
-          <ImportExcelBtn
-            columnMapping={{
-              "Busbar Ref": "busbarRef",
-              "From": "from",
-              "To": "to",
-              "Length (m)": "length",
-              "Length": "length",
-              "Load (kW)": "loadKw",
-              "Load": "loadKw",
-              "PF": "powerFactor",
-              "Power Factor": "powerFactor",
-              "Phase": "phase",
-              "VD Limit (%)": "voltageDropLimit",
-              "VD Limit": "voltageDropLimit",
-              "Rating": "rating",
-              "Ambient Temp (C)": "ambientTemp",
-              "Diversity Factor": "diversityFactor",
-              "DF": "diversityFactor"
-            }}
-            onImport={handleImportExcelRows}
-            className="flex items-center gap-2 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors"
-          />
-        </div>
-      }
+      hideSubHeader={true}
+      onIntelClick={() => setIntelOpen((v) => !v)}
+      intelOpen={intelOpen}
     >
-      <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
-            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-            : calcReviewState?.status === "REJECTED"
-            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-            : calcReviewState?.status === "REVIEWED"
-            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
+          {/* Page Header */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Busbar Voltage Drop</h1>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIntelOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+                title="Toggle Busbar Intelligence"
+              >
+                <Sparkles className="size-3.5" /> Intelligence
+              </button>
+              <CalculationReviewBar 
+                projectId={activeProjectId || project?.id || "default"} 
+                calculatorPath="/busbar-voltage-drop" 
+                calculatorTitle="Busbar Voltage Drop" 
+              />
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isApprovedLocked} />
+              <ImportExcelBtn
+                columnMapping={{
+                  "Busbar Ref": "busbarRef",
+                  "From": "from",
+                  "To": "to",
+                  "Length (m)": "length",
+                  "Length": "length",
+                  "Load (kW)": "loadKw",
+                  "Load": "loadKw",
+                  "PF": "powerFactor",
+                  "Power Factor": "powerFactor",
+                  "Phase": "phase",
+                  "VD Limit (%)": "voltageDropLimit",
+                  "VD Limit": "voltageDropLimit",
+                  "Rating": "rating",
+                  "Ambient Temp (C)": "ambientTemp",
+                  "Diversity Factor": "diversityFactor",
+                  "DF": "diversityFactor"
+                }}
+                onImport={handleImportExcelRows}
+                className="flex items-center gap-2 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 rounded px-3 py-1.5 text-[12.5px] font-medium transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* White Card Container */}
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+                ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+                : calcReviewState?.status === "REJECTED"
+                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+                : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         
         <div className="relative z-10 flex flex-col h-full w-full">
@@ -1058,6 +1102,8 @@ function BusbarVoltageDropPage() {
                 )}
              </div>
           </div>
+        </div>
+      </div>
         </div>
       </div>
 

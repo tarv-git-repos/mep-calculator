@@ -155,11 +155,20 @@ function PumpSizingPage() {
   // Comments state
   const [commentsList, setCommentsList] = useState<any[]>([]);
   const [commentModalOpen, setCommentModalOpen] = useState<boolean>(false);
-  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string } | null>(null);
+  const [commentTargetItem, setCommentTargetItem] = useState<{ id: string; name: string; aliases?: string[] } | null>(null);
   const [highlightedTargetId, setHighlightedTargetId] = useState<string | null>(null);
   const highlightTimeoutRef = useRef<any>(null);
 
-  const getItemComments = (itemId: string) => commentsList.filter(c => c.targetId === itemId || c.spaceId === itemId || c.itemId === itemId);
+  const getItemComments = (itemId: string, aliases: string[] = []) => {
+    const ids = [itemId, ...aliases].map(s => s.toLowerCase().trim());
+    return commentsList.filter(c => {
+      const tid = (c.targetId || "").toLowerCase().trim();
+      const sid = (c.spaceId || "").toLowerCase().trim();
+      const iid = (c.itemId || "").toLowerCase().trim();
+      const fid = (c.fieldId || "").toLowerCase().trim();
+      return ids.includes(tid) || ids.includes(sid) || ids.includes(iid) || ids.includes(fid);
+    });
+  };
 
   // Load comments on project switch
   useEffect(() => {
@@ -192,6 +201,11 @@ function PumpSizingPage() {
                  document.getElementById(`card-${cleanRaw}`) ||
                  document.getElementById(`field-${targetId}`) ||
                  document.getElementById(`card-${targetId}`) ||
+                 (cleanRaw === "flowparams" ? (document.getElementById("field-reqVolume") || document.getElementById("field-wsfuVal")) : null) ||
+                 (cleanRaw === "pipingparams" ? document.getElementById("field-pipeVert") : null) ||
+                 (cleanRaw === "headparams" ? document.getElementById("field-staticHead") : null) ||
+                 (cleanRaw === "efficiencyparams" ? document.getElementById("field-effPump") : null) ||
+                 (cleanRaw === "card-hero-results" ? document.getElementById("card-detailedMetrics") : null) ||
                  document.querySelector(`[data-field-id="${cleanRaw}"]`) ||
                  document.querySelector(`[data-field-id="${targetId}"]`) ||
                  document.querySelector(`[data-comment-target="${cleanRaw}"]`) ||
@@ -246,8 +260,8 @@ function PumpSizingPage() {
     }
   };
 
-  const handleOpenComment = (id: string, name: string) => {
-    setCommentTargetItem({ id, name });
+  const handleOpenComment = (id: string, name: string, aliases: string[] = []) => {
+    setCommentTargetItem({ id, name, aliases });
     setCommentModalOpen(true);
   };
 
@@ -262,6 +276,7 @@ function PumpSizingPage() {
       spaceId: targetId,
       spaceName: targetName,
       itemId: targetId,
+      fieldId: targetId,
       targetType: "Pump Sizing Parameter",
       calculatorPath: "/plumbing-pump-sizing",
     };
@@ -275,27 +290,42 @@ function PumpSizingPage() {
     });
 
     setCommentModalOpen(false);
-    toast.success("Comment/Task added successfully!");
+    toast.success(`Comment/Task added to ${targetName} successfully!`);
   };
 
-  const isFieldHighlighted = (fieldId: string, searchKey?: string) => {
+  const isFieldHighlighted = (fieldId: string, searchKey?: string, aliases: string[] = []) => {
     if (!highlightedTargetId) return "";
     const cleanHighlight = highlightedTargetId.toLowerCase().trim();
-    if (fieldId.toLowerCase() === cleanHighlight) return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
-    if (fieldId.toLowerCase().includes(cleanHighlight)) return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
-    if (searchKey && searchKey.toLowerCase().includes(cleanHighlight)) return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
+    const ids = [fieldId, ...aliases].map(s => s.toLowerCase().trim());
+    if (ids.some(id => id === cleanHighlight || cleanHighlight.includes(id) || id.includes(cleanHighlight))) {
+      return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
+    }
+    if (searchKey && (searchKey.toLowerCase().includes(cleanHighlight) || cleanHighlight.includes(searchKey.toLowerCase()))) {
+      return "ring-2 ring-primary border-primary shadow-sm bg-primary/5 animate-pulse-light";
+    }
     return "";
   };
 
-  const renderCommentBadge = (id: string, name: string) => {
-    const existing = getItemComments(id);
+  const renderCommentBadge = (
+    id: string, 
+    name: string, 
+    aliases: string[] = [], 
+    position: "left" | "right" = "left"
+  ) => {
+    const existing = getItemComments(id, aliases);
     if (existing.length === 0) return null;
     const unresolvedCount = existing.filter(c => c.status !== "resolved").length;
     if (unresolvedCount === 0) return null;
     return (
       <RowCommentCornerBadge
+        id={id}
         count={unresolvedCount}
-        onClick={() => handleOpenComment(id, name)}
+        position={position}
+        title={`${unresolvedCount} comment(s)/task(s) on ${name}. Click to view.`}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleOpenComment(id, name, aliases);
+        }}
       />
     );
   };
@@ -690,383 +720,890 @@ function PumpSizingPage() {
                       </span>
                     </div>
 
-                    {/* WSFU vs VOLUME INPUTS */}
-                    <ContextMenu>
-                      <ContextMenuTrigger asChild>
-                        <div 
-                          id="field-flowParams" 
-                          data-field-id="flowParams" 
-                          data-comment-target="flowParams"
-                          className={`p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("flowParams", "Flow Parameters")}`}
-                        >
-                          {pumpType !== "transfer" ? (
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center">
-                                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                    Total Water Supply Fixture Units (WSFU)
-                                  </label>
-                                  {renderCommentBadge("flowParams", "Flow Parameters")}
-                                </div>
-                                <button
-                                  disabled={framework.isReadOnly}
-                                  onClick={handleImportWSFU}
-                                  className={`text-[10.5px] font-bold text-[#0A7BC7] hover:underline cursor-pointer ${framework.isReadOnly ? "hidden" : ""}`}
-                                >
-                                  Import WSFU
-                                </button>
-                              </div>
+                    {/* FLOW & VOLUME INPUTS */}
+                    {pumpType !== "transfer" ? (
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div 
+                            id="field-wsfuVal" 
+                            data-field-id="wsfuVal" 
+                            data-comment-target="wsfuVal"
+                            className={`relative p-3 rounded-xl border transition-all ${
+                              isFieldHighlighted("wsfuVal", "WSFU", ["flowParams", "wsfuVal", "wsfu"])
+                                ? "ring-2 ring-primary border-primary bg-primary/5"
+                                : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                            }`}
+                          >
+                            {renderCommentBadge("wsfuVal", "Total WSFU", ["flowParams", "wsfuVal", "wsfu"])}
+                            <div className="flex items-center justify-between mb-1.5">
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                                Total Water Supply Fixture Units (WSFU)
+                              </label>
+                              <button
+                                disabled={framework.isReadOnly}
+                                onClick={handleImportWSFU}
+                                className={`text-[10.5px] font-bold text-[#0A7BC7] hover:underline cursor-pointer ${framework.isReadOnly ? "hidden" : ""}`}
+                              >
+                                Import WSFU
+                              </button>
+                            </div>
+                            <input
+                              type="number"
+                              disabled={framework.isReadOnly}
+                              value={wsfuVal}
+                              onChange={(e) => {
+                                setWsfuVal(e.target.value);
+                                dirtyStore.set(true);
+                              }}
+                              className={flowInputClass}
+                            />
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            disabled={framework.isReadOnly || isApprovedLocked}
+                            onClick={() => {
+                              if (framework.isReadOnly || isApprovedLocked) return;
+                              setWsfuVal("21.6");
+                              dirtyStore.set(true);
+                              toast.success("WSFU reset to default (21.6)");
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                          >
+                            <RotateCcw className="size-3.5 text-muted-foreground" />
+                            <span>Reset WSFU</span>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("wsfuVal", "Total WSFU", ["flowParams", "wsfuVal", "wsfu"])}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment / Task</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* Target Volume Box */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-reqVolume" 
+                              data-field-id="reqVolume" 
+                              data-comment-target="reqVolume"
+                              className={`relative p-3 rounded-xl border transition-all ${
+                                isFieldHighlighted("reqVolume", "Target Volume", ["flowParams", "volume", "targetVolume", "reqVolume"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                              }`}
+                            >
+                              {renderCommentBadge("reqVolume", "Target Volume", ["flowParams", "volume", "targetVolume", "reqVolume"])}
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1.5">
+                                Target Volume ({isSI ? "Litres" : "Gallons"})
+                              </label>
                               <input
                                 type="number"
                                 disabled={framework.isReadOnly}
-                                value={wsfuVal}
-                                onChange={(e) => setWsfuVal(e.target.value)}
+                                value={reqVolume}
+                                onChange={(e) => {
+                                  setReqVolume(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
                                 className={flowInputClass}
                               />
                             </div>
-                          ) : (
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <div className="flex items-center">
-                                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                    Target Volume ({isSI ? "Litres" : "Gallons"})
-                                  </label>
-                                  {renderCommentBadge("flowParams", "Flow Parameters")}
-                                </div>
-                                <input
-                                  type="number"
-                                  disabled={framework.isReadOnly}
-                                  value={reqVolume}
-                                  onChange={(e) => setReqVolume(e.target.value)}
-                                  className={flowInputClass}
-                                />
-                              </div>
-                              <div>
-                                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                                  Fill Time (Hours)
-                                </label>
-                                <input
-                                  type="number"
-                                  disabled={framework.isReadOnly}
-                                  value={fillTime}
-                                  onChange={(e) => setFillTime(e.target.value)}
-                                  className={flowInputClass}
-                                />
-                              </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setReqVolume(isSI ? "5000" : "1320");
+                                dirtyStore.set(true);
+                                toast.success("Target Volume reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Target Volume</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("reqVolume", "Target Volume", ["flowParams", "volume", "targetVolume", "reqVolume"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        {/* Fill Time Box */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-fillTime" 
+                              data-field-id="fillTime" 
+                              data-comment-target="fillTime"
+                              className={`relative p-3 rounded-xl border transition-all ${
+                                isFieldHighlighted("fillTime", "Fill Time", ["fillTime", "fill"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                              }`}
+                            >
+                              {renderCommentBadge("fillTime", "Fill Time", ["fillTime", "fill"])}
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1.5">
+                                Fill Time (Hours)
+                              </label>
+                              <input
+                                type="number"
+                                disabled={framework.isReadOnly}
+                                value={fillTime}
+                                onChange={(e) => {
+                                  setFillTime(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
+                                className={flowInputClass}
+                              />
                             </div>
-                          )}
-                        </div>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                        <ContextMenuItem
-                          disabled={framework.isReadOnly || isApprovedLocked}
-                          onClick={() => {
-                            if (framework.isReadOnly || isApprovedLocked) return;
-                            setWsfuVal("21.6");
-                            setReqVolume("1000");
-                            setFillTime("2");
-                            toast.success("Flow parameters reset to default");
-                          }}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                        >
-                          <RotateCcw className="size-3.5 text-muted-foreground" />
-                          <span>Reset Flow Parameters</span>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator className="h-px bg-border my-1" />
-                        <ContextMenuItem
-                          onClick={() => handleOpenComment("flowParams", "Flow Parameters")}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                        >
-                          <MessageSquare className="size-3.5" />
-                          <span>Add Comment</span>
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setFillTime("2");
+                                dirtyStore.set(true);
+                                toast.success("Fill Time reset to default (2h)");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Fill Time</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("fillTime", "Fill Time", ["fillTime", "fill"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      </div>
+                    )}
 
                     {/* PIPING PARAMETERS */}
-                    <ContextMenu>
-                      <ContextMenuTrigger asChild>
-                        <div 
-                          id="field-pipingParams" 
-                          data-field-id="pipingParams" 
-                          data-comment-target="pipingParams"
-                          className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("pipingParams", "Piping & Friction")}`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                                Piping & Friction
-                              </span>
-                              {renderCommentBadge("pipingParams", "Piping & Friction")}
-                            </div>
-                            <div className="text-[11.5px] font-medium text-slate-500 flex items-center gap-0.5">
-                              <span>Friction Factor:</span>
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Piping & Friction
+                        </span>
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-fricFactor"
+                              data-field-id="fricFactor"
+                              data-comment-target="fricFactor"
+                              className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition-all ${
+                                isFieldHighlighted("fricFactor", "Friction Factor", ["fricFactor", "friction", "frictionFactor", "pipingParams"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/70 dark:bg-zinc-800/50 border-slate-200/80 dark:border-zinc-700 hover:border-slate-300"
+                              }`}
+                            >
+                              {renderCommentBadge("fricFactor", "Friction Factor", ["fricFactor", "friction", "frictionFactor", "pipingParams"])}
+                              <span className="text-[11px] font-medium text-slate-500">Friction Factor:</span>
                               <input
                                 type="number"
                                 step="0.01"
                                 disabled={framework.isReadOnly}
                                 value={fricFactor}
-                                onChange={(e) => setFricFactor(e.target.value)}
-                                className="w-8 bg-transparent text-slate-700 dark:text-slate-200 font-bold text-center border-none outline-none focus:ring-1 focus:ring-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded transition-all cursor-pointer p-0"
+                                onChange={(e) => {
+                                  setFricFactor(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
+                                className="w-12 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-100 font-bold font-mono text-center border border-slate-200 dark:border-zinc-700 rounded px-1 py-0.5 outline-none focus:border-primary text-xs"
                               />
-                              <span>{isSI ? "bar/100m length" : "psi/100ft length"}</span>
+                              <span className="text-[10.5px] text-slate-400">{isSI ? "bar/100m length" : "psi/100ft length"}</span>
                             </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            <div>
-                              <label className="text-[11px] text-slate-500">Vertical ({isSI ? "m" : "ft"})</label>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setFricFactor(isSI ? "0.4" : "1.77");
+                                dirtyStore.set(true);
+                                toast.success("Friction Factor reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Friction Factor</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("fricFactor", "Friction Factor", ["fricFactor", "friction", "frictionFactor", "pipingParams"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        {/* Vertical Pipe Box */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-pipeVert" 
+                              data-field-id="pipeVert" 
+                              data-comment-target="pipeVert"
+                              className={`relative p-3 rounded-xl border transition-all ${
+                                isFieldHighlighted("pipeVert", "Vertical Pipe", ["pipeVert", "vertical"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                              }`}
+                            >
+                              {renderCommentBadge("pipeVert", "Vertical Pipe Length", ["pipeVert", "vertical"])}
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                                Vertical ({isSI ? "m" : "ft"})
+                              </label>
                               <input
                                 type="number"
                                 disabled={framework.isReadOnly}
                                 value={pipeVert}
-                                onChange={(e) => setPipeVert(e.target.value)}
+                                onChange={(e) => {
+                                  setPipeVert(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
                                 className={inputClass}
                               />
                             </div>
-                            <div>
-                              <label className="text-[11px] text-slate-500">Horizontal ({isSI ? "m" : "ft"})</label>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setPipeVert(isSI ? "20" : "65.6");
+                                dirtyStore.set(true);
+                                toast.success("Vertical pipe length reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Vertical Length</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("pipeVert", "Vertical Pipe Length", ["pipeVert", "vertical"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        {/* Horizontal Pipe Box */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-pipeHoriz" 
+                              data-field-id="pipeHoriz" 
+                              data-comment-target="pipeHoriz"
+                              className={`relative p-3 rounded-xl border transition-all ${
+                                isFieldHighlighted("pipeHoriz", "Horizontal Pipe", ["pipeHoriz", "horizontal"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                              }`}
+                            >
+                              {renderCommentBadge("pipeHoriz", "Horizontal Pipe Length", ["pipeHoriz", "horizontal"])}
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                                Horizontal ({isSI ? "m" : "ft"})
+                              </label>
                               <input
                                 type="number"
                                 disabled={framework.isReadOnly}
                                 value={pipeHoriz}
-                                onChange={(e) => setPipeHoriz(e.target.value)}
+                                onChange={(e) => {
+                                  setPipeHoriz(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
                                 className={inputClass}
                               />
                             </div>
-                          </div>
-                        </div>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                        <ContextMenuItem
-                          disabled={framework.isReadOnly || isApprovedLocked}
-                          onClick={() => {
-                            if (framework.isReadOnly || isApprovedLocked) return;
-                            setPipeVert("20");
-                            setPipeHoriz("50");
-                            setFricFactor("0.4");
-                            toast.success("Piping parameters reset to default");
-                          }}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                        >
-                          <RotateCcw className="size-3.5 text-muted-foreground" />
-                          <span>Reset Piping Parameters</span>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator className="h-px bg-border my-1" />
-                        <ContextMenuItem
-                          onClick={() => handleOpenComment("pipingParams", "Piping & Friction")}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                        >
-                          <MessageSquare className="size-3.5" />
-                          <span>Add Comment</span>
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setPipeHoriz(isSI ? "50" : "164");
+                                dirtyStore.set(true);
+                                toast.success("Horizontal pipe length reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Horizontal Length</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("pipeHoriz", "Horizontal Pipe Length", ["pipeHoriz", "horizontal"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      </div>
+                    </div>
 
                     {/* HEAD & PRESSURES */}
-                    <ContextMenu>
-                      <ContextMenuTrigger asChild>
-                        <div 
-                          id="field-headParams" 
-                          data-field-id="headParams" 
-                          data-comment-target="headParams"
-                          className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("headParams", "Head & Pressures")}`}
-                        >
-                          <div className="flex items-center">
-                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                              Head & Pressures ({isSI ? "bar" : "psi"})
-                            </span>
-                            {renderCommentBadge("headParams", "Head & Pressures")}
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            <div>
-                              <label className="text-[11px] text-slate-500">Static Head ({isSI ? "bar" : "psi"})</label>
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Head & Pressures ({isSI ? "bar" : "psi"})
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        {/* Static Head Box */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-staticHead" 
+                              data-field-id="staticHead" 
+                              data-comment-target="staticHead"
+                              className={`relative p-3 rounded-xl border transition-all ${
+                                isFieldHighlighted("staticHead", "Static Head", ["staticHead", "static", "headParams"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                              }`}
+                            >
+                              {renderCommentBadge("staticHead", "Static Head", ["staticHead", "static", "headParams"])}
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                                Static Head ({isSI ? "bar" : "psi"})
+                              </label>
                               <input
                                 type="number"
                                 disabled={framework.isReadOnly}
                                 value={staticHead}
-                                onChange={(e) => setStaticHead(e.target.value)}
+                                onChange={(e) => {
+                                  setStaticHead(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
                                 className={inputClass}
                               />
                             </div>
-                            <div>
-                              <label className="text-[11px] text-slate-500">Residual Outlet ({isSI ? "bar" : "psi"})</label>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setStaticHead(isSI ? "5.0" : "72.5");
+                                dirtyStore.set(true);
+                                toast.success("Static Head reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Static Head</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("staticHead", "Static Head", ["staticHead", "static", "headParams"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        {/* Residual Outlet Box */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-presidHead" 
+                              data-field-id="presidHead" 
+                              data-comment-target="presidHead"
+                              className={`relative p-3 rounded-xl border transition-all ${
+                                isFieldHighlighted("presidHead", "Residual Outlet", ["presidHead", "residual", "presid"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                              }`}
+                            >
+                              {renderCommentBadge("presidHead", "Residual Outlet Pressure", ["presidHead", "residual", "presid"])}
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                                Residual Outlet ({isSI ? "bar" : "psi"})
+                              </label>
                               <input
                                 type="number"
                                 disabled={framework.isReadOnly}
                                 value={presidHead}
-                                onChange={(e) => setPresidHead(e.target.value)}
+                                onChange={(e) => {
+                                  setPresidHead(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
                                 className={inputClass}
                               />
                             </div>
-                            <div>
-                              <label className="text-[11px] text-slate-500">Suction Pressure ({isSI ? "bar" : "psi"})</label>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setPresidHead(isSI ? "1.0" : "14.5");
+                                dirtyStore.set(true);
+                                toast.success("Residual Outlet reset to default");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Residual Outlet</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("presidHead", "Residual Outlet Pressure", ["presidHead", "residual", "presid"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        {/* Suction Pressure Box */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-suctionHead" 
+                              data-field-id="suctionHead" 
+                              data-comment-target="suctionHead"
+                              className={`relative p-3 rounded-xl border transition-all ${
+                                isFieldHighlighted("suctionHead", "Suction Pressure", ["suctionHead", "suction"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                              }`}
+                            >
+                              {renderCommentBadge("suctionHead", "Suction Pressure", ["suctionHead", "suction"])}
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                                Suction Pressure ({isSI ? "bar" : "psi"})
+                              </label>
                               <input
                                 type="number"
                                 disabled={framework.isReadOnly}
                                 value={suctionHead}
-                                onChange={(e) => setSuctionHead(e.target.value)}
+                                onChange={(e) => {
+                                  setSuctionHead(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
                                 className={inputClass}
                               />
                             </div>
-                            <div>
-                              <label className="text-[11px] text-slate-500">Safety Margin (%)</label>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setSuctionHead("0");
+                                dirtyStore.set(true);
+                                toast.success("Suction Pressure reset to default (0)");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Suction Pressure</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("suctionHead", "Suction Pressure", ["suctionHead", "suction"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        {/* Safety Margin Box */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-sfHead" 
+                              data-field-id="sfHead" 
+                              data-comment-target="sfHead"
+                              className={`relative p-3 rounded-xl border transition-all ${
+                                isFieldHighlighted("sfHead", "Safety Margin", ["sfHead", "margin", "safety"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                              }`}
+                            >
+                              {renderCommentBadge("sfHead", "Safety Margin", ["sfHead", "margin", "safety"])}
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                                Safety Margin (%)
+                              </label>
                               <input
                                 type="number"
                                 disabled={framework.isReadOnly}
                                 value={sfHead}
-                                onChange={(e) => setSfHead(e.target.value)}
+                                onChange={(e) => {
+                                  setSfHead(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
                                 className={inputClass}
                               />
                             </div>
-                          </div>
-                        </div>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                        <ContextMenuItem
-                          disabled={framework.isReadOnly || isApprovedLocked}
-                          onClick={() => {
-                            if (framework.isReadOnly || isApprovedLocked) return;
-                            setStaticHead("5.0");
-                            setPresidHead("1.0");
-                            setSuctionHead("0");
-                            setSfHead("10");
-                            toast.success("Head & pressure parameters reset to default");
-                          }}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                        >
-                          <RotateCcw className="size-3.5 text-muted-foreground" />
-                          <span>Reset Head & Pressures</span>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator className="h-px bg-border my-1" />
-                        <ContextMenuItem
-                          onClick={() => handleOpenComment("headParams", "Head & Pressures")}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                        >
-                          <MessageSquare className="size-3.5" />
-                          <span>Add Comment</span>
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setSfHead("5");
+                                dirtyStore.set(true);
+                                toast.success("Safety margin reset to default (5%)");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Safety Margin</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("sfHead", "Safety Margin", ["sfHead", "margin", "safety"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      </div>
+                    </div>
 
                     {/* EFFICIENCY PARAMETERS */}
-                    <ContextMenu>
-                      <ContextMenuTrigger asChild>
-                        <div 
-                          id="field-efficiencyParams" 
-                          data-field-id="efficiencyParams" 
-                          data-comment-target="efficiencyParams"
-                          className={`pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3 p-2 -m-2 rounded-lg transition-colors ${isFieldHighlighted("efficiencyParams", "Efficiency Ratings")}`}
-                        >
-                          <div className="flex items-center">
-                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                              Efficiency Ratings (%)
-                            </span>
-                            {renderCommentBadge("efficiencyParams", "Efficiency Ratings")}
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            <div>
-                              <label className="text-[11px] text-slate-500">Pump Efficiency (%)</label>
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Efficiency Ratings (%)
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        {/* Pump Efficiency Box */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-effPump" 
+                              data-field-id="effPump" 
+                              data-comment-target="effPump"
+                              className={`relative p-3 rounded-xl border transition-all ${
+                                isFieldHighlighted("effPump", "Pump Efficiency", ["effPump", "pumpEff", "efficiencyParams"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                              }`}
+                            >
+                              {renderCommentBadge("effPump", "Pump Efficiency", ["effPump", "pumpEff", "efficiencyParams"])}
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                                Pump Efficiency (%)
+                              </label>
                               <input
                                 type="number"
                                 disabled={framework.isReadOnly}
                                 value={effPump}
-                                onChange={(e) => setEffPump(e.target.value)}
+                                onChange={(e) => {
+                                  setEffPump(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
                                 className={inputClass}
                               />
                             </div>
-                            <div>
-                              <label className="text-[11px] text-slate-500">Motor Efficiency (%)</label>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setEffPump("70");
+                                dirtyStore.set(true);
+                                toast.success("Pump efficiency reset to default (70%)");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Pump Efficiency</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("effPump", "Pump Efficiency", ["effPump", "pumpEff", "efficiencyParams"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        {/* Motor Efficiency Box */}
+                        <ContextMenu>
+                          <ContextMenuTrigger asChild>
+                            <div 
+                              id="field-effMotor" 
+                              data-field-id="effMotor" 
+                              data-comment-target="effMotor"
+                              className={`relative p-3 rounded-xl border transition-all ${
+                                isFieldHighlighted("effMotor", "Motor Efficiency", ["effMotor", "motorEff"])
+                                  ? "ring-2 ring-primary border-primary bg-primary/5"
+                                  : "bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700"
+                              }`}
+                            >
+                              {renderCommentBadge("effMotor", "Motor Efficiency", ["effMotor", "motorEff"])}
+                              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                                Motor Efficiency (%)
+                              </label>
                               <input
                                 type="number"
                                 disabled={framework.isReadOnly}
                                 value={effMotor}
-                                onChange={(e) => setEffMotor(e.target.value)}
+                                onChange={(e) => {
+                                  setEffMotor(e.target.value);
+                                  dirtyStore.set(true);
+                                }}
                                 className={inputClass}
                               />
                             </div>
-                          </div>
-                        </div>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                        <ContextMenuItem
-                          disabled={framework.isReadOnly || isApprovedLocked}
-                          onClick={() => {
-                            if (framework.isReadOnly || isApprovedLocked) return;
-                            setEffPump("70");
-                            setEffMotor("85");
-                            toast.success("Efficiency ratings reset to default");
-                          }}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                        >
-                          <RotateCcw className="size-3.5 text-muted-foreground" />
-                          <span>Reset Efficiency Ratings</span>
-                        </ContextMenuItem>
-                        <ContextMenuSeparator className="h-px bg-border my-1" />
-                        <ContextMenuItem
-                          onClick={() => handleOpenComment("efficiencyParams", "Efficiency Ratings")}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                        >
-                          <MessageSquare className="size-3.5" />
-                          <span>Add Comment</span>
-                        </ContextMenuItem>
-                      </ContextMenuContent>
-                    </ContextMenu>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                            <ContextMenuItem
+                              disabled={framework.isReadOnly || isApprovedLocked}
+                              onClick={() => {
+                                if (framework.isReadOnly || isApprovedLocked) return;
+                                setEffMotor("85");
+                                dirtyStore.set(true);
+                                toast.success("Motor efficiency reset to default (85%)");
+                              }}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                            >
+                              <RotateCcw className="size-3.5 text-muted-foreground" />
+                              <span>Reset Motor Efficiency</span>
+                            </ContextMenuItem>
+                            <ContextMenuSeparator className="h-px bg-border my-1" />
+                            <ContextMenuItem
+                              onClick={() => handleOpenComment("effMotor", "Motor Efficiency", ["effMotor", "motorEff"])}
+                              className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                            >
+                              <MessageSquare className="size-3.5" />
+                              <span>Add Comment / Task</span>
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* RIGHT COLUMN: CALCULATION RESULTS (lg:col-span-7) */}
                 <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
                   {/* PRIMARY RESULTS CARD */}
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild>
-                      <div 
-                        id="card-hero-results" 
-                        data-field-id="card-hero-results" 
-                        data-comment-target="card-hero-results"
-                        className={`bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6 transition-colors ${isFieldHighlighted("card-hero-results", "Sizing Results Summary")}`}
-                      >
-                        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-                          <div className="flex items-center">
-                            <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
-                              ⚡ Sizing Results Summary
-                            </span>
-                            {renderCommentBadge("card-hero-results", "Sizing Results Summary")}
-                          </div>
-                        </div>
+                  <div 
+                    id="card-hero-results" 
+                    data-field-id="card-hero-results" 
+                    data-comment-target="card-hero-results"
+                    className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6"
+                  >
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                      <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                        ⚡ Sizing Results Summary
+                      </span>
+                    </div>
 
-                        {/* DISPLAY STAT CARDS */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                          <div className="bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5">
+                    {/* DISPLAY STAT CARDS */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {/* Design Flow Card */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div 
+                            id="card-flowResult"
+                            data-field-id="flowResult"
+                            data-comment-target="flowResult"
+                            className={`relative bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 transition-all cursor-context-menu ${
+                              isFieldHighlighted("flowResult", "Design Flow", ["flowResult", "flow", "Design Flow"])
+                                ? "ring-2 ring-primary border-primary"
+                                : "hover:border-blue-300 dark:hover:border-blue-700"
+                            }`}
+                          >
+                            {renderCommentBadge("flowResult", "Design Flow", ["flowResult", "flow", "Design Flow"])}
                             <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Design Flow</div>
                             <div className="text-xl font-bold font-mono text-foreground mt-1">
                               {isSI ? `${results.flowLps.toFixed(2)}` : `${(results.flowLps * 15.8503).toFixed(2)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "L/s" : "GPM"}</span>
                             </div>
                           </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => framework.openPreviewModal(calculationPreviewData)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Eye className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("flowResult", "Design Flow", ["flowResult", "flow", "Design Flow"])}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment / Task</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
 
-                          <div className="bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5">
+                      {/* Dynamic Head Card */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div 
+                            id="card-headResult"
+                            data-field-id="headResult"
+                            data-comment-target="headResult"
+                            className={`relative bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 transition-all cursor-context-menu ${
+                              isFieldHighlighted("headResult", "Dynamic Head", ["headResult", "head", "Dynamic Head"])
+                                ? "ring-2 ring-primary border-primary"
+                                : "hover:border-amber-300 dark:hover:border-amber-700"
+                            }`}
+                          >
+                            {renderCommentBadge("headResult", "Dynamic Head", ["headResult", "head", "Dynamic Head"])}
                             <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Dynamic Head</div>
                             <div className="text-xl font-bold font-mono text-foreground mt-1">
                               {isSI ? `${results.calcHead.toFixed(2)}` : `${(results.calcHead * 14.5038).toFixed(2)}`} <span className="text-xs font-normal text-muted-foreground">{isSI ? "bar" : "psi"}</span>
                             </div>
                           </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => framework.openPreviewModal(calculationPreviewData)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Eye className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("headResult", "Dynamic Head", ["headResult", "head", "Dynamic Head"])}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment / Task</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
 
-                          <div className="bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5">
+                      {/* Motor Rating Card */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div 
+                            id="card-motorResult"
+                            data-field-id="motorResult"
+                            data-comment-target="motorResult"
+                            className={`relative bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 transition-all cursor-context-menu ${
+                              isFieldHighlighted("motorResult", "Motor Rating", ["motorResult", "motor", "Motor Rating"])
+                                ? "ring-2 ring-primary border-primary"
+                                : "hover:border-emerald-300 dark:hover:border-emerald-700"
+                            }`}
+                          >
+                            {renderCommentBadge("motorResult", "Motor Rating", ["motorResult", "motor", "Motor Rating"])}
                             <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Motor Rating</div>
                             <div className="text-xl font-bold font-mono text-foreground mt-1">
                               {results.motorPower.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">kW</span>
                             </div>
                           </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => framework.openPreviewModal(calculationPreviewData)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Eye className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("motorResult", "Motor Rating", ["motorResult", "motor", "Motor Rating"])}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment / Task</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
 
-                          <div className="bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5">
+                      {/* Horsepower Card */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div 
+                            id="card-hpResult"
+                            data-field-id="hpResult"
+                            data-comment-target="hpResult"
+                            className={`relative bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 transition-all cursor-context-menu ${
+                              isFieldHighlighted("hpResult", "Horsepower", ["hpResult", "hp", "Horsepower"])
+                                ? "ring-2 ring-primary border-primary"
+                                : "hover:border-purple-300 dark:hover:border-purple-700"
+                            }`}
+                          >
+                            {renderCommentBadge("hpResult", "Horsepower", ["hpResult", "hp", "Horsepower"])}
                             <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Horsepower</div>
                             <div className="text-xl font-bold font-mono text-foreground mt-1">
                               {results.hp.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">HP</span>
                             </div>
                           </div>
-                        </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => framework.openPreviewModal(calculationPreviewData)}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Eye className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                          <ContextMenuSeparator className="h-px bg-border my-1" />
+                          <ContextMenuItem
+                            onClick={() => handleOpenComment("hpResult", "Horsepower", ["hpResult", "hp", "Horsepower"])}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                          >
+                            <MessageSquare className="size-3.5" />
+                            <span>Add Comment / Task</span>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                    </div>
 
-                        {/* DETAILED METRICS TABLE */}
-                        <div className="bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs">
+                    {/* DETAILED METRICS TABLE */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div 
+                          id="card-detailedMetrics"
+                          data-field-id="detailedMetrics"
+                          data-comment-target="detailedMetrics"
+                          className={`relative bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs transition-all cursor-context-menu ${
+                            isFieldHighlighted("detailedMetrics", "Detailed Calculation Metrics", ["detailedMetrics", "metrics", "table", "card-hero-results"])
+                              ? "ring-2 ring-primary border-primary"
+                              : "hover:border-slate-300 dark:hover:border-zinc-700"
+                          }`}
+                        >
+                          {renderCommentBadge("detailedMetrics", "Detailed Calculation Metrics", ["detailedMetrics", "metrics", "table", "card-hero-results"])}
                           <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
                             <span className="text-slate-600 dark:text-zinc-400">Equivalent Pipe Length:</span>
                             <span className="font-mono font-bold">{results.equivLen.toFixed(1)} m</span>
@@ -1084,27 +1621,27 @@ function PumpSizingPage() {
                             <span className="font-mono text-[#0A7BC7]">{results.motorPower.toFixed(2)} kW ({results.hp.toFixed(2)} HP)</span>
                           </div>
                         </div>
-                      </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-                      <ContextMenuItem
-                        onClick={() => framework.openPreviewModal(calculationPreviewData)}
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
-                      >
-                        <Eye className="size-3.5 text-primary" />
-                        <span>Calculation Preview</span>
-                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
-                      </ContextMenuItem>
-                      <ContextMenuSeparator className="h-px bg-border my-1" />
-                      <ContextMenuItem
-                        onClick={() => handleOpenComment("card-hero-results", "Sizing Results Summary")}
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                      >
-                        <MessageSquare className="size-3.5" />
-                        <span>Add Comment</span>
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          onClick={() => framework.openPreviewModal(calculationPreviewData)}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                        >
+                          <Eye className="size-3.5 text-primary" />
+                          <span>Calculation Preview</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => handleOpenComment("detailedMetrics", "Detailed Calculation Metrics", ["detailedMetrics", "metrics", "table", "card-hero-results"])}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
+                        >
+                          <MessageSquare className="size-3.5" />
+                          <span>Add Comment / Task</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1217,6 +1754,9 @@ function PumpSizingPage() {
         onClose={() => setCommentModalOpen(false)}
         targetId={commentTargetItem?.id || ""}
         targetName={commentTargetItem?.name || ""}
+        calculatorTitle="Pump Sizing (Booster / Transfer)"
+        calculatorPath="/plumbing-pump-sizing"
+        existingComments={commentTargetItem ? getItemComments(commentTargetItem.id, commentTargetItem.aliases || []) : []}
         onSave={handleSaveComment}
         currentUserId={userData?.id || "user-1"}
         currentUserName={currentUserName}
@@ -1271,7 +1811,7 @@ interface PumpSizingReportViewProps {
   project: any;
   calcReviewState: any;
   currentUserName: string;
-  onExportPdf: () => void;
+  onExportPdf?: () => void;
 }
 
 function PumpSizingReportView({
@@ -1284,12 +1824,12 @@ function PumpSizingReportView({
   onExportPdf,
 }: PumpSizingReportViewProps) {
   const isSI = unitSystem === "si";
-  const today = new Date().toLocaleDateString("en-GB");
+  const today = formatDateStr(new Date().toISOString()) || new Date().toISOString().split("T")[0];
   const calcNo = project?.calcNo || "TRV-CAL-PMP-R01";
   const projectNo = project?.code || project?.projectNo || "P000";
-  const projectName = project?.name || project?.projectName || "Domestic Water Pump Sizing";
-  const clientName = project?.client || "Design Client";
-  const endUser = project?.endUser || project?.location || "Site Development";
+  const projectName = project?.name || project?.projectName || "Pump Sizing Calculation";
+  const clientName = project?.client || "-";
+  const endUser = project?.endUser || project?.location || "-";
 
   const pumpTypeLabel =
     inputs.pumpType === "booster"
@@ -1318,376 +1858,348 @@ function PumpSizingReportView({
   );
 
   return (
-    <div className="flex flex-col h-full select-none">
-      {/* Top Action Bar matching Ventilation standard */}
-      <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50">
-        <span className="text-[12px] text-muted-foreground font-semibold">
-          Generated: <span className="text-foreground font-mono">{formatDateStr(new Date())}</span>
-        </span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <TBtn onClick={() => window.print()}>
-            <Printer className="size-3.5" /> Print
-          </TBtn>
-          <TBtn primary onClick={onExportPdf}>
-            <FileText className="size-3.5" /> Export PDF
-          </TBtn>
-        </div>
-      </div>
-
-      {/* Main Report Page Layout matching Ventilation styling */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-        <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6 font-sans">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40 select-none">
+      <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
           
-          {/* Header Title and Meta */}
-          <div className="flex justify-between items-start pb-4 border-b border-border">
-            <div>
-              <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-                Pump Sizing Calculation Report
-              </h2>
-              <p className="text-[12px] text-muted-foreground mt-0.5">
-                Domestic Water Booster &amp; Transfer Station Hydraulic Analysis &amp; Motor Sizing (IPC Table 604.3 / BS EN 806 / CIBSE Guide W)
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="text-[11px] text-muted-foreground block mt-0.5 font-mono">Date: {today}</span>
-            </div>
-          </div>
+        {/* 1. Header Title (Matching Preliminary Standard) */}
+        <div className="pb-1">
+          <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+            Pump Sizing Calculation
+          </h2>
+        </div>
 
-          {/* Project Metadata Table 3x2 (Enclosed Corporate Header matching Ventilation) */}
+        {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format matching Preliminary) */}
+        <div className="border border-border rounded-xl overflow-hidden text-xs">
+          <table className="w-full border-collapse">
+            <tbody>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                <td className="p-2.5 font-mono text-foreground font-medium">{calcNo}</td>
+                <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                <td className="p-2.5 font-mono font-medium">{today}</td>
+              </tr>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                <td className="p-2.5 font-mono">{projectNo}</td>
+                <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                <td className="p-2.5">{clientName}</td>
+              </tr>
+              <tr className="divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                <td className="p-2.5">{projectName}</td>
+                <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                <td className="p-2.5">{endUser}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table 1: Executive Design Parameters & Pump Duty Summary */}
+        <div className="border border-border rounded-xl overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                <th colSpan={5} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
+                  1. Executive Design Parameters &amp; Pump Duty Summary
+                </th>
+              </tr>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                <th className="p-2.5 border-r border-border">Executive Parameter</th>
+                <th className="p-2.5 border-r border-border text-center w-32">Value</th>
+                <th className="p-2.5 border-r border-border text-center w-20">Unit</th>
+                <th className="p-2.5">Basis / Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                <td className="p-2.5 border-r border-border font-medium">Pump Application Type</td>
+                <td className="p-2.5 border-r border-border text-center font-bold text-foreground">{pumpTypeLabel}</td>
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground">-</td>
+                <td className="p-2.5 text-muted-foreground">Domestic Water Distribution</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                <td className="p-2.5 border-r border-border font-medium">Station Configuration</td>
+                <td className="p-2.5 border-r border-border text-center font-bold text-foreground">{inputs.workingPumps}W + {inputs.standbyPumps}S</td>
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground">units</td>
+                <td className="p-2.5 text-muted-foreground">N+1 Duty &amp; Standby arrangement</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                <td className="p-2.5 border-r border-border font-medium">
+                  {inputs.pumpType === "transfer" ? "Storage Tank Volume & Fill Time" : "Water Supply Fixture Units (WSFU)"}
+                </td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">
+                  {inputs.pumpType === "transfer" ? `${inputs.reqVolume} L (${inputs.fillTime} hrs)` : (inputs.wsfuVal || "-")}
+                </td>
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground">
+                  {inputs.pumpType === "transfer" ? "L" : "WSFU"}
+                </td>
+                <td className="p-2.5 text-muted-foreground">
+                  {inputs.pumpType === "transfer" ? "Storage tank refill cycle" : "IPC Table 604.3 / Hunter's Curve"}
+                </td>
+              </tr>
+              <tr className="bg-primary/5 hover:bg-primary/10 font-bold border-t border-b border-border">
+                <td className="p-2.5 border-r border-border text-center font-mono">4</td>
+                <td className="p-2.5 border-r border-border font-bold text-foreground">Design Flow Rate per Pump (Q)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-primary">{flowDisp}</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold">{flowUnit}</td>
+                <td className="p-2.5 text-foreground">Peak simultaneous demand requirement</td>
+              </tr>
+              <tr className="bg-primary/5 hover:bg-primary/10 font-bold border-t border-b border-border">
+                <td className="p-2.5 border-r border-border text-center font-mono">5</td>
+                <td className="p-2.5 border-r border-border font-bold text-foreground">Total Dynamic Head (TDH)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-primary">{headDisp}</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold">{headUnit}</td>
+                <td className="p-2.5 text-foreground">Static head + friction + residual + {inputs.sfHead}% margin</td>
+              </tr>
+              <tr className="bg-primary/5 hover:bg-primary/10 font-bold border-t border-b border-border">
+                <td className="p-2.5 border-r border-border text-center font-mono">6</td>
+                <td className="p-2.5 border-r border-border font-bold text-foreground">Estimated Motor Rating Demand</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-primary">{results.motorPower.toFixed(2)}</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold">kW</td>
+                <td className="p-2.5 text-foreground">Equivalent: {results.hp.toFixed(2)} HP (Pump η: {inputs.effPump}%, Motor η: {inputs.effMotor}%)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table 2: Detailed Hydraulic Piping & Friction Loss Schedule */}
+        <div className="border border-border rounded-xl overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                <th colSpan={5} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
+                  2. Hydraulic Piping &amp; Friction Loss Schedule
+                </th>
+              </tr>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                <th className="p-2.5 border-r border-border">Piping Loss Parameter</th>
+                <th className="p-2.5 border-r border-border text-center w-32">Value</th>
+                <th className="p-2.5 border-r border-border text-center w-20">Unit</th>
+                <th className="p-2.5">Basis / Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y border-border">
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                <td className="p-2.5 border-r border-border font-medium">Vertical Pipe Height (Riser Lift)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.pipeVert}</td>
+                <td className="p-2.5 border-r border-border text-center">{lenUnit}</td>
+                <td className="p-2.5 text-muted-foreground">Geometric vertical lift to highest outlet</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                <td className="p-2.5 border-r border-border font-medium">Horizontal Distribution Run</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.pipeHoriz}</td>
+                <td className="p-2.5 border-r border-border text-center">{lenUnit}</td>
+                <td className="p-2.5 text-muted-foreground">Horizontal distribution run length</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                <td className="p-2.5 border-r border-border font-medium">Fittings &amp; Valves Allowance</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{(results.elbows + results.valves).toFixed(1)}</td>
+                <td className="p-2.5 border-r border-border text-center">{lenUnit}</td>
+                <td className="p-2.5 text-muted-foreground">30% elbows + 30% valves allowance</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                <td className="p-2.5 border-r border-border font-medium">Total Equivalent Length (L_equiv)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{results.equivLen.toFixed(1)}</td>
+                <td className="p-2.5 border-r border-border text-center">{lenUnit}</td>
+                <td className="p-2.5 text-muted-foreground">Developed run length with safety margin</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">5</td>
+                <td className="p-2.5 border-r border-border font-medium">Unit Friction Factor (Loss / 100)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.fricFactor}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar/100m" : "psi/100ft"}</td>
+                <td className="p-2.5 text-muted-foreground">Hazen-Williams friction loss rate</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">6</td>
+                <td className="p-2.5 border-r border-border font-medium">Calculated Pipe Friction Loss</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{isSI ? results.frictionLoss.toFixed(3) : (results.frictionLoss * 14.5038).toFixed(3)}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar" : "psi"}</td>
+                <td className="p-2.5 text-muted-foreground">L_equiv * (Friction Factor / 100)</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">7</td>
+                <td className="p-2.5 border-r border-border font-medium">Filtration &amp; Treatment Loss</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{isSI ? results.filterLoss.toFixed(2) : (results.filterLoss * 14.5038).toFixed(2)}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar" : "psi"}</td>
+                <td className="p-2.5 text-muted-foreground">In-line filtration &amp; softener head loss</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table 3: Pressure Head Components & Total Dynamic Head (TDH) Breakdown */}
+        <div className="border border-border rounded-xl overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                <th colSpan={5} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
+                  3. Pressure Head Components &amp; Total Dynamic Head Breakdown
+                </th>
+              </tr>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                <th className="p-2.5 border-r border-border">Head Component</th>
+                <th className="p-2.5 border-r border-border text-center w-32">Value</th>
+                <th className="p-2.5 border-r border-border text-center w-20">Unit</th>
+                <th className="p-2.5">Basis / Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                <td className="p-2.5 border-r border-border font-medium">Static Elevation Head (H_static)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.staticHead}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar" : "psi"}</td>
+                <td className="p-2.5 text-muted-foreground">Building vertical elevation differential</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                <td className="p-2.5 border-r border-border font-medium">Residual Terminal Pressure (P_res)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.presidHead}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar" : "psi"}</td>
+                <td className="p-2.5 text-muted-foreground">Required pressure at furthest outlet</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                <td className="p-2.5 border-r border-border font-medium">Suction Supply Head Credit (H_suct)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.suctionHead}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar" : "psi"}</td>
+                <td className="p-2.5 text-muted-foreground">Positive supply head credit</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                <td className="p-2.5 border-r border-border font-medium">Contingency Safety Margin</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.sfHead}</td>
+                <td className="p-2.5 border-r border-border text-center">%</td>
+                <td className="p-2.5 text-muted-foreground">Safety factor allowance</td>
+              </tr>
+              <tr className="bg-primary/5 hover:bg-primary/10 font-bold border-t border-b border-border">
+                <td className="p-2.5 border-r border-border text-center font-mono">5</td>
+                <td className="p-2.5 border-r border-border font-bold text-foreground">Total Dynamic Head (TDH)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-primary">{headDisp}</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold">{headUnit}</td>
+                <td className="p-2.5 text-foreground">((H_fric + H_static + P_res) - H_suct + H_filt) * (1 + Margin)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table 4: Motor & Energy Power Demand Analysis */}
+        <div className="border border-border rounded-xl overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                <th colSpan={5} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
+                  4. Motor &amp; Energy Demand Analysis
+                </th>
+              </tr>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                <th className="p-2.5 border-r border-border">Power &amp; Efficiency Parameter</th>
+                <th className="p-2.5 border-r border-border text-center w-32">Value</th>
+                <th className="p-2.5 border-r border-border text-center w-20">Unit</th>
+                <th className="p-2.5">Basis / Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                <td className="p-2.5 border-r border-border font-medium">Hydraulic Differential Pressure (ΔP)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{results.liftKpa.toFixed(1)}</td>
+                <td className="p-2.5 border-r border-border text-center">kPa</td>
+                <td className="p-2.5 text-muted-foreground">TDH converted to differential pressure</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center font-mono">2</td>
+                <td className="p-2.5 border-r border-border font-medium">Pump Hydraulic Efficiency (η_pump)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.effPump}</td>
+                <td className="p-2.5 border-r border-border text-center">%</td>
+                <td className="p-2.5 text-muted-foreground">Pump operating point efficiency</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                <td className="p-2.5 border-r border-border font-medium">Calculated Shaft Power (P_shaft)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{results.shaftPower.toFixed(2)}</td>
+                <td className="p-2.5 border-r border-border text-center">kW</td>
+                <td className="p-2.5 text-muted-foreground">(Q * ΔP) / (1000 * η_pump)</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                <td className="p-2.5 border-r border-border font-medium">Electric Motor Efficiency (η_motor)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.effMotor}</td>
+                <td className="p-2.5 border-r border-border text-center">%</td>
+                <td className="p-2.5 text-muted-foreground">IEC Premium Efficiency (IE3/IE4)</td>
+              </tr>
+              <tr className="bg-primary/5 hover:bg-primary/10 font-bold border-t border-b border-border">
+                <td className="p-2.5 border-r border-border text-center font-mono">5</td>
+                <td className="p-2.5 border-r border-border font-bold text-foreground">Required Motor Power (P_motor)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-primary">{results.motorPower.toFixed(2)}</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold">kW</td>
+                <td className="p-2.5 text-foreground">{results.hp.toFixed(2)} HP recommended motor size</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Professional Review & Sign-Off Block (Exact Preliminary #FFE6CC Header) */}
+        <div className="pt-2">
           <div className="border border-border rounded-xl overflow-hidden text-xs">
-            <div className="grid grid-cols-4 divide-x divide-y divide-border">
-              <div className="p-2.5 font-bold bg-muted/20">Calculation No.:</div>
-              <div className="p-2.5 font-mono">{calcNo}</div>
-              <div className="p-2.5 font-bold bg-muted/20">Date:</div>
-              <div className="p-2.5 font-mono">{today}</div>
-
-              <div className="p-2.5 font-bold bg-muted/20">Project No.:</div>
-              <div className="p-2.5 font-mono">{projectNo}</div>
-              <div className="p-2.5 font-bold bg-muted/20">Client:</div>
-              <div className="p-2.5">{clientName}</div>
-
-              <div className="p-2.5 font-bold bg-muted/20">Project Name:</div>
-              <div className="p-2.5">{projectName}</div>
-              <div className="p-2.5 font-bold bg-muted/20">End User:</div>
-              <div className="p-2.5">{endUser}</div>
-            </div>
+            <table className="w-full border-collapse">
+              <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
+                <tr className="divide-x divide-border">
+                  <th className="p-2.5 w-28 text-center"></th>
+                  <th className="p-2.5 text-center w-1/3">Originator</th>
+                  <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                  <th className="p-2.5 text-center w-1/3">Approver</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.originatedName || currentUserName || "Design Engineer"}
+                  </td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.reviewerName || "-"}
+                  </td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.approverName || "-"}
+                  </td>
+                </tr>
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Role:</td>
+                  <td className="p-2.5 text-center text-muted-foreground">MEP Design Engineer</td>
+                  <td className="p-2.5 text-center text-muted-foreground">Senior Plumbing Lead</td>
+                  <td className="p-2.5 text-center text-muted-foreground">Principal / Director</td>
+                </tr>
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.originatedDate || today}
+                  </td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.reviewerDate || "-"}
+                  </td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.approverDate || "-"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-
-          {/* Table 1: Executive Design Parameters & Pump Duty Summary */}
-          <div className="space-y-2">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              1. Executive Design Parameters &amp; Pump Duty Summary
-            </h3>
-            <div className="border border-border rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                    <th className="p-2.5 w-12 text-center">No.</th>
-                    <th className="p-2.5">Executive Design Parameter Summary</th>
-                    <th className="p-2.5 text-center w-28">Value</th>
-                    <th className="p-2.5 text-center w-20">Unit</th>
-                    <th className="p-2.5">Engineering Design Basis / Code</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
-                    <td className="p-2.5 font-bold">Pump Application Type</td>
-                    <td className="p-2.5 text-center font-bold text-foreground">{pumpTypeLabel}</td>
-                    <td className="p-2.5 text-center text-muted-foreground">-</td>
-                    <td className="p-2.5 text-muted-foreground">Domestic Water Distribution System</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
-                    <td className="p-2.5 font-bold">Pump Station Configuration</td>
-                    <td className="p-2.5 text-center font-bold text-foreground">{inputs.workingPumps}W + {inputs.standbyPumps}S</td>
-                    <td className="p-2.5 text-center text-muted-foreground">units</td>
-                    <td className="p-2.5 text-muted-foreground">Standard N+1 duty and standby arrangement</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
-                    <td className="p-2.5 font-bold">
-                      {inputs.pumpType === "transfer" ? "Storage Tank Volume & Fill Time" : "Water Supply Fixture Units (WSFU)"}
-                    </td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">
-                      {inputs.pumpType === "transfer" ? `${inputs.reqVolume} L in ${inputs.fillTime} hrs` : (inputs.wsfuVal || "-")}
-                    </td>
-                    <td className="p-2.5 text-center text-muted-foreground">
-                      {inputs.pumpType === "transfer" ? "L / hr" : "WSFU"}
-                    </td>
-                    <td className="p-2.5 text-muted-foreground">
-                      {inputs.pumpType === "transfer" ? "Storage refill duty cycle" : "IPC Table 604.3 / Hunter's Curve demand"}
-                    </td>
-                  </tr>
-                  {/* Highlighted Duty Parameter: Design Flow Rate (Matching Ventilation standard #DAE9F8) */}
-                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
-                    <td className="p-2.5 text-center font-mono">4</td>
-                    <td className="p-2.5 font-bold">Design Flow Rate per Pump (Q)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-primary">{flowDisp}</td>
-                    <td className="p-2.5 text-center font-mono font-bold">{flowUnit}</td>
-                    <td className="p-2.5">Peak simultaneous demand flow requirement</td>
-                  </tr>
-                  {/* Highlighted Duty Parameter: Total Dynamic Head (Matching Ventilation standard #DAE9F8) */}
-                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
-                    <td className="p-2.5 text-center font-mono">5</td>
-                    <td className="p-2.5 font-bold">Calculated Total Dynamic Head (TDH)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-primary">{headDisp}</td>
-                    <td className="p-2.5 text-center font-mono font-bold">{headUnit}</td>
-                    <td className="p-2.5">Static head + friction + residual pressure + {inputs.sfHead}% margin</td>
-                  </tr>
-                  {/* Highlighted Duty Parameter: Motor Power (Matching Ventilation standard #DAE9F8) */}
-                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
-                    <td className="p-2.5 text-center font-mono">6</td>
-                    <td className="p-2.5 font-bold">Estimated Motor Rating Demand</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-primary">{results.motorPower.toFixed(2)}</td>
-                    <td className="p-2.5 text-center font-mono font-bold">kW</td>
-                    <td className="p-2.5">Equivalent: {results.hp.toFixed(2)} HP (Pump η: {inputs.effPump}%, Motor η: {inputs.effMotor}%)</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Table 2: Detailed Hydraulic Piping & Friction Loss Schedule */}
-          <div className="space-y-2 mt-6">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              2. Hydraulic Piping &amp; Friction Loss Schedule
-            </h3>
-            <div className="border border-border rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                    <th className="p-2.5 w-12 text-center">No.</th>
-                    <th className="p-2.5">Piping &amp; Hydraulic Loss Parameter</th>
-                    <th className="p-2.5 text-center w-28">Value</th>
-                    <th className="p-2.5 text-center w-20">Unit</th>
-                    <th className="p-2.5">Engineering Calculation Basis</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
-                    <td className="p-2.5 font-bold">Vertical Pipe Height (Riser Lift)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.pipeVert}</td>
-                    <td className="p-2.5 text-center">{lenUnit}</td>
-                    <td className="p-2.5 text-muted-foreground">Geometric vertical lift to highest fixture / roof tank</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
-                    <td className="p-2.5 font-bold">Horizontal Pipe Distribution Run</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.pipeHoriz}</td>
-                    <td className="p-2.5 text-center">{lenUnit}</td>
-                    <td className="p-2.5 text-muted-foreground">Horizontal distribution header and branch length</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
-                    <td className="p-2.5 font-bold">Fittings &amp; Valves Equivalent Allowance</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{(results.elbows + results.valves).toFixed(1)}</td>
-                    <td className="p-2.5 text-center">{lenUnit}</td>
-                    <td className="p-2.5 text-muted-foreground">30% elbows + 30% valves standard empirical allowance</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
-                    <td className="p-2.5 font-bold">Total Equivalent Pipe Length (L_equiv)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{results.equivLen.toFixed(1)}</td>
-                    <td className="p-2.5 text-center">{lenUnit}</td>
-                    <td className="p-2.5 text-muted-foreground">Developed length with 5% safety margin rounded to 10m</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">5</td>
-                    <td className="p-2.5 font-bold">Unit Friction Factor (Loss / 100m)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.fricFactor}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar/100m" : "psi/100ft"}</td>
-                    <td className="p-2.5 text-muted-foreground">Hazen-Williams / Darcy-Weisbach standard friction loss rate</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">6</td>
-                    <td className="p-2.5 font-bold">Calculated Pipe Friction Loss</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{isSI ? results.frictionLoss.toFixed(3) : (results.frictionLoss * 14.5038).toFixed(3)}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
-                    <td className="p-2.5 text-muted-foreground">L_equiv * (Friction Factor / 100)</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">7</td>
-                    <td className="p-2.5 font-bold">Water Filtration &amp; Treatment Loss</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{isSI ? results.filterLoss.toFixed(2) : (results.filterLoss * 14.5038).toFixed(2)}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
-                    <td className="p-2.5 text-muted-foreground">Active carbon / sand / softener / Cu-Ag ionization filter head loss</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Table 3: Pressure Head Components & Total Dynamic Head (TDH) */}
-          <div className="space-y-2 mt-6">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              3. Pressure Head Components &amp; Total Dynamic Head Breakdown
-            </h3>
-            <div className="border border-border rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                    <th className="p-2.5 w-12 text-center">No.</th>
-                    <th className="p-2.5">Head &amp; Pressure Component</th>
-                    <th className="p-2.5 text-center w-28">Value</th>
-                    <th className="p-2.5 text-center w-20">Unit</th>
-                    <th className="p-2.5">System Pressure Basis</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
-                    <td className="p-2.5 font-bold">Static Elevation Head (H_static)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.staticHead}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
-                    <td className="p-2.5 text-muted-foreground">Building elevation height differential</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
-                    <td className="p-2.5 font-bold">Residual Terminal Pressure (P_res)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.presidHead}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
-                    <td className="p-2.5 text-muted-foreground">Minimum required pressure at remotest outlet fixture</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
-                    <td className="p-2.5 font-bold">Suction Tank Inflow / Head Credit (H_suct)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.suctionHead}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
-                    <td className="p-2.5 text-muted-foreground">Positive suction head from elevated supply reservoir</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
-                    <td className="p-2.5 font-bold">Aging &amp; Fouling Safety Margin</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.sfHead}</td>
-                    <td className="p-2.5 text-center">%</td>
-                    <td className="p-2.5 text-muted-foreground">Engineering contingency margin</td>
-                  </tr>
-                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
-                    <td className="p-2.5 text-center font-mono">5</td>
-                    <td className="p-2.5 font-bold">Total Dynamic Calculation Head (TDH)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-primary">{headDisp}</td>
-                    <td className="p-2.5 text-center font-mono font-bold">{headUnit}</td>
-                    <td className="p-2.5">((H_fric + H_static + P_res) - H_suct + H_filt) * (1 + Safety Margin)</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Table 4: Motor & Energy Power Analysis */}
-          <div className="space-y-2 mt-6">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              4. Motor &amp; Energy Demand Analysis
-            </h3>
-            <div className="border border-border rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                    <th className="p-2.5 w-12 text-center">No.</th>
-                    <th className="p-2.5">Power &amp; Efficiency Parameter</th>
-                    <th className="p-2.5 text-center w-28">Value</th>
-                    <th className="p-2.5 text-center w-20">Unit</th>
-                    <th className="p-2.5">Efficiency &amp; Mechanical Rating</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
-                    <td className="p-2.5 font-bold">Hydraulic Lift Pressure Differential</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{results.liftKpa.toFixed(1)}</td>
-                    <td className="p-2.5 text-center">kPa</td>
-                    <td className="p-2.5 text-muted-foreground">Calculated pressure differential = TDH * 100</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
-                    <td className="p-2.5 font-bold">Pump Hydraulic Efficiency (η_pump)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.effPump}</td>
-                    <td className="p-2.5 text-center">%</td>
-                    <td className="p-2.5 text-muted-foreground">Centrifugal pump hydraulic efficiency curve</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
-                    <td className="p-2.5 font-bold">Calculated Shaft Power (P_shaft)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{results.shaftPower.toFixed(2)}</td>
-                    <td className="p-2.5 text-center">kW</td>
-                    <td className="p-2.5 text-muted-foreground">P_shaft = (Q * ΔP) / (1000 * η_pump)</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
-                    <td className="p-2.5 font-bold">Electric Motor Efficiency (η_motor)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.effMotor}</td>
-                    <td className="p-2.5 text-center">%</td>
-                    <td className="p-2.5 text-muted-foreground">IEC Premium Efficiency (IE3 / IE4) induction motor</td>
-                  </tr>
-                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
-                    <td className="p-2.5 text-center font-mono">5</td>
-                    <td className="p-2.5 font-bold">Required Motor Power (P_motor)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-primary">{results.motorPower.toFixed(2)}</td>
-                    <td className="p-2.5 text-center font-mono font-bold">kW</td>
-                    <td className="p-2.5">P_motor = P_shaft / η_motor ({results.hp.toFixed(2)} HP duty)</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Compliance Verification Banner */}
-          <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
-            <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-            <div className="text-xs space-y-1">
-              <span className="font-bold text-emerald-800 dark:text-emerald-300">
-                Hydraulic Duty &amp; Motor Power Compliance Verification
-              </span>
-              <p className="text-muted-foreground leading-relaxed">
-                This pump sizing calculation complies with IPC Table 604.3, CIBSE Guide W, and IEC electric motor standards for domestic water booster/transfer pump systems. Total Dynamic Head includes static elevation, equivalent pipe friction, active filtration losses, and a {inputs.sfHead}% contingency margin.
-              </p>
-            </div>
-          </div>
-
-          {/* Table 5: 4-Column Professional Review & Sign-Off Block */}
-          <div className="space-y-2 mt-6">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              5. Professional Review &amp; Sign-Off Block
-            </h3>
-            <div className="border border-border rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
-                    <th className="p-2.5 text-left w-1/4">Approval Role</th>
-                    <th className="p-2.5 text-center w-1/4">Originated By</th>
-                    <th className="p-2.5 text-center w-1/4">Reviewed By</th>
-                    <th className="p-2.5 text-center w-1/4">Approved By</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="p-2.5 font-bold text-muted-foreground">Name:</td>
-                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.originatedName}</td>
-                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
-                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 font-bold text-muted-foreground">Role / Status:</td>
-                    <td className="p-2.5 text-center text-muted-foreground">MEP Design Engineer</td>
-                    <td className="p-2.5 text-center text-muted-foreground">Senior Plumbing Lead</td>
-                    <td className="p-2.5 text-center text-muted-foreground">Principal / MEP Director</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 font-bold text-muted-foreground">Date:</td>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.originatedDate || today}</td>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
+        </div>
         </div>
       </div>
-    </div>
   );
 }
 

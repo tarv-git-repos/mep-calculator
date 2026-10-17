@@ -1,4 +1,6 @@
 import { useWorkspace, workspaceStore } from "@/lib/workspace-store";
+import { useAuth } from "@/contexts/AuthContext";
+import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import {
   CalculationReviewBar,
   useCalculationEffectiveReadOnly,
@@ -20,6 +22,8 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Scissors,
+  ClipboardPaste,
   MessageSquare,
   Flag,
   Sparkles,
@@ -40,14 +44,23 @@ import {
   FileSpreadsheet,
   Box,
   Snowflake,
+  SlidersHorizontal,
+  RefreshCw,
+  Printer,
+  Info,
+  CopyPlus,
+  Activity,
+  BookOpen,
+  Layers,
+  Sliders,
 } from "lucide-react";
 import {
   getPreliminaryCoolingLoadSpaces,
   getVentilationSpaces,
 } from "@/lib/calc-load-summary";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
+import { FloorSelect } from "@/components/workspace/FloorSelect";
 import { useConfirm, usePrompt } from "@/hooks/use-confirm";
 import { cn } from "@/lib/utils";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
@@ -86,6 +99,8 @@ import {
   type CalculationPreviewData,
 } from "@/components/calculator-framework/CalculationPreviewModal";
 import { LpdCategorySelect } from "@/components/workspace/LpdCategorySelect";
+import { EditLpdSpaceModal } from "@/components/workspace/EditLpdSpaceModal";
+import { LpdIntelligenceDrawer } from "@/components/workspace/LpdIntelligenceDrawer";
 
 export const Route = createFileRoute("/lpd-calculation")({
   head: () => ({
@@ -132,6 +147,14 @@ export function migrateLpdProjects(rawProjects: any[]): LpdProject[] {
 }
 
 function LPDCalculationPage() {
+  const { userData, profile, user } = useAuth();
+  const currentUserName =
+    userData?.name ||
+    profile?.name ||
+    (user as any)?.user_metadata?.full_name ||
+    user?.email?.split("@")[0] ||
+    "System Admin";
+
   const { project, activeProjectId, forceSaveToCloud } = useWorkspace();
   const effectiveProjectId = activeProjectId || project?.id || "default";
 
@@ -140,6 +163,7 @@ function LPDCalculationPage() {
 
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const isLoadedRef = useRef(false);
+  const isInitialMountRef = useRef(true);
 
   // Lazy initialization from local storage to prevent mount-time state wipe
   const [projects, setProjects] = useState<LpdProject[]>(() => {
@@ -231,29 +255,120 @@ function LPDCalculationPage() {
     }
   };
 
-  const getBaselineLpdForType = (type: string, system: "si" | "ip" = unitSystem): number | undefined => {
-    if (!type) return undefined;
-    const norm = type.toLowerCase().trim();
-    let sqmVal = authorityMapping[type] ?? authorityMapping[norm];
-    if (sqmVal === undefined) {
-      const matchKey = Object.keys(authorityMapping).find(
-        (k) => k.toLowerCase().trim() === norm
-      );
-      if (matchKey) sqmVal = authorityMapping[matchKey];
-    }
+  const normalizedAuthorityMapping = useMemo(() => {
+    const map = new Map<string, number>();
+    Object.entries(authorityMapping).forEach(([k, v]) => {
+      map.set(k.toLowerCase().trim(), v);
+    });
+    return map;
+  }, [authorityMapping]);
 
-    if (system === "ip") {
-      if (LPD_AUTHORITY_MAPPING[norm] !== undefined) return LPD_AUTHORITY_MAPPING[norm];
-      if (sqmVal !== undefined) return Number((sqmVal / 10.76391).toFixed(2));
-      return undefined;
-    } else {
-      if (sqmVal !== undefined) return Number(sqmVal.toFixed(2));
-      if (LPD_AUTHORITY_MAPPING[norm] !== undefined) return Number((LPD_AUTHORITY_MAPPING[norm] * 10.76391).toFixed(2));
-      return undefined;
-    }
-  };
+  const getBaselineLpdForType = useCallback(
+    (type: string, system: "si" | "ip" = unitSystem): number | undefined => {
+      if (!type) return undefined;
+      const norm = type.toLowerCase().trim();
+      let sqmVal = authorityMapping[type] ?? normalizedAuthorityMapping.get(norm);
+
+      if (system === "ip") {
+        if (LPD_AUTHORITY_MAPPING[norm] !== undefined) return LPD_AUTHORITY_MAPPING[norm];
+        if (sqmVal !== undefined) return Number((sqmVal / 10.76391).toFixed(2));
+        return undefined;
+      } else {
+        if (sqmVal !== undefined) return Number(sqmVal.toFixed(2));
+        if (LPD_AUTHORITY_MAPPING[norm] !== undefined) return Number((LPD_AUTHORITY_MAPPING[norm] * 10.76391).toFixed(2));
+        return undefined;
+      }
+    },
+    [authorityMapping, normalizedAuthorityMapping, unitSystem]
+  );
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
+  const [copiedSpaces, setCopiedSpaces] = useState<LpdSpace[]>([]);
+  const [undoStack, setUndoStack] = useState<LpdGroup[][]>([]);
+  const [redoStack, setRedoStack] = useState<LpdGroup[][]>([]);
+  const DEFAULT_LPD_COL_WIDTHS: Record<string, number> = useMemo(() => ({
+    select: 38,
+    name: 210,
+    category: 210,
+    lightType: 170,
+    watts: 80,
+    qty: 65,
+    totalWatts: 95,
+    area: 105,
+    proposedLpd: 120,
+    baselineLpd: 105,
+    remarks: 140,
+    addFixture: 38,
+    flag: 38,
+  }), []);
+
+  const [lpdColWidths, setLpdColWidths] = useState<Record<string, number>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("mep_grid_lpd_spaces");
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {
+      select: 38,
+      name: 210,
+      category: 210,
+      lightType: 170,
+      watts: 80,
+      qty: 65,
+      totalWatts: 95,
+      area: 105,
+      proposedLpd: 120,
+      baselineLpd: 105,
+      remarks: 140,
+      addFixture: 38,
+      flag: 38,
+    };
+  });
+
+  const totalLpdTableWidth = useMemo(() => {
+    return Object.values(lpdColWidths).reduce((a, b) => a + b, 0);
+  }, [lpdColWidths]);
+
+  const getLpdColStyle = (key: string) => {
+    const val = lpdColWidths[key] ?? DEFAULT_LPD_COL_WIDTHS[key] ?? 100;
+    const pct = ((val / totalLpdTableWidth) * 100).toFixed(2);
+    return {
+      width: `${pct}%`,
+      minWidth: `${Math.min(val, 38)}px`,
+    };
+  };
+
+  const handleResizeMouseDown = (key: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = lpdColWidths[key] || 100;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      const deltaX = moveEvent.clientX - startX;
+      const minW = key === "select" || key === "addFixture" || key === "flag" ? 32 : 50;
+      const newWidth = Math.max(minW, startWidth + deltaX);
+      setLpdColWidths((prev) => {
+        const next = { ...prev, [key]: newWidth };
+        try { localStorage.setItem("mep_grid_lpd_spaces", JSON.stringify(next)); } catch (err) {}
+        return next;
+      });
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  const [activeTab, setActiveTab] = useState<"schedule" | "report">("schedule");
+  const [showFormulaModal, setShowFormulaModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | "compliant" | "non-compliant" | "flagged" | "missing">("all");
   const [filterAreaType, setFilterAreaType] = useState<string>("all");
@@ -267,6 +382,26 @@ function LPDCalculationPage() {
   const [previewData, setPreviewData] = useState<CalculationPreviewData | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
+  // Edit LPD Space Modal State (matching Ventilation layout)
+  const [editingLpdSpace, setEditingLpdSpace] = useState<{
+    space: LpdSpace;
+    groupId: string;
+    groupName: string;
+    isNew?: boolean;
+  } | null>(null);
+
+  // Add Space Modal State
+  const [showAddSpaceModal, setShowAddSpaceModal] = useState(false);
+  const [newSpaceFloor, setNewSpaceFloor] = useState("");
+  const [newSpaceName, setNewSpaceName] = useState("");
+  const [newSpaceAreaType, setNewSpaceAreaType] = useState("Office - Enclosed");
+  const [newSpaceArea, setNewSpaceArea] = useState<number | "">(100);
+  const [newSpaceBaselineLpd, setNewSpaceBaselineLpd] = useState<number | "">(0.62);
+  const [newSpaceFixtureType, setNewSpaceFixtureType] = useState("2x2 LED Troffer 36W");
+  const [newSpaceFixtureWatts, setNewSpaceFixtureWatts] = useState<number | "">(36);
+  const [newSpaceFixtureQty, setNewSpaceFixtureQty] = useState<number | "">(4);
+  const [newSpaceRemarks, setNewSpaceRemarks] = useState("");
+
   // Add Custom Area Type Modal State
   const [customAreaModalOpen, setCustomAreaModalOpen] = useState(false);
   const [customAreaTarget, setCustomAreaTarget] = useState<{
@@ -278,18 +413,19 @@ function LPDCalculationPage() {
 
   // Import Sources (Ventilation, Preliminary Cooling Load, Excel, 3D BIM)
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
-  const [importMenuOpen, setImportMenuOpen] = useState(false);
   const excelInputRef = useRef<HTMLInputElement>(null);
 
   const pclSpacesCount = useMemo(() => {
+    if (!sourceModalOpen) return 0;
     const pId = activeProjectId || project?.id || "default";
     return getPreliminaryCoolingLoadSpaces(pId).length;
-  }, [activeProjectId, project?.id, importMenuOpen]);
+  }, [activeProjectId, project?.id, sourceModalOpen]);
 
   const ventSpacesCount = useMemo(() => {
+    if (!sourceModalOpen) return 0;
     const pId = activeProjectId || project?.id || "default";
     return getVentilationSpaces(pId).length;
-  }, [activeProjectId, project?.id, importMenuOpen]);
+  }, [activeProjectId, project?.id, sourceModalOpen]);
 
   const lpdImportColumnMapping = useMemo(
     () => ({
@@ -384,6 +520,11 @@ function LPDCalculationPage() {
   useEffect(() => {
     const pId = effectiveProjectId;
     if (!isLoadedRef.current || loadedProjectId !== pId) return;
+
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
 
     try {
       const dataToSave = {
@@ -546,8 +687,25 @@ function LPDCalculationPage() {
     toast.success(`Floor group "${nextName}" added`);
   };
 
-  const removeGroup = (gid: string) => {
+  const removeGroup = async (gid: string) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    const target = activeGroups.find((g) => g.id === gid);
+    const gName = target?.name ? ` "${target.name}"` : "";
+    const count = target?.spaces?.length || 0;
+    const ok = await confirm(`Are you sure you want to delete floor${gName}${count > 0 ? ` with ${count} spaces` : ""}?`, {
+      title: "Delete Floor Group",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
+
+    pushToUndo(activeGroups);
     updateActiveGroups((groups) => groups.filter((g) => g.id !== gid));
+    dirtyStore.set(true);
     toast.success("Floor group removed");
   };
 
@@ -575,49 +733,169 @@ function LPDCalculationPage() {
   };
 
   const addSpace = (gid: string) => {
-    // If search or filter is hiding empty spaces, reset filter so user sees the newly added space immediately
-    if (searchQuery) setSearchQuery("");
-    if (filterStatus !== "all") setFilterStatus("all");
-    if (filterAreaType !== "all") setFilterAreaType("all");
-    if (filterFlaggedOnly) setFilterFlaggedOnly(false);
-    if (filterMinArea !== null) setFilterMinArea(null);
-
-    updateActiveGroups((groups) =>
-      groups.map((g) =>
-        g.id === gid
-          ? {
-              ...g,
-              isExpanded: true,
-              spaces: [...(g.spaces || []), defaultSpace()],
-            }
-          : g
-      )
-    );
-    toast.success("New space added");
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    const targetGrp = activeGroups.find((g) => g.id === gid);
+    const floorName = targetGrp ? targetGrp.name : (isInt ? "FLOOR 1" : "EXTERNAL AREA 1");
+    setNewSpaceFloor(floorName);
+    const count = activeGroups.reduce((acc, g) => acc + (g.spaces?.length || 0), 0);
+    setNewSpaceName(`Space ${count + 1}`);
+    const defaultAreaType = isInt ? "Office" : "Exterior/Landscape Area";
+    setNewSpaceAreaType(defaultAreaType);
+    const baseline = LPD_AUTHORITY_MAPPING[defaultAreaType] || 0.62;
+    setNewSpaceBaselineLpd(unitSystem === "ip" ? baseline : Number((baseline * 10.7639).toFixed(2)));
+    setNewSpaceArea(100);
+    setNewSpaceFixtureType("2x2 LED Troffer 36W");
+    setNewSpaceFixtureWatts(36);
+    setNewSpaceFixtureQty(4);
+    setNewSpaceRemarks("");
+    setShowAddSpaceModal(true);
   };
 
   const handleAddNewSpace = () => {
-    if (searchQuery) setSearchQuery("");
-    if (filterStatus !== "all") setFilterStatus("all");
-    if (filterAreaType !== "all") setFilterAreaType("all");
-    if (filterFlaggedOnly) setFilterFlaggedOnly(false);
-    if (filterMinArea !== null) setFilterMinArea(null);
-
-    if (!activeGroups || activeGroups.length === 0) {
-      const newGroup = defaultGroup(isInt ? "FLOOR 1" : "EXTERNAL AREA 1");
-      const space = defaultSpace();
-      newGroup.spaces = [space];
-      newGroup.isExpanded = true;
-      updateActiveGroups(() => [newGroup]);
-      toast.success("Created floor group and added new space");
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
       return;
     }
+    const targetGroup = activeGroups.find((g) => g.isExpanded) || activeGroups[0] || { id: generateId(), name: isInt ? "FLOOR 1" : "EXTERNAL AREA 1", isExpanded: true, spaces: [] };
+    const count = activeGroups.reduce((acc, g) => acc + (g.spaces?.length || 0), 0);
+    const spaceId = generateId();
+    const defaultAreaType = isInt ? "Office" : "Exterior/Landscape Area";
+    const baseline = LPD_AUTHORITY_MAPPING[defaultAreaType] || 0.62;
+    const baselineSqM = unitSystem === "ip" ? String(Number((baseline * 10.7639).toFixed(2))) : String(baseline);
 
-    const targetGroup = activeGroups.find((g) => g.isExpanded) || activeGroups[0];
-    addSpace(targetGroup.id);
+    const newSpaceItem: LpdSpace = {
+      id: spaceId,
+      name: `Space ${count + 1}`,
+      areaType: defaultAreaType,
+      areaSqM: unitSystem === "ip" ? "1076.4" : "100",
+      baselineLpd: baselineSqM,
+      remarks: "",
+      fixtures: [
+        {
+          id: generateId(),
+          type: "2x2 LED Troffer 36W",
+          watts: "36",
+          qty: "4",
+        },
+      ],
+      comments: [],
+      flagged: false,
+    };
+
+    updateActiveGroups((groups) => {
+      let found = false;
+      const next = groups.map((g) => {
+        if (g.id === targetGroup.id) {
+          found = true;
+          return {
+            ...g,
+            isExpanded: true,
+            spaces: [...(g.spaces || []), newSpaceItem],
+          };
+        }
+        return g;
+      });
+      if (!found) {
+        return [...groups, { ...targetGroup, isExpanded: true, spaces: [newSpaceItem] }];
+      }
+      return next;
+    });
+
+    setSelected(new Set([spaceId]));
+    setEditingLpdSpace({
+      space: newSpaceItem,
+      groupId: targetGroup.id,
+      groupName: targetGroup.name,
+      isNew: true,
+    });
   };
 
-  const removeSpace = (gid: string, sid: string) => {
+  const handleAddSpaceSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    if (!newSpaceName.trim()) {
+      toast.error("Please enter a space name");
+      return;
+    }
+    const targetFloorName = newSpaceFloor.trim() || (isInt ? "FLOOR 1" : "EXTERNAL AREA 1");
+    const baselineVal = typeof newSpaceBaselineLpd === "number" ? newSpaceBaselineLpd : parseFloat(String(newSpaceBaselineLpd)) || 0;
+    const areaVal = typeof newSpaceArea === "number" ? newSpaceArea : parseFloat(String(newSpaceArea)) || 100;
+    
+    // Store in sq.m and W/m2 internally
+    const areaSqM = unitSystem === "ip" ? String(Number((areaVal * 0.092903).toFixed(2))) : String(areaVal);
+    const baselineLpdSqM = unitSystem === "ip" ? String(Number((baselineVal * 10.7639).toFixed(2))) : String(baselineVal);
+
+    const spaceId = generateId();
+    const newCreatedSpace: LpdSpace = {
+      id: spaceId,
+      name: newSpaceName.trim(),
+      areaType: newSpaceAreaType,
+      areaSqM,
+      baselineLpd: baselineLpdSqM,
+      remarks: newSpaceRemarks,
+      fixtures: [
+        {
+          id: generateId(),
+          type: newSpaceFixtureType,
+          watts: String(newSpaceFixtureWatts || 36),
+          qty: String(newSpaceFixtureQty || 1),
+        }
+      ],
+      comments: [],
+      flagged: false,
+    };
+
+    updateActiveGroups((groups) => {
+      let found = false;
+      const next = groups.map((g) => {
+        if (g.name.toUpperCase() === targetFloorName.toUpperCase()) {
+          found = true;
+          return {
+            ...g,
+            isExpanded: true,
+            spaces: [...(g.spaces || []), newCreatedSpace],
+          };
+        }
+        return g;
+      });
+
+      if (!found) {
+        const newGrp = defaultGroup(targetFloorName);
+        newGrp.isExpanded = true;
+        newGrp.spaces = [newCreatedSpace];
+        return [...next, newGrp];
+      }
+      return next;
+    });
+
+    setSelected(new Set([spaceId]));
+    setShowAddSpaceModal(false);
+    toast.success(`New Space "${newCreatedSpace.name}" added to ${targetFloorName}!`);
+  };
+
+  const removeSpace = async (gid: string, sid: string) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    const group = activeGroups.find((g) => g.id === gid);
+    const space = group?.spaces?.find((s) => s.id === sid);
+    const spaceName = space?.name ? ` "${space.name}"` : "";
+    const ok = await confirm(`Are you sure you want to delete space${spaceName}?`, {
+      title: "Delete Space",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
+
+    pushToUndo(activeGroups);
     updateActiveGroups((groups) =>
       groups.map((g) =>
         g.id === gid ? { ...g, spaces: g.spaces.filter((s) => s.id !== sid) } : g
@@ -628,6 +906,8 @@ function LPDCalculationPage() {
       next.delete(sid);
       return next;
     });
+    setLastClickedIndex(null);
+    dirtyStore.set(true);
     toast.success("Space removed");
   };
 
@@ -655,18 +935,40 @@ function LPDCalculationPage() {
   };
 
   const toggleFlag = (gid: string, sid: string) => {
-    updateActiveGroups((groups) =>
-      groups.map((g) =>
-        g.id === gid
-          ? {
-              ...g,
-              spaces: g.spaces.map((s) =>
-                s.id === sid ? { ...s, flagged: !s.flagged } : s
-              ),
-            }
-          : g
-      )
-    );
+    const isMultiTarget = selected.has(sid) && selected.size > 1;
+    if (isMultiTarget) {
+      let currentFlagged = false;
+      for (const g of activeGroups) {
+        const found = (g.spaces || []).find((s) => s.id === sid);
+        if (found) {
+          currentFlagged = Boolean(found.flagged);
+          break;
+        }
+      }
+      const nextFlagged = !currentFlagged;
+      updateActiveGroups((groups) =>
+        groups.map((g) => ({
+          ...g,
+          spaces: (g.spaces || []).map((s) =>
+            selected.has(s.id) ? { ...s, flagged: nextFlagged } : s
+          ),
+        }))
+      );
+      toast.info(nextFlagged ? `Flagged ${selected.size} spaces for review` : `Unflagged ${selected.size} spaces`);
+    } else {
+      updateActiveGroups((groups) =>
+        groups.map((g) =>
+          g.id === gid
+            ? {
+                ...g,
+                spaces: g.spaces.map((s) =>
+                  s.id === sid ? { ...s, flagged: !s.flagged } : s
+                ),
+              }
+            : g
+        )
+      );
+    }
   };
 
   const addFixture = (gid: string, sid: string) => {
@@ -789,21 +1091,78 @@ function LPDCalculationPage() {
 
   const allSelected = allActiveSpaceIds.length > 0 && allActiveSpaceIds.every((id) => selected.has(id));
 
+  // Undo / Redo history engine
+  const pushToUndo = (currentGroups: LpdGroup[]) => {
+    setUndoStack((prev) => [...prev.slice(-30), JSON.parse(JSON.stringify(currentGroups))]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (isEffectiveReadOnly || undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setRedoStack((prev) => [...prev.slice(-30), JSON.parse(JSON.stringify(activeGroups))]);
+    updateActiveGroups(() => previous);
+    setUndoStack((prev) => prev.slice(0, -1));
+    dirtyStore.set(true);
+    toast.info("Undo");
+  };
+
+  const handleRedo = () => {
+    if (isEffectiveReadOnly || redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((prev) => [...prev.slice(-30), JSON.parse(JSON.stringify(activeGroups))]);
+    updateActiveGroups(() => next);
+    setRedoStack((prev) => prev.slice(0, -1));
+    dirtyStore.set(true);
+    toast.info("Redo");
+  };
+
   const toggleSelectAll = () => {
     if (allSelected) {
       setSelected(new Set());
+      setLastClickedIndex(null);
     } else {
       setSelected(new Set(allActiveSpaceIds));
+      setLastClickedIndex(null);
     }
   };
 
-  const toggleSelectRow = (id: string) => {
+  const toggleSelectRow = (id: string, isShift?: boolean, isCtrl?: boolean) => {
     setSelected((prev) => {
+      const clickedIndex = allActiveSpaceIds.findIndex((spaceId) => spaceId === id);
+      if (clickedIndex === -1) return prev;
+
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+
+      if (isShift) {
+        const pivotIndex = lastClickedIndex !== null ? lastClickedIndex : 0;
+        const start = Math.min(pivotIndex, clickedIndex);
+        const end = Math.max(pivotIndex, clickedIndex);
+
+        if (!isCtrl) {
+          next.clear();
+        }
+
+        for (let i = start; i <= end; i++) {
+          const rId = allActiveSpaceIds[i];
+          if (rId) next.add(rId);
+        }
+      } else if (isCtrl) {
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        setLastClickedIndex(clickedIndex);
       } else {
-        next.add(id);
+        if (prev.has(id) && prev.size === 1) {
+          next.delete(id);
+          setLastClickedIndex(null);
+        } else {
+          next.clear();
+          next.add(id);
+          setLastClickedIndex(clickedIndex);
+        }
       }
       return next;
     });
@@ -822,10 +1181,12 @@ function LPDCalculationPage() {
       }
       return next;
     });
+    setLastClickedIndex(null);
   };
 
   const toggleFlagSelected = () => {
     if (selected.size === 0) return;
+    pushToUndo(activeGroups);
     updateActiveGroups((groups) =>
       groups.map((g) => ({
         ...g,
@@ -834,11 +1195,17 @@ function LPDCalculationPage() {
         ),
       }))
     );
+    dirtyStore.set(true);
     toast.success(`Toggled flag for ${selected.size} space(s)`);
   };
 
   const duplicateSelectedSpaces = () => {
     if (selected.size === 0) return;
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    pushToUndo(activeGroups);
     const newSelected = new Set<string>();
     updateActiveGroups((groups) =>
       groups.map((g) => {
@@ -851,8 +1218,8 @@ function LPDCalculationPage() {
             nextSpaces.push({
               ...s,
               id: cloneId,
-              name: s.name ? `${s.name} (Copy)` : "Space (Copy)",
-              fixtures: s.fixtures.map((f) => ({ ...f, id: generateId() })),
+              name: s.name ? `${s.name.replace(/ \(Copy(-\d+)?\)$/, "")} (Copy)` : "Space (Copy)",
+              fixtures: (s.fixtures || []).map((f) => ({ ...f, id: generateId() })),
               comments: [],
             });
           }
@@ -861,46 +1228,249 @@ function LPDCalculationPage() {
       })
     );
     setSelected(newSelected);
+    setLastClickedIndex(null);
+    dirtyStore.set(true);
     toast.success(`Duplicated ${selected.size} space(s)`);
+  };
+
+  const copySelectedSpaces = () => {
+    if (selected.size === 0) return;
+    const spacesToCopy: LpdSpace[] = [];
+    activeGroups.forEach((g) => {
+      (g.spaces || []).forEach((s) => {
+        if (selected.has(s.id)) {
+          spacesToCopy.push(JSON.parse(JSON.stringify(s)));
+        }
+      });
+    });
+    if (spacesToCopy.length === 0) return;
+    setCopiedSpaces(spacesToCopy);
+    toast.info(`${spacesToCopy.length} space(s) copied to clipboard`);
+  };
+
+  const cutSelectedSpaces = () => {
+    if (selected.size === 0) return;
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    const spacesToCut: LpdSpace[] = [];
+    activeGroups.forEach((g) => {
+      (g.spaces || []).forEach((s) => {
+        if (selected.has(s.id)) {
+          spacesToCut.push(JSON.parse(JSON.stringify(s)));
+        }
+      });
+    });
+    if (spacesToCut.length === 0) return;
+    setCopiedSpaces(spacesToCut);
+    pushToUndo(activeGroups);
+    updateActiveGroups((groups) =>
+      groups.map((g) => ({
+        ...g,
+        spaces: (g.spaces || []).filter((s) => !selected.has(s.id)),
+      }))
+    );
+    setSelected(new Set());
+    setLastClickedIndex(null);
+    dirtyStore.set(true);
+    toast.info(`${spacesToCut.length} space(s) cut to clipboard`);
+  };
+
+  const pasteSpaces = () => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    if (copiedSpaces.length === 0) {
+      toast.info("Clipboard is empty. Copy or cut spaces first (Ctrl+C).");
+      return;
+    }
+    pushToUndo(activeGroups);
+    const newSelected = new Set<string>();
+    const clonedSpaces: LpdSpace[] = copiedSpaces.map((s) => {
+      const cloneId = generateId();
+      newSelected.add(cloneId);
+      return {
+        ...s,
+        id: cloneId,
+        name: s.name ? `${s.name.replace(/ \(Copy(-\d+)?\)$/, "")} (Copy)` : "Space (Copy)",
+        fixtures: (s.fixtures || []).map((f) => ({ ...f, id: generateId() })),
+        comments: [],
+      };
+    });
+
+    updateActiveGroups((groups) => {
+      if (groups.length === 0) {
+        return [
+          {
+            id: generateId(),
+            name: isInt ? "FLOOR 1" : "EXTERNAL AREA 1",
+            isExpanded: true,
+            spaces: clonedSpaces,
+          },
+        ];
+      }
+      const targetIdx = groups.findIndex((g) => g.isExpanded);
+      const insertIdx = targetIdx !== -1 ? targetIdx : 0;
+      return groups.map((g, idx) =>
+        idx === insertIdx ? { ...g, spaces: [...(g.spaces || []), ...clonedSpaces] } : g
+      );
+    });
+    setSelected(newSelected);
+    setLastClickedIndex(null);
+    dirtyStore.set(true);
+    toast.success(`${clonedSpaces.length} space(s) pasted`);
   };
 
   const deleteSelectedSpaces = async () => {
     if (selected.size === 0) return;
-    const count = selected.size;
-    if (
-      await confirm(`Are you sure you want to delete the ${count} selected space(s)?`, {
-        title: "Delete Spaces",
-        confirmText: "Delete",
-        danger: true,
-      })
-    ) {
-      updateActiveGroups((groups) =>
-        groups.map((g) => ({
-          ...g,
-          spaces: (g.spaces || []).filter((s) => !selected.has(s.id)),
-        }))
-      );
-      setSelected(new Set());
-      toast.success(`Deleted ${count} space(s)`);
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
     }
+    const count = selected.size;
+    let spaceName = "";
+    if (count === 1) {
+      const firstId = Array.from(selected)[0];
+      for (const g of activeGroups) {
+        const found = (g.spaces || []).find((s) => s.id === firstId);
+        if (found) {
+          spaceName = found.name ? ` "${found.name}"` : "";
+          break;
+        }
+      }
+    }
+    const msg = count === 1
+      ? `Are you sure you want to delete space${spaceName}?`
+      : `Are you sure you want to delete the ${count} selected spaces?`;
+
+    const ok = await confirm(msg, {
+      title: count === 1 ? "Delete Space" : "Delete Spaces",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+
+    if (!ok) return;
+
+    pushToUndo(activeGroups);
+    updateActiveGroups((groups) =>
+      groups.map((g) => ({
+        ...g,
+        spaces: (g.spaces || []).filter((s) => !selected.has(s.id)),
+      }))
+    );
+    setSelected(new Set());
+    setLastClickedIndex(null);
+    dirtyStore.set(true);
+    toast.info(`Deleted ${count} space(s)`);
   };
 
-  // Keyboard shortcut for delete
+  // Global Keyboard Shortcuts (Ventilation Parity)
   useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      if (e.key === "Delete" || e.key === "Backspace") {
-        const activeTag = document.activeElement?.tagName?.toLowerCase();
-        if (activeTag === "input" || activeTag === "textarea" || activeTag === "select") return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: Deselect all selected spaces/rows
+      if (e.key === "Escape") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          setSelected(new Set());
+          setLastClickedIndex(null);
+        }
+        return;
+      }
 
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (
+        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
+        activeEl.tagName === "TEXTAREA" ||
+        (activeEl as HTMLElement).isContentEditable ||
+        activeEl.tagName === "SELECT"
+      );
+      if (isInput) return;
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // 1. Ctrl+A (Select All)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        if (allActiveSpaceIds.length > 0) {
+          setSelected(new Set(allActiveSpaceIds));
+          setLastClickedIndex(null);
+          toast.info(`Selected all ${allActiveSpaceIds.length} space(s)`);
+        }
+        return;
+      }
+
+      // 2. Delete / Backspace (Delete selected spaces)
+      if (e.key === "Delete" || e.key === "Backspace") {
         if (selected.size > 0) {
           e.preventDefault();
           deleteSelectedSpaces();
         }
+        return;
+      }
+
+      // 3. Ctrl+C (Copy)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          copySelectedSpaces();
+        }
+        return;
+      }
+
+      // 4. Ctrl+X (Cut)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          cutSelectedSpaces();
+        }
+        return;
+      }
+
+      // 5. Ctrl+V (Paste)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        pasteSpaces();
+        return;
+      }
+
+      // 6. Ctrl+D (Duplicate)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          duplicateSelectedSpaces();
+        }
+        return;
+      }
+
+      // 7. Undo/Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        handleRedo();
+        return;
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selected]);
+  }, [
+    selected,
+    allActiveSpaceIds,
+    activeGroups,
+    copiedSpaces,
+    undoStack,
+    redoStack,
+    isEffectiveReadOnly,
+    lastClickedIndex,
+  ]);
 
   // Project management
   const createNewProject = () => {
@@ -1156,12 +1726,86 @@ function LPDCalculationPage() {
         return;
       }
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rawRows = utils.sheet_to_json<any>(firstSheet);
-      if (!rawRows || rawRows.length === 0) {
+
+      // Parse sheet as 2D array to locate table header row dynamically
+      const raw2D = utils.sheet_to_json<any[]>(firstSheet, { header: 1 });
+      if (!raw2D || raw2D.length === 0) {
         toast.error("No valid data rows found in the Excel sheet");
         return;
       }
-      handleImportExcelRows(rawRows);
+
+      const isHeaderTerm = (val: any) => {
+        if (typeof val !== "string" && typeof val !== "number") return false;
+        const s = String(val).toLowerCase().replace(/[^a-z0-9]/g, "");
+        return ["space", "room", "name", "area", "type", "baseline", "lpd", "fixture", "watt", "qty"].some((t) =>
+          s.includes(t)
+        );
+      };
+
+      let headerRowIndex = -1;
+      let headerRow: string[] = [];
+      for (let i = 0; i < Math.min(raw2D.length, 30); i++) {
+        const rowArr = raw2D[i];
+        if (Array.isArray(rowArr) && rowArr.some(isHeaderTerm)) {
+          headerRowIndex = i;
+          headerRow = rowArr.map((c) => String(c || "").trim());
+          break;
+        }
+      }
+
+      let jsonRows: Record<string, any>[] = [];
+      if (headerRowIndex !== -1 && headerRow.length > 0) {
+        for (let i = headerRowIndex + 1; i < raw2D.length; i++) {
+          const rowArr = raw2D[i];
+          if (!Array.isArray(rowArr) || rowArr.length === 0) continue;
+          const rowObj: Record<string, any> = {};
+          let hasValue = false;
+          rowArr.forEach((cellVal, colIdx) => {
+            const hName = headerRow[colIdx];
+            if (hName) {
+              rowObj[hName] = cellVal;
+              if (cellVal !== undefined && cellVal !== null && String(cellVal).trim() !== "") {
+                hasValue = true;
+              }
+            }
+          });
+          if (hasValue) jsonRows.push(rowObj);
+        }
+      } else {
+        jsonRows = utils.sheet_to_json<Record<string, any>>(firstSheet);
+      }
+
+      if (!jsonRows || jsonRows.length === 0) {
+        toast.error("No valid data rows found in the Excel sheet");
+        return;
+      }
+
+      // Map rows using lpdImportColumnMapping
+      const mappedRows: Record<string, any>[] = [];
+      jsonRows.forEach((row) => {
+        const newObj: Record<string, any> = { ...row };
+        for (const [key, mapping] of Object.entries(lpdImportColumnMapping)) {
+          const targets = Array.isArray(mapping) ? mapping : [key, mapping];
+          for (const target of targets) {
+            if (row[target] !== undefined && row[target] !== null && row[target] !== "") {
+              newObj[key] = row[target];
+              break;
+            }
+            const normTarget = target.toLowerCase().replace(/[^a-z0-9]/g, "");
+            for (const rKey of Object.keys(row)) {
+              const normRKey = rKey.toLowerCase().replace(/[^a-z0-9]/g, "");
+              if (normRKey === normTarget && row[rKey] !== undefined && row[rKey] !== "") {
+                newObj[key] = row[rKey];
+                break;
+              }
+            }
+            if (newObj[key] !== undefined) break;
+          }
+        }
+        mappedRows.push(newObj);
+      });
+
+      handleImportExcelRows(mappedRows);
     } catch (err) {
       console.error(err);
       toast.error("Failed to parse Excel file");
@@ -1402,9 +2046,12 @@ function LPDCalculationPage() {
   };
 
   const handleOpenCalculationPreview = (space: LpdSpace, groupName?: string) => {
-    const data = getLpdCalculationPreview(space, unitSystem, groupName);
-    setPreviewData(data);
-    setIsPreviewOpen(true);
+    const currentActive = isInt ? currentProject.internalGroups : currentProject.externalGroups;
+    const grp = currentActive.find((g) => (g.spaces || []).some((s) => s.id === space.id));
+    const gId = grp ? grp.id : (currentActive[0]?.id || "group-1");
+    const gName = groupName || grp?.name || "Floor";
+    setSelected(new Set([space.id]));
+    setEditingLpdSpace({ space, groupId: gId, groupName: gName, isNew: false });
   };
 
   // Intelligence action triggers
@@ -1551,11 +2198,9 @@ function LPDCalculationPage() {
         return true;
       });
 
-      // Sort spaces within the group if sortKey is set
+      // Sort spaces within the group if a custom sortKey is set
       const sortedSpaces = [...filteredSpaces];
-      if (sortKey === "default") {
-        sortedSpaces.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }));
-      } else if (sortKey === "name-asc") {
+      if (sortKey === "name-asc") {
         sortedSpaces.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       } else if (sortKey === "name-desc") {
         sortedSpaces.sort((a, b) => (b.name || "").localeCompare(a.name || ""));
@@ -1654,12 +2299,11 @@ function LPDCalculationPage() {
       <div className="flex h-full min-h-0 bg-transparent">
         {/* Main Content Area */}
         <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
-          {/* Breadcrumbs & Page Header */}
-          <div className="flex justify-between items-start shrink-0 select-none no-print modal-blur-bg">
+          {/* Page Header */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg">
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-baseline gap-2">
                 <h1 className="text-[28px] font-bold tracking-tight text-foreground">LPD Calculation</h1>
-                <span className="text-[15px] font-semibold text-muted-foreground">{totalSpacesCount} {totalSpacesCount === 1 ? "space" : "spaces"}</span>
               </div>
 
               {/* Intelligence Button */}
@@ -1684,23 +2328,14 @@ function LPDCalculationPage() {
             </div>
 
             {/* Header Actions */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <UnitToggle
-                unitSystem={unitSystem}
-                onChange={handleUnitToggle}
-                ipLabel="IP"
-                siLabel="SI"
-                ipDescription="Imperial (IP) [Area in sq.ft, LPD in W/sq.ft]"
-                siDescription="Metric (SI) [Area in m², LPD in W/m²]"
-                inputDescriptions="Space Areas and Baseline LPD values"
-                conversionExample="Convert existing metric values (m², W/m²) to imperial units (sq.ft, W/sq.ft). Output calculations recalculate accordingly."
-              />
+            <div className="flex items-center gap-2">
+              <UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isEffectiveReadOnly} />
             </div>
           </div>
 
           {/* White Card Container for Grid */}
           <div
-            className={`flex-1 flex flex-col min-h-0 rounded-2xl overflow-hidden transition-all duration-300 relative ${
+            className={`flex-1 flex flex-col min-h-[450px] rounded-2xl overflow-hidden transition-all duration-300 relative ${
               calcReviewState?.status === "APPROVED"
                 ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]"
                 : calcReviewState?.status === "REJECTED"
@@ -1710,49 +2345,85 @@ function LPDCalculationPage() {
                 : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
             }`}
           >
-            {/* Space Action Toolbar Matching Space Management Layout */}
-            <div className="relative flex items-center justify-between gap-2 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
-              {/* Left Controls: Filter spaces search, Filter Popover, Sort Popover */}
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <input
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Filter spaces..."
-                    className="h-7 w-56 pl-8 pr-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none text-foreground transition-all"
-                  />
-                  <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
-                    >
-                      ×
-                    </button>
-                  )}
+            {/* Top Row 1: Section Navigation Tabs & Print matching Pump Sizing */}
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("schedule")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      activeTab === "schedule"
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                    }`}
+                  >
+                    LPD Schedule
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("report")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      activeTab === "report"
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                    }`}
+                  >
+                    Report
+                  </button>
                 </div>
 
-                {/* Filter Button & Popover */}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer ${
-                        activeFiltersCount > 0
-                          ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                          : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                      }`}
-                      title="Filter Spaces"
-                    >
-                      <Filter className="size-3.5 shrink-0" />
-                      {activeFiltersCount > 0 && (
-                        <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                          {activeFiltersCount}
-                        </span>
-                      )}
-                    </button>
-                  </PopoverTrigger>
+                {/* Formula Breakdown button placed right next to tabs on the left */}
+                <TBtn
+                  onClick={() => setShowFormulaModal(true)}
+                  title="View Step-by-Step Formula Breakdown"
+                >
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
+              </div>
+
+              {/* Action button on the right of tabs matching Preliminary Standard */}
+              <div className="flex items-center gap-2 select-none shrink-0">
+                <TBtn onClick={handleExport} title="Export PDF Calculation">
+                  <FileText className="size-3.5" /> Export
+                </TBtn>
+              </div>
+            </div>
+
+            {/* Space Action Toolbar Matching Ventilation Layout */}
+            {activeTab === "schedule" ? (
+              <>
+                <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print modal-blur-bg select-none">
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter spaces..."
+                className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
+              />
+
+              {/* Filter Button & Popover */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                      activeFiltersCount > 0
+                        ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                        : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                    }`}
+                    title="Filter Spaces"
+                  >
+                    <Filter className="size-3.5 shrink-0" />
+                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                      Filter
+                    </span>
+                    {activeFiltersCount > 0 && (
+                      <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                        {activeFiltersCount}
+                      </span>
+                    )}
+                  </button>
+                </PopoverTrigger>
                   <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50 text-xs">
                     <div className="flex items-center justify-between pb-1.5 border-b border-border">
                       <span className="text-[12px] font-semibold text-foreground">Filter Spaces</span>
@@ -1834,256 +2505,174 @@ function LPDCalculationPage() {
                   </PopoverContent>
                 </Popover>
 
-                {/* Sort Button & Popover */}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer ${
-                        sortKey !== "default"
-                          ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                          : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                      }`}
-                      title="Sort Spaces"
-                    >
-                      <ArrowUpDown className="size-3.5 shrink-0" />
-                      {sortKey !== "default" && (
-                        <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                          ✓
-                        </span>
-                      )}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans z-50 text-xs">
-                    <div className="flex items-center justify-between mb-2 pb-1 border-b border-border">
-                      <span className="text-[11.5px] font-semibold text-foreground">Sort Spaces</span>
-                      {sortKey !== "default" && (
-                        <button
-                          type="button"
-                          onClick={() => setSortKey("default")}
-                          className="text-[10px] text-primary hover:underline font-medium cursor-pointer"
-                        >
-                          Reset
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setSortKey(sortKey === "name-asc" ? "default" : "name-asc")}
-                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
-                          sortKey === "name-asc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
-                        }`}
-                      >
-                        <span>Space Name (A to Z)</span>
-                        {sortKey === "name-asc" && <Check className="size-3.5" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSortKey(sortKey === "area-desc" ? "default" : "area-desc")}
-                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
-                          sortKey === "area-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
-                        }`}
-                      >
-                        <span>Area (Largest First)</span>
-                        {sortKey === "area-desc" && <Check className="size-3.5" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSortKey(sortKey === "proposed-desc" ? "default" : "proposed-desc")}
-                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
-                          sortKey === "proposed-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
-                        }`}
-                      >
-                        <span>Proposed LPD (Highest First)</span>
-                        {sortKey === "proposed-desc" && <Check className="size-3.5" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSortKey(sortKey === "watts-desc" ? "default" : "watts-desc")}
-                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
-                          sortKey === "watts-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
-                        }`}
-                      >
-                        <span>Total Watts (Highest First)</span>
-                        {sortKey === "watts-desc" && <Check className="size-3.5" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSortKey(sortKey === "baseline-desc" ? "default" : "baseline-desc")}
-                        className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
-                          sortKey === "baseline-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
-                        }`}
-                      >
-                        <span>Baseline LPD (Highest First)</span>
-                        {sortKey === "baseline-desc" && <Check className="size-3.5" />}
-                      </button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              {/* Right Controls: Pull / Import Spaces, Import (Excel), Export, Save, + New Space */}
-              <div className="flex items-center gap-2">
-                {/* Pull / Import Spaces Popover */}
-                <Popover open={importMenuOpen} onOpenChange={setImportMenuOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium border border-indigo-500/30 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 transition-colors cursor-pointer"
-                      title="Import spaces from Preliminary Cooling Load, Ventilation, or 3D Model"
-                    >
-                      <Sparkles className="size-3.5 text-indigo-500" />
-                      <span>Pull / Import Spaces</span>
-                      <ChevronDown className="size-3 text-indigo-500/70" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="end"
-                    className="w-80 p-2 bg-popover border border-border rounded-xl shadow-xl font-sans flex flex-col gap-1 z-50"
+              {/* Sort Button & Popover */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                      sortKey !== "default"
+                        ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                        : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                    }`}
+                    title="Sort Spaces"
                   >
-                    <div className="px-2 py-1.5 border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
-                      <span>Import Spaces & Loads</span>
-                      <span className="text-[10px] lowercase font-normal">early stage & 3d</span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setImportMenuOpen(false);
-                        handleImportFromPreliminary();
-                      }}
-                      className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg text-[12px] hover:bg-surface-2 transition-colors text-left cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="size-7 rounded-md bg-sky-500/10 flex items-center justify-center text-sky-500 group-hover:scale-105 transition-transform">
-                          <Snowflake className="size-3.5" />
-                        </div>
-                        <div>
-                          <div className="font-semibold text-foreground">Preliminary Cooling Load</div>
-                          <div className="text-[10.5px] text-muted-foreground">Cooling kW & room areas</div>
-                        </div>
-                      </div>
-                      {pclSpacesCount > 0 ? (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                          {pclSpacesCount} spaces
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground">0 spaces</span>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setImportMenuOpen(false);
-                        handleImportFromVentilation();
-                      }}
-                      className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg text-[12px] hover:bg-surface-2 transition-colors text-left cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="size-7 rounded-md bg-teal-500/10 flex items-center justify-center text-teal-500 group-hover:scale-105 transition-transform">
-                          <Wind className="size-3.5" />
-                        </div>
-                        <div>
-                          <div className="font-semibold text-foreground">Ventilation Calculation</div>
-                          <div className="text-[10.5px] text-muted-foreground">Fresh air CFM & room areas</div>
-                        </div>
-                      </div>
-                      {ventSpacesCount > 0 ? (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-400">
-                          {ventSpacesCount} spaces
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground">0 spaces</span>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setImportMenuOpen(false);
-                        handleSyncFrom3DStudio();
-                      }}
-                      className="flex items-center justify-between w-full px-2.5 py-2 rounded-lg text-[12px] hover:bg-surface-2 transition-colors text-left cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="size-7 rounded-md bg-indigo-500/10 flex items-center justify-center text-indigo-500 group-hover:scale-105 transition-transform">
-                          <Box className="size-3.5" />
-                        </div>
-                        <div>
-                          <div className="font-semibold text-foreground">3D BIM / Auto Sync</div>
-                          <div className="text-[10.5px] text-muted-foreground">Pull from active 3D model</div>
-                        </div>
-                      </div>
-                    </button>
-
-                    <div className="pt-1 mt-1 border-t border-border flex items-center justify-between px-1">
+                    <ArrowUpDown className="size-3.5 shrink-0" />
+                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                      Sort
+                    </span>
+                    {sortKey !== "default" && (
+                      <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                        ✓
+                      </span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-64 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans z-50 text-xs">
+                  <div className="flex items-center justify-between mb-2 pb-1 border-b border-border">
+                    <span className="text-[11.5px] font-semibold text-foreground">Sort Spaces</span>
+                    {sortKey !== "default" && (
                       <button
                         type="button"
-                        onClick={() => {
-                          setImportMenuOpen(false);
-                          setSourceModalOpen(true);
-                        }}
-                        className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                        onClick={() => setSortKey("default")}
+                        className="text-[10px] text-primary hover:underline font-medium cursor-pointer"
                       >
-                        More Options & IFC Upload...
+                        Reset
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setImportMenuOpen(false);
-                          handleLoadBenchmarkSpaces();
-                        }}
-                        className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
-                      >
-                        10 Benchmarks
-                      </button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setSortKey(sortKey === "name-asc" ? "default" : "name-asc")}
+                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
+                        sortKey === "name-asc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
+                      }`}
+                    >
+                      <span>Space Name (A to Z)</span>
+                      {sortKey === "name-asc" && <Check className="size-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSortKey(sortKey === "area-desc" ? "default" : "area-desc")}
+                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
+                        sortKey === "area-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
+                      }`}
+                    >
+                      <span>Area (Largest First)</span>
+                      {sortKey === "area-desc" && <Check className="size-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSortKey(sortKey === "proposed-desc" ? "default" : "proposed-desc")}
+                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
+                        sortKey === "proposed-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
+                      }`}
+                    >
+                      <span>Proposed LPD (Highest First)</span>
+                      {sortKey === "proposed-desc" && <Check className="size-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSortKey(sortKey === "watts-desc" ? "default" : "watts-desc")}
+                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
+                        sortKey === "watts-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
+                      }`}
+                    >
+                      <span>Total Watts (Highest First)</span>
+                      {sortKey === "watts-desc" && <Check className="size-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSortKey(sortKey === "baseline-desc" ? "default" : "baseline-desc")}
+                      className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-[11.5px] transition-colors cursor-pointer ${
+                        sortKey === "baseline-desc" ? "bg-primary/10 text-primary font-semibold" : "hover:bg-surface-2 text-foreground"
+                      }`}
+                    >
+                      <span>Baseline LPD (Highest First)</span>
+                      {sortKey === "baseline-desc" && <Check className="size-3.5" />}
+                    </button>
+                  </div>
+                </PopoverContent>
+              </Popover>
 
-                {/* Import (Excel) Button right beside it */}
-                <ImportExcelBtn
-                  columnMapping={lpdImportColumnMapping}
-                  onImport={handleImportExcelRows}
-                  className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium border border-border bg-background hover:bg-surface-2 transition-colors cursor-pointer"
+              {/* View Options & Column Distribution Popover */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="relative inline-flex items-center justify-center h-7 w-7 rounded-full border border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible"
+                    title="View / Column Distribution"
+                  >
+                    <SlidersHorizontal className="size-3.5 shrink-0" />
+                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                      View Options
+                    </span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg font-sans flex flex-col gap-2.5 z-50 text-xs">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                    <span className="text-[12px] font-semibold text-foreground">Column Distribution</span>
+                  </div>
+                  <p className="text-[10.5px] text-muted-foreground leading-snug">
+                    Drag column divider lines in table headers to adjust custom widths. Click below to restore auto-distribution.
+                  </p>
+                                      <button
+                      type="button"
+                      onClick={() => {
+                        try {
+                          localStorage.removeItem("mep_grid_lpd_spaces");
+                          setLpdColWidths(DEFAULT_LPD_COL_WIDTHS);
+                          window.dispatchEvent(new Event("resize"));
+                          toast.success("Column widths reset to auto-distribution");
+                        } catch (e) {}
+                      }}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground font-semibold text-[11.5px] border border-border transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="size-3 text-primary" />
+                      Reset Column Widths
+                    </button>
+                </PopoverContent>
+              </Popover>
+
+              {/* Right Controls: Import, Export, Save, + New Space matching Ventilation */}
+              <div className="ml-auto flex items-center gap-1">
+                <TBtn
+                  disabled={isEffectiveReadOnly}
+                  onClick={() => {
+                    if (isEffectiveReadOnly) {
+                      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+                      return;
+                    }
+                    setSourceModalOpen(true);
+                  }}
+                  title="Import Spaces from Excel, 3D Studio, Ventilation, or Preliminary Cooling Load"
                 >
-                  <Download className="size-3.5" /> Import
-                </ImportExcelBtn>
+                  <Upload className="size-3.5" /> Import
+                </TBtn>
 
-                <button
-                  type="button"
-                  onClick={handleExport}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-border bg-background hover:bg-surface-2 text-foreground transition-all cursor-pointer shadow-2xs"
-                >
-                  <FileText className="size-3.5 text-muted-foreground" />
-                  <span>Export</span>
-                </button>
+                <TBtn onClick={handleExport}>
+                  <Download className="size-3.5" /> Export
+                </TBtn>
 
-                <button
-                  type="button"
-                  onClick={handleSaveLpd}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full border border-border bg-background hover:bg-surface-2 text-foreground transition-all cursor-pointer shadow-2xs"
-                  title="Save Calculation (Ctrl+S)"
-                >
-                  <Save className="size-3.5 text-muted-foreground" />
-                  <span>Save</span>
-                </button>
+                <TBtn onClick={handleSaveLpd} title="Save Calculation (Ctrl+S)">
+                  <Save className="size-3.5" /> Save
+                </TBtn>
 
-                <button
-                  type="button"
+                <TBtn
+                  primary
+                  disabled={isEffectiveReadOnly}
                   onClick={handleAddNewSpace}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1 text-xs font-semibold rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-all cursor-pointer shadow-xs active:scale-95"
                 >
-                  <Plus className="size-3.5" />
-                  <span>New Space</span>
-                </button>
+                  <Plus className="size-3.5" /> New Space
+                </TBtn>
               </div>
 
-              {/* Floating Bulk Actions Overlay Bar */}
+              {/* Bulk actions bar overlay */}
               {!isEffectiveReadOnly && selected.size > 0 && (
-                <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print backdrop-blur-md animate-in fade-in-50">
+                <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+                  <span className="font-semibold">{selected.size} selected</span>
+                  <span className="text-primary/30">·</span>
                   {selected.size === 1 && (
                     <BulkBtn
                       icon={Sparkles}
@@ -2104,19 +2693,29 @@ function LPDCalculationPage() {
                   <BulkBtn icon={Flag} onClick={toggleFlagSelected}>
                     Toggle Flag
                   </BulkBtn>
-                  <BulkBtn icon={Copy} onClick={duplicateSelectedSpaces}>
+                  <BulkBtn icon={Copy} onClick={copySelectedSpaces} title="Copy selected space(s) (Ctrl+C)">
+                    Copy
+                  </BulkBtn>
+                  <BulkBtn icon={Scissors} onClick={cutSelectedSpaces} title="Cut selected space(s) (Ctrl+X)">
+                    Cut
+                  </BulkBtn>
+                  {copiedSpaces.length > 0 && (
+                    <BulkBtn icon={ClipboardPaste} onClick={pasteSpaces} title="Paste space(s) (Ctrl+V)">
+                      Paste ({copiedSpaces.length})
+                    </BulkBtn>
+                  )}
+                  <BulkBtn icon={CopyPlus} onClick={duplicateSelectedSpaces} title="Duplicate selected space(s) (Ctrl+D)">
                     Duplicate
                   </BulkBtn>
-                  <BulkBtn icon={Trash2} onClick={deleteSelectedSpaces}>
+                  <BulkBtn icon={Trash2} onClick={deleteSelectedSpaces} title="Delete selected space(s) (Delete)">
                     Delete
                   </BulkBtn>
                   <button
                     type="button"
                     onClick={() => setSelected(new Set())}
-                    className="ml-auto flex items-center gap-1 text-[11.5px] font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+                    className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
                   >
-                    <X className="size-3.5" />
-                    <span>Deselect All</span>
+                    <X className="size-3" /> Clear
                   </button>
                 </div>
               )}
@@ -2176,63 +2775,91 @@ function LPDCalculationPage() {
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    addGroup();
+                    handleAddNewSpace();
                   }}
-                  className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11.5px] font-semibold bg-surface-2 hover:bg-surface-3 border border-border text-foreground transition-all cursor-pointer shadow-2xs active:scale-95"
+                  className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11.5px] font-semibold bg-primary text-primary-foreground hover:bg-primary/95 transition-all cursor-pointer shadow-2xs active:scale-95"
                 >
-                  <Plus className="size-3.5" /> Add Floor Group
+                  <Plus className="size-3.5" /> Add Space
                 </button>
               </div>
             </div>
 
             {/* Table Area (Clean HTML table DOM without non-tr elements inside tbody) */}
             <div className="flex-1 overflow-auto bg-background">
-              <table className="w-full text-left border-collapse min-w-[1240px]">
+              <table className="w-full table-fixed text-left border-collapse min-w-[1240px]">
                 {/* Master Table Header */}
                 <thead className="sticky top-0 z-20 bg-background/95 backdrop-blur-md border-b border-border shadow-2xs">
-                  <tr className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider h-10 select-none">
-                    <th className="px-2 py-2 w-10 text-center border-r border-border/50">
-                      <input
-                        type="checkbox"
-                        checked={allSelected}
-                        onChange={toggleSelectAll}
-                        className="size-3.5 accent-primary cursor-pointer align-middle"
-                        title={allSelected ? "Deselect All" : "Select All Spaces"}
-                      />
+                  <tr className="text-[11.5px] font-semibold text-muted-foreground uppercase tracking-wider h-10 select-none bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong">
+                    <th style={getLpdColStyle("select")} className="px-1 py-0 h-10 text-center border-r border-border/60 relative group select-none">
+                      <button
+                        type="button"
+                        onClick={toggleSelectAll}
+                        title={allSelected ? "Deselect all rows" : "Select all rows"}
+                        className="h-full w-full flex items-center justify-center font-mono text-[11px] font-bold text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none"
+                      >
+                        <span className={allSelected ? "text-primary font-bold" : ""}>#</span>
+                      </button>
+                      <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                     </th>
-                    <th className="px-3 py-2 w-56 border-r border-border/50">Space Name</th>
-                    <th className="px-3 py-2 w-56 border-r border-border/50">Category / Type of Area</th>
-                    <th className="px-3 py-2 w-44 border-r border-border/50">Light Type</th>
-                    <th className="px-2 py-2 w-20 text-center border-r border-border/50">Watts</th>
-                    <th className="px-2 py-2 w-16 text-center border-r border-border/50">Qty</th>
-                    <th className="px-2 py-2 w-24 text-center border-r border-border/50">Total Watts</th>
-                    <th className="px-2 py-2 w-28 text-center border-r border-border/50">
-                      Area {unitSystem === "si" ? "(m²)" : "(sq.ft)"}
+                    <th style={getLpdColStyle("name")} className="px-3 py-2 border-r border-border/60 relative group">
+                      SPACE NAME
+                      <div onMouseDown={(e) => handleResizeMouseDown("name", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                     </th>
-                    <th className="px-3 py-2 w-32 text-center border-r border-border/50 text-primary">
-                      Proposed LPD
-                      <br />
-                      <span className="text-[9.5px] font-normal text-muted-foreground">
-                        ({unitSystem === "si" ? "W/m²" : "W/sq.ft"})
-                      </span>
+                    <th style={getLpdColStyle("category")} className="px-3 py-2 border-r border-border/60 relative group">
+                      CATEGORY / TYPE OF AREA
+                      <div onMouseDown={(e) => handleResizeMouseDown("category", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                     </th>
-                    <th className="px-3 py-2 w-28 text-center border-r border-border/50">
-                      Baseline LPD
-                      <br />
-                      <span className="text-[9.5px] font-normal text-muted-foreground">
-                        ({unitSystem === "si" ? "W/m²" : "W/sq.ft"})
-                      </span>
+                    <th style={getLpdColStyle("lightType")} className="px-3 py-2 border-r border-border/60 relative group">
+                      LIGHT TYPE
+                      <div onMouseDown={(e) => handleResizeMouseDown("lightType", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                     </th>
-                    <th className="px-3 py-2 w-36 border-r border-border/50">Remarks</th>
-                    <th className="px-2 py-2 w-10 text-center border-r border-border/50" title="Add Fixture to Space"></th>
-                    <th className="px-2 py-2 w-10 text-center" title="Flag Space">
+                    <th style={getLpdColStyle("watts")} className="px-2 py-2 text-center border-r border-border/60 relative group">
+                      WATTS
+                      <div onMouseDown={(e) => handleResizeMouseDown("watts", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                    </th>
+                    <th style={getLpdColStyle("qty")} className="px-2 py-2 text-center border-r border-border/60 relative group">
+                      QTY
+                      <div onMouseDown={(e) => handleResizeMouseDown("qty", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                    </th>
+                    <th style={getLpdColStyle("totalWatts")} className="px-2 py-2 text-center border-r border-border/60 relative group">
+                      TOTAL WATTS
+                      <div onMouseDown={(e) => handleResizeMouseDown("totalWatts", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                    </th>
+                    <th style={getLpdColStyle("area")} className="px-2 py-0 text-center border-r border-border/60 relative group font-semibold uppercase tracking-wider text-[11.5px]">
+                      <span>AREA ({unitSystem === "si" ? "M²" : "SQ.FT"})</span>
+                      <div onMouseDown={(e) => handleResizeMouseDown("area", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                    </th>
+                    <th style={getLpdColStyle("proposedLpd")} className="px-2 py-0 text-center border-r border-border/60 text-primary relative group font-semibold uppercase tracking-wider text-[11.5px]">
+                      <div className="flex flex-col items-center justify-center leading-tight">
+                        <span>PROPOSED LPD</span>
+                        <span className="text-[10px] font-normal text-primary/80">({unitSystem === "si" ? "W/M²" : "W/SQ.FT"})</span>
+                      </div>
+                      <div onMouseDown={(e) => handleResizeMouseDown("proposedLpd", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                    </th>
+                    <th style={getLpdColStyle("baselineLpd")} className="px-2 py-0 text-center border-r border-border/60 relative group font-semibold uppercase tracking-wider text-[11.5px]">
+                      <div className="flex flex-col items-center justify-center leading-tight">
+                        <span>BASELINE LPD</span>
+                        <span className="text-[10px] font-normal text-muted-foreground/80">({unitSystem === "si" ? "W/M²" : "W/SQ.FT"})</span>
+                      </div>
+                      <div onMouseDown={(e) => handleResizeMouseDown("baselineLpd", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                    </th>
+                    <th style={getLpdColStyle("remarks")} className="px-3 py-2 border-r border-border/60 relative group">
+                      REMARKS
+                      <div onMouseDown={(e) => handleResizeMouseDown("remarks", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                    </th>
+                    <th style={getLpdColStyle("addFixture")} className="px-2 py-2 text-center border-r border-border/60 relative group" title="Add Fixture to Space">
+                      <div onMouseDown={(e) => handleResizeMouseDown("addFixture", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                    </th>
+                    <th style={getLpdColStyle("flag")} className="px-2 py-2 text-center w-9" title="Flag Space">
                       <Flag className="size-3.5 mx-auto text-muted-foreground/60" />
                     </th>
                   </tr>
                 </thead>
 
-                <tbody className="text-[12.5px] divide-y divide-border/40">
-                  {filteredGroups.map((group) => {
+                <tbody className="text-[13.5px] divide-y divide-border/60">
+                  {(() => {
+                    let globalSrNo = 1;
+                    return filteredGroups.map((group) => {
                     const groupSpaces = group.filteredSpaces || [];
                     const groupSpaceIds = (group.spaces || []).map((s) => s.id);
                     const allGroupSelected =
@@ -2257,7 +2884,8 @@ function LPDCalculationPage() {
                       <React.Fragment key={group.id}>
                         {/* Floor Group Header Row */}
                         <tr
-                          className="bg-slate-100/90 dark:bg-zinc-800/70 border-y border-border select-none"
+                          className="h-[30px] bg-primary/5 hover:bg-primary/10 border-b border-border border-l-4 border-l-primary select-none transition-colors cursor-pointer"
+                          onClick={() => toggleSelectGroup(group.id, !allGroupSelected)}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -2269,38 +2897,26 @@ function LPDCalculationPage() {
                             });
                           }}
                         >
-                          <td colSpan={13} className="p-0">
-                            <div className="flex items-center px-3 py-2 hover:bg-slate-200/60 dark:hover:bg-zinc-700/60 transition-colors cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={allGroupSelected}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  toggleSelectGroup(group.id, !allGroupSelected);
-                                }}
-                                className="size-3.5 accent-primary cursor-pointer mr-2.5"
-                                title="Select all spaces on this floor"
-                              />
+                          <td colSpan={13} className="p-0 h-[30px]">
+                            <div className="flex items-center px-3 h-full">
                               <button
                                 type="button"
-                                onClick={() => updateGroup(group.id, "isExpanded", !group.isExpanded)}
-                                className="p-1 hover:bg-black/5 dark:hover:bg-white/10 rounded mr-1.5 text-foreground/80 transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  updateGroup(group.id, "isExpanded", !group.isExpanded);
+                                }}
+                                className="p-0.5 rounded hover:bg-primary/10 transition-colors text-primary/70 hover:text-primary flex items-center justify-center cursor-pointer mr-1.5"
                               >
                                 {group.isExpanded ? (
-                                  <ChevronDown className="size-4" />
+                                  <ChevronDown className="size-3.5" />
                                 ) : (
-                                  <ChevronRight className="size-4" />
+                                  <ChevronRight className="size-3.5" />
                                 )}
                               </button>
                               <span className="flex items-center gap-1.5 font-medium">
-                                <input
-                                  type="text"
-                                  className="bg-transparent font-bold text-primary tracking-wide uppercase text-[13px] outline-none focus:bg-background/80 px-1 py-0.5 rounded border border-transparent hover:border-border/60 focus:border-primary transition-colors cursor-text min-w-[120px] max-w-[240px]"
-                                  value={group.name}
-                                  onChange={(e) => updateGroup(group.id, "name", e.target.value.toUpperCase())}
-                                  onClick={(e) => e.stopPropagation()}
-                                  title="Click to edit floor name"
-                                />
+                                <strong className="font-bold text-primary text-[12.5px] tracking-wide uppercase">
+                                  {group.name}
+                                </strong>
                                 <span className="text-[10px] text-muted-foreground font-normal">
                                   (Right-click or press Delete to remove)
                                 </span>
@@ -2324,17 +2940,10 @@ function LPDCalculationPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={async (e) => {
+                                  onClick={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    if (
-                                      await confirm(
-                                        `Are you sure you want to delete floor "${group.name}" and all its spaces?`,
-                                        { title: "Delete Floor Group", danger: true }
-                                      )
-                                    ) {
-                                      removeGroup(group.id);
-                                    }
+                                    removeGroup(group.id);
                                   }}
                                   className="p-1 text-muted-foreground/60 hover:text-red-500 rounded transition-colors cursor-pointer"
                                   title="Delete floor group"
@@ -2359,13 +2968,15 @@ function LPDCalculationPage() {
                             const sqM = isIp ? rawArea / 10.76391 : rawArea;
                             const sqF = isIp ? rawArea : rawArea * 10.76391;
                             const primaryArea = isIp ? sqF : sqM;
-                            const secondaryArea = isIp ? sqM : sqF;
                             const proposedLpd = primaryArea > 0 ? totalWatts / primaryArea : 0;
                             const baselineLpd = parseFloat(String(space.baselineLpd)) || 0;
                             const isCompliant = primaryArea > 0 && baselineLpd > 0 ? proposedLpd <= baselineLpd : null;
                             const srNo = globalSrNo++;
                             const isSelected = selected.has(space.id);
                             const isHighlighted = highlightedSpaceId === space.id;
+                            const isEditing = editingLpdSpace?.space.id === space.id;
+                            const isModalOpen = editingLpdSpace !== null;
+                            const isCellInteractive = isSelected && !isEffectiveReadOnly;
 
                             const itemComments = getMergedItemComments(
                               space.id,
@@ -2381,13 +2992,24 @@ function LPDCalculationPage() {
                                   <tr
                                     key={fixture.id}
                                     id={`space-row-${space.id}`}
-                                    onClick={() => {
-                                      // Row selection is handled by checkbox and S.NO click
-                                    }}
+                                    onClick={(e) => {
+                                       const target = e.target as HTMLElement;
+                                       if (
+                                         target.closest('button[title*="comment"]') ||
+                                         target.closest('.mep-comment-badge') ||
+                                         target.closest('button') ||
+                                         target.closest('input') ||
+                                         target.closest('select')
+                                       ) {
+                                         return;
+                                       }
+                                       const isShift = e.shiftKey;
+                                       const isCtrl = e.ctrlKey || e.metaKey;
+                                       toggleSelectRow(space.id, isShift, isCtrl);
+                                     }}
                                     onDoubleClick={(e) => {
                                       const target = e.target as HTMLElement;
                                       if (
-                                        (target.tagName === "INPUT" && (target as HTMLInputElement).type === "checkbox") ||
                                         target.closest("button") ||
                                         target.closest("a")
                                       ) {
@@ -2406,17 +3028,17 @@ function LPDCalculationPage() {
                                         groupId: group.id,
                                       });
                                     }}
-                                    onDoubleClick={(e) => {
-                                      const tag = (e.target as HTMLElement).tagName;
-                                      if (tag !== "INPUT" && tag !== "SELECT" && tag !== "BUTTON") {
-                                        handleOpenCalculationPreview(space, group.name);
-                                      }
-                                    }}
                                     className={cn(
-                                      "border-b border-border/40 transition-colors group/row",
-                                      isSelected
-                                        ? "bg-primary/10 dark:bg-primary/15"
-                                        : "hover:bg-muted/40",
+                                      "h-[30px] border-b border-border/60 hover:bg-row-hover text-[13.5px] transition-colors group/row select-none",
+                                      isEditing
+                                        ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
+                                        : isModalOpen
+                                        ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
+                                        : isSelected
+                                        ? "bg-row-selected bg-primary/15"
+                                        : space.flagged
+                                        ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]"
+                                        : "",
                                       isHighlighted &&
                                         "ring-2 ring-primary ring-inset bg-primary/20 animate-pulse duration-700"
                                     )}
@@ -2424,60 +3046,87 @@ function LPDCalculationPage() {
                                     {/* Space Details (Spans all fixture rows) */}
                                     {fIndex === 0 && (
                                       <>
-                                        {/* Row Selection Checkbox */}
+                                        {/* Row Serial Number (Matching Ventilation DataGrid) */}
                                         <td
-                                          className="px-2 py-1.5 text-center border-r border-border/40 relative"
+                                          style={getLpdColStyle("select")}
+                                          className={cn(
+                                            "px-1 py-0 h-[30px] text-center border-r border-border/40 relative select-none cursor-pointer transition-colors duration-150",
+                                            isSelected
+                                              ? "bg-primary/15 text-primary font-bold shadow-inner"
+                                              : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
+                                          )}
                                           rowSpan={space.fixtures.length}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const isShift = e.shiftKey;
+                                            const isCtrl = e.ctrlKey || e.metaKey;
+                                            toggleSelectRow(space.id, isShift, isCtrl);
+                                          }}
+                                          title={isSelected ? `Row ${srNo} selected. Click to deselect.` : `Click to select row ${srNo}.`}
                                         >
                                           <RowCommentCornerBadge
                                             count={itemComments.length}
+                                            position="left"
                                             onClick={() => handleOpenComment(space.id, space.name)}
                                           />
-                                          <input
-                                            type="checkbox"
-                                            checked={isSelected}
-                                            onChange={() => toggleSelectRow(space.id)}
-                                            onDoubleClick={(e) => e.stopPropagation()}
-                                            className="size-3.5 accent-primary cursor-pointer align-middle"
-                                          />
+                                          <span className="text-[11px] font-mono leading-none tracking-tight">
+                                            {srNo}
+                                          </span>
                                         </td>
 
                                         {/* Space Name */}
                                         <td
-                                          className="p-0 border-r border-border/40"
+                                          style={getLpdColStyle("name")}
+                                          className={cn(
+                                            "p-0 border-r border-border/40 relative",
+                                            !isSelected && !isEffectiveReadOnly ? "cursor-pointer hover:bg-primary/5 transition-colors" : ""
+                                          )}
                                           rowSpan={space.fixtures.length}
+                                          onClick={(e) => {
+                                            if (!isSelected) {
+                                              e.stopPropagation();
+                                              toggleSelectRow(space.id);
+                                            }
+                                          }}
                                           onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             handleOpenCalculationPreview(space, group.name);
                                           }}
+                                          title={!isSelected && !isEffectiveReadOnly ? "Click to select row, click again to edit" : undefined}
                                         >
-                                          <div className="flex items-center gap-1.5 w-full h-full px-2.5">
+                                          <div className={cn("flex items-center gap-1.5 w-full h-full px-2.5", !isCellInteractive && "pointer-events-none select-none")}>
                                             <input
-                                              className="w-full h-full min-h-[34px] bg-transparent outline-none font-medium text-[13px] text-foreground focus:bg-primary/5 px-1 rounded transition-colors"
+                                              className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded font-medium text-[13.5px] text-foreground transition-colors cursor-text"
                                               value={space.name}
                                               onChange={(e) =>
                                                 updateSpace(group.id, space.id, "name", e.target.value)
                                               }
-                                              onDoubleClick={(e) => {
-                                                e.stopPropagation();
-                                                handleOpenCalculationPreview(space, group.name);
-                                              }}
                                               placeholder="e.g. Electrical Room"
-                                              title="Double-click to view calculation preview"
                                             />
                                           </div>
                                         </td>
 
                                         {/* Category / Type of Area */}
                                         <td
-                                          className="p-1 border-r border-border/40"
+                                          style={getLpdColStyle("category")}
+                                          className={cn(
+                                            "p-1 border-r border-border/40 relative",
+                                            !isSelected && !isEffectiveReadOnly ? "cursor-pointer hover:bg-primary/5 transition-colors" : ""
+                                          )}
                                           rowSpan={space.fixtures.length}
+                                          onClick={(e) => {
+                                            if (!isSelected) {
+                                              e.stopPropagation();
+                                              toggleSelectRow(space.id);
+                                            }
+                                          }}
                                           onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             handleOpenCalculationPreview(space, group.name);
                                           }}
+                                          title={!isSelected && !isEffectiveReadOnly ? "Click to select row, click again to edit" : undefined}
                                         >
-                                          <div className="flex items-center gap-1.5 px-1.5 w-full h-full">
+                                          <div className={cn("flex items-center gap-1.5 px-1.5 w-full h-full", !isCellInteractive && "pointer-events-none select-none")}>
                                             <span
                                               className={`size-2 rounded-full shrink-0 ${
                                                 space.areaType ? "bg-primary" : "bg-muted-foreground/30"
@@ -2488,7 +3137,7 @@ function LPDCalculationPage() {
                                               value={space.areaType || ""}
                                               authorityMapping={authorityMapping}
                                               unitSystem={unitSystem}
-                                              getBaselineLpd={(type) => getBaselineLpdForType(type, unitSystem)}
+                                              getBaselineLpd={getBaselineLpdForType}
                                               onChange={(val) => updateSpace(group.id, space.id, "areaType", val)}
                                               onAddCustom={() => {
                                                 const currentBaseline = parseFloat(space.baselineLpd);
@@ -2515,121 +3164,139 @@ function LPDCalculationPage() {
 
                                     {/* Fixture Light Type */}
                                     <td
-                                      className="p-0 border-r border-border/40 relative"
+                                      style={getLpdColStyle("lightType")}
+                                      className={cn(
+                                        "p-0 border-r border-border/40 relative",
+                                        !isSelected && !isEffectiveReadOnly ? "cursor-pointer hover:bg-primary/5 transition-colors" : ""
+                                      )}
+                                      onClick={(e) => {
+                                        if (!isSelected) {
+                                          e.stopPropagation();
+                                          toggleSelectRow(space.id);
+                                        }
+                                      }}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         handleOpenCalculationPreview(space, group.name);
                                       }}
+                                      title={!isSelected && !isEffectiveReadOnly ? "Click to select row, click again to edit" : undefined}
                                     >
-                                      {!Object.keys(LIGHT_TYPE_MAPPING).includes(fixture.type) &&
-                                      fixture.type !== "" ? (
-                                        <div className="flex w-full h-full items-center px-2">
-                                          <input
-                                            className="w-full h-full min-h-[34px] bg-transparent outline-none font-medium text-[12.5px] transition-colors"
-                                            value={fixture.type === "custom" ? "" : fixture.type}
+                                      <div className={cn("flex w-full h-full items-center px-2", !isCellInteractive && "pointer-events-none select-none")}>
+                                        {!Object.keys(LIGHT_TYPE_MAPPING).includes(fixture.type) &&
+                                        fixture.type !== "" ? (
+                                          <div className="flex w-full h-full items-center">
+                                            <input
+                                              className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded font-medium text-[13.5px] text-foreground transition-colors cursor-text"
+                                              value={fixture.type === "custom" ? "" : fixture.type}
+                                              onChange={(e) =>
+                                                updateFixture(
+                                                  group.id,
+                                                  space.id,
+                                                  fixture.id,
+                                                  "type",
+                                                  e.target.value || "custom"
+                                                )
+                                              }
+                                              placeholder="Type Light Name..."
+                                              autoFocus={fixture.type === "custom"}
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                updateFixture(group.id, space.id, fixture.id, "type", "")
+                                              }
+                                              className="px-1 text-muted-foreground hover:text-red-500 font-bold transition-colors cursor-pointer"
+                                              title="Reset to Dropdown"
+                                            >
+                                              ×
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <select
+                                            className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded font-medium text-[13.5px] text-foreground transition-colors cursor-pointer"
+                                            value={fixture.type}
                                             onChange={(e) =>
-                                              updateFixture(
-                                                group.id,
-                                                space.id,
-                                                fixture.id,
-                                                "type",
-                                                e.target.value || "custom"
-                                              )
+                                              updateFixture(group.id, space.id, fixture.id, "type", e.target.value)
                                             }
-                                            onDoubleClick={(e) => {
-                                              e.stopPropagation();
-                                              handleOpenCalculationPreview(space, group.name);
-                                            }}
-                                            placeholder="Type Light Name..."
-                                            autoFocus={fixture.type === "custom"}
-                                            title="Double-click to view calculation preview"
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              updateFixture(group.id, space.id, fixture.id, "type", "")
-                                            }
-                                            onDoubleClick={(e) => e.stopPropagation()}
-                                            className="px-1 text-muted-foreground hover:text-red-500 font-bold transition-colors"
-                                            title="Reset to Dropdown"
                                           >
-                                            ×
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <select
-                                          className="w-full h-full min-h-[34px] px-3 bg-transparent outline-none cursor-pointer font-medium text-[12.5px] text-foreground transition-colors"
-                                          value={fixture.type}
-                                          onChange={(e) =>
-                                            updateFixture(group.id, space.id, fixture.id, "type", e.target.value)
-                                          }
-                                          onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            handleOpenCalculationPreview(space, group.name);
-                                          }}
-                                          title="Double-click to view calculation preview"
-                                        >
-                                          <option value="">Select Light...</option>
-                                          {Object.keys(LIGHT_TYPE_MAPPING).map((k) => (
-                                            <option key={k} value={k}>
-                                              {k} ({LIGHT_TYPE_MAPPING[k]}W)
-                                            </option>
-                                          ))}
-                                          <option value="custom">Custom Input...</option>
-                                        </select>
-                                      )}
+                                            <option value="">Select Light...</option>
+                                            <option value="custom">Other / Custom Input...</option>
+                                            {Object.keys(LIGHT_TYPE_MAPPING).map((k) => (
+                                              <option key={k} value={k}>
+                                                {k} ({LIGHT_TYPE_MAPPING[k]}W)
+                                              </option>
+                                            ))}
+                                          </select>
+                                        )}
+                                      </div>
                                     </td>
 
                                     {/* Fixture Watts */}
                                     <td
-                                      className="p-0 border-r border-border/40"
+                                      style={getLpdColStyle("watts")}
+                                      className={cn(
+                                        "p-0 border-r border-border/40 relative",
+                                        !isSelected && !isEffectiveReadOnly ? "cursor-pointer hover:bg-primary/5 transition-colors" : ""
+                                      )}
+                                      onClick={(e) => {
+                                        if (!isSelected) {
+                                          e.stopPropagation();
+                                          toggleSelectRow(space.id);
+                                        }
+                                      }}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         handleOpenCalculationPreview(space, group.name);
                                       }}
+                                      title={!isSelected && !isEffectiveReadOnly ? "Click to select row, click again to edit" : undefined}
                                     >
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        step="0.5"
-                                        className="w-full h-full min-h-[34px] px-2 text-center font-mono text-[12.5px] bg-transparent outline-none focus:bg-primary/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
-                                        value={fixture.watts}
-                                        onChange={(e) =>
-                                          updateFixture(group.id, space.id, fixture.id, "watts", e.target.value)
-                                        }
-                                        onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          handleOpenCalculationPreview(space, group.name);
-                                        }}
-                                        placeholder="0"
-                                        disabled={Object.keys(LIGHT_TYPE_MAPPING).includes(fixture.type)}
-                                        title="Double-click to view calculation preview"
-                                      />
+                                      <div className={cn("w-full h-full flex items-center justify-center", !isCellInteractive && "pointer-events-none select-none")}>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="0.5"
+                                          className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text disabled:opacity-60"
+                                          value={fixture.watts}
+                                          onChange={(e) =>
+                                            updateFixture(group.id, space.id, fixture.id, "watts", e.target.value)
+                                          }
+                                          placeholder="0"
+                                          disabled={Object.keys(LIGHT_TYPE_MAPPING).includes(fixture.type)}
+                                        />
+                                      </div>
                                     </td>
 
                                     {/* Fixture Qty */}
                                     <td
-                                      className="p-0 border-r border-border/40"
+                                      style={getLpdColStyle("qty")}
+                                      className={cn(
+                                        "p-0 border-r border-border/40 relative",
+                                        !isSelected && !isEffectiveReadOnly ? "cursor-pointer hover:bg-primary/5 transition-colors" : ""
+                                      )}
+                                      onClick={(e) => {
+                                        if (!isSelected) {
+                                          e.stopPropagation();
+                                          toggleSelectRow(space.id);
+                                        }
+                                      }}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         handleOpenCalculationPreview(space, group.name);
                                       }}
+                                      title={!isSelected && !isEffectiveReadOnly ? "Click to select row, click again to edit" : undefined}
                                     >
-                                      <input
-                                        type="number"
-                                        min="1"
-                                        className="w-full h-full min-h-[34px] px-2 text-center font-mono text-[12.5px] bg-transparent outline-none focus:bg-primary/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
-                                        value={fixture.qty}
-                                        onChange={(e) =>
-                                          updateFixture(group.id, space.id, fixture.id, "qty", e.target.value)
-                                        }
-                                        onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          handleOpenCalculationPreview(space, group.name);
-                                        }}
-                                        placeholder="1"
-                                        title="Double-click to view calculation preview"
-                                      />
+                                      <div className={cn("w-full h-full flex items-center justify-center", !isCellInteractive && "pointer-events-none select-none")}>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
+                                          value={fixture.qty}
+                                          onChange={(e) =>
+                                            updateFixture(group.id, space.id, fixture.id, "qty", e.target.value)
+                                          }
+                                          placeholder="1"
+                                        />
+                                      </div>
                                     </td>
 
                                     {/* Space Metrics (Spans all fixture rows) */}
@@ -2637,55 +3304,73 @@ function LPDCalculationPage() {
                                       <>
                                         {/* Total Watts */}
                                         <td
-                                          className="px-2 py-1.5 border-r border-border/40 text-center font-mono font-semibold text-[13px] text-foreground cursor-pointer hover:bg-primary/5 select-none"
+                                          style={getLpdColStyle("totalWatts")}
+                                          className="px-2 py-0 h-[30px] border-r border-border/40 text-center font-mono tabular font-medium text-[13.5px] text-foreground cursor-pointer hover:bg-primary/5 select-none"
                                           rowSpan={space.fixtures.length}
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            handleOpenCalculationPreview(space, group.name);
+                                            if (!isSelected) {
+                                              toggleSelectRow(space.id);
+                                            } else {
+                                              handleOpenCalculationPreview(space, group.name);
+                                            }
                                           }}
                                           onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             handleOpenCalculationPreview(space, group.name);
                                           }}
-                                          title="Click or double-click to view calculation preview"
+                                          title="Click to select row, or view calculation preview"
                                         >
                                           {totalWatts.toLocaleString()}
                                         </td>
 
                                         {/* Area */}
                                         <td
-                                          className="p-0 border-r border-border/40"
+                                          style={getLpdColStyle("area")}
+                                          className={cn(
+                                            "p-0 border-r border-border/40 relative",
+                                            !isSelected && !isEffectiveReadOnly ? "cursor-pointer hover:bg-primary/5 transition-colors" : ""
+                                          )}
                                           rowSpan={space.fixtures.length}
+                                          onClick={(e) => {
+                                            if (!isSelected) {
+                                              e.stopPropagation();
+                                              toggleSelectRow(space.id);
+                                            }
+                                          }}
                                           onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             handleOpenCalculationPreview(space, group.name);
                                           }}
+                                          title={!isSelected && !isEffectiveReadOnly ? "Click to select row, click again to edit" : undefined}
                                         >
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            step="0.1"
-                                            className="w-full h-full min-h-[34px] px-2 text-center font-mono text-[13px] bg-transparent outline-none focus:bg-primary/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
-                                            value={space.areaSqM}
-                                            onChange={(e) =>
-                                              updateSpace(group.id, space.id, "areaSqM", e.target.value)
-                                            }
-                                            onDoubleClick={(e) => {
-                                              e.stopPropagation();
-                                              handleOpenCalculationPreview(space, group.name);
-                                            }}
-                                            placeholder="0.0"
-                                            title="Double-click to view calculation preview"
-                                          />
+                                          <div className={cn("w-full h-full flex items-center justify-center", !isCellInteractive && "pointer-events-none select-none")}>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              step="0.1"
+                                              className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
+                                              value={space.areaSqM}
+                                              onChange={(e) =>
+                                                updateSpace(group.id, space.id, "areaSqM", e.target.value)
+                                              }
+                                              placeholder="0.0"
+                                            />
+                                          </div>
                                         </td>
 
-                                        {/* Proposed LPD (W/m²) */}
+                                        {/* Proposed LPD (W/m² or W/sq.ft) */}
                                         <td
-                                          className="px-2 py-1.5 border-r border-border/40 text-center cursor-pointer select-none group/lpd hover:bg-primary/5"
+                                          style={getLpdColStyle("proposedLpd")}
+                                          className="px-2 py-0 h-[30px] border-r border-border/40 text-center font-mono tabular text-[13.5px] cursor-pointer select-none group/lpd hover:bg-primary/5"
                                           rowSpan={space.fixtures.length}
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            handleOpenCalculationPreview(space, group.name);
+                                            if (!isSelected) {
+                                              toggleSelectRow(space.id);
+                                            } else {
+                                              handleOpenCalculationPreview(space, group.name);
+                                            }
                                           }}
                                           onDoubleClick={(e) => {
                                             e.stopPropagation();
@@ -2693,7 +3378,7 @@ function LPDCalculationPage() {
                                           }}
                                           title="Click or double-click to view step-by-step calculation preview & formula breakdown"
                                         >
-                                          {rawArea > 0 ? (
+                                          {primaryArea > 0 ? (
                                             <span
                                               className={cn(
                                                 "inline-flex items-center gap-1 justify-center px-2 py-0.5 rounded-full text-[11.5px] font-mono font-bold border transition-all hover:scale-105 shadow-2xs",
@@ -2713,61 +3398,78 @@ function LPDCalculationPage() {
                                           )}
                                         </td>
 
-                                        {/* Baseline LPD (W/m²) */}
+                                        {/* Baseline LPD (W/m² or W/sq.ft) */}
                                         <td
-                                          className="p-0 border-r border-border/40"
+                                          style={getLpdColStyle("baselineLpd")}
+                                          className={cn(
+                                            "p-0 border-r border-border/40 relative",
+                                            !isSelected && !isEffectiveReadOnly ? "cursor-pointer hover:bg-primary/5 transition-colors" : ""
+                                          )}
                                           rowSpan={space.fixtures.length}
+                                          onClick={(e) => {
+                                            if (!isSelected) {
+                                              e.stopPropagation();
+                                              toggleSelectRow(space.id);
+                                            }
+                                          }}
                                           onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             handleOpenCalculationPreview(space, group.name);
                                           }}
+                                          title={!isSelected && !isEffectiveReadOnly ? "Click to select row, click again to edit" : undefined}
                                         >
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            step="0.01"
-                                            className="w-full h-full min-h-[34px] px-2 text-center font-mono text-[13px] bg-transparent outline-none focus:bg-primary/5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none transition-colors"
-                                            value={space.baselineLpd}
-                                            onChange={(e) =>
-                                              updateSpace(group.id, space.id, "baselineLpd", e.target.value)
-                                            }
-                                            onDoubleClick={(e) => {
-                                              e.stopPropagation();
-                                              handleOpenCalculationPreview(space, group.name);
-                                            }}
-                                            placeholder={unitSystem === "ip" ? "0.65" : "7.00"}
-                                            title="Double-click to view calculation preview"
-                                          />
+                                          <div className={cn("w-full h-full flex items-center justify-center", !isCellInteractive && "pointer-events-none select-none")}>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              step="0.01"
+                                              className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
+                                              value={space.baselineLpd}
+                                              onChange={(e) =>
+                                                updateSpace(group.id, space.id, "baselineLpd", e.target.value)
+                                              }
+                                              placeholder={unitSystem === "ip" ? "0.65" : "7.00"}
+                                            />
+                                          </div>
                                         </td>
 
                                         {/* Remarks */}
                                         <td
-                                          className="p-0 border-r border-border/40"
+                                          style={getLpdColStyle("remarks")}
+                                          className={cn(
+                                            "p-0 border-r border-border/40 relative",
+                                            !isSelected && !isEffectiveReadOnly ? "cursor-pointer hover:bg-primary/5 transition-colors" : ""
+                                          )}
                                           rowSpan={space.fixtures.length}
+                                          onClick={(e) => {
+                                            if (!isSelected) {
+                                              e.stopPropagation();
+                                              toggleSelectRow(space.id);
+                                            }
+                                          }}
                                           onDoubleClick={(e) => {
                                             e.stopPropagation();
                                             handleOpenCalculationPreview(space, group.name);
                                           }}
+                                          title={!isSelected && !isEffectiveReadOnly ? "Click to select row, click again to edit" : undefined}
                                         >
-                                          <input
-                                            type="text"
-                                            className="w-full h-full min-h-[34px] px-2.5 text-left text-[12px] bg-transparent outline-none focus:bg-primary/5 transition-colors"
-                                            value={space.remarks || ""}
-                                            onChange={(e) =>
-                                              updateSpace(group.id, space.id, "remarks", e.target.value)
-                                            }
-                                            onDoubleClick={(e) => {
-                                              e.stopPropagation();
-                                              handleOpenCalculationPreview(space, group.name);
-                                            }}
-                                            placeholder="Notes..."
-                                            title="Double-click to view calculation preview"
-                                          />
+                                          <div className={cn("w-full h-full flex items-center px-2", !isCellInteractive && "pointer-events-none select-none")}>
+                                            <input
+                                              type="text"
+                                              className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-left text-[13.5px] text-foreground transition-colors cursor-text"
+                                              value={space.remarks || ""}
+                                              onChange={(e) =>
+                                                updateSpace(group.id, space.id, "remarks", e.target.value)
+                                              }
+                                              placeholder="Notes..."
+                                            />
+                                          </div>
                                         </td>
 
                                         {/* Add Fixture */}
                                         <td
-                                          className="px-1 py-1.5 text-center border-r border-border/40 w-10"
+                                          style={getLpdColStyle("addFixture")}
+                                          className="px-1 py-0 h-[30px] text-center border-r border-border/40"
                                           rowSpan={space.fixtures.length}
                                         >
                                           <button
@@ -2777,7 +3479,6 @@ function LPDCalculationPage() {
                                               e.stopPropagation();
                                               addFixture(group.id, space.id);
                                             }}
-                                            onDoubleClick={(e) => e.stopPropagation()}
                                             className="p-1 hover:bg-surface-2 rounded text-muted-foreground hover:text-primary transition-colors cursor-pointer mx-auto flex items-center justify-center"
                                             title="Add another fixture to space"
                                           >
@@ -2785,9 +3486,10 @@ function LPDCalculationPage() {
                                           </button>
                                         </td>
 
-                                        {/* Flag Button Column (At end of row) */}
+                                        {/* Flag Button Column (Matching Ventilation flag logic) */}
                                         <td
-                                          className="px-2 py-1.5 text-center"
+                                          style={getLpdColStyle("flag")}
+                                          className="px-2 py-0 h-[30px] text-center"
                                           rowSpan={space.fixtures.length}
                                         >
                                           <button
@@ -2796,23 +3498,14 @@ function LPDCalculationPage() {
                                               e.stopPropagation();
                                               toggleFlag(group.id, space.id);
                                             }}
-                                            onDoubleClick={(e) => e.stopPropagation()}
                                             className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
-                                            title={
-                                              space.flagged
-                                                ? "Flagged for review (Click to unflag)"
-                                                : !isCompliant && sqM > 0
-                                                ? `Warning: Exceeds baseline LPD by +${(proposedLpd - baselineLpd).toFixed(2)} W/m² (Click to flag)`
-                                                : "Click to flag this space"
-                                            }
+                                            title={space.flagged ? "Unflag space" : "Flag space"}
                                           >
                                             <Flag
                                               className={cn(
                                                 "size-3.5 transition-all duration-200",
                                                 space.flagged
                                                   ? "fill-red-500 text-red-500 scale-110 drop-shadow-xs"
-                                                  : !isCompliant && sqM > 0
-                                                  ? "text-red-400/80 hover:text-red-500 group-hover:scale-110"
                                                   : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
                                               )}
                                             />
@@ -2828,7 +3521,8 @@ function LPDCalculationPage() {
 
                       </React.Fragment>
                     );
-                  })}
+                  });
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -2880,6 +3574,17 @@ function LPDCalculationPage() {
                 </span>
               </div>
             </div>
+              </>
+            ) : (
+              <LpdReportView
+                project={currentProject}
+                unitSystem={unitSystem}
+                calcReviewState={calcReviewState}
+                currentUserName={currentUserName}
+                authorityMapping={authorityMapping}
+                onExportPdf={handleExport}
+              />
+            )}
           </div>
         </div>
 
@@ -2910,33 +3615,17 @@ function LPDCalculationPage() {
       {/* Floating Space Context Menu */}
       {spaceContextMenu && activeContextSpace && (
         <div
-          className="fixed z-50 bg-popover text-popover-foreground border border-border rounded-xl shadow-2xl p-1.5 w-56 text-[12.5px] animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-50 w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground select-none animate-in fade-in zoom-in-95 duration-100"
           style={{
-            top: `${Math.min(spaceContextMenu.y, window.innerHeight - 260)}px`,
-            left: `${Math.min(spaceContextMenu.x, window.innerWidth - 240)}px`,
+            top: `${Math.min(spaceContextMenu.y, window.innerHeight - 340)}px`,
+            left: `${Math.min(spaceContextMenu.x, window.innerWidth - 260)}px`,
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-2.5 py-1 text-[11px] font-bold text-muted-foreground truncate border-b border-border/50 mb-1">
-            {activeContextSpace.name || "Unnamed Space"}
-          </div>
-
+          {/* Add Comment - AT THE TOP with blue ventilation styling */}
           <button
             type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-primary/10 text-primary rounded cursor-pointer font-semibold transition-colors"
-            onClick={() => {
-              const gName = activeGroups.find((g) => g.id === spaceContextMenu.groupId)?.name;
-              handleOpenCalculationPreview(activeContextSpace, gName);
-              setSpaceContextMenu(null);
-            }}
-          >
-            <Sparkles className="size-3.5 text-primary" />
-            <span>Calculation Preview</span>
-          </button>
-
-          <button
-            type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded cursor-pointer font-medium transition-colors"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium transition-colors"
             onClick={() => {
               handleOpenComment(activeContextSpace.id, activeContextSpace.name);
               setSpaceContextMenu(null);
@@ -2946,9 +3635,25 @@ function LPDCalculationPage() {
             <span>Add Comment</span>
           </button>
 
+          {/* Calculation Preview */}
           <button
             type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
+            onClick={() => {
+              const gName = activeGroups.find((g) => g.id === spaceContextMenu.groupId)?.name;
+              handleOpenCalculationPreview(activeContextSpace, gName);
+              setSpaceContextMenu(null);
+            }}
+          >
+            <Sparkles className="size-3.5 text-muted-foreground" />
+            <span>Calculation Preview</span>
+            <span className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</span>
+          </button>
+
+          {/* Flag Space */}
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
             onClick={() => {
               toggleFlag(spaceContextMenu.groupId, activeContextSpace.id);
               setSpaceContextMenu(null);
@@ -2963,9 +3668,10 @@ function LPDCalculationPage() {
             <span>{activeContextSpace.flagged ? "Unflag Space" : "Flag Space"}</span>
           </button>
 
+          {/* Add Light Fixture */}
           <button
             type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
             onClick={() => {
               addFixture(spaceContextMenu.groupId, activeContextSpace.id);
               setSpaceContextMenu(null);
@@ -2978,7 +3684,7 @@ function LPDCalculationPage() {
           {activeContextSpace.fixtures.length > 1 && (
             <button
               type="button"
-              className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer transition-colors"
+              className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
               onClick={() => {
                 const gid = spaceContextMenu.groupId;
                 const sid = activeContextSpace.id;
@@ -2989,26 +3695,15 @@ function LPDCalculationPage() {
                 setSpaceContextMenu(null);
               }}
             >
-              <Trash2 className="size-3.5" />
+              <Trash2 className="size-3.5 text-muted-foreground" />
               <span>Remove Extra Fixture</span>
             </button>
           )}
 
+          {/* Add Custom Area Type... */}
           <button
             type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
-            onClick={() => {
-              duplicateSpace(spaceContextMenu.groupId, activeContextSpace.id);
-              setSpaceContextMenu(null);
-            }}
-          >
-            <Copy className="size-3.5 text-muted-foreground" />
-            <span>Duplicate Space</span>
-          </button>
-
-          <button
-            type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
             onClick={() => {
               const gid = spaceContextMenu.groupId;
               const sid = activeContextSpace.id;
@@ -3030,12 +3725,99 @@ function LPDCalculationPage() {
             <span>Add Custom Area Type...</span>
           </button>
 
+          <div className="h-px bg-border my-1" />
+
+          {/* Copy Space */}
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
+            onClick={() => {
+              if (selected.has(activeContextSpace.id) && selected.size > 1) {
+                copySelectedSpaces();
+              } else {
+                setCopiedSpaces([JSON.parse(JSON.stringify(activeContextSpace))]);
+                toast.info("1 space copied to clipboard");
+              }
+              setSpaceContextMenu(null);
+            }}
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Space</span>
+            <span className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</span>
+          </button>
+
+          {/* Cut Space */}
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
+            onClick={() => {
+              if (isEffectiveReadOnly) {
+                toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+                return;
+              }
+              if (selected.has(activeContextSpace.id) && selected.size > 1) {
+                cutSelectedSpaces();
+              } else {
+                setCopiedSpaces([JSON.parse(JSON.stringify(activeContextSpace))]);
+                pushToUndo(activeGroups);
+                updateActiveGroups((groups) =>
+                  groups.map((g) =>
+                    g.id === spaceContextMenu.groupId
+                      ? { ...g, spaces: g.spaces.filter((s) => s.id !== activeContextSpace.id) }
+                      : g
+                  )
+                );
+                setSelected((prev) => {
+                  const next = new Set(prev);
+                  next.delete(activeContextSpace.id);
+                  return next;
+                });
+                dirtyStore.set(true);
+                toast.info("1 space cut to clipboard");
+              }
+              setSpaceContextMenu(null);
+            }}
+          >
+            <Scissors className="size-3.5 text-muted-foreground" />
+            <span>Cut Space</span>
+            <span className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</span>
+          </button>
+
+          {/* Paste Spaces */}
+          {copiedSpaces.length > 0 && (
+            <button
+              type="button"
+              className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
+              onClick={() => {
+                pasteSpaces();
+                setSpaceContextMenu(null);
+              }}
+            >
+              <ClipboardPaste className="size-3.5 text-muted-foreground" />
+              <span>Paste Space(s) ({copiedSpaces.length})</span>
+              <span className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</span>
+            </button>
+          )}
+
+          {/* Duplicate Space */}
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
+            onClick={() => {
+              duplicateSpace(spaceContextMenu.groupId, activeContextSpace.id);
+              setSpaceContextMenu(null);
+            }}
+          >
+            <CopyPlus className="size-3.5 text-muted-foreground" />
+            <span>Duplicate Space</span>
+            <span className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</span>
+          </button>
+
           {selected.size > 1 && selected.has(activeContextSpace.id) && (
             <>
-              <div className="h-px bg-border my-1" />
               <button
                 type="button"
-                className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+                className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
                 onClick={() => {
                   duplicateSelectedSpaces();
                   setSpaceContextMenu(null);
@@ -3046,7 +3828,7 @@ function LPDCalculationPage() {
               </button>
               <button
                 type="button"
-                className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+                className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
                 onClick={() => {
                   toggleFlagSelected();
                   setSpaceContextMenu(null);
@@ -3060,9 +3842,10 @@ function LPDCalculationPage() {
 
           <div className="h-px bg-border my-1" />
 
+          {/* Delete Space */}
           <button
             type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer transition-colors"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium transition-colors"
             onClick={async () => {
               const sid = activeContextSpace.id;
               const gid = spaceContextMenu.groupId;
@@ -3080,6 +3863,7 @@ function LPDCalculationPage() {
                 ? `Delete Selected (${selected.size})`
                 : "Delete Space"}
             </span>
+            <span className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</span>
           </button>
         </div>
       )}
@@ -3087,20 +3871,16 @@ function LPDCalculationPage() {
       {/* Floating Floor Group Context Menu */}
       {groupContextMenu && activeContextGroup && (
         <div
-          className="fixed z-50 bg-popover text-popover-foreground border border-border rounded-xl shadow-2xl p-1.5 w-56 text-[12.5px] animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-50 w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground select-none animate-in fade-in zoom-in-95 duration-100"
           style={{
             top: `${Math.min(groupContextMenu.y, window.innerHeight - 200)}px`,
             left: `${Math.min(groupContextMenu.x, window.innerWidth - 240)}px`,
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-2.5 py-1 text-[11px] font-bold text-muted-foreground truncate border-b border-border/50 mb-1">
-            {activeContextGroup.name}
-          </div>
-
           <button
             type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
             onClick={async () => {
               const gid = activeContextGroup.id;
               setGroupContextMenu(null);
@@ -3118,7 +3898,7 @@ function LPDCalculationPage() {
 
           <button
             type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
             onClick={() => {
               const gid = activeContextGroup.id;
               setGroupContextMenu(null);
@@ -3131,14 +3911,14 @@ function LPDCalculationPage() {
 
           <button
             type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer transition-colors"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
             onClick={() => {
               const gid = activeContextGroup.id;
               setGroupContextMenu(null);
               duplicateGroup(gid);
             }}
           >
-            <Copy className="size-3.5 text-muted-foreground" />
+            <CopyPlus className="size-3.5 text-muted-foreground" />
             <span>Duplicate Floor</span>
           </button>
 
@@ -3146,24 +3926,16 @@ function LPDCalculationPage() {
 
           <button
             type="button"
-            className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer transition-colors"
-            onClick={async () => {
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium transition-colors"
+            onClick={() => {
               const gid = activeContextGroup.id;
-              const gName = activeContextGroup.name;
-              const count = activeContextGroup.spaces.length;
               setGroupContextMenu(null);
-              if (
-                await confirm(`Are you sure you want to delete floor "${gName}" with ${count} spaces?`, {
-                  title: "Delete Floor",
-                  danger: true,
-                })
-              ) {
-                removeGroup(gid);
-              }
+              removeGroup(gid);
             }}
           >
             <Trash2 className="size-3.5" />
             <span>Delete Floor</span>
+            <span className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</span>
           </button>
         </div>
       )}
@@ -3198,11 +3970,103 @@ function LPDCalculationPage() {
         data={previewData}
       />
 
+      {/* Edit LPD Space Modal (Exact Ventilation style with calculations preview) */}
+      {editingLpdSpace && (
+        <EditLpdSpaceModal
+          space={editingLpdSpace.space}
+          groupId={editingLpdSpace.groupId}
+          groupName={editingLpdSpace.groupName}
+          isNew={editingLpdSpace.isNew}
+          unitSystem={unitSystem}
+          availableGroups={(isInt ? currentProject.internalGroups : currentProject.externalGroups).map((g) => ({
+            id: g.id,
+            name: g.name,
+          }))}
+          onClose={() => {
+            if (editingLpdSpace.isNew) {
+              updateActiveGroups((groups) =>
+                groups.map((g) => ({
+                  ...g,
+                  spaces: (g.spaces || []).filter((s) => s.id !== editingLpdSpace.space.id),
+                }))
+              );
+            }
+            setEditingLpdSpace(null);
+          }}
+          onSave={(updated, targetGId) => {
+            updateActiveGroups((groups) => {
+              const targetGroup = groups.find(
+                (g) => g.id === targetGId || g.name.trim().toUpperCase() === targetGId.trim().toUpperCase()
+              );
+              if (targetGroup) {
+                return groups.map((g) => {
+                  if (g.id === targetGroup.id) {
+                    const exists = (g.spaces || []).some((s) => s.id === updated.id);
+                    return {
+                      ...g,
+                      spaces: exists
+                        ? (g.spaces || []).map((s) => (s.id === updated.id ? updated : s))
+                        : [...(g.spaces || []), updated],
+                    };
+                  } else {
+                    return {
+                      ...g,
+                      spaces: (g.spaces || []).filter((s) => s.id !== updated.id),
+                    };
+                  }
+                });
+              } else {
+                const newGrp = defaultGroup(targetGId);
+                newGrp.isExpanded = true;
+                newGrp.spaces = [updated];
+                const cleaned = groups.map((g) => ({
+                  ...g,
+                  spaces: (g.spaces || []).filter((s) => s.id !== updated.id),
+                }));
+                return [...cleaned, newGrp];
+              }
+            });
+            toast.success(`Updated space "${updated.name}"`);
+            setEditingLpdSpace(null);
+          }}
+        />
+      )}
+
       {/* Import Source Selection Modal */}
       <ImportSourceModal
         isOpen={sourceModalOpen}
         onClose={() => setSourceModalOpen(false)}
-        onSelectExcel={() => excelInputRef.current?.click()}
+        title="Import Space Schedule"
+        subtitle="Select data source to generate schedule"
+        excelTitle="Import from Excel (.xlsx)"
+        excelSubtitle="Upload schedule or spreadsheet formatted with Level, Floor, Space Name & Area."
+        viewerTitle="Import from 3D Studio"
+        viewerSubtitle="Extract spatial geometry, room names, levels, and floor areas directly from active 3D model."
+        viewerBadge="3D Studio"
+        ventilationTitle="Import from Ventilation"
+        ventilationSubtitle={
+          ventSpacesCount > 0
+            ? `Import ${ventSpacesCount} space(s) directly from the active Ventilation schedule.`
+            : "Import all room names, floor levels, and areas directly from the active Ventilation schedule."
+        }
+        ventilationBadge="Ventilation"
+        preliminaryTitle="Import from Preliminary Cooling Load"
+        preliminarySubtitle={
+          pclSpacesCount > 0
+            ? `Import ${pclSpacesCount} space(s) from Preliminary Cooling Load calculation.`
+            : "Import room names, floor levels, areas, and space categories from Preliminary Cooling Load calculation."
+        }
+        preliminaryBadge="Cooling Load"
+        onSelectBenchmark={handleLoadBenchmarkSpaces}
+        benchmarkTitle="Load 10 Benchmark Spaces"
+        benchmarkSubtitle="Populate calculation with standard reference architectural spaces for quick verification."
+        benchmarkBadge="Benchmarks"
+        onSelectExcel={() => {
+          if (excelInputRef.current) {
+            excelInputRef.current.value = "";
+            excelInputRef.current.click();
+          }
+        }}
         onSelect3DViewer={handleSyncFrom3DStudio}
         onSelectVentilation={handleImportFromVentilation}
         onSelectPreliminary={handleImportFromPreliminary}
@@ -3215,6 +4079,212 @@ function LPDCalculationPage() {
         accept=".xlsx,.xls,.csv"
         className="hidden"
       />
+
+      {/* Add New Space Modal Popup */}
+      {showAddSpaceModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in-50 duration-150"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowAddSpaceModal(false);
+          }}
+        >
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border/60 bg-surface-1 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-primary/10 text-primary rounded-xl">
+                  <Plus className="size-4" />
+                </div>
+                <div>
+                  <h2 className="text-[15px] font-bold text-foreground leading-tight">Add New Space</h2>
+                  <p className="text-[11.5px] text-muted-foreground">
+                    Create a new space and specify lighting baseline requirements
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddSpaceModal(false)}
+                className="p-1.5 hover:bg-surface-2 rounded-lg text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {/* Modal Body / Form */}
+            <form onSubmit={handleAddSpaceSubmit} className="p-6 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-3">
+                {/* Floor / Level Selection */}
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1">
+                    Floor Level <span className="text-red-500">*</span>
+                  </label>
+                  <FloorSelect
+                    value={newSpaceFloor}
+                    onChange={setNewSpaceFloor}
+                    availableFloors={activeGroups.map((g) => g.name)}
+                  />
+                </div>
+
+                {/* Space Name */}
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1">
+                    Space Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    value={newSpaceName}
+                    onChange={(e) => setNewSpaceName(e.target.value)}
+                    placeholder="e.g. Meeting Room 1"
+                    className="w-full bg-surface-2 border border-border rounded-xl px-3 py-2 text-[12.5px] font-medium text-foreground outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              {/* Area Type / ASHRAE Occupancy */}
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">
+                  Area Classification / ASHRAE Space Type <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={newSpaceAreaType}
+                  onChange={(e) => {
+                    const sel = e.target.value;
+                    setNewSpaceAreaType(sel);
+                    const base = LPD_AUTHORITY_MAPPING[sel] || 0.62;
+                    setNewSpaceBaselineLpd(unitSystem === "ip" ? base : Number((base * 10.7639).toFixed(2)));
+                  }}
+                  className="w-full bg-surface-2 border border-border rounded-xl px-3 py-2 text-[12.5px] font-medium text-foreground outline-none focus:ring-1 focus:ring-primary focus:border-primary cursor-pointer"
+                >
+                  {Object.keys(LPD_AUTHORITY_MAPPING).map((typeKey) => (
+                    <option key={typeKey} value={typeKey}>
+                      {typeKey} (Base: {unitSystem === "ip" ? `${LPD_AUTHORITY_MAPPING[typeKey]} W/ft²` : `${(LPD_AUTHORITY_MAPPING[typeKey] * 10.7639).toFixed(2)} W/m²`})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Area & Baseline LPD */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1">
+                    Floor Area ({unitSystem === "ip" ? "sq.ft" : "m²"}) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    step="0.1"
+                    min="0.1"
+                    value={newSpaceArea}
+                    onChange={(e) => setNewSpaceArea(e.target.value === "" ? "" : Number(e.target.value))}
+                    placeholder="100"
+                    className="w-full bg-surface-2 border border-border rounded-xl px-3 py-2 text-[12.5px] font-mono text-foreground outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-foreground mb-1">
+                    Baseline LPD ({unitSystem === "ip" ? "W/sq.ft" : "W/m²"}) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    step="0.01"
+                    min="0"
+                    value={newSpaceBaselineLpd}
+                    onChange={(e) => setNewSpaceBaselineLpd(e.target.value === "" ? "" : Number(e.target.value))}
+                    placeholder={unitSystem === "ip" ? "0.60" : "6.50"}
+                    className="w-full bg-surface-2 border border-border rounded-xl px-3 py-2 text-[12.5px] font-mono text-foreground outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  />
+                </div>
+              </div>
+
+              {/* Initial Fixture */}
+              <div className="p-3.5 bg-surface-2/60 border border-border/80 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11.5px] font-bold text-foreground">Initial Lighting Fixture</span>
+                  <span className="text-[10.5px] text-muted-foreground">Can add more fixtures later</span>
+                </div>
+                <div className="grid grid-cols-12 gap-2">
+                  <div className="col-span-6">
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">Fixture Type</label>
+                    <input
+                      type="text"
+                      list="fixture-type-suggestions"
+                      value={newSpaceFixtureType}
+                      onChange={(e) => setNewSpaceFixtureType(e.target.value)}
+                      placeholder="e.g. 2x2 LED Troffer 36W"
+                      className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-primary"
+                    />
+                    <datalist id="fixture-type-suggestions">
+                      {Object.keys(LIGHT_TYPE_MAPPING).map((k) => (
+                        <option key={k} value={k} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div className="col-span-3">
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">Watts / Fixture</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={newSpaceFixtureWatts}
+                      onChange={(e) => setNewSpaceFixtureWatts(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder="36"
+                      className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-foreground outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    <label className="block text-[11px] font-semibold text-muted-foreground mb-1">Qty</label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={newSpaceFixtureQty}
+                      onChange={(e) => setNewSpaceFixtureQty(e.target.value === "" ? "" : Number(e.target.value))}
+                      placeholder="4"
+                      className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-foreground outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Remarks */}
+              <div>
+                <label className="block text-xs font-semibold text-foreground mb-1">Remarks / Notes</label>
+                <input
+                  type="text"
+                  value={newSpaceRemarks}
+                  onChange={(e) => setNewSpaceRemarks(e.target.value)}
+                  placeholder="Optional architectural notes or control requirements"
+                  className="w-full bg-surface-2 border border-border rounded-xl px-3 py-2 text-[12.5px] text-foreground outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                />
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-border/60">
+                <button
+                  type="button"
+                  onClick={() => setShowAddSpaceModal(false)}
+                  className="px-4 py-2 border border-border rounded-xl text-xs font-bold text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-primary text-primary-foreground font-bold rounded-xl text-xs hover:bg-primary/95 transition-all shadow-sm cursor-pointer"
+                >
+                  Add Space
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Add Custom Area Type Modal */}
       {customAreaModalOpen && (
@@ -3319,398 +4389,769 @@ function LPDCalculationPage() {
           </div>
         </div>
       )}
+      {/* Formula Breakdown Modal */}
+      {showFormulaModal && (
+        <LpdFormulaBreakdownModal
+          onClose={() => setShowFormulaModal(false)}
+          unitSystem={unitSystem}
+          project={currentProject}
+          overallComplianceRate={overallComplianceRate}
+        />
+      )}
     </AppShell>
   );
 }
 
-// ---------------------------------------------------------
-// Intelligence Drawer Component
-// ---------------------------------------------------------
 
-function LpdIntelligenceDrawer({
-  groups,
-  unitSystem = "si",
+function LpdReportView({
+  project,
+  unitSystem,
+  calcReviewState,
+  currentUserName,
   authorityMapping,
-  onClose,
-  onScrollToSpace,
-  onAutoFlagNonCompliant,
-  onClearAllFlags,
-  onAutoFillBaselines,
-  onOpenPreview,
 }: {
-  groups: LpdGroup[];
-  unitSystem?: "si" | "ip";
-  authorityMapping: Record<string, number>;
-  onClose: () => void;
-  onScrollToSpace: (spaceId: string, groupId?: string) => void;
-  onAutoFlagNonCompliant: () => void;
-  onClearAllFlags: () => void;
-  onAutoFillBaselines: () => void;
-  onOpenPreview?: (space: any, groupName?: string) => void;
+  project: LpdProject;
+  unitSystem: "si" | "ip";
+  calcReviewState: CalculationReviewState | null;
+  currentUserName: string;
+  authorityMapping?: Record<string, number>;
+  onExportPdf?: () => void;
 }) {
-  const allSpaces = useMemo(() => {
-    const isIp = unitSystem === "ip";
-    return groups.flatMap((g) =>
-      (g.spaces || []).map((s) => {
-        const totalWatts = (s.fixtures || []).reduce(
-          (sum, f) => sum + (parseFloat(f.watts) || 0) * (parseFloat(f.qty) || 0),
-          0
-        );
-        const rawArea = parseFloat(s.areaSqM) || 0;
-        const sqM = isIp ? rawArea / 10.76391 : rawArea;
-        const sqF = isIp ? rawArea : rawArea * 10.76391;
-        const primaryArea = isIp ? sqF : sqM;
-        const proposedLpd = primaryArea > 0 ? totalWatts / primaryArea : 0;
-        const baselineLpd = parseFloat(s.baselineLpd) || 0;
-        const isCompliant = primaryArea > 0 && baselineLpd > 0 ? proposedLpd <= baselineLpd : null;
-        const isExceeding = primaryArea > 0 && baselineLpd > 0 && proposedLpd > baselineLpd;
-        const diffLpd = proposedLpd - baselineLpd;
-
-        return {
-          ...s,
-          groupId: g.id,
-          groupName: g.name,
-          totalWatts,
-          rawArea,
-          sqM,
-          sqF,
-          primaryArea,
-          proposedLpd,
-          baselineLpd,
-          isCompliant,
-          isExceeding,
-          diffLpd,
-        };
-      })
-    );
-  }, [groups, unitSystem]);
-
   const isIp = unitSystem === "ip";
-  const totalSpaces = allSpaces.length;
-  const evaluatedSpaces = allSpaces.filter((s) => s.primaryArea > 0 && s.baselineLpd > 0);
-  const compliantSpaces = evaluatedSpaces.filter((s) => s.isCompliant);
-  const nonCompliantSpaces = allSpaces.filter((s) => s.isExceeding);
-  const flaggedSpaces = allSpaces.filter((s) => s.flagged);
+  const areaUnit = isIp ? "sq.ft" : "m²";
+  const lpdUnit = isIp ? "W/sq.ft" : "W/m²";
 
-  const missingAreaSpaces = allSpaces.filter((s) => s.primaryArea <= 0);
-  const missingTypeSpaces = allSpaces.filter((s) => !s.areaType || s.areaType.trim() === "");
-  const missingBaselineSpaces = allSpaces.filter((s) => s.baselineLpd <= 0);
-  const missingWattsSpaces = allSpaces.filter((s) => s.totalWatts <= 0);
+  const activeProj: any = workspaceStore.getState()?.project || {};
+  const sigDetails = getSignatureBlockDetails(activeProj?.id || "default", "/lpd-calculation", currentUserName, calcReviewState);
 
-  const complianceRate =
-    evaluatedSpaces.length > 0
-      ? Math.round((compliantSpaces.length / evaluatedSpaces.length) * 100)
-      : 100;
+  const calcNo = project.calculationNo || activeProj?.calcNo || "TRV-CAL-LPD-01";
+  const today = formatDateStr(new Date().toISOString());
+  const projectNo = project.projectNo || activeProj?.code || activeProj?.projectNo || "P001";
+  const projectName = project.name || activeProj?.name || activeProj?.projectName || "Lighting Power Density";
+  const clientName = project.client || activeProj?.client || "-";
+  const endUser = project.endUser || activeProj?.endUser || activeProj?.location || "-";
 
-  const totalWattsAll = allSpaces.reduce((a, s) => a + s.totalWatts, 0);
-  const totalAreaAll = allSpaces.reduce((a, s) => a + s.primaryArea, 0);
-  const allowedWattsAll = allSpaces.reduce((a, s) => a + s.primaryArea * s.baselineLpd, 0);
-  const avgProposedLpd = totalAreaAll > 0 ? totalWattsAll / totalAreaAll : 0;
-  const avgBaselineLpd = totalAreaAll > 0 ? allowedWattsAll / totalAreaAll : 0;
-  const wattsDiff = totalWattsAll - allowedWattsAll;
-  const pctSavings =
-    allowedWattsAll > 0 ? ((allowedWattsAll - totalWattsAll) / allowedWattsAll) * 100 : 0;
+  // Gather spaces
+  const activeGroups = project.type === "External" ? project.externalGroups : project.internalGroups;
+  const groups = activeGroups || [];
+
+  let grandArea = 0;
+  let grandWatts = 0;
+  let grandTargetWatts = 0;
+  let totalSpacesCount = 0;
+  let compliantSpacesCount = 0;
+
+  const processedGroups = groups.map((group) => {
+    let floorArea = 0;
+    let floorWatts = 0;
+    let floorTargetWatts = 0;
+    let floorCompliantCount = 0;
+
+    const spaces = (group.spaces || []).map((s) => {
+      const rawArea = parseFloat(String(s.areaSqM)) || 0;
+      const sqM = isIp ? rawArea / 10.76391 : rawArea;
+      const sqF = isIp ? rawArea : rawArea * 10.76391;
+      const spaceArea = isIp ? sqF : sqM;
+
+      const spaceWatts = (s.fixtures || []).reduce((sum, f) => {
+        const w = parseFloat(String(f.watts)) || 0;
+        const q = parseFloat(String(f.qty)) || 0;
+        return sum + w * q;
+      }, 0);
+
+      const baselineRaw = parseFloat(String(s.baselineLpd)) || 0;
+      const mappedBaseline = (s.areaType && authorityMapping && authorityMapping[s.areaType]) ? authorityMapping[s.areaType] : 0;
+      const targetLpd = baselineRaw > 0 ? baselineRaw : (mappedBaseline > 0 ? mappedBaseline : (isIp ? 0.65 : 7.00));
+      const actualLpd = spaceArea > 0 ? spaceWatts / spaceArea : 0;
+      const margin = targetLpd - actualLpd;
+      const isCompliant = spaceArea > 0 && targetLpd > 0 ? actualLpd <= targetLpd : false;
+
+      floorArea += spaceArea;
+      floorWatts += spaceWatts;
+      floorTargetWatts += spaceArea * targetLpd;
+      if (isCompliant) floorCompliantCount++;
+
+      grandArea += spaceArea;
+      grandWatts += spaceWatts;
+      grandTargetWatts += spaceArea * targetLpd;
+      totalSpacesCount++;
+      if (isCompliant) compliantSpacesCount++;
+
+      return {
+        ...s,
+        computedArea: spaceArea,
+        computedWatts: spaceWatts,
+        computedTargetLpd: targetLpd,
+        computedActualLpd: actualLpd,
+        computedMargin: margin,
+        computedIsCompliant: isCompliant,
+      };
+    });
+
+    const floorActualLpd = floorArea > 0 ? floorWatts / floorArea : 0;
+    const floorTargetLpd = floorArea > 0 ? floorTargetWatts / floorArea : 0;
+
+    return {
+      ...group,
+      processedSpaces: spaces,
+      floorArea,
+      floorWatts,
+      floorActualLpd,
+      floorTargetLpd,
+      floorCompliantCount,
+    };
+  });
+
+  const overallActualLpd = grandArea > 0 ? grandWatts / grandArea : 0;
+  const overallTargetLpd = grandArea > 0 ? grandTargetWatts / grandArea : 0;
+  const energySavingPct = grandTargetWatts > 0 ? ((grandTargetWatts - grandWatts) / grandTargetWatts) * 100 : 0;
+
+  let globalSrNo = 1;
 
   return (
-    <div className="h-full w-[360px] flex flex-col animate-fade-in bg-card text-foreground select-none">
-      {/* Drawer Header */}
-      <header className="h-11 px-3.5 flex items-center justify-between border-b border-border shrink-0">
-        <div className="flex items-center gap-2">
-          <Sparkles className="size-4 text-primary" />
-          <span className="text-[13.5px] font-bold tracking-tight">LPD Intelligence</span>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-        >
-          <X className="size-4" />
-        </button>
-      </header>
-
-      {/* Drawer Body */}
-      <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
-        {/* Compliance Status Card */}
-        <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <CheckCircle2 className="size-3.5 text-emerald-500" />
-              Compliance Status
-            </span>
-            <span
-              className={cn(
-                "px-2 py-0.5 rounded-full text-[11px] font-mono font-bold",
-                complianceRate >= 100
-                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                  : complianceRate >= 80
-                  ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                  : "bg-red-500/15 text-red-600 dark:text-red-400"
-              )}
-            >
-              {complianceRate}%
-            </span>
-          </div>
-
-          <div className="text-[12px] text-muted-foreground">
-            ASHRAE 90.1 & Local Authority LPD verification across {totalSpaces} spaces.
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="flex-1 h-2 bg-surface-2 rounded-full overflow-hidden">
-              <div
-                className={cn(
-                  "h-full transition-all duration-500",
-                  complianceRate >= 100
-                    ? "bg-emerald-500"
-                    : complianceRate >= 80
-                    ? "bg-amber-500"
-                    : "bg-red-500"
-                )}
-                style={{ width: `${complianceRate}%` }}
-              />
-            </div>
-            <span className="font-mono text-[11.5px] font-bold text-foreground">
-              {compliantSpaces.length}/{evaluatedSpaces.length}
-            </span>
-          </div>
-
-          <div className="text-[11.5px] text-muted-foreground border-t border-border/50 pt-2 flex justify-between">
-            <span>Non-Compliant:</span>
-            <span className="font-mono font-bold text-red-500">{nonCompliantSpaces.length} space(s)</span>
-          </div>
-        </div>
-
-        {/* Project Energy & Load Summary */}
-        <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2">
-          <div className="flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-wider text-muted-foreground">
-            <Zap className="size-3.5 text-primary" />
-            Energy Balance
-          </div>
-          <div className="space-y-1.5 text-[12px]">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Connected Load:</span>
-              <span className="font-mono font-semibold">
-                {(totalWattsAll / 1000).toFixed(2)} kW ({totalWattsAll.toLocaleString()} W)
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Total Lit Area:</span>
-              <span className="font-mono font-semibold">
-                {isIp
-                  ? `${totalAreaAll.toFixed(1)} sq.ft (${(totalAreaAll / 10.76391).toFixed(1)} m²)`
-                  : `${totalAreaAll.toFixed(1)} m² (${(totalAreaAll * 10.764).toFixed(0)} ft²)`}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Area-Weighted LPD:</span>
-              <span className="font-mono font-semibold">
-                {avgProposedLpd.toFixed(2)} {isIp ? "W/sq.ft" : "W/m²"}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Baseline Allowance:</span>
-              <span className="font-mono font-semibold">
-                {avgBaselineLpd.toFixed(2)} {isIp ? "W/sq.ft" : "W/m²"}
-              </span>
-            </div>
-            <div className="flex justify-between border-t border-border/50 pt-1.5">
-              <span className="text-muted-foreground">Power Margin:</span>
-              <span
-                className={cn(
-                  "font-mono font-bold",
-                  pctSavings >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-red-600 dark:text-red-400"
-                )}
-              >
-                {pctSavings >= 0
-                  ? `+${pctSavings.toFixed(1)}% Saving (${(Math.abs(wattsDiff) / 1000).toFixed(2)} kW)`
-                  : `${pctSavings.toFixed(1)}% Excess (+${(Math.abs(wattsDiff) / 1000).toFixed(2)} kW)`}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Non-Compliant Spaces List */}
-        <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <AlertTriangle className="size-3.5 text-red-500" />
-              Exceeding Baseline ({nonCompliantSpaces.length})
-            </span>
-            {nonCompliantSpaces.length > 0 && (
-              <button
-                type="button"
-                onClick={onAutoFlagNonCompliant}
-                className="text-[10.5px] font-semibold text-primary hover:underline cursor-pointer"
-              >
-                Flag All
-              </button>
-            )}
-          </div>
-
-          {nonCompliantSpaces.length === 0 ? (
-            <div className="text-[12px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 py-1">
-              <Check className="size-3.5" /> All evaluated spaces meet LPD baseline limits!
-            </div>
-          ) : (
-            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-              {nonCompliantSpaces.map((s) => (
-                <div
-                  key={s.id}
-                  onClick={() => onScrollToSpace(s.id, s.groupId)}
-                  onDoubleClick={() => onOpenPreview?.(s, s.groupName)}
-                  className="p-2 rounded-lg bg-background hover:bg-surface-2 border border-border/60 transition-colors cursor-pointer text-[12px] group/item"
-                  title="Click to locate. Double-click to preview calculation."
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-foreground truncate max-w-[160px]">
-                      {s.name || "Unnamed Space"}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      {onOpenPreview && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenPreview(s, s.groupName);
-                          }}
-                          className="opacity-0 group-hover/item:opacity-100 p-0.5 rounded hover:bg-primary/10 text-primary transition-opacity cursor-pointer"
-                          title="Preview calculation"
-                        >
-                          <Sparkles className="size-3" />
-                        </button>
-                      )}
-                      <span className="text-[10px] font-mono text-muted-foreground uppercase">
-                        {s.groupName}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between mt-1 text-[11px] font-mono">
-                    <span className="text-red-500 font-bold">
-                      {s.proposedLpd.toFixed(2)} {isIp ? "W/sq.ft" : "W/m²"}
-                    </span>
-                    <span className="text-muted-foreground">Baseline: {s.baselineLpd.toFixed(2)}</span>
-                    <span className="text-red-500 font-bold">+{s.diffLpd.toFixed(2)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Flagged Spaces List */}
-        <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <Flag className="size-3.5 text-red-500 fill-red-500" />
-              Flagged Spaces ({flaggedSpaces.length})
-            </span>
-            {flaggedSpaces.length > 0 && (
-              <button
-                type="button"
-                onClick={onClearAllFlags}
-                className="text-[10.5px] font-semibold text-muted-foreground hover:text-red-500 cursor-pointer"
-              >
-                Clear All
-              </button>
-            )}
-          </div>
-
-          {flaggedSpaces.length === 0 ? (
-            <div className="text-[12px] text-muted-foreground py-1">No spaces currently flagged.</div>
-          ) : (
-            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-              {flaggedSpaces.map((s) => (
-                <div
-                  key={s.id}
-                  onClick={() => onScrollToSpace(s.id, s.groupId)}
-                  onDoubleClick={() => onOpenPreview?.(s, s.groupName)}
-                  className="p-2 rounded-lg bg-background hover:bg-surface-2 border border-border/60 transition-colors cursor-pointer text-[12px] flex items-center justify-between group/item"
-                  title="Click to locate. Double-click to preview calculation."
-                >
-                  <div className="truncate max-w-[190px]">
-                    <span className="font-semibold text-foreground">{s.name || "Unnamed Space"}</span>
-                    <div className="text-[10.5px] text-muted-foreground">{s.groupName}</div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {onOpenPreview && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onOpenPreview(s, s.groupName);
-                        }}
-                        className="opacity-0 group-hover/item:opacity-100 p-0.5 rounded hover:bg-primary/10 text-primary transition-opacity cursor-pointer"
-                        title="Preview calculation"
-                      >
-                        <Sparkles className="size-3" />
-                      </button>
-                    )}
-                    <Flag className="size-3.5 fill-red-500 text-red-500 shrink-0" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Data Integrity / Incomplete Inputs */}
-        <div className="p-3 rounded-xl border border-border bg-surface-1 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <AlertCircle className="size-3.5 text-amber-500" />
-              Audit Checks
-            </span>
-            {missingBaselineSpaces.length > 0 && (
-              <button
-                type="button"
-                onClick={onAutoFillBaselines}
-                className="text-[10.5px] font-semibold text-primary hover:underline cursor-pointer"
-              >
-                Auto-Fill
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-[11px]">
-            <div className="p-2 rounded-lg bg-background border border-border/60 flex flex-col">
-              <span className="text-muted-foreground">Missing Area:</span>
-              <span className="font-mono font-bold text-foreground text-[13px]">
-                {missingAreaSpaces.length}
-              </span>
-            </div>
-            <div className="p-2 rounded-lg bg-background border border-border/60 flex flex-col">
-              <span className="text-muted-foreground">Missing Type:</span>
-              <span className="font-mono font-bold text-foreground text-[13px]">
-                {missingTypeSpaces.length}
-              </span>
-            </div>
-            <div className="p-2 rounded-lg bg-background border border-border/60 flex flex-col">
-              <span className="text-muted-foreground">Zero Wattage:</span>
-              <span className="font-mono font-bold text-foreground text-[13px]">
-                {missingWattsSpaces.length}
-              </span>
-            </div>
-            <div className="p-2 rounded-lg bg-background border border-border/60 flex flex-col">
-              <span className="text-muted-foreground">No Baseline:</span>
-              <span className="font-mono font-bold text-foreground text-[13px]">
-                {missingBaselineSpaces.length}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Smart Tips */}
-        <div className="p-3 rounded-xl border border-primary/20 bg-primary/5 space-y-1.5 text-[11.5px] text-muted-foreground">
-          <div className="flex items-center gap-1.5 font-bold text-primary text-[12px]">
-            <Lightbulb className="size-3.5" />
-            Engineering Optimization Tip
-          </div>
-          <p className="leading-relaxed">
-            Spaces exceeding baseline LPD by &gt;15% can achieve full compliance by retrofitting to 10W–15W LED downlights
-            or implementing occupancy-sensing daylight harvesting.
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+      <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
+        
+        {/* 1. Title (Exact Preliminary format) */}
+        <div className="pb-1">
+          <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+            Lighting Power Density (LPD) Calculation
+          </h2>
+          <p className="text-[12px] text-muted-foreground mt-0.5">
+            Energy Conservation & Connected Lighting Power Density Compliance (ASHRAE 90.1 / ECBC / IECC)
           </p>
+        </div>
+
+        {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format) */}
+        <div className="border border-border rounded-xl overflow-hidden text-xs">
+          <table className="w-full border-collapse">
+            <tbody>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                <td className="p-2.5 font-mono text-foreground font-medium">{calcNo}</td>
+                <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                <td className="p-2.5 font-mono font-medium">{today}</td>
+              </tr>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                <td className="p-2.5 font-mono">{projectNo}</td>
+                <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                <td className="p-2.5">{clientName}</td>
+              </tr>
+              <tr className="divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                <td className="p-2.5">{projectName}</td>
+                <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                <td className="p-2.5">{endUser}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* 3. LPD Schedule Table (2-Tier Header Table with #E5E7EB header) */}
+        <div className="border border-border rounded-xl overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                <th rowSpan={2} className="p-2 border-r border-border w-12 text-center">
+                  Sr.<br />No.
+                </th>
+                <th colSpan={3} className="p-2 border-r border-border text-center">
+                  Space Classification & Area
+                </th>
+                <th colSpan={3} className="p-2 border-r border-border text-center">
+                  Lighting Power Density Metrics
+                </th>
+                <th colSpan={2} className="p-2 text-center">
+                  Energy Code Compliance
+                </th>
+              </tr>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                <th className="p-2 border-r border-border text-left min-w-[140px]">Floor / Space Name</th>
+                <th className="p-2 border-r border-border text-left min-w-[120px]">Space Type Code</th>
+                <th className="p-2 border-r border-border w-24 text-center">Area ({areaUnit})</th>
+                <th className="p-2 border-r border-border w-28 text-center">Target LPD ({lpdUnit})</th>
+                <th className="p-2 border-r border-border w-28 text-center">Installed (Watts)</th>
+                <th className="p-2 border-r border-border w-28 text-center">Actual LPD ({lpdUnit})</th>
+                <th className="p-2 border-r border-border w-24 text-center">Margin ({lpdUnit})</th>
+                <th className="p-2 w-24 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {processedGroups.map((group) => {
+                const spaces = group.processedSpaces || [];
+
+                return (
+                  <React.Fragment key={group.id}>
+                    {/* Floor Header Row */}
+                    <tr className="bg-slate-100/70 dark:bg-zinc-800/60 font-bold border-t border-b border-border">
+                      <td colSpan={9} className="p-2 text-foreground font-bold">
+                        Floor Level: {group.name} ({spaces.length} space{spaces.length === 1 ? "" : "s"})
+                      </td>
+                    </tr>
+
+                    {spaces.map((s) => {
+                      return (
+                        <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">
+                            {globalSrNo++}
+                          </td>
+                          <td className="p-2 border-r border-border font-sans font-bold text-foreground">
+                            {s.name || "-"}
+                          </td>
+                          <td className="p-2 border-r border-border text-muted-foreground">
+                            {s.areaType || "-"}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono">
+                            {s.computedArea.toFixed(1)}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">
+                            {s.computedTargetLpd.toFixed(2)}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono font-semibold">
+                            {s.computedWatts.toLocaleString()} W
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono font-bold text-primary">
+                            {s.computedActualLpd.toFixed(2)}
+                          </td>
+                          <td className={`p-2 border-r border-border text-center font-mono font-semibold ${s.computedMargin >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                            {s.computedMargin >= 0 ? `+${s.computedMargin.toFixed(2)}` : s.computedMargin.toFixed(2)}
+                          </td>
+                          <td className="p-2 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${s.computedIsCompliant ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-rose-500/10 text-rose-600 dark:text-rose-400"}`}>
+                              {s.computedIsCompliant ? "PASS" : "FAIL"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {/* Floor Subtotal Row */}
+                    <tr className="bg-slate-50 dark:bg-zinc-900/60 font-semibold border-b border-border text-xs">
+                      <td className="p-2 border-r border-border text-center font-sans font-bold">Subtotal</td>
+                      <td colSpan={2} className="p-2 border-r border-border font-bold text-foreground">{group.name} Subtotal</td>
+                      <td className="p-2 border-r border-border text-center font-mono font-bold">{group.floorArea.toFixed(1)}</td>
+                      <td className="p-2 border-r border-border text-center font-mono">-</td>
+                      <td className="p-2 border-r border-border text-center font-mono font-bold">{group.floorWatts.toLocaleString()} W</td>
+                      <td className="p-2 border-r border-border text-center font-mono font-bold text-primary">{group.floorActualLpd.toFixed(2)}</td>
+                      <td className="p-2 border-r border-border text-center font-mono">-</td>
+                      <td className="p-2 text-center">-</td>
+                    </tr>
+                  </React.Fragment>
+                );
+              })}
+
+              {/* Grand Total Row */}
+              <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold border-t-2 border-border text-foreground">
+                <td className="p-2 border-r border-border text-center font-sans">TOTAL</td>
+                <td colSpan={2} className="p-2 border-r border-border font-sans font-bold">ALL FLOORS ({totalSpacesCount} Spaces)</td>
+                <td className="p-2 border-r border-border text-center font-mono font-bold">{grandArea.toFixed(1)}</td>
+                <td className="p-2 border-r border-border text-center font-mono font-bold">{overallTargetLpd.toFixed(2)}</td>
+                <td className="p-2 border-r border-border text-center font-mono font-bold text-primary">{grandWatts.toLocaleString()} W</td>
+                <td className="p-2 border-r border-border text-center font-mono font-bold text-primary text-xs">{overallActualLpd.toFixed(2)}</td>
+                <td className="p-2 border-r border-border text-center font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                  {(overallTargetLpd - overallActualLpd >= 0 ? `+${(overallTargetLpd - overallActualLpd).toFixed(2)}` : (overallTargetLpd - overallActualLpd).toFixed(2))}
+                </td>
+                <td className="p-2 text-center font-bold text-emerald-700 dark:text-emerald-300">
+                  {compliantSpacesCount === totalSpacesCount ? "PASS" : `${compliantSpacesCount}/${totalSpacesCount}`}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* 4. Executive Summary Highlights */}
+        <div className="space-y-2">
+          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+            Executive Energy Code Summary
+          </h3>
+          <div className="border border-border rounded-xl overflow-hidden text-xs">
+            <table className="w-full text-left border-collapse font-sans">
+              <thead>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <th className="p-2 w-12 text-center border-r border-border">Sr.</th>
+                  <th className="p-2 text-left border-r border-border min-w-[200px]">Energy Metric Parameter</th>
+                  <th className="p-2 text-left border-r border-border w-40">Code Basis</th>
+                  <th className="p-2 text-center border-r border-border w-44">Calculated Value</th>
+                  <th className="p-2 text-center border-r border-border w-20">Unit</th>
+                  <th className="p-2 text-left min-w-[200px]">Compliance Evaluation</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y border-border">
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 text-center font-mono text-muted-foreground border-r border-border">1</td>
+                  <td className="p-2 font-medium border-r border-border">Total Illuminated Floor Area</td>
+                  <td className="p-2 text-muted-foreground border-r border-border">Gross Building Area</td>
+                  <td className="p-2 text-center font-mono font-bold border-r border-border">{grandArea.toFixed(1)}</td>
+                  <td className="p-2 text-center text-muted-foreground border-r border-border">{areaUnit}</td>
+                  <td className="p-2 text-muted-foreground text-[11px]">Sum of all scheduled functional rooms and areas</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 text-center font-mono text-muted-foreground border-r border-border">2</td>
+                  <td className="p-2 font-bold text-foreground border-r border-border">TOTAL CONNECTED LIGHTING POWER</td>
+                  <td className="p-2 text-muted-foreground border-r border-border">Sum(Qty × Wattage)</td>
+                  <td className="p-2 text-center font-mono text-primary text-xs font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
+                    {(grandWatts / 1000).toFixed(3)} kW
+                  </td>
+                  <td className="p-2 text-center font-mono border-r border-border">kW</td>
+                  <td className="p-2 text-muted-foreground text-[11px]">Equivalent to {grandWatts.toLocaleString()} Watts total load</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 text-center font-mono text-muted-foreground border-r border-border">3</td>
+                  <td className="p-2 font-bold text-foreground border-r border-border">ACTUAL WEIGHTED AVERAGE LPD</td>
+                  <td className="p-2 text-muted-foreground border-r border-border">Total W ÷ Total Area</td>
+                  <td className="p-2 text-center font-mono text-emerald-700 dark:text-emerald-300 text-xs font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
+                    {overallActualLpd.toFixed(2)}
+                  </td>
+                  <td className="p-2 text-center font-mono border-r border-border">{lpdUnit}</td>
+                  <td className="p-2 text-muted-foreground text-[11px]">Allowable code maximum: {overallTargetLpd.toFixed(2)} {lpdUnit}</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 text-center font-mono text-muted-foreground border-r border-border">4</td>
+                  <td className="p-2 font-medium border-r border-border">Overall Energy Savings Margin</td>
+                  <td className="p-2 text-muted-foreground border-r border-border">Target vs Installed</td>
+                  <td className="p-2 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400 border-r border-border">
+                    {energySavingPct.toFixed(1)}%
+                  </td>
+                  <td className="p-2 text-center text-muted-foreground border-r border-border">%</td>
+                  <td className="p-2 text-muted-foreground text-[11px]">{energySavingPct >= 0 ? "Exceeds standard energy conservation threshold" : "Exceeds allowable energy budget"}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 5. 3-Tier Signature Sign-Off Block (Exact Preliminary Cooling Load Standard) */}
+        <div className="pt-2">
+          <div className="border border-border rounded-xl overflow-hidden text-xs">
+            <table className="w-full border-collapse">
+              <thead className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <tr className="divide-x divide-border">
+                  <th className="p-2.5 w-28 text-center bg-card"></th>
+                  <th className="p-2.5 text-center w-1/3">Originator</th>
+                  <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                  <th className="p-2.5 text-center w-1/3">Approver</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails?.originatedName || currentUserName || "-"}
+                  </td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails?.reviewerName || ""}
+                  </td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails?.approverName || ""}
+                  </td>
+                </tr>
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails?.originatedDate || today}
+                  </td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails?.reviewerDate || ""}
+                  </td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails?.approverDate || ""}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Compact Step-by-Step Formula Breakdown & Energy Compliance Derivation Modal (Matching Fresh Air Cooling Load Standard)
+// ─────────────────────────────────────────────────────────────────────────────
+function LpdFormulaBreakdownModal({
+  onClose,
+  unitSystem,
+  project,
+  overallComplianceRate,
+}: {
+  onClose: () => void;
+  unitSystem: "si" | "ip";
+  project: LpdProject;
+  overallComplianceRate: number;
+}) {
+  const [activeTab, setActiveTab] = useState<"trace" | "formulas" | "variables">("trace");
+  const [copied, setCopied] = useState(false);
+  const ip = unitSystem === "ip";
+  const areaUnit = ip ? "sq.ft" : "m²";
+  const lpdUnit = ip ? "W/sq.ft" : "W/m²";
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  const activeGroups = project.type === "External" ? project.externalGroups : project.internalGroups;
+  const allSpaces = (activeGroups || []).flatMap((g) => g.spaces || []);
+  const sampleSpace = allSpaces[0] || {
+    name: "General Office / Space 101",
+    area: ip ? 1000 : 100,
+    actualWatts: 600,
+    actualLpd: ip ? 0.60 : 6.0,
+    targetLpd: ip ? 0.79 : 8.5,
+    marginWatts: 250,
+    isCompliant: true,
+  };
+
+  let grandArea = 0;
+  let grandWatts = 0;
+  let grandTargetWatts = 0;
+  allSpaces.forEach((s) => {
+    grandArea += s.area || 0;
+    grandWatts += s.actualWatts || 0;
+    grandTargetWatts += (s.area || 0) * (s.targetLpd || 0);
+  });
+
+  const avgActualLpd = grandArea > 0 ? grandWatts / grandArea : sampleSpace.actualLpd;
+  const avgTargetLpd = grandArea > 0 ? grandTargetWatts / grandArea : sampleSpace.targetLpd;
+  const energySavingPct = grandTargetWatts > 0 ? ((grandTargetWatts - grandWatts) / grandTargetWatts) * 100 : 20.0;
+
+  const handleCopySummary = () => {
+    const text = `=== LIGHTING POWER DENSITY (LPD) FORMULA BREAKDOWN ===
+Governing Design Standards: ASHRAE Standard 90.1 (Section 9.6), ECBC & IECC
+Unit System: ${ip ? "IP Imperial (sq.ft, W/sq.ft)" : "SI Metric (m², W/m²)"}
+Building / Area Category: ${project.type} Lighting Compliance
+
+--- 1. ACTIVE SIZING PARAMETERS ---
+• Reference Space: ${sampleSpace.name} (Area: ${sampleSpace.area} ${areaUnit})
+• Installed Lighting Power: ${sampleSpace.actualWatts} W
+• Computed LPD: ${sampleSpace.actualLpd.toFixed(2)} ${lpdUnit}
+• Baseline Maximum LPD: ${sampleSpace.targetLpd.toFixed(2)} ${lpdUnit}
+• Compliance Status: ${sampleSpace.isCompliant ? "COMPLIANT (Pass)" : "NON-COMPLIANT (Exceeds Budget)"}
+• Total Monitored Area: ${grandArea.toLocaleString()} ${areaUnit}
+• Total Installed Power: ${grandWatts.toLocaleString()} W
+• Maximum Allowable Budget: ${grandTargetWatts.toLocaleString()} W
+• Overall Compliance Rate: ${overallComplianceRate}% (Margin: ${energySavingPct.toFixed(1)}% savings)
+
+--- 2. STEP-BY-STEP CALCULATION STEPS ---
+[1] Space Connected Load:
+    P_installed = ∑ (Fixture_Qty × Rated_Watts) = ${sampleSpace.actualWatts} W
+
+[2] Actual Space LPD:
+    LPD_actual = P_installed / Floor_Area = ${sampleSpace.actualWatts} W / ${sampleSpace.area} ${areaUnit} = ${sampleSpace.actualLpd.toFixed(2)} ${lpdUnit}
+
+[3] Maximum Allowable Lighting Power Budget:
+    P_budget = Floor_Area × Baseline_LPD = ${sampleSpace.area} ${areaUnit} × ${sampleSpace.targetLpd.toFixed(2)} ${lpdUnit} = ${Math.round(sampleSpace.area * sampleSpace.targetLpd)} W
+
+[4] Compliance Energy Margin:
+    ΔP_margin = P_budget - P_installed = ${Math.round(sampleSpace.area * sampleSpace.targetLpd - sampleSpace.actualWatts)} W
+    Margin % = ((Baseline_LPD - Actual_LPD) / Baseline_LPD) × 100% = ${(((sampleSpace.targetLpd - sampleSpace.actualLpd) / (sampleSpace.targetLpd || 1)) * 100).toFixed(1)}%
+
+[5] Building-Level Whole Interior Area Compliance:
+    Overall LPD = Total_Watts / Total_Area = ${grandWatts.toLocaleString()} W / ${grandArea.toLocaleString()} ${areaUnit} = ${avgActualLpd.toFixed(2)} ${lpdUnit}
+    Total Energy Savings = ((${grandTargetWatts.toLocaleString()} W - ${grandWatts.toLocaleString()} W) / ${grandTargetWatts.toLocaleString()}) × 100% = ${energySavingPct.toFixed(1)}%
+`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    toast.success("LPD calculation breakdown copied to clipboard!");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-150 font-sans"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-card border border-border rounded-2xl shadow-2xl max-w-xl w-full max-h-[86vh] flex flex-col overflow-hidden text-xs animate-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header matching Fresh Air Cooling Load Standard */}
+        <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-muted/30 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 pr-2">
+            <div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+              <Calculator className="size-3.5" />
+            </div>
+            <div className="truncate">
+              <h2 className="text-[13px] font-bold text-foreground truncate">
+                Lighting Power Density (LPD) Formula Breakdown
+              </h2>
+            </div>
+            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[10px] font-mono font-semibold shrink-0">
+              ASHRAE 90.1 / ECBC
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border text-[10px] font-mono font-medium shrink-0">
+              {ip ? "IP" : "SI"}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="size-7 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title="Close modal (Esc)"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+
+        {/* Navigation Tabs Bar */}
+        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border bg-muted/10 shrink-0 select-none">
+          <button
+            type="button"
+            onClick={() => setActiveTab("trace")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "trace"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <Activity className="size-3" />
+            <span>Calculation Steps</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("formulas")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "formulas"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <BookOpen className="size-3" />
+            <span>Master Formulas</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("variables")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "variables"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <Layers className="size-3" />
+            <span>Variables Reference</span>
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-4 overflow-y-auto space-y-3 flex-1 custom-scrollbar">
+          {/* TAB 1: CALCULATION STEPS */}
+          {activeTab === "trace" && (
+            <div className="space-y-2.5">
+              {/* Active Space Conditions Banner */}
+              <div className="p-2.5 bg-muted/40 rounded-xl border border-border">
+                <div className="flex items-center justify-between text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider pb-1.5 mb-1.5 border-b border-border/60">
+                  <span className="flex items-center gap-1 text-foreground">
+                    <Sliders className="size-3 text-primary" /> Active Space ({sampleSpace.name})
+                  </span>
+                  <span className={`font-mono font-bold text-[10.5px] px-2 py-0.2 rounded ${
+                    sampleSpace.isCompliant
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      : "bg-red-500/10 text-red-600 dark:text-red-400"
+                  }`}>
+                    {sampleSpace.isCompliant ? "COMPLIANT" : "NON-COMPLIANT"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="bg-background rounded p-1.5 border border-border/60">
+                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Space Area</span>
+                    <span className="font-mono font-bold text-foreground">{sampleSpace.area} {areaUnit}</span>
+                  </div>
+                  <div className="bg-background rounded p-1.5 border border-border/60">
+                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Installed Power</span>
+                    <span className="font-mono font-bold text-foreground">{sampleSpace.actualWatts} W</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 1: ACTUAL SPACE LPD */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-primary/10 text-primary text-[10px] font-mono font-bold flex items-center justify-center">1</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Actual Installed LPD</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                    {sampleSpace.actualLpd.toFixed(2)} {lpdUnit}
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: LPD_actual = Installed_Watts / Floor_Area</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{sampleSpace.actualWatts} W ÷ {sampleSpace.area} {areaUnit}</span>
+                    <span className="text-primary font-bold">= {sampleSpace.actualLpd.toFixed(2)} {lpdUnit}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 2: CODE BASELINE MAXIMUM */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-mono font-bold flex items-center justify-center">2</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Allowable Baseline LPD Budget</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
+                    {sampleSpace.targetLpd.toFixed(2)} {lpdUnit}
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: P_allowable = Floor_Area × Baseline_LPD</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{sampleSpace.area} {areaUnit} × {sampleSpace.targetLpd.toFixed(2)} {lpdUnit}</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-bold">= {Math.round(sampleSpace.area * sampleSpace.targetLpd)} W</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 3: COMPLIANCE SAVINGS MARGIN */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-bold flex items-center justify-center">3</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Energy Savings Margin</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                    {Math.round(sampleSpace.area * sampleSpace.targetLpd - sampleSpace.actualWatts)} W Margin
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Criterion: LPD_actual ≤ Baseline_LPD</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{sampleSpace.actualLpd.toFixed(2)} vs {sampleSpace.targetLpd.toFixed(2)} {lpdUnit}</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                      {sampleSpace.isCompliant ? "Pass (Complies with Code)" : "Fail (Exceeds Maximum)"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 4: BUILDING WHOLE-AREA TOTALS */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-bold flex items-center justify-center">4</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Total Portfolio Compliance ({project.type})</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
+                    {overallComplianceRate}% Pass Rate
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Total Connected Load vs Total Code Budget:</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{grandWatts.toLocaleString()} W / {grandArea.toLocaleString()} {areaUnit}</span>
+                    <span className="text-amber-600 dark:text-amber-400 font-bold">Avg LPD: {avgActualLpd.toFixed(2)} {lpdUnit}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: MASTER FORMULAS */}
+          {activeTab === "formulas" && (
+            <div className="space-y-3">
+              <div className="p-3 bg-card border border-border rounded-xl space-y-2">
+                <div className="font-bold text-foreground text-[12px] flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-primary" /> 1. Space-by-Space Lighting Power Density
+                </div>
+                <div className="bg-muted/50 p-2.5 rounded-lg font-mono text-[11px] space-y-1 border border-border/60">
+                  <div className="text-primary font-bold">LPD_space = ∑ P_fixtures / Floor_Area</div>
+                  <div className="text-foreground">P_allowable = Floor_Area × LPD_baseline</div>
+                  <div className="text-emerald-700 dark:text-emerald-400">Compliance: LPD_space ≤ LPD_baseline</div>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Evaluates each architectural space category individually using Table 9.6.1 (ASHRAE 90.1) or ECBC space classifications. Luminaire input watts must include ballast/driver losses.
+                </p>
+              </div>
+
+              <div className="p-3 bg-card border border-border rounded-xl space-y-2">
+                <div className="font-bold text-foreground text-[12px] flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-blue-500" /> 2. Building Area Method (Interior Trade-Off)
+                </div>
+                <div className="bg-muted/50 p-2.5 rounded-lg font-mono text-[11px] space-y-1 border border-border/60">
+                  <div className="text-blue-600 dark:text-blue-400 font-bold">P_interior_budget = ∑ (Area_i × LPD_baseline_i)</div>
+                  <div className="text-foreground">Total_Installed = ∑ P_installed_i</div>
+                  <div className="text-primary font-bold">Energy Savings % = ((P_budget - Total_Installed) / P_budget) × 100%</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: VARIABLES REFERENCE */}
+          {activeTab === "variables" && (
+            <div className="space-y-2">
+              <div className="border border-border rounded-xl overflow-hidden text-xs">
+                <table className="w-full border-collapse">
+                  <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <tr className="divide-x divide-border">
+                      <th className="p-2 text-left w-24">Symbol</th>
+                      <th className="p-2 text-left">Description</th>
+                      <th className="p-2 text-left w-24">Code Basis</th>
+                      <th className="p-2 text-left w-20">Unit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">Floor_Area</td>
+                      <td className="p-2 text-muted-foreground">Gross conditioned interior or exterior lighted area</td>
+                      <td className="p-2 font-mono text-[11px]">Architectural</td>
+                      <td className="p-2 font-mono text-[11px]">{areaUnit}</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">P_installed</td>
+                      <td className="p-2 text-muted-foreground">Total connected lighting input wattage (lamps + ballasts)</td>
+                      <td className="p-2 font-mono text-[11px]">IES / Manufacturer</td>
+                      <td className="p-2 font-mono text-[11px]">Watts (W)</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">LPD_actual</td>
+                      <td className="p-2 text-muted-foreground">Computed lighting power density of installed luminaires</td>
+                      <td className="p-2 font-mono text-[11px]">Calculated</td>
+                      <td className="p-2 font-mono text-[11px]">{lpdUnit}</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">LPD_baseline</td>
+                      <td className="p-2 text-muted-foreground">Maximum allowable lighting power density limit by space type</td>
+                      <td className="p-2 font-mono text-[11px]">ASHRAE 90.1 / ECBC</td>
+                      <td className="p-2 font-mono text-[11px]">{lpdUnit}</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">Margin %</td>
+                      <td className="p-2 text-muted-foreground">Energy conservation savings percentage below baseline</td>
+                      <td className="p-2 font-mono text-[11px]">LEED / IGBC</td>
+                      <td className="p-2 font-mono text-[11px]">%</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer matching Fresh Air Cooling Load Standard */}
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted/20 shrink-0">
+          <button
+            type="button"
+            onClick={handleCopySummary}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground border border-border transition-colors cursor-pointer"
+          >
+            <Copy className="size-3.5" />
+            {copied ? "Copied!" : "Copy Breakdown"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer shadow-xs"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>

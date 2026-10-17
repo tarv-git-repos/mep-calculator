@@ -79,13 +79,14 @@ export function Toolbar({
       )}
 
       {/* Level Selection Dropdown */}
-      {(isClipActive || viewMode === '2d') && (
+      {levels && levels.length > 0 && (
         <select
           value={selectedLevel}
           onChange={(e) => onLevelChange(e.target.value)}
           className="px-[12px] h-[34px] rounded-[4px] text-[12px] font-bold transition-all bg-[#333] text-white border border-[#555] outline-none shrink-0"
+          title="Select active floor / level"
         >
-          <option value="">All Levels (No Cut)</option>
+          <option value="">{viewMode === '2d' ? 'Select Level...' : 'All Levels (No Cut)'}</option>
           {levels.map((s) => (
             <option key={s.expressId} value={s.expressId.toString()}>
               {s.name} ({(s.elevation / 1000).toFixed(2)}m)

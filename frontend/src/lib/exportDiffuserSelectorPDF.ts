@@ -1,4 +1,4 @@
-import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
@@ -17,6 +17,8 @@ export interface DiffuserProjectMetaData {
   userName?: string;
   reviewState?: any;
   unitSystem?: "si" | "ip";
+  includeStamp?: boolean;
+  returnBuffer?: boolean;
 }
 
 export const exportDiffuserSelectorPDF = async (
@@ -59,7 +61,8 @@ export const exportDiffuserSelectorPDF = async (
     };
 
     const calcNo = meta.calcNo || activeProj?.calcNo || "CALC-HVAC-DIF01";
-    const today = meta.date || new Date().toLocaleDateString("en-GB");
+    const revNo = meta.revNo || activeProj?.revNo || "0";
+    const today = meta.date || formatDateStr(new Date().toISOString());
     const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || "MEP-DIF-2026";
     const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "Air Terminal & Diffuser Selection Study";
     const clientName = meta.client || activeProj?.client || "Prestige Group developers";
@@ -68,56 +71,16 @@ export const exportDiffuserSelectorPDF = async (
     const flowUnit = isIP ? "CFM" : "L/s";
     const velUnit = isIP ? "FPM" : "m/s";
 
-    // 1. Header Title (Matching Preliminary format without "Report")
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Diffuser Selector Calculation", 14, 14);
-
-    // 2. Metadata Block (Exact 2-column x 3-row grid box across 269mm width)
-    doc.setFontSize(9);
-    doc.setLineWidth(0.3);
-    const boxWidth = 269; // 297mm - 28mm margin
-    doc.rect(14, 18, boxWidth, 18);
-
-    // Vertical line in middle
-    const midX = 14 + (boxWidth / 2);
-    doc.line(midX, 18, midX, 36);
-
-    // Horizontal lines
-    doc.line(14, 24, 14 + boxWidth, 24);
-    doc.line(14, 30, 14 + boxWidth, 30);
-
-    // Column 1
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 48, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 48, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName, 48, 34);
-
-    // Column 2
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", midX + 3, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, midX + 30, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", midX + 3, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, midX + 30, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", midX + 3, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, midX + 30, 34);
+    // 1. Standard Header & Metadata Block (automatically handles landscape 269mm width)
+    const startY = addPdfHeader(doc, "Diffuser Selector Calculation", {
+      calcNo,
+      revNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser,
+    });
 
     // 3. Group spaces by floor
     const sortedRows = [...rows].sort((a, b) => {
@@ -225,7 +188,7 @@ export const exportDiffuserSelectorPDF = async (
     const primaryFill = [229, 231, 235] as [number, number, number]; // Clean gray matching #E5E7EB
 
     callAutoTable(doc, {
-      startY: 42,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
@@ -302,71 +265,57 @@ export const exportDiffuserSelectorPDF = async (
       }
     });
 
-    const finalY = (doc as any).lastAutoTable?.finalY ?? 140;
+    let currentY = (doc as any).lastAutoTable?.finalY ?? 140;
 
-    const {
-      originatedName,
-      originatedDate,
-      reviewerName,
-      reviewerDate,
-      approverName,
-      approverDate
-    } = getSignatureBlockDetails(activeProj?.id || "default", "/diffuser-selector", meta.userName || "");
+    // Check page break for signature block in landscape A4 (needs ~35mm)
+    if (currentY + 35 > 195) {
+      doc.addPage("a4", "landscape");
+      currentY = 14;
+    }
 
-    // 4. 3-Tier Signature Sign-Off Block (Exact warm peach header #FFE6CC)
-    callAutoTable(doc, {
-      startY: finalY + 8,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      styles: {
-        fontSize: 8,
-        halign: "center",
-        valign: "middle",
-        lineColor: [180, 180, 180],
-        lineWidth: 0.1,
-        cellPadding: { top: 2, bottom: 2, left: 1, right: 1 }
-      },
-      headStyles: { fillColor: [255, 230, 204], textColor: 0, fontStyle: "bold" },
-      head: [
-        [
-          { content: "" },
-          { content: "Originator" },
-          { content: "Reviewer" },
-          { content: "Approver" }
-        ]
-      ],
-      body: [
-        [
-          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedName, styles: { halign: "center" } },
-          { content: reviewerName, styles: { halign: "center" } },
-          { content: approverName, styles: { halign: "center" } }
-        ],
-        [
-          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedDate, styles: { halign: "center" } },
-          { content: reviewerDate, styles: { halign: "center" } },
-          { content: approverDate, styles: { halign: "center" } }
-        ]
-      ],
-      columnStyles: {
-        0: { cellWidth: 35 },
-        1: { cellWidth: 78 },
-        2: { cellWidth: 78 },
-        3: { cellWidth: 78 }
-      }
-    });
+    // 4. Professional Engineering Review & Sign-Off Block & Branding
+    if (meta.includeStamp !== false) {
+      const sigDetails = getSignatureBlockDetails(
+        activeProj?.id || "default",
+        "/diffuser-selector",
+        meta.userName || currentUserName,
+        meta.reviewState
+      );
+      addPdfSignatureBlock(
+        doc,
+        currentY,
+        sigDetails,
+        activeProj?.id || "default",
+        "/diffuser-selector",
+        { left: 14, right: 14 } // Landscape margins
+      );
+    }
+
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
 
     const pdfBuffer = doc.output("arraybuffer");
+    if (meta.returnBuffer) {
+      return new Uint8Array(pdfBuffer);
+    }
+
     await downloadFile(
       new Uint8Array(pdfBuffer),
-      `Diffuser_Selector_Calculation_${activeProj?.code || "P000"}.pdf`,
+      `Diffuser_Selector_Calculation_${projectNo}.pdf`,
       "PDF Document",
       ["pdf"]
     );
     toast.success("Diffuser Selector PDF exported successfully!");
+    return true;
   } catch (error: any) {
     console.error("exportDiffuserSelectorPDF error:", error);
-    toast.error(`Export PDF failed: ${error?.message || String(error)}`);
+    if (!meta.returnBuffer) {
+      toast.error(`Export PDF failed: ${error?.message || String(error)}`);
+    }
+    return false;
   }
 };

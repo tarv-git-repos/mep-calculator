@@ -64,10 +64,15 @@ export function calculateBusbarPanels(panels: LVPanel[], allBusbarData: Record<s
   return panels.map(panel => {
     const calcSections = panel.sections.map(section => {
       let totalLoad = 0;
-      section.rows.forEach(r => totalLoad += (Number(r.loadKw) || 0));
+      let totalLength = 0;
+      section.rows.forEach(r => {
+        totalLoad += (Number(r.loadKw) || 0);
+        totalLength += (Number(r.length) || 0);
+      });
 
       let currentRemainingTCL = totalLoad;
       let cumulativeVdPercent = 0;
+      let maxDesignCurrent = 0;
 
       const useMd = section.useMdForCurrent !== false;
 
@@ -85,6 +90,10 @@ export function calculateBusbarPanels(panels: LVPanel[], allBusbarData: Record<s
           } else {
             current = (loadForCurrent * 1000) / (volts * pf);
           }
+        }
+
+        if (current > maxDesignCurrent) {
+          maxDesignCurrent = current;
         }
 
         const rData = allBusbarData[section.ratingId] || { r: 0, x: 0 };
@@ -107,14 +116,19 @@ export function calculateBusbarPanels(panels: LVPanel[], allBusbarData: Record<s
 
         return {
           ...r,
+          description: r.desc,
           tcl,
           md,
           current,
+          designCurrent: current,
           r: rData.r,
           x: rData.x,
           vd,
+          cumulativeVd: vd,
           vdPercent,
-          cumulativeVdPercent
+          cumulativeVdPercent,
+          cumulativeVdPct: cumulativeVdPercent,
+          isCompliant: cumulativeVdPercent <= 3.0,
         };
       });
 
@@ -123,7 +137,11 @@ export function calculateBusbarPanels(panels: LVPanel[], allBusbarData: Record<s
       return {
         ...section,
         calcRows,
-        totalCumulativeVd
+        totalCumulativeVd,
+        busbarLength: totalLength,
+        totalConnectedLoad: totalLoad,
+        totalDesignCurrent: maxDesignCurrent,
+        maxVdPct: totalCumulativeVd,
       };
     });
 

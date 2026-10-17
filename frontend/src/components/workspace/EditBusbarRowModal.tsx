@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { X, Info, CheckCircle, AlertTriangle, Zap, Calculator, Sliders, Layers, Flag } from "lucide-react";
+import { PanelSelect } from "./PanelSelect";
 
 export interface LoadItem {
   desc: string;
@@ -27,6 +28,7 @@ export interface EditBusbarRowModalProps {
   rowIndex?: number;
   sectionName?: string;
   panelName?: string;
+  availablePanels?: string[];
   ratingOptions?: Array<{ id: string; label: string; r: number; x: number }>;
   unitSystem?: "si" | "ip";
   useMdForCurrent?: boolean;
@@ -41,6 +43,7 @@ export function EditBusbarRowModal({
   rowIndex = 1,
   sectionName = "BB-1",
   panelName = "LV PANEL-1",
+  availablePanels = [],
   ratingOptions = [],
   unitSystem = "si",
   useMdForCurrent = true,
@@ -48,6 +51,7 @@ export function EditBusbarRowModal({
   onClose,
   onSave,
 }: EditBusbarRowModalProps) {
+  const [selectedPanel, setSelectedPanel] = useState<string>(panelName || "LV PANEL-1");
   const [desc, setDesc] = useState(row.desc || "");
   const [length, setLength] = useState<number | "">(row.length ?? "");
   const [loadKw, setLoadKw] = useState<number | "">(row.loadKw ?? "");
@@ -60,6 +64,13 @@ export function EditBusbarRowModal({
   
   // Show preview panel by default so user sees TCL & MD calculation live
   const [showPreview, setShowPreview] = useState(true);
+
+  React.useEffect(() => {
+    document.body.classList.add("modal-open-blur");
+    return () => {
+      document.body.classList.remove("modal-open-blur");
+    };
+  }, []);
 
   // Active busbar rating parameters
   const currentRatingData = useMemo(() => {
@@ -166,6 +177,7 @@ export function EditBusbarRowModal({
   const handleSave = () => {
     onSave({
       id: row.id,
+      panelName: selectedPanel,
       desc,
       length,
       loadKw,
@@ -183,34 +195,29 @@ export function EditBusbarRowModal({
   const selectClass = "w-full h-10 px-3 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 focus:border-primary focus:ring-2 focus:ring-primary/10 focus:bg-white/80 dark:focus:bg-white/10 rounded-xl text-[12.5px] outline-none transition-all duration-150 shadow-[inset_0_1px_2px_rgba(0,0,0,0.01),0_1px_2px_rgba(0,0,0,0.02)] text-neutral-800 dark:text-neutral-100 cursor-pointer";
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 dark:bg-black/60 p-4 animate-fade-in">
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/20 dark:bg-black/50 p-4 animate-fade-in font-sans">
       <div 
         onClick={(e) => e.stopPropagation()} 
-        className={`bg-white/80 dark:bg-neutral-950/80 backdrop-blur-2xl border border-white/60 dark:border-white/10 rounded-[24px] shadow-[0_30px_70px_rgba(0,0,0,0.15),0_0_0_1px_rgba(0,0,0,0.03)] dark:shadow-[0_30px_70px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.05)] flex flex-col w-full max-h-[90vh] overflow-hidden transition-all duration-300 ease-in-out ${
-          showPreview ? "max-w-4xl" : "max-w-2xl"
+        className={`bg-white/80 dark:bg-neutral-950/80 backdrop-blur-2xl border border-white/50 dark:border-white/10 rounded-2xl shadow-2xl flex flex-col w-full max-h-[88vh] overflow-hidden transition-[max-width] duration-300 ease-in-out ${
+          showPreview ? "max-w-4xl" : "max-w-xl"
         }`}
       >
         {/* Header */}
-        <header className="px-6 h-[72px] flex items-center justify-between border-b border-black/5 dark:border-white/5 shrink-0 bg-white/20 dark:bg-black/20">
-          <div className="flex flex-col justify-center min-w-0 pr-4">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <h2 className="text-[15px] font-bold text-neutral-800 dark:text-neutral-100 truncate">
-                Edit Busbar Tap Off Parameters
-              </h2>
-              <span className="px-2.5 py-0.75 rounded-md bg-primary/10 border border-primary/20 text-primary text-[11px] font-bold font-mono tracking-tight truncate shrink-0">
-                Row #{rowIndex}: {desc || "Tap Off"} ({panelName} : {sectionName})
-              </span>
-            </div>
-            <p className="text-[11.5px] text-neutral-500 dark:text-neutral-400 font-normal mt-0.5 truncate">
-              Configure load, length, diversity factor, and view live TCL, MD & Voltage Drop calculations.
-            </p>
+        <header className="px-5 h-14 flex items-center justify-between border-b border-black/5 dark:border-white/5 shrink-0 bg-white/20 dark:bg-black/20">
+          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+            <h2 className="text-[14.5px] font-bold text-neutral-800 dark:text-neutral-100 truncate">
+              Edit Busbar Tap Off Parameters
+            </h2>
+            <span className="px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 text-neutral-800 dark:text-neutral-200 text-[10.5px] font-bold font-mono tracking-tight shrink-0">
+              Row #{rowIndex}: {desc || "Tap Off"} ({panelName} : {sectionName})
+            </span>
           </div>
           
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => setFlagged(prev => !prev)}
-              className={`flex items-center gap-1.5 h-9.5 px-3.5 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer shadow-xs ${
+              className={`flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold border transition-all cursor-pointer shadow-xs ${
                 flagged
                   ? "bg-red-500/10 text-red-600 border-red-500/30 hover:bg-red-500/20"
                   : "bg-white/50 dark:bg-white/5 border-black/10 dark:border-white/10 text-neutral-700 dark:text-neutral-300 hover:bg-white/80 dark:hover:bg-white/10"
@@ -222,9 +229,9 @@ export function EditBusbarRowModal({
             </button>
             <button
               onClick={() => setShowPreview((prev) => !prev)}
-              className={`flex items-center gap-1.5 h-9.5 px-4 rounded-xl text-[12px] font-semibold border transition-all cursor-pointer shadow-xs ${
+              className={`flex items-center gap-1.5 h-8 px-3 rounded-lg text-[11.5px] font-semibold border transition-all cursor-pointer shadow-xs ${
                 showPreview
-                  ? "bg-primary text-primary-foreground border-primary hover:bg-primary/95 shadow-md shadow-primary/15"
+                  ? "bg-primary text-primary-foreground border-primary hover:bg-primary/95"
                   : "bg-white/50 dark:bg-white/5 border-black/10 dark:border-white/10 text-neutral-700 dark:text-neutral-300 hover:bg-white/80 dark:hover:bg-white/10"
               }`}
             >
@@ -233,7 +240,7 @@ export function EditBusbarRowModal({
             </button>
             <button
               onClick={onClose}
-              className="size-9 grid place-items-center rounded-xl hover:bg-black/5 dark:hover:bg-white/5 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+              className="size-8 grid place-items-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors cursor-pointer"
             >
               <X className="size-4" />
             </button>
@@ -243,21 +250,32 @@ export function EditBusbarRowModal({
         {/* Modal Body */}
         <div className="flex-1 min-h-0 flex overflow-hidden">
           {/* Form Side */}
-          <div className="flex-1 min-w-0 p-6 space-y-5 overflow-y-auto custom-scrollbar">
+          <div className="flex-1 min-w-0 p-5 space-y-4 overflow-y-auto custom-scrollbar">
             {/* General Parameters */}
             <div className="space-y-3">
               <h3 className="text-[11px] uppercase font-bold text-primary tracking-widest border-b border-black/5 dark:border-white/5 pb-1.5 flex items-center gap-1.5">
                 <Sliders className="size-3.5" /> General Parameters
               </h3>
-              <div>
-                <label className={labelClass}>Connection / Tap Off Description</label>
-                <input
-                  type="text"
-                  value={desc}
-                  onChange={(e) => setDesc(e.target.value)}
-                  placeholder="e.g. SMDB-L7-1"
-                  className={inputClass}
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Assigned LV Panel</label>
+                  <PanelSelect
+                    value={selectedPanel}
+                    onChange={setSelectedPanel}
+                    availablePanels={availablePanels}
+                    triggerClassName="h-10 bg-white/40 dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-xl text-[12.5px]"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Connection / Tap Off Description</label>
+                  <input
+                    type="text"
+                    value={desc}
+                    onChange={(e) => setDesc(e.target.value)}
+                    placeholder="e.g. SMDB-L7-1"
+                    className={inputClass}
+                  />
+                </div>
               </div>
             </div>
 
@@ -414,7 +432,7 @@ export function EditBusbarRowModal({
 
           {/* Live Calculation Preview Panel (Right Side) */}
           {showPreview && (
-            <div className="w-[380px] border-l border-black/5 dark:border-white/5 bg-black/[0.02] dark:bg-white/[0.02] p-6 overflow-y-auto space-y-4 animate-in fade-in slide-in-from-right-4 duration-200 custom-scrollbar">
+            <div className="w-[360px] border-l border-black/5 dark:border-white/5 bg-black/[0.015] dark:bg-white/[0.015] p-5 space-y-4 overflow-y-auto custom-scrollbar shrink-0 animate-fade-in">
               <div className="flex items-center justify-between border-b border-black/5 dark:border-white/5 pb-2.5">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-2">
                   <Calculator className="size-4" /> Live Formula Breakdown
@@ -535,16 +553,16 @@ export function EditBusbarRowModal({
         </div>
 
         {/* Footer Actions */}
-        <footer className="px-6 h-16 flex items-center justify-between border-t border-black/5 dark:border-white/5 shrink-0 bg-white/20 dark:bg-black/20">
+        <footer className="px-5 h-14 flex items-center justify-between border-t border-black/5 dark:border-white/5 shrink-0 bg-white/20 dark:bg-black/20">
           <button
             onClick={onClose}
-            className="px-5 h-9.5 rounded-xl text-xs font-semibold border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
+            className="px-4 h-9 rounded-lg text-xs font-semibold border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            className="px-6 h-9.5 rounded-xl text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/95 transition-all shadow-md shadow-primary/20 cursor-pointer"
+            className="px-4.5 h-9 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/95 transition-all shadow-md shadow-primary/20 cursor-pointer"
           >
             Save Changes
           </button>

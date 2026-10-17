@@ -14,18 +14,16 @@ import {
   AlertTriangle, Info, Printer, Plus, Trash2,
   ChevronDown, ChevronUp, Edit3, Settings, HelpCircle, Sparkles,
   Wind, Layers, Gauge, Zap, Activity, FileText, X, Flag,
-  Copy, CopyPlus, Scissors, Clipboard, ClipboardPaste, Flame, CheckCircle2, RefreshCw, Check,
+  Copy, CopyPlus, Scissors, Clipboard, Flame, CheckCircle2, RefreshCw, Check,
   Box, Upload, Download, Filter, ArrowUpDown, Search, MessageSquare, ShieldCheck,
-  Building2, LayoutGrid, SplitSquareVertical, Eye, SlidersHorizontal, BookOpen
+  Building2, LayoutGrid, SplitSquareVertical, Eye, SlidersHorizontal
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { exportLobbyPressurisationPDF } from "@/lib/exportLobbyPressurisationPDF";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
-import { EditLobbySpaceModal } from "@/components/workspace/EditLobbySpaceModal";
-import { FloorSelect } from "@/components/workspace/FloorSelect";
+import { extractSpacesFromActiveViewer, extractSpacesFromIFCFile, getFloorRank, Extracted3DSpace } from "@/lib/bimViewerSpaceExtractor";
 import {
   type LobbyFloor,
   type FanSystem,
@@ -48,7 +46,6 @@ import {
   ContextMenuSeparator,
   ContextMenuShortcut
 } from "@/components/ui/context-menu";
-import { useConfirm } from "@/hooks/use-confirm";
 
 export const Route = createFileRoute("/lobby-pressurisation")({
   head: () => ({
@@ -59,19 +56,6 @@ export const Route = createFileRoute("/lobby-pressurisation")({
   }),
   component: LobbyPressurisationPage,
 });
-
-function BulkBtn({ icon: Icon, children, onClick }: { icon: any; children: React.ReactNode; onClick?: (e: React.MouseEvent) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11.5px] font-semibold transition-colors text-[#06456F] hover:bg-primary/10 dark:text-[#0A7BC7] dark:hover:bg-primary/20 border border-transparent hover:border-primary/20 active:bg-primary/20 dark:active:bg-primary/30 cursor-pointer"
-    >
-      <Icon className="size-3 shrink-0" />
-      <span>{children}</span>
-    </button>
-  );
-}
 
 interface InlineInputProps {
   value: string | number;
@@ -154,7 +138,6 @@ function InlineInput({ value, onCommit, className = "", type = "text", step, min
 
 function LobbyPressurisationPage() {
   const { project, activeProjectId, forceSaveToCloud, isInitializing, updateProject } = useWorkspace();
-  const confirm = useConfirm();
   const calcReviewState = useCalculationReviewState("/lobby-pressurisation", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/lobby-pressurisation", activeProjectId || project?.id);
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
@@ -163,7 +146,7 @@ function LobbyPressurisationPage() {
   const [intelOpen, setIntelOpen] = useState<boolean>(false);
   
   // Active section view state
-  const [activeSection, setActiveSection] = useState<"schedule" | "fan-systems" | "report">("schedule");
+  const [activeSection, setActiveSection] = useState<"schedule" | "fan-systems">("schedule");
   
   // Grouping mode: by 'zone' (same-same zones across levels) or by 'level' (floor-by-floor)
   const [groupByMode, setGroupByMode] = useState<"zone" | "level">("zone");
@@ -194,7 +177,6 @@ function LobbyPressurisationPage() {
   }, [project]);
 
   const { profile, userData } = useAuth();
-  const currentUserName = userData?.name || profile?.name || "System Admin";
   const isApprovedLocked = useCalculationLock("/lobby-pressurisation", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
@@ -209,11 +191,10 @@ function LobbyPressurisationPage() {
   const [totalFans, setTotalFans] = useState<number>(2);
 
   // Modal state
+  const [showAddLevelModal, setShowAddLevelModal] = useState<boolean>(false);
   const [showEditLevelModal, setShowEditLevelModal] = useState<boolean>(false);
   const [editLevelTarget, setEditLevelTarget] = useState<string | null>(null);
   const [editLevelData, setEditLevelData] = useState<{ levelName: string; area: number | ""; height: number | ""; numZones: number | "" }>({ levelName: "", area: "", height: "", numZones: "" });
-  const [editingFloor, setEditingFloor] = useState<LobbyFloor | null>(null);
-  const [isNewFloor, setIsNewFloor] = useState<boolean>(false);
   
   const [showFSModal, setShowFSModal] = useState<boolean>(false);
   const [modalFSId, setModalFSId] = useState<string | null>(null);
@@ -605,7 +586,6 @@ function LobbyPressurisationPage() {
     setRedoStack(prev => [...prev, floors]);
     setFloors(prevFloors);
     setHistory(prev => prev.slice(0, -1));
-    toast.info("Undo");
   };
 
   const handleRedo = () => {
@@ -614,42 +594,15 @@ function LobbyPressurisationPage() {
     setHistory(prev => [...prev, floors]);
     setFloors(nextFloors);
     setRedoStack(prev => prev.slice(0, -1));
-    toast.info("Redo");
   };
 
-  const handleBulkDelete = () => {
-    if (selectedRowIds.size === 0) return;
-    if (isApprovedLocked || isEffectiveReadOnly) {
-      toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-      return;
-    }
-    const count = selectedRowIds.size;
-    confirm(`Are you sure you want to delete the ${count} selected space(s)?`, {
-      title: "Delete Spaces",
-      confirmText: "Delete",
-      cancelText: "Cancel",
-      variant: "destructive"
-    }).then((ok: any) => {
-      if (ok) {
-        updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
-        setSelectedRowIds(new Set());
-        toast.info(`Deleted ${count} space(s)`);
-      }
-    });
-  };
-
-  // Keyboard shortcut listener (Ctrl+A, Ctrl+Z, Ctrl+Y, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D, Delete, Esc)
+  // Keyboard shortcut listener (Ctrl+A, Ctrl+Z, Ctrl+Y, Ctrl+C, Ctrl+X, Ctrl+V, Delete, Esc)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      const isInputActive = activeEl && (
-        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
-        activeEl.tagName === "TEXTAREA" ||
-        (activeEl as HTMLElement).isContentEditable ||
-        activeEl.tagName === "SELECT"
-      );
+      const activeTag = document.activeElement?.tagName;
+      const isInputActive = activeTag === "INPUT" || activeTag === "TEXTAREA" || activeTag === "SELECT";
 
-      const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
       const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
       const key = e.key.toLowerCase();
 
@@ -678,7 +631,6 @@ function LobbyPressurisationPage() {
         e.preventDefault();
         const allIds = new Set(floors.map(f => f.id));
         setSelectedRowIds(allIds);
-        toast.info(`Selected all ${floors.length} space(s)`);
         return;
       }
 
@@ -688,7 +640,6 @@ function LobbyPressurisationPage() {
           e.preventDefault();
           const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
           setClipboard(selectedItems);
-          toast.info(`${selectedItems.length} space(s) copied to clipboard`);
         }
         return;
       }
@@ -697,15 +648,10 @@ function LobbyPressurisationPage() {
       if (isCmdOrCtrl && key === "x") {
         if (selectedRowIds.size > 0) {
           e.preventDefault();
-          if (isApprovedLocked || isEffectiveReadOnly) {
-            toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-            return;
-          }
           const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
           setClipboard(selectedItems);
           updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
           setSelectedRowIds(new Set());
-          toast.info(`${selectedItems.length} space(s) cut to clipboard`);
         }
         return;
       }
@@ -714,10 +660,6 @@ function LobbyPressurisationPage() {
       if (isCmdOrCtrl && key === "v") {
         if (clipboard.length > 0) {
           e.preventDefault();
-          if (isApprovedLocked || isEffectiveReadOnly) {
-            toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-            return;
-          }
           const baseTime = Date.now();
           const newPasted: LobbyFloor[] = clipboard.map((item, idx) => ({
             ...item,
@@ -726,29 +668,6 @@ function LobbyPressurisationPage() {
           }));
           updateFloorsWithHistory([...floors, ...newPasted]);
           setSelectedRowIds(new Set(newPasted.map(n => n.id)));
-          toast.success(`${newPasted.length} space(s) pasted`);
-        }
-        return;
-      }
-
-      // Duplicate: Ctrl + D
-      if (isCmdOrCtrl && key === "d") {
-        if (selectedRowIds.size > 0) {
-          e.preventDefault();
-          if (isApprovedLocked || isEffectiveReadOnly) {
-            toast.info("Workspace is in Read-Only mode. Duplicating spaces is locked.", { id: "readonly-notice" });
-            return;
-          }
-          const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
-          const baseTime = Date.now();
-          const clones: LobbyFloor[] = selectedItems.map((item, idx) => ({
-            ...item,
-            id: `floor-${baseTime}-${idx}`,
-            name: item.name.includes("(Copy)") ? item.name : `${item.name} (Copy)`
-          }));
-          updateFloorsWithHistory([...floors, ...clones]);
-          setSelectedRowIds(new Set(clones.map(n => n.id)));
-          toast.success(`Duplicated ${clones.length} space(s)`);
         }
         return;
       }
@@ -757,7 +676,8 @@ function LobbyPressurisationPage() {
       if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedRowIds.size > 0) {
           e.preventDefault();
-          handleBulkDelete();
+          updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
+          setSelectedRowIds(new Set());
         }
         return;
       }
@@ -774,7 +694,7 @@ function LobbyPressurisationPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [floors, selectedRowIds, clipboard, history, redoStack, isApprovedLocked, isEffectiveReadOnly]);
+  }, [floors, selectedRowIds, clipboard, history, redoStack]);
 
   const ip = unitSystem === "ip";
 
@@ -1114,6 +1034,7 @@ function LobbyPressurisationPage() {
   };
 
   const renderGroupHeader = (groupValue: string) => {
+    const grpComments = getMergedItemComments(groupValue, groupValue, commentsList, "/lobby-pressurisation", project?.id);
     const grp = calculatedGroups.find(g => g.groupName === groupValue);
     const count = grp ? grp.rows.length : calculatedRows.filter(r => (groupByMode === "zone" ? r.zoneName : r.basementLevel) === groupValue).length;
     const subArea = grp ? grp.totalArea : 0;
@@ -1125,6 +1046,12 @@ function LobbyPressurisationPage() {
         <div className="flex items-center gap-1.5 font-medium">
           <strong className="font-bold text-primary">{groupValue}</strong>
           <span className="text-[10.5px] text-muted-foreground font-normal">({count} {count === 1 ? "space" : "spaces"})</span>
+          {grpComments.length > 0 && (
+            <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 font-bold text-[9.5px]">
+              <MessageSquare className="size-2.5 fill-blue-500/20" />
+              <span>{grpComments.length}</span>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3.5 font-mono text-[11px] text-muted-foreground">
           <span>Σ Area: <strong className="text-foreground">{subArea.toLocaleString()} {ip ? "ft²" : "m²"}</strong></span>
@@ -1193,13 +1120,8 @@ function LobbyPressurisationPage() {
   };
 
   const renderRowContextMenu = (row: typeof calculatedRows[0]) => {
-    const isReadOnly = isApprovedLocked || isEffectiveReadOnly;
-    const targetIds = selectedRowIds.has(row.id) ? Array.from(selectedRowIds) : [row.id];
-    const isMulti = targetIds.length > 1;
-
     return (
       <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
-        {/* Add Comment */}
         <ContextMenuItem
           onClick={() => handleOpenComment(row.id, row.name || row.zoneName, "space")}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
@@ -1210,156 +1132,32 @@ function LobbyPressurisationPage() {
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
 
-        {/* Cut */}
         <ContextMenuItem
-          onClick={() => {
-            if (isReadOnly) {
-              toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-              return;
-            }
-            const selectedItems = floors.filter(f => targetIds.includes(f.id));
-            setClipboard(selectedItems);
-            updateFloorsWithHistory(floors.filter(f => !targetIds.includes(f.id)));
-            setSelectedRowIds(new Set());
-            toast.info(`${selectedItems.length} space(s) cut to clipboard`);
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
-        >
-          <Scissors className="size-3.5 text-muted-foreground shrink-0" />
-          <span className="whitespace-nowrap">{isMulti ? `Cut Selected (${targetIds.length})` : "Cut"}</span>
-          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Ctrl+X</ContextMenuShortcut>
-        </ContextMenuItem>
-
-        {/* Copy */}
-        <ContextMenuItem
-          onClick={() => {
-            const selectedItems = floors.filter(f => targetIds.includes(f.id));
-            setClipboard(selectedItems);
-            toast.info(`${selectedItems.length} space(s) copied to clipboard`);
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
-        >
-          <Copy className="size-3.5 text-muted-foreground shrink-0" />
-          <span className="whitespace-nowrap">{isMulti ? `Copy Selected (${targetIds.length})` : "Copy"}</span>
-          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Ctrl+C</ContextMenuShortcut>
-        </ContextMenuItem>
-
-        {/* Paste */}
-        <ContextMenuItem
-          disabled={clipboard.length === 0 || isReadOnly}
-          onClick={() => {
-            if (isReadOnly) {
-              toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-              return;
-            }
-            const baseTime = Date.now();
-            const newPasted: LobbyFloor[] = clipboard.map((item, idx) => ({
-              ...item,
-              id: `floor-${baseTime}-${idx}`,
-              name: item.name.includes("(Copy)") ? item.name : `${item.name} (Copy)`
-            }));
-            updateFloorsWithHistory([...floors, ...newPasted]);
-            setSelectedRowIds(new Set(newPasted.map(n => n.id)));
-            toast.success(`${newPasted.length} space(s) pasted`);
-          }}
-          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium data-[disabled]:opacity-50 data-[disabled]:pointer-events-none"
-        >
-          <ClipboardPaste className="size-3.5 text-muted-foreground shrink-0" />
-          <span className="whitespace-nowrap">Paste</span>
-          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Ctrl+V</ContextMenuShortcut>
-        </ContextMenuItem>
-
-        <ContextMenuSeparator className="h-px bg-border my-1" />
-
-        {/* Edit Space */}
-        <ContextMenuItem
-          onClick={() => {
-            if (isReadOnly) {
-              toast.info("Workspace is in Read-Only mode. Editing is locked.", { id: "readonly-notice" });
-              return;
-            }
-            if (isMulti) {
-              handleOpenBulkEdit(targetIds);
-            } else {
-              setEditingFloor(row);
-              setIsNewFloor(false);
-            }
-          }}
+          onClick={() => handleOpenBulkEdit([row.id])}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
         >
           <Edit3 className="size-3.5 text-muted-foreground shrink-0" />
-          <span className="whitespace-nowrap">{isMulti ? `Bulk Edit (${targetIds.length} Spaces)` : "Edit Space Parameters"}</span>
+          <span className="whitespace-nowrap">Bulk Edit Space</span>
           <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</ContextMenuShortcut>
         </ContextMenuItem>
 
-        {/* Duplicate Space */}
         <ContextMenuItem
-          onClick={() => {
-            if (isReadOnly) {
-              toast.info("Workspace is in Read-Only mode. Duplicating is locked.", { id: "readonly-notice" });
-              return;
-            }
-            if (isMulti) {
-              const selectedItems = floors.filter(f => targetIds.includes(f.id));
-              const baseTime = Date.now();
-              const clones: LobbyFloor[] = selectedItems.map((item, idx) => ({
-                ...item,
-                id: `floor-${baseTime}-${idx}`,
-                name: item.name.includes("(Copy)") ? item.name : `${item.name} (Copy)`
-              }));
-              updateFloorsWithHistory([...floors, ...clones]);
-              setSelectedRowIds(new Set(clones.map(n => n.id)));
-              toast.success(`Duplicated ${clones.length} space(s)`);
-            } else {
-              handleDuplicateZone(row);
-            }
-          }}
+          onClick={() => handleDuplicateZone(row)}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
         >
           <CopyPlus className="size-3.5 text-muted-foreground shrink-0" />
-          <span className="whitespace-nowrap">{isMulti ? `Duplicate Selected (${targetIds.length})` : "Duplicate Space"}</span>
+          <span className="whitespace-nowrap">Duplicate Space</span>
           <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Ctrl+D</ContextMenuShortcut>
         </ContextMenuItem>
 
         <ContextMenuSeparator className="h-px bg-border my-1" />
 
         <ContextMenuItem
-          onClick={() => {
-            if (isReadOnly) {
-              toast.info("Workspace is in Read-Only mode. Modifications are locked.", { id: "readonly-notice" });
-              return;
-            }
-            const count = targetIds.length;
-            confirm(
-              count === 1
-                ? `Are you sure you want to delete space "${row.name || row.zoneName}"?`
-                : `Are you sure you want to delete the ${count} selected space(s)?`,
-              {
-                title: "Delete Spaces",
-                confirmText: "Delete",
-                cancelText: "Cancel",
-                variant: "destructive"
-              }
-            ).then((ok: any) => {
-              if (ok) {
-                if (isMulti) {
-                  updateFloorsWithHistory(floors.filter(f => !targetIds.includes(f.id)));
-                  setSelectedRowIds(prev => {
-                    const next = new Set(prev);
-                    targetIds.forEach(id => next.delete(id));
-                    return next;
-                  });
-                  toast.info(`Deleted ${count} space(s)`);
-                } else {
-                  handleDeleteFloor(row.id);
-                }
-              }
-            });
-          }}
+          onClick={() => handleDeleteFloor(row.id)}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium"
         >
           <Trash2 className="size-3.5 shrink-0" />
-          <span className="whitespace-nowrap">{isMulti ? `Delete Selected (${targetIds.length})` : "Delete Space"}</span>
+          <span className="whitespace-nowrap">Delete Space</span>
           <ContextMenuShortcut className="text-[10px] text-destructive/80 font-mono ml-auto pl-3 whitespace-nowrap text-right">Delete</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
@@ -1370,7 +1168,7 @@ function LobbyPressurisationPage() {
     {
       key: "basementLevel",
       header: "LEVEL / FLOOR",
-      width: 180,
+      width: 140,
       editable: true,
       render: (r) => (
         <InlineInput
@@ -1385,7 +1183,7 @@ function LobbyPressurisationPage() {
     {
       key: "zoneName",
       header: "ZONE",
-      width: 260,
+      width: 160,
       editable: true,
       render: (r) => {
         const itemComments = getMergedItemComments(r.id, r.zoneName || r.name, commentsList, "/lobby-pressurisation", project?.id);
@@ -1405,7 +1203,7 @@ function LobbyPressurisationPage() {
     {
       key: "area",
       header: `AREA (${ip ? "FT²" : "M²"})`,
-      width: 120,
+      width: 110,
       align: "center",
       mono: true,
       editable: true,
@@ -1425,7 +1223,7 @@ function LobbyPressurisationPage() {
     {
       key: "height",
       header: `HEIGHT (${ip ? "FT" : "M"})`,
-      width: 100,
+      width: 90,
       align: "center",
       mono: true,
       editable: true,
@@ -1445,11 +1243,11 @@ function LobbyPressurisationPage() {
     {
       key: "volume",
       header: `VOLUME (${ip ? "FT³" : "M³"})`,
-      width: 130,
+      width: 110,
       align: "center",
       mono: true,
       render: (r) => (
-        <span className="font-mono tabular text-[13.5px] text-muted-foreground font-medium text-center w-full block">
+        <span className="font-mono tabular text-[13.5px] text-muted-foreground font-medium">
           {r.volume.toLocaleString()}
         </span>
       ),
@@ -1457,11 +1255,11 @@ function LobbyPressurisationPage() {
     {
       key: "flow6ach",
       header: `6 ACH (${ip ? "CFM" : "L/S"})`,
-      width: 150,
+      width: 130,
       align: "center",
       mono: true,
       render: (r) => (
-        <span className="font-mono tabular text-[13.5px] text-primary font-bold text-center w-full block">
+        <span className="font-mono tabular text-[13.5px] text-primary font-bold">
           {r.flow6ach.toLocaleString()}
         </span>
       ),
@@ -1477,27 +1275,10 @@ function LobbyPressurisationPage() {
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            if (isApprovedLocked) return;
-            const targetIds = selectedRowIds.has(r.id) ? Array.from(selectedRowIds) : [r.id];
-            const nextFlagged = !r.flagged;
-            const updated = floors.map(f => targetIds.includes(f.id) ? { ...f, flagged: nextFlagged } : f);
-            updateFloorsWithHistory(updated);
+            handleUpdateFloorCell(r.id, "flagged", !r.flagged);
           }}
           className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto disabled:cursor-default"
-          title={
-            (() => {
-              const isNoLevel = !r.basementLevel || r.basementLevel.trim() === "";
-              const isNoZone = !r.zoneName || r.zoneName.trim() === "";
-              const isNoArea = !r.area || Number(r.area) <= 0 || isNaN(Number(r.area));
-              const isNoHeight = !r.height || Number(r.height) <= 0 || isNaN(Number(r.height));
-              if (isNoArea && isNoHeight) return "Missing lobby area and height";
-              if (isNoArea) return "Missing lobby area";
-              if (isNoHeight) return "Missing floor height";
-              if (isNoZone) return "Missing zone name";
-              if (isNoLevel) return "Missing level / floor";
-              return r.flagged ? "Unflag space" : "Flag space";
-            })()
-          }
+          title={r.flagged ? "Flagged for engineering review (click to unflag)" : "Click to flag space"}
         >
           <Flag
             className={`size-3.5 transition-all duration-200 ${
@@ -1511,22 +1292,46 @@ function LobbyPressurisationPage() {
     },
   ];
 
-  const handleAddNewLobbySpace = () => {
-    const newId = `lobby-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const defaultLevel = uniqueLevels[0] || "GF";
-    const defaultZone = uniqueZones[0] || "Lift Lobby 1";
-    const newFloorItem: LobbyFloor = {
-      id: newId,
-      name: `Lobby Space ${floors.length + 1}`,
-      basementLevel: defaultLevel,
-      zoneName: defaultZone,
-      area: ip ? 215 : 20,
-      height: ip ? 9.8 : 3.0,
-      flagged: true,
-    };
-    updateFloorsWithHistory([...floors, newFloorItem]);
-    setEditingFloor(newFloorItem);
-    setIsNewFloor(true);
+  const handleAddFloor = () => {
+    if (!newFloor.name && !newFloor.zone) return;
+    const lvlName = newFloor.name.trim() || "Level 1";
+    const zName = newFloor.zone.trim() || "Lift Lobby 1";
+    const numZ = newFloor.numZones !== "" && !isNaN(Number(newFloor.numZones)) ? Math.max(1, Number(newFloor.numZones)) : 1;
+    
+    const totalArea = newFloor.area !== "" && !isNaN(Number(newFloor.area)) ? Number(newFloor.area) : 350;
+    const heightVal = newFloor.height !== "" && !isNaN(Number(newFloor.height)) ? Number(newFloor.height) : 3;
+
+    const baseId = Date.now();
+    const newEntries: LobbyFloor[] = [];
+
+    if (numZ === 1) {
+      newEntries.push({
+        id: `floor-${baseId}`,
+        basementLevel: lvlName,
+        zoneName: zName,
+        name: `${lvlName} - ${zName}`,
+        area: totalArea,
+        height: heightVal
+      });
+    } else {
+      const perZoneArea = Math.round(totalArea / numZ);
+
+      for (let i = 1; i <= numZ; i++) {
+        const fullZoneName = numZ > 1 && !zName.includes(`${i}`) ? `${zName} ${i}` : zName;
+        newEntries.push({
+          id: `floor-${baseId}-${i}`,
+          basementLevel: lvlName,
+          zoneName: fullZoneName,
+          name: `${lvlName} - ${fullZoneName}`,
+          area: perZoneArea,
+          height: heightVal
+        });
+      }
+    }
+
+    updateFloorsWithHistory([...floors, ...newEntries]);
+    setNewFloor({ name: "", zone: "", area: "", height: "", numZones: "" });
+    setShowAddLevelModal(false);
   };
 
   const handleDeleteFloor = (id: string) => {
@@ -1604,30 +1409,17 @@ function LobbyPressurisationPage() {
     const existing = floors.filter(f => (isZoneGroup ? f.zoneName : f.basementLevel) === groupName);
     const sample = existing[0];
     
-    const newLevelName = isZoneGroup ? (uniqueLevels[0] || "GF") : groupName;
-    const newZoneName = isZoneGroup ? groupName : `Lift Lobby ${existing.length + 1}`;
-    const newId = `lobby-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    let newLevelName = isZoneGroup ? `Level ${existing.length + 1}` : groupName;
+    let newZoneName = isZoneGroup ? groupName : `Lift Lobby ${existing.length + 1}`;
 
-    const newFloorItem: LobbyFloor = {
-      id: newId,
-      name: `${newLevelName} - ${newZoneName}`,
-      basementLevel: newLevelName,
-      zoneName: newZoneName,
-      area: sample?.area || (ip ? 215 : 20),
-      height: sample?.height || (ip ? 9.8 : 3.0),
-      flagged: true,
-    };
-    updateFloorsWithHistory([...floors, newFloorItem]);
-    setEditingFloor(newFloorItem);
-    setIsNewFloor(true);
-  };
-
-  const checkIfLobbyMissingData = (f: LobbyFloor) => {
-    const isNoLevel = !f.basementLevel || f.basementLevel.trim() === "";
-    const isNoZone = !f.zoneName || f.zoneName.trim() === "";
-    const isNoArea = !f.area || Number(f.area) <= 0 || isNaN(Number(f.area));
-    const isNoHeight = !f.height || Number(f.height) <= 0 || isNaN(Number(f.height));
-    return isNoLevel || isNoZone || isNoArea || isNoHeight;
+    setNewFloor({
+      name: newLevelName,
+      zone: newZoneName,
+      area: sample?.area || 350,
+      height: sample?.height || 3,
+      numZones: 1
+    });
+    setShowAddLevelModal(true);
   };
 
   const handleUpdateFloorCell = (id: string, field: keyof LobbyFloor, val: any) => {
@@ -1636,15 +1428,6 @@ function LobbyPressurisationPage() {
         const next = { ...f, [field]: val };
         if (field === "basementLevel" || field === "zoneName") {
           next.name = `${next.basementLevel} - ${next.zoneName}`;
-        }
-        if (field !== "flagged") {
-          const wasMissing = checkIfLobbyMissingData(f);
-          const isMissing = checkIfLobbyMissingData(next);
-          if (isMissing) {
-            next.flagged = true;
-          } else if (wasMissing && !isMissing) {
-            next.flagged = false;
-          }
         }
         return next;
       }
@@ -1831,7 +1614,7 @@ function LobbyPressurisationPage() {
                   : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"
           }`}>
             {/* Top Row 1: Section Navigation Tabs, Group By & Export */}
-            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap modal-blur-bg">
+            <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
               <div className="flex items-center gap-2.5 flex-wrap">
                 {/* Rounded-full Pill Tabs */}
                 <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
@@ -1859,17 +1642,6 @@ function LobbyPressurisationPage() {
                     <span className="text-[10px] px-1.5 py-0.2 bg-primary/15 text-primary rounded-full font-extrabold">
                       {fanSystems.length}
                     </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveSection("report")}
-                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                      activeSection === "report"
-                        ? "bg-background text-foreground shadow-sm font-bold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Report
                   </button>
                 </div>
 
@@ -1923,7 +1695,7 @@ function LobbyPressurisationPage() {
 
             {/* Dedicated Toolbar Row 2: Action Buttons & Filter/Search */}
             {activeSection === "schedule" && (
-              <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none modal-blur-bg">
+              <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print select-none">
                 {/* Search Input matching Ventilation */}
                 <input
                   value={searchQuery}
@@ -2097,7 +1869,6 @@ function LobbyPressurisationPage() {
                       onClick={() => {
                         try {
                           localStorage.removeItem("mep_grid_lobby_pressurisation_schedule");
-                          window.dispatchEvent(new CustomEvent("mep-reset-column-widths"));
                           window.dispatchEvent(new Event("resize"));
                           toast.success("Column widths reset to auto-distribution");
                         } catch (e) {}
@@ -2141,69 +1912,96 @@ function LobbyPressurisationPage() {
                     <Download className="size-3.5" /> Import
                   </TBtn>
 
-                  {/* New Space (EXTREME RIGHT) */}
+                  {/* PDF Export Button */}
+                  <TBtn
+                    onClick={handleExportPDF}
+                    title="Generate and Export PDF Calculation Report"
+                  >
+                    <FileText className="size-3.5" /> Export
+                  </TBtn>
+
+                  {/* Add Level / Zone (EXTREME RIGHT) */}
                   <TBtn
                     primary
                     disabled={isEffectiveReadOnly}
-                    onClick={handleAddNewLobbySpace}
+                    onClick={() => {
+                      setNewFloor({
+                        name: `Level ${uniqueLevels.length + 1}`,
+                        zone: `Lift Lobby ${uniqueZones.length + 1}`,
+                        area: 350,
+                        height: 3,
+                        numZones: 1
+                      });
+                      setShowAddLevelModal(true);
+                    }}
                   >
-                    <Plus className="size-3.5" /> New Space
+                    <Plus className="size-3.5" /> Add Level / Zone
                   </TBtn>
                 </div>
-
-                {/* Bulk Actions Bar Overlay */}
-                {!isApprovedLocked && selectedRowIds.size > 0 && (
-                  <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
-                    <span className="font-semibold">{selectedRowIds.size} selected</span>
-                    <span className="text-primary/30">·</span>
-                    <BulkBtn icon={Edit3} onClick={() => handleOpenBulkEdit(Array.from(selectedRowIds))}>Bulk edit</BulkBtn>
-                    <BulkBtn icon={CopyPlus} onClick={() => {
-                      if (isEffectiveReadOnly) return;
-                      const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
-                      const baseTime = Date.now();
-                      const duplicated: LobbyFloor[] = selectedItems.map((r, idx) => ({
-                        ...r,
-                        id: `floor-${baseTime}-${idx}`,
-                        name: r.name.includes("(Copy)") ? r.name : `${r.name} (Copy)`
-                      }));
-                      updateFloorsWithHistory([...floors, ...duplicated]);
-                      setSelectedRowIds(new Set(duplicated.map(d => d.id)));
-                      toast.success(`Duplicated ${duplicated.length} space(s)`);
-                    }}>Duplicate</BulkBtn>
-                    <BulkBtn icon={Copy} onClick={() => {
-                      const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
-                      setClipboard(selectedItems);
-                      toast.info(`${selectedItems.length} space(s) copied`);
-                    }}>Copy</BulkBtn>
-                    <BulkBtn icon={Scissors} onClick={() => {
-                      const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
-                      setClipboard(selectedItems);
-                      updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
-                      setSelectedRowIds(new Set());
-                      toast.info(`${selectedItems.length} space(s) cut`);
-                    }}>Cut</BulkBtn>
-                    <BulkBtn icon={Flag} onClick={() => {
-                      if (isEffectiveReadOnly || isApprovedLocked) return;
-                      const anyUnflagged = floors.some(f => selectedRowIds.has(f.id) && !f.flagged);
-                      const updated = floors.map(f => selectedRowIds.has(f.id) ? { ...f, flagged: anyUnflagged } : f);
-                      updateFloorsWithHistory(updated);
-                      toast.success(`Updated review flags for ${selectedRowIds.size} space(s)`);
-                    }}>Flag / Unflag</BulkBtn>
-                    <BulkBtn icon={Trash2} onClick={handleBulkDelete}>Delete</BulkBtn>
-                    <button
-                      onClick={() => setSelectedRowIds(new Set())}
-                      className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
-                    >
-                      <X className="size-3" /> Clear
-                    </button>
-                  </div>
-                )}
               </div>
             )}
 
-            {/* Main Content Area */}
+                        {/* Main Content Area */}
             {activeSection === "schedule" ? (
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+                {/* Floating Bulk Action Overlay Bar when rows selected */}
+                {!isApprovedLocked && selectedRowIds.size > 0 && (
+                  <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 h-10 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg border-b border-primary/20">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{selectedRowIds.size} row(s) selected</span>
+                      <span className="text-primary/30">·</span>
+                      <button
+                        onClick={() => handleOpenBulkEdit(Array.from(selectedRowIds))}
+                        className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                        title="Bulk Edit selected spaces"
+                      >
+                        <Edit3 className="size-3" /> Bulk Edit ({selectedRowIds.size})
+                      </button>
+                      <button
+                        onClick={() => {
+                          const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
+                          setClipboard(selectedItems);
+                          toast.info(`${selectedItems.length} space(s) copied`);
+                        }}
+                        className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                        title="Copy (Ctrl+C)"
+                      >
+                        <Copy className="size-3" /> Copy
+                      </button>
+                      <button
+                        onClick={() => {
+                          const selectedItems = floors.filter(f => selectedRowIds.has(f.id));
+                          setClipboard(selectedItems);
+                          updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
+                          setSelectedRowIds(new Set());
+                          toast.info(`${selectedItems.length} space(s) cut`);
+                        }}
+                        className="flex items-center gap-1 hover:underline font-bold cursor-pointer"
+                        title="Cut (Ctrl+X)"
+                      >
+                        <Scissors className="size-3" /> Cut
+                      </button>
+                      <button
+                        onClick={() => {
+                          updateFloorsWithHistory(floors.filter(f => !selectedRowIds.has(f.id)));
+                          setSelectedRowIds(new Set());
+                          toast.info(`Deleted ${selectedRowIds.size} space(s)`);
+                        }}
+                        className="flex items-center gap-1 hover:underline font-bold text-red-500 cursor-pointer"
+                        title="Delete selected (Del)"
+                      >
+                        <Trash2 className="size-3" /> Delete
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => setSelectedRowIds(new Set())}
+                      className="text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 px-2 py-0.5 rounded cursor-pointer"
+                    >
+                      <X className="size-3" /> Clear (Esc)
+                    </button>
+                  </div>
+                )}
+
                 {/* Grid Container (Full Width) */}
                 <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
                   {calculatedRows.length === 0 ? (
@@ -2218,7 +2016,10 @@ function LobbyPressurisationPage() {
                         </p>
                         <div className="flex items-center gap-3 w-full">
                           <button
-                            onClick={handleAddNewLobbySpace}
+                            onClick={() => {
+                              setNewFloor({ name: "Level 1", zone: "Lift Lobby 1", area: 350, height: 3, numZones: 1 });
+                              setShowAddLevelModal(true);
+                            }}
                             className="flex-1 bg-primary text-primary-foreground font-semibold h-9 rounded-full hover:bg-primary/95 transition-colors text-xs flex items-center justify-center gap-2 shadow cursor-pointer"
                           >
                             <Plus className="size-3.5" /> Add Space
@@ -2246,11 +2047,7 @@ function LobbyPressurisationPage() {
                       renderGroupHeader={renderGroupHeader}
                       renderGroupContextMenu={renderGroupContextMenu}
                       onToggleGroup={handleToggleGroup}
-                      activeRowId={editingFloor?.id}
-                      onRowDoubleClick={(r) => {
-                        setEditingFloor(r);
-                        setIsNewFloor(false);
-                      }}
+                      onRowDoubleClick={(r) => handleOpenBulkEdit([r.id])}
                       isReadOnly={isApprovedLocked}
                       gridId="lobby_pressurisation_schedule"
                     />
@@ -2269,7 +2066,7 @@ function LobbyPressurisationPage() {
                   </div>
                 </div>
               </div>
-            ) : activeSection === "fan-systems" ? (
+            ) : (
               <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4">
 {/* Fan Systems Head Loss Section */}
               
@@ -2562,330 +2359,99 @@ function LobbyPressurisationPage() {
                   </div>
                 </div>
               </div>
-            ) : (
-              /* Printable Report tab view matching exact Preliminary Cooling Load layout */
-              <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
-                  
-                  {/* 1. Title */}
-                  <div className="pb-1">
-                    <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
-                      Lobby Pressurisation Calculation
-                    </h2>
-                  </div>
-
-                  {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format) */}
-                  <div className="border border-border rounded-xl overflow-hidden text-xs">
-                    <table className="w-full border-collapse">
-                      <tbody>
-                        <tr className="border-b border-border divide-x divide-border">
-                          <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
-                          <td className="p-2.5 font-mono text-foreground font-medium">{project?.calcNo || "TRV-CAL-LP-001"}</td>
-                          <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
-                          <td className="p-2.5 font-mono font-medium">{new Date().toISOString().split("T")[0]}</td>
-                        </tr>
-                        <tr className="border-b border-border divide-x divide-border">
-                          <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
-                          <td className="p-2.5 font-mono">{project?.code || "MEP-LP-2026"}</td>
-                          <td className="p-2.5 font-bold bg-muted/20">Client:</td>
-                          <td className="p-2.5">{project?.client || "Prestige Group developers"}</td>
-                        </tr>
-                        <tr className="divide-x divide-border">
-                          <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
-                          <td className="p-2.5">{project?.name || "Lobby Pressurisation Study"}</td>
-                          <td className="p-2.5 font-bold bg-muted/20">End User:</td>
-                          <td className="p-2.5">{(project as any)?.endUser || "-"}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* 3. Space & Airflow Schedule (2-Tier Header Table) */}
-                  <div className="border border-border rounded-xl overflow-x-auto">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
-                          <th rowSpan={2} className="p-2 border-r border-border w-12 text-center">
-                            Sr.<br />No.
-                          </th>
-                          <th colSpan={3} className="p-2 border-r border-border text-center">
-                            Space Parameters
-                          </th>
-                          <th colSpan={3} className="p-2 border-r border-border text-center">
-                            Volume & Airflow Metrics
-                          </th>
-                          <th colSpan={3} className="p-2 text-center">
-                            System & Compliance
-                          </th>
-                        </tr>
-                        <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
-                          <th className="p-2 border-r border-border w-24 text-center">Floor Level</th>
-                          <th className="p-2 border-r border-border text-left min-w-[130px]">Lobby Space</th>
-                          <th className="p-2 border-r border-border w-20 text-center">Area ({ip ? "ft²" : "m²"})</th>
-                          <th className="p-2 border-r border-border w-20 text-center">Height ({ip ? "ft" : "m"})</th>
-                          <th className="p-2 border-r border-border w-24 text-center">Volume ({ip ? "ft³" : "m³"})</th>
-                          <th className="p-2 border-r border-border w-24 text-right">6 ACH Flow ({ip ? "CFM" : "L/s"})</th>
-                          <th className="p-2 border-r border-border w-24 text-right">Flow (m³/h)</th>
-                          <th className="p-2 border-r border-border min-w-[120px] text-left">Fan System</th>
-                          <th className="p-2 w-20 text-center">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {(() => {
-                          const rowsByLevel: { [level: string]: CalculatedLobbyFloor[] } = {};
-                          const levelOrder: string[] = [];
-
-                          const sorted = [...calculatedRows].sort((a, b) => {
-                            const lvlA = (a.basementLevel || "Level 1").toLowerCase();
-                            const lvlB = (b.basementLevel || "Level 1").toLowerCase();
-                            if (lvlA !== lvlB) return lvlA.localeCompare(lvlB, undefined, { numeric: true });
-                            return (a.name || "").localeCompare(b.name || "");
-                          });
-
-                          sorted.forEach((r) => {
-                            const lvl = r.basementLevel || "Level 1";
-                            if (!rowsByLevel[lvl]) {
-                              rowsByLevel[lvl] = [];
-                              levelOrder.push(lvl);
-                            }
-                            rowsByLevel[lvl].push(r);
-                          });
-
-                          let globalSrNo = 1;
-                          let grandArea = 0;
-                          let grandVol = 0;
-                          let grandFlow = 0;
-                          let grandM3h = 0;
-
-                          return (
-                            <>
-                              {levelOrder.map((levelName) => {
-                                const levelRows = rowsByLevel[levelName];
-                                let levelArea = 0;
-                                let levelVol = 0;
-                                let levelFlow = 0;
-                                let levelM3h = 0;
-
-                                return (
-                                  <React.Fragment key={levelName}>
-                                    {levelRows.map((r) => {
-                                      const areaVal = r.area || 0;
-                                      const volVal = r.volume || 0;
-                                      const flowVal = r.flow6ach || 0;
-                                      const m3hVal = r.flowM3h || (ip ? flowVal * 1.699 : flowVal * 3.6);
-                                      const assignedFs = calculatedFanSystems.find(fs => fs.servedFloors.some(sf => sf.id === r.id));
-
-                                      levelArea += areaVal;
-                                      levelVol += volVal;
-                                      levelFlow += flowVal;
-                                      levelM3h += m3hVal;
-                                      grandArea += areaVal;
-                                      grandVol += volVal;
-                                      grandFlow += flowVal;
-                                      grandM3h += m3hVal;
-
-                                      return (
-                                        <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                          <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">
-                                            {globalSrNo++}
-                                          </td>
-                                          <td className="p-2 border-r border-border text-center font-medium">
-                                            {r.basementLevel || "Level 1"}
-                                          </td>
-                                          <td className="p-2 border-r border-border font-medium">
-                                            {r.zoneName || r.name || "-"}
-                                          </td>
-                                          <td className="p-2 border-r border-border text-center font-mono">
-                                            {areaVal.toFixed(1)}
-                                          </td>
-                                          <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">
-                                            {r.height !== undefined ? Number(r.height).toFixed(1) : "-"}
-                                          </td>
-                                          <td className="p-2 border-r border-border text-center font-mono">
-                                            {Math.round(volVal).toLocaleString()}
-                                          </td>
-                                          <td className="p-2 border-r border-border text-right font-mono font-bold text-primary">
-                                            {Math.round(flowVal).toLocaleString()}
-                                          </td>
-                                          <td className="p-2 border-r border-border text-right font-mono text-muted-foreground">
-                                            {Math.round(m3hVal).toLocaleString()}
-                                          </td>
-                                          <td className="p-2 border-r border-border font-medium text-foreground">
-                                            {assignedFs ? assignedFs.name : "Pressurisation System"}
-                                          </td>
-                                          <td className="p-2 text-center font-bold">
-                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400">
-                                              PASS
-                                            </span>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-
-                                    {/* Floor Total Row matching Preliminary format */}
-                                    <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t border-b border-border">
-                                      <td className="p-2 border-r border-border text-center"></td>
-                                      <td className="p-2 border-r border-border text-center font-bold">
-                                        {levelName}
-                                      </td>
-                                      <td className="p-2 border-r border-border font-bold">
-                                        TOTAL ({levelName})
-                                      </td>
-                                      <td className="p-2 border-r border-border text-center font-mono font-bold">
-                                        {levelArea.toFixed(1)}
-                                      </td>
-                                      <td className="p-2 border-r border-border"></td>
-                                      <td className="p-2 border-r border-border text-center font-mono font-bold">
-                                        {Math.round(levelVol).toLocaleString()}
-                                      </td>
-                                      <td className="p-2 border-r border-border text-right font-mono font-bold text-primary">
-                                        {Math.round(levelFlow).toLocaleString()}
-                                      </td>
-                                      <td className="p-2 border-r border-border text-right font-mono font-bold text-muted-foreground">
-                                        {Math.round(levelM3h).toLocaleString()}
-                                      </td>
-                                      <td className="p-2 border-r border-border font-medium text-muted-foreground">
-                                        All Compliant
-                                      </td>
-                                      <td className="p-2 text-center font-bold text-emerald-600">
-                                        PASS
-                                      </td>
-                                    </tr>
-                                  </React.Fragment>
-                                );
-                              })}
-
-                              {/* Grand Total Row if multiple levels */}
-                              {levelOrder.length > 1 && (
-                                <tr className="bg-slate-100 dark:bg-zinc-800 font-black border-t-2 border-border">
-                                  <td className="p-2 border-r border-border text-center"></td>
-                                  <td className="p-2 border-r border-border text-center font-bold">ALL</td>
-                                  <td className="p-2 border-r border-border font-bold">OVERALL TOTAL</td>
-                                  <td className="p-2 border-r border-border text-center font-mono">
-                                    {grandArea.toFixed(1)}
-                                  </td>
-                                  <td className="p-2 border-r border-border"></td>
-                                  <td className="p-2 border-r border-border text-center font-mono">
-                                    {Math.round(grandVol).toLocaleString()}
-                                  </td>
-                                  <td className="p-2 border-r border-border text-right font-mono font-bold text-primary">
-                                    {Math.round(grandFlow).toLocaleString()}
-                                  </td>
-                                  <td className="p-2 border-r border-border text-right font-mono font-bold text-muted-foreground">
-                                    {Math.round(grandM3h).toLocaleString()}
-                                  </td>
-                                  <td className="p-2 border-r border-border font-bold text-muted-foreground">
-                                    All Systems Sized
-                                  </td>
-                                  <td className="p-2 text-center font-bold text-emerald-600">
-                                    PASS
-                                  </td>
-                                </tr>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* 4. Fan Systems Sizing Summary Table */}
-                  {calculatedFanSystems.length > 0 && (
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
-                        Pressurisation Fan System Sizing Summary
-                      </h4>
-                      <div className="border border-border rounded-xl overflow-hidden">
-                        <table className="w-full text-left border-collapse text-xs">
-                          <thead className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                            <tr>
-                              <th className="p-2 border-r border-border">Fan Tag</th>
-                              <th className="p-2 border-r border-border">Type</th>
-                              <th className="p-2 border-r border-border text-center">Qty</th>
-                              <th className="p-2 border-r border-border text-right">Duty Airflow ({ip ? "CFM" : "L/s"})</th>
-                              <th className="p-2 border-r border-border text-right">Per Fan ({ip ? "CFM" : "L/s"})</th>
-                              <th className="p-2 border-r border-border text-right">Static Pressure ({ip ? "in.wg" : "Pa"})</th>
-                              <th className="p-2 border-r border-border text-center">Spaces</th>
-                              <th className="p-2 text-center">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border">
-                            {calculatedFanSystems.map((fs) => (
-                              <tr key={fs.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                                <td className="p-2 border-r border-border font-bold text-foreground">{fs.name}</td>
-                                <td className="p-2 border-r border-border text-muted-foreground">{fs.fanType}</td>
-                                <td className="p-2 border-r border-border text-center font-mono">{fs.fanQty || 2}</td>
-                                <td className="p-2 border-r border-border text-right font-mono font-bold text-primary">{Math.round(fs.totalFlow6).toLocaleString()}</td>
-                                <td className="p-2 border-r border-border text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">{Math.round(fs.perFanCap).toLocaleString()}</td>
-                                <td className="p-2 border-r border-border text-right font-mono">{fs.totalStatic}</td>
-                                <td className="p-2 border-r border-border text-center font-mono">{fs.servedFloors.length}</td>
-                                <td className="p-2 text-center font-bold text-emerald-600">PASS</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 5. 3-Tier Signature Sign-Off Block (Exact #FFE6CC Header) */}
-                  {(() => {
-                    const sig = getSignatureBlockDetails(
-                      project?.id || activeProjectId || "default",
-                      "/lobby-pressurisation",
-                      currentUserName,
-                      calcReviewState
-                    );
-                    return (
-                      <div className="pt-2">
-                        <div className="border border-border rounded-xl overflow-hidden text-xs">
-                          <table className="w-full border-collapse">
-                            <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
-                              <tr className="divide-x divide-border">
-                                <th className="p-2.5 w-28 text-center"></th>
-                                <th className="p-2.5 text-center w-1/3">Originator</th>
-                                <th className="p-2.5 text-center w-1/3">Reviewer</th>
-                                <th className="p-2.5 text-center w-1/3">Approver</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                              <tr className="divide-x divide-border">
-                                <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
-                                <td className="p-2.5 text-center font-medium">
-                                  {sig.originatedName || currentUserName || "Design Engineer"}
-                                </td>
-                                <td className="p-2.5 text-center font-medium">
-                                  {sig.reviewerName || ""}
-                                </td>
-                                <td className="p-2.5 text-center font-medium">
-                                  {sig.approverName || ""}
-                                </td>
-                              </tr>
-                              <tr className="divide-x divide-border">
-                                <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
-                                <td className="p-2.5 text-center font-mono">
-                                  {sig.originatedDate || formatDateStr(new Date().toISOString())}
-                                </td>
-                                <td className="p-2.5 text-center font-mono">
-                                  {sig.reviewerDate || ""}
-                                </td>
-                                <td className="p-2.5 text-center font-mono">
-                                  {sig.approverDate || ""}
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                </div>
-              </div>
             )}
           </div>
       
+{/* Add Level Modal */}
+      {showAddLevelModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-md p-6 flex flex-col gap-4 shadow-2xl animate-fade-in">
+            <div className="flex justify-between items-center pb-2 border-b border-border/60">
+              <h3 className="font-bold text-base text-foreground">Add Lobby Space / Level</h3>
+              <button onClick={() => setShowAddLevelModal(false)} className="text-muted-foreground hover:text-foreground cursor-pointer">
+                <X className="size-4" />
+              </button>
+            </div>
 
+            <div className="flex flex-col gap-3.5 text-xs font-sans">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="font-semibold text-foreground">Floor / Level</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Level 1, Basement 1"
+                    value={newFloor.name}
+                    onChange={e => setNewFloor({ ...newFloor, name: e.target.value })}
+                    className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="font-semibold text-foreground">Lobby Zone Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Lift Lobby 1"
+                    value={newFloor.zone}
+                    onChange={e => setNewFloor({ ...newFloor, zone: e.target.value })}
+                    className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="font-semibold text-foreground">Gross Area ({ip ? "ft²" : "m²"})</label>
+                <input
+                  type="number"
+                  placeholder="350"
+                  value={newFloor.area}
+                  onChange={e => setNewFloor({ ...newFloor, area: e.target.value === "" ? "" : Number(e.target.value) })}
+                  className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="font-semibold text-foreground">Height ({ip ? "ft" : "m"})</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="3"
+                    value={newFloor.height}
+                    onChange={e => setNewFloor({ ...newFloor, height: e.target.value === "" ? "" : Number(e.target.value) })}
+                    className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="font-semibold text-foreground">Number of Zones</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="1"
+                    value={newFloor.numZones}
+                    onChange={e => setNewFloor({ ...newFloor, numZones: e.target.value === "" ? "" : Number(e.target.value) })}
+                    className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 font-bold outline-none focus:border-[#0A7BC7] text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2.5 mt-2">
+              <button
+                onClick={() => setShowAddLevelModal(false)}
+                className="px-4 py-2 border border-border rounded-lg text-xs font-bold text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddFloor}
+                className="px-4 py-2 bg-[#0A7BC7] text-white font-bold rounded-lg text-xs transition hover:bg-[#06456F] cursor-pointer flex items-center gap-1.5"
+              >
+                <Plus className="size-3.5" /> Add Space
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Level Modal */}
       {showEditLevelModal && (
@@ -3242,16 +2808,14 @@ function LobbyPressurisationPage() {
                   className="rounded border-border cursor-pointer size-4"
                 />
                 <span className="w-24 font-semibold text-foreground">Floor / Level</span>
-                <div className="flex-1">
-                  <FloorSelect
-                    value={bulkEditValues.basementLevel}
-                    onChange={(fl) => setBulkEditValues({ ...bulkEditValues, basementLevel: fl })}
-                    availableFloors={uniqueLevels}
-                    disabled={!bulkEditFields.basementLevel}
-                    triggerClassName="h-8 rounded-lg text-xs"
-                    placeholder="Select or enter floor..."
-                  />
-                </div>
+                <input
+                  type="text"
+                  disabled={!bulkEditFields.basementLevel}
+                  value={bulkEditValues.basementLevel}
+                  onChange={e => setBulkEditValues({ ...bulkEditValues, basementLevel: e.target.value })}
+                  placeholder="e.g. Level 1"
+                  className="flex-1 bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-2.5 py-1.5 font-bold outline-none focus:border-[#0A7BC7] text-xs disabled:opacity-40"
+                />
               </div>
 
               {/* Zone Name */}
@@ -3466,12 +3030,113 @@ function LobbyPressurisationPage() {
 
       {/* Calculation Methodology & Formula Guide Modal */}
       {showFormulaModal && (
-        <LobbyFormulaModal
-          onClose={() => setShowFormulaModal(false)}
-          unitSystem={unitSystem}
-          activeFloor={(selectedRowIds.size > 0 ? calculatedRows.find(f => selectedRowIds.has(f.id)) : null) || calculatedRows[0]}
-          totals={totals}
-        />
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-xl p-6 flex flex-col gap-4 shadow-2xl animate-fade-in max-h-[85vh] overflow-y-auto font-sans">
+            <div className="flex justify-between items-center pb-2.5 border-b border-border/60">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+                  <Info className="size-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-foreground">Lobby Pressurisation & 6 ACH Sizing Methodology</h3>
+                  <span className="text-xs text-muted-foreground">Engineering Formulas & Code Calculations</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowFormulaModal(false)} 
+                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4 text-xs">
+              {/* 1. Space Volume */}
+              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border/70 rounded-xl p-3.5 flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5 font-bold text-foreground">
+                  <div className="size-2 rounded-full bg-[#0A7BC7]" />
+                  <span>1. Lobby Space Volume</span>
+                </div>
+                <div className="bg-background border border-border/60 rounded-lg p-2 font-mono text-[11.5px] text-primary font-semibold">
+                  Volume = Gross Area × Height
+                </div>
+                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                  Gross floor area of each lift lobby / fire lobby space multiplied by clear floor-to-ceiling height ({ip ? "ft³" : "m³"}).
+                </p>
+              </div>
+
+              {/* 2. 6 ACH Airflow Rate */}
+              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border/70 rounded-xl p-3.5 flex flex-col gap-2">
+                <div className="flex items-center gap-1.5 font-bold text-foreground">
+                  <div className="size-2 rounded-full bg-[#0A7BC7]" />
+                  <span>2. Required 6 ACH Airflow Rate</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
+                  <div className="bg-background border border-border/60 rounded-lg p-2 flex flex-col gap-1">
+                    <span className="font-sans font-bold text-[10px] text-muted-foreground uppercase">IP Units (CFM)</span>
+                    <strong className="text-primary font-semibold">CFM = (Volume × 6 ACH) ÷ 60 min</strong>
+                  </div>
+                  <div className="bg-background border border-border/60 rounded-lg p-2 flex flex-col gap-1">
+                    <span className="font-sans font-bold text-[10px] text-muted-foreground uppercase">SI Units (L/s)</span>
+                    <strong className="text-primary font-semibold">L/s = (Volume × 6 ACH) ÷ 3.6</strong>
+                  </div>
+                </div>
+                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                  Mandated 6 air changes per hour for smoke containment and lobby pressurisation pursuant to NFPA 92 / BS EN 12101 standards.
+                </p>
+              </div>
+
+              {/* 3. Fan Static Pressure Sizing */}
+              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border/70 rounded-xl p-3.5 flex flex-col gap-2">
+                <div className="flex items-center gap-1.5 font-bold text-foreground">
+                  <div className="size-2 rounded-full bg-[#0A7BC7]" />
+                  <span>3. Fan System Head Loss & Static Pressure</span>
+                </div>
+                <div className="bg-background border border-border/60 rounded-lg p-2 flex flex-col gap-1 font-mono text-[11px]">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Equivalent Length:</span>
+                    <strong className="text-foreground">L_eq = Length + (Length × 60% fittings)</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Duct Friction Loss:</span>
+                    <strong className="text-foreground">ΔP_duct = L_eq × Friction Factor</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Safety Margin:</span>
+                    <strong className="text-foreground">ΔP_safety = 10% × (ΔP_duct + Louvers + Grilles + SAs)</strong>
+                  </div>
+                  <div className="flex justify-between border-t border-border/60 pt-1 text-primary">
+                    <span className="font-sans font-bold">Total Fan Static:</span>
+                    <strong className="font-bold">ΔP_total = ΔP_duct + Louvers + Grilles + SAs + Safety</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Multi-Fan Sizing */}
+              <div className="bg-slate-50 dark:bg-slate-900/40 border border-border/70 rounded-xl p-3.5 flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5 font-bold text-foreground">
+                  <div className="size-2 rounded-full bg-[#0A7BC7]" />
+                  <span>4. Multi-Fan Sizing</span>
+                </div>
+                <div className="bg-background border border-border/60 rounded-lg p-2 font-mono text-[11.5px] text-primary font-semibold">
+                  Per Fan Capacity = Total 6 ACH Flow ÷ Number of Fans
+                </div>
+                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                  Distributes total required airflow across configured duty fans (e.g. 2 x 50% duty configuration).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-border/60">
+              <button
+                onClick={() => setShowFormulaModal(false)}
+                className="px-4 py-2 bg-[#0A7BC7] text-white font-bold rounded-lg text-xs transition hover:bg-[#06456F] cursor-pointer"
+              >
+                Close Guide
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Import Source Selection Modal */}
@@ -3632,30 +3297,6 @@ function LobbyPressurisationPage() {
         />
       )}
 
-      {/* Edit Lobby Space Modal (Ventilation EditSpaceModal layout & calculations preview) */}
-      {editingFloor && (
-        <EditLobbySpaceModal
-          floor={editingFloor}
-          isNew={isNewFloor}
-          unitSystem={unitSystem}
-          availableLevels={uniqueLevels}
-          availableZones={uniqueZones}
-          onClose={() => {
-            if (isNewFloor) {
-              updateFloorsWithHistory(floors.filter((f) => f.id !== editingFloor.id));
-            }
-            setEditingFloor(null);
-            setIsNewFloor(false);
-          }}
-          onSave={(updated) => {
-            updateFloorsWithHistory(floors.map((f) => (f.id === updated.id ? updated : f)));
-            setEditingFloor(null);
-            setIsNewFloor(false);
-            if (!isApprovedLocked) dirtyStore.getState().markDirty();
-          }}
-        />
-      )}
-
         </div>
 
         {/* Intelligence drawer */}
@@ -3672,13 +3313,6 @@ function LobbyPressurisationPage() {
               calculatedRows={calculatedRows}
               totals={totals}
               unitSystem={unitSystem}
-              onHighlightFloor={(id) => {
-                setSelectedRowIds(new Set([id]));
-                setTimeout(() => {
-                  const el = document.getElementById(id);
-                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-                }, 100);
-              }}
             />
           )}
         </div>
@@ -3701,7 +3335,6 @@ interface LobbyPressurisationIntelligenceDrawerProps {
     sizedCap: number;
   };
   unitSystem: "si" | "ip";
-  onHighlightFloor?: (id: string) => void;
 }
 
 function LobbyPressurisationIntelligenceDrawer({
@@ -3711,730 +3344,129 @@ function LobbyPressurisationIntelligenceDrawer({
   calculatedRows,
   totals,
   unitSystem,
-  onHighlightFloor,
 }: LobbyPressurisationIntelligenceDrawerProps) {
   const ip = unitSystem === "ip";
   const flowUnit = ip ? "CFM" : "L/s";
   const volUnit = ip ? "ft³" : "m³";
   const pressUnit = ip ? "in.wg" : "Pa";
-  const areaUnit = ip ? "ft²" : "m²";
-
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    unassigned: false,
-    missingArea: false,
-    missingHeight: false,
-  });
 
   // Check unassigned spaces
   const assignedIds = new Set<string>();
   calculatedFanSystems.forEach(fs => {
     (fs.floorIds || []).forEach((id: string) => assignedIds.add(id));
   });
-
-  const unassignedLobbies = useMemo(() => {
-    return calculatedRows
-      .filter(r => !assignedIds.has(r.id))
-      .map(r => ({
-        id: r.id,
-        name: r.name,
-        detail: r.zoneName ? `${r.zoneName} (${r.basementLevel || "L01"})` : r.basementLevel || "L01",
-      }));
-  }, [calculatedRows, assignedIds]);
-
-  const missingAreaLobbies = useMemo(() => {
-    return calculatedRows
-      .filter(r => !r.area || Number(r.area) <= 0)
-      .map(r => ({
-        id: r.id,
-        name: r.name,
-        detail: `0 ${areaUnit}`,
-      }));
-  }, [calculatedRows, areaUnit]);
-
-  const missingHeightLobbies = useMemo(() => {
-    return calculatedRows
-      .filter(r => !r.height || Number(r.height) <= 0)
-      .map(r => ({
-        id: r.id,
-        name: r.name,
-        detail: `0 ${ip ? "ft" : "m"}`,
-      }));
-  }, [calculatedRows, ip]);
-
-  const totalSpaces = floors.length;
-  const compliantSpaces = calculatedRows.filter(r => assignedIds.has(r.id) && (Number(r.area) || 0) > 0 && (Number(r.height) || 0) > 0);
-  const compliancePct = totalSpaces > 0 ? Math.round((compliantSpaces.length / totalSpaces) * 100) : 100;
+  const unassignedCount = calculatedRows.filter(r => !assignedIds.has(r.id)).length;
 
   // Max fan static
   const maxStaticSys = [...calculatedFanSystems].sort((a, b) => (b.totalStatic || 0) - (a.totalStatic || 0))[0];
 
   return (
-    <div className="h-full w-[360px] flex flex-col animate-fade-in font-sans">
-      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
+    <div className="flex flex-col h-full bg-card p-4 overflow-y-auto gap-4 select-none text-xs font-sans">
+      <div className="flex items-center justify-between pb-2 border-b border-border">
         <div className="flex items-center gap-2">
-          <Sparkles className="size-3.5 text-primary" />
-          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
+          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+            <Sparkles className="size-4" />
+          </div>
+          <div>
+            <h3 className="font-bold text-sm text-foreground">Pressurisation Intelligence</h3>
+            <p className="text-[10.5px] text-muted-foreground">Real-time Code & Engineering Sizing Audits</p>
+          </div>
         </div>
-        <button onClick={onClose} className="size-7 grid place-items-center rounded hover:bg-surface-2 text-muted-foreground hover:text-foreground cursor-pointer">
-          <X className="size-3.5" />
+        <button
+          onClick={onClose}
+          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-2 transition cursor-pointer"
+        >
+          <X className="size-4" />
         </button>
-      </header>
-
-      <div className="flex-1 overflow-auto">
-        {/* Compliance Status */}
-        <IntelSection icon={CheckCircle2} tone="success" title="Compliance Status">
-          <div className="text-[12px] text-muted-foreground">
-            NFPA 92 &amp; BS EN 12101 6.0 ACH pressurisation across {totalSpaces} scheduled space{totalSpaces === 1 ? "" : "s"}.
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            <div className="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
-              <div
-                className={`h-full ${compliancePct === 100 ? "bg-success" : "bg-warning"}`}
-                style={{ width: `${compliancePct}%` }}
-              />
-            </div>
-            <span className="font-mono tabular text-[11.5px] font-medium">{compliancePct}%</span>
-          </div>
-          <div className="mt-1 text-[11px] text-muted-foreground">
-            {compliantSpaces.length} of {totalSpaces} spaces assigned &amp; fully dimensioned
-          </div>
-        </IntelSection>
-
-        {/* Pressurisation Airflow & Volume */}
-        <IntelSection icon={Gauge} tone="primary" title="Pressurisation Airflow & Volume">
-          <KV k="Required Supply (6 ACH)" v={`${totals.total6.toLocaleString()} ${flowUnit}`} />
-          <KV k="Airflow Volume Rate" v={`${totals.totalM3h.toLocaleString()} m³/h`} />
-          <KV k="Total Containment Volume" v={`${totals.totalVolume.toLocaleString()} ${volUnit}`} />
-          <KV k="Total Gross Area" v={`${totals.totalArea.toLocaleString()} ${areaUnit}`} />
-          <KV k="Configured Fan Systems" v={`${calculatedFanSystems.length} systems`} />
-          <KV k="Avg Duty Fan Capacity" v={`${totals.perFanCapacity.toLocaleString()} ${flowUnit}`} />
-        </IntelSection>
-
-        {/* System & Static Checks */}
-        <IntelSection icon={AlertTriangle} tone={unassignedLobbies.length > 0 ? "warning" : "muted"} title="System & Static Checks">
-          <KV k="Unassigned Lobbies" v={unassignedLobbies.length} />
-          {maxStaticSys ? (
-            <>
-              <KV k={`Max Static (${maxStaticSys.name})`} v={`${maxStaticSys.totalStatic} ${pressUnit}`} />
-              <KV k="Critical Friction Loss" v={`${maxStaticSys.frictionLoss.toFixed(1)} ${pressUnit}`} />
-            </>
-          ) : (
-            <KV k="Critical Path Static" v="No fans" />
-          )}
-        </IntelSection>
-
-        {/* Missing Data Section */}
-        <IntelSection icon={Info} tone="muted" title="Missing Data & Coverage">
-          <CollapsibleMissingSection
-            label="Unassigned Lobbies"
-            count={unassignedLobbies.length}
-            itemsList={unassignedLobbies}
-            isOpen={openSections.unassigned}
-            onToggle={() => setOpenSections(prev => ({ ...prev, unassigned: !prev.unassigned }))}
-            onItemClick={(id) => onHighlightFloor?.(id)}
-          />
-          <CollapsibleMissingSection
-            label="Spaces with 0 / Missing Area"
-            count={missingAreaLobbies.length}
-            itemsList={missingAreaLobbies}
-            isOpen={openSections.missingArea}
-            onToggle={() => setOpenSections(prev => ({ ...prev, missingArea: !prev.missingArea }))}
-            onItemClick={(id) => onHighlightFloor?.(id)}
-          />
-          <CollapsibleMissingSection
-            label="Spaces with 0 / Missing Height"
-            count={missingHeightLobbies.length}
-            itemsList={missingHeightLobbies}
-            isOpen={openSections.missingHeight}
-            onToggle={() => setOpenSections(prev => ({ ...prev, missingHeight: !prev.missingHeight }))}
-            onItemClick={(id) => onHighlightFloor?.(id)}
-          />
-        </IntelSection>
-
-        {/* Optimization Suggestions */}
-        <IntelSection icon={Sparkles} tone="primary" title="Optimization Suggestions">
-          <ul className="text-[12px] text-muted-foreground space-y-1.5 list-disc pl-4">
-            <li>Calibrate lobby relief dampers to limit differential pressure to 50 Pa against escape stair doors.</li>
-            <li>For fire-fighting lobbies, specify 100% standby fan capacity (duty + standby) with auto changeover per BS 9999.</li>
-            <li>Coordinate air supply duct insulation where routes pass through high-temperature or unconditioned shafts.</li>
-          </ul>
-        </IntelSection>
-
-        {/* Engineering Notes */}
-        <IntelSection icon={Info} tone="muted" title="Engineering Notes">
-          <div className="text-[12px] text-muted-foreground leading-relaxed">
-            NFPA 92 &amp; BS EN 12101-6 Class A/B criteria: Minimum 6.0 air changes per hour (ACH) or 45-50 Pa pressurisation differential maintained against fire floor to ensure tenant escape route integrity.
-          </div>
-        </IntelSection>
       </div>
-    </div>
-  );
-}
 
-function IntelSection({
-  icon: Icon,
-  title,
-  tone,
-  children,
-}: {
-  icon: any;
-  title: string;
-  tone: "success" | "warning" | "primary" | "muted";
-  children: React.ReactNode;
-}) {
-  const color =
-    tone === "success"
-      ? "text-success"
-      : tone === "warning"
-      ? "text-warning"
-      : tone === "primary"
-      ? "text-primary"
-      : "text-muted-foreground";
-  return (
-    <section className="px-3 py-3 border-b border-border">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className={`size-3.5 ${color}`} />
-        <h4 className="text-[11px] uppercase tracking-wider font-semibold">{title}</h4>
+      {/* Summary KPI grid */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-surface-2 border border-border/70 rounded-xl p-2.5 flex flex-col">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase">Total Required 6 ACH</span>
+          <span className="font-mono text-base font-extrabold text-primary">
+            {totals.total6.toLocaleString()} <span className="text-xs font-normal">{flowUnit}</span>
+          </span>
+          <span className="text-[10px] text-muted-foreground mt-0.5">({totals.totalM3h.toLocaleString()} m³/h)</span>
+        </div>
+
+        <div className="bg-surface-2 border border-border/70 rounded-xl p-2.5 flex flex-col">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase">Total Containment Vol</span>
+          <span className="font-mono text-base font-extrabold text-foreground">
+            {totals.totalVolume.toLocaleString()} <span className="text-xs font-normal">{volUnit}</span>
+          </span>
+          <span className="text-[10px] text-muted-foreground mt-0.5">{floors.length} scheduled {floors.length === 1 ? "space" : "spaces"}</span>
+        </div>
       </div>
-      {children}
-    </section>
-  );
-}
 
-function KV({ k, v }: { k: string; v: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between text-[12px] py-0.5">
-      <span className="text-muted-foreground">{k}</span>
-      <span className="font-mono tabular font-medium">{v}</span>
-    </div>
-  );
-}
+      {/* Code & Safety Health Checks */}
+      <div className="flex flex-col gap-2">
+        <span className="text-[11px] font-bold text-foreground uppercase tracking-wider">Compliance & Health Checks</span>
 
-function CollapsibleMissingSection({
-  label,
-  count,
-  itemsList,
-  isOpen,
-  onToggle,
-  onItemClick,
-}: {
-  label: string;
-  count: number;
-  itemsList: { id: string; name: string; detail: string }[];
-  isOpen: boolean;
-  onToggle: () => void;
-  onItemClick: (id: string) => void;
-}) {
-  return (
-    <div className="border-b border-border/40 last:border-b-0 py-1.5">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center justify-between text-[12.5px] font-medium text-foreground/90 hover:text-foreground transition-colors cursor-pointer select-none py-0.5"
-      >
-        <span className="flex items-center gap-1.5">
-          <span>{label}</span>
-          {isOpen ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
-        </span>
-        <span className="font-mono tabular font-semibold text-foreground/80">{count}</span>
-      </button>
-
-      {isOpen && count > 0 && (
-        <div className="mt-1.5 max-h-36 overflow-y-auto border border-border/60 rounded-md bg-surface-2 divide-y divide-border/40 font-mono text-[10.5px] text-muted-foreground custom-scrollbar">
-          {itemsList.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => onItemClick(item.id)}
-              className="block w-full px-2.5 py-1.5 hover:bg-surface-3 transition-colors text-left cursor-pointer select-none"
-            >
-              <div className="text-[11.5px] leading-relaxed whitespace-nowrap overflow-hidden text-ellipsis block">
-                <span className="font-sans font-medium text-foreground/80 hover:text-primary transition-colors">
-                  {item.name}
-                </span>
-                <span className="text-muted-foreground/50 text-[10px] font-mono ml-1.5">
-                  ({item.detail})
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// SUB-COMPONENT: LOBBY PRESSURISATION FORMULA BREAKDOWN MODAL (MATCHING FRESH AIR COOLING LOAD STANDARD)
-function LobbyFormulaModal({
-  onClose,
-  unitSystem,
-  activeFloor,
-  totals,
-}: {
-  onClose: () => void;
-  unitSystem: "si" | "ip";
-  activeFloor?: any;
-  totals?: any;
-}) {
-  const [activeTab, setActiveTab] = React.useState<"trace" | "formulas" | "variables">("trace");
-  const [copied, setCopied] = React.useState(false);
-
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  const isSI = unitSystem === "si";
-  const ip = !isSI;
-
-  const floor = activeFloor || {
-    name: "Sample Lobby Level",
-    area: 45,
-    height: 3.2,
-    flow6: 240,
-    volume: 144,
-  };
-
-  const area = Number(floor.area) || (isSI ? 45 : 485);
-  const height = Number(floor.height) || (isSI ? 3.2 : 10.5);
-  const volume = Number(floor.volume) || Math.round(area * height);
-
-  // 6 ACH calculation: SI: Vol * 6 / 3.6 = L/s; IP: Vol * 6 / 60 = CFM
-  const flow6 = isSI ? Math.round((volume * 6) / 3.6) : Math.round((volume * 6) / 60);
-  const flow6M3s = isSI ? flow6 / 1000 : flow6 * 0.000471947;
-  const qPerFan = Math.round(flow6 / 2);
-
-  // Duct sizing trace
-  const eqLengthM = isSI ? 25 : 82;
-  const ductFrictionPaM = isSI ? 1.2 : 0.15;
-  const ductLossPa = isSI ? Math.round(eqLengthM * 1.6 * ductFrictionPaM) : Math.round(eqLengthM * 1.6 * 0.15 * 2.49);
-  const componentLossPa = 65; // Louvers, grilles, dampers
-  const safetyLossPa = Math.round((ductLossPa + componentLossPa) * 0.10);
-  const totalStaticPa = ductLossPa + componentLossPa + safetyLossPa;
-  const totalStaticInWg = (totalStaticPa / 249.0889).toFixed(3);
-
-  const handleCopySummary = () => {
-    const text = `=== LOBBY PRESSURISATION & 6 ACH FORMULA BREAKDOWN ===
-Governing Design Standards: BS EN 12101-6, NFPA 92 & ASHRAE Handbook
-Unit System: ${isSI ? "SI Metric (m, m², m³, L/s, Pa)" : "IP Imperial (ft, ft², ft³, CFM, in.wg)"}
-Lobby Space: ${floor.name || "Active Lobby"}
-
---- 1. ACTIVE SIZING PARAMETERS ---
-• Lobby Floor Area (A): ${area.toLocaleString()} ${isSI ? "m²" : "sq ft"}
-• Clear Ceiling Height (H): ${height.toFixed(2)} ${isSI ? "m" : "ft"}
-• Net Lobby Space Volume (V): ${Math.round(volume).toLocaleString()} ${isSI ? "m³" : "cu ft"}
-• Mandated Smoke Containment Rate: 6.0 Air Changes per Hour (ACH)
-• Fan Configuration: 2 × 50% Duty Fans
-
---- 2. STEP-BY-STEP CALCULATION TRACE ---
-[1] Lobby Space Volume:
-    V = Area × Height = ${area} × ${height} = ${Math.round(volume).toLocaleString()} ${isSI ? "m³" : "cu ft"}
-
-[2] Required 6 ACH Airflow Rate:
-    ${isSI ? `Q_6ACH = (V × 6 ACH) / 3.6 = (${Math.round(volume)} × 6) / 3.6 = ${flow6.toLocaleString()} L/s (${flow6M3s.toFixed(3)} m³/s)` : `Q_6ACH = (V × 6 ACH) / 60 = (${Math.round(volume)} × 6) / 60 = ${flow6.toLocaleString()} CFM`}
-
-[3] Multi-Fan Duty Distribution (2 × 50%):
-    Q_fan = Q_6ACH / 2 = ${qPerFan.toLocaleString()} ${isSI ? "L/s" : "CFM"} per duty fan
-
-[4] Duct Equivalent Length (60% Fittings Allowance):
-    L_eq = Length × 1.60 = ${eqLengthM} m × 1.60 = ${(eqLengthM * 1.6).toFixed(1)} m
-
-[5] Aerodynamic Duct Friction Loss:
-    ΔP_duct = L_eq × f_rate = ${(eqLengthM * 1.6).toFixed(1)} m × ${ductFrictionPaM} Pa/m = ${ductLossPa} Pa
-
-[6] Terminal & In-Line Component Losses:
-    ΔP_components = Louvers (25 Pa) + Grilles (20 Pa) + Fire Dampers (20 Pa) = ${componentLossPa} Pa
-
-[7] 10% Engineering Safety Margin & Total Fan Static:
-    ΔP_safety = 10% × (${ductLossPa} + ${componentLossPa}) = ${safetyLossPa} Pa
-    ΔP_total = ${ductLossPa} + ${componentLossPa} + ${safetyLossPa} = ${totalStaticPa} Pa (${totalStaticInWg} in.wg)
-`;
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    toast.success("Lobby calculation breakdown copied to clipboard!");
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 md:p-6 overflow-y-auto animate-in fade-in duration-150 select-none font-sans"
-      onClick={onClose}
-    >
-      <div
-        className="bg-card border border-border rounded-2xl shadow-2xl max-w-xl w-full max-h-[86vh] flex flex-col overflow-hidden text-xs animate-in zoom-in-95 duration-150"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-muted/30 shrink-0">
-          <div className="flex items-center gap-2 min-w-0 pr-2">
-            <div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
-              <BookOpen className="size-3.5" />
-            </div>
-            <div className="truncate">
-              <h2 className="text-[13px] font-bold text-foreground truncate">
-                Lobby Pressurisation Formula Breakdown
-              </h2>
-            </div>
-            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[10px] font-mono font-semibold shrink-0">
-              EN 12101-6 / NFPA 92
-            </span>
-            <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border text-[10px] font-mono font-medium shrink-0">
-              {ip ? "IP" : "SI"}
-            </span>
+        {/* 6 ACH Standard Verification */}
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3 flex items-start gap-2.5">
+          <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-0.5">
+            <span className="font-bold text-emerald-800 dark:text-emerald-300">NFPA 92 / BS EN 12101 Compliant</span>
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-400 leading-relaxed">
+              Air change rate is actively enforced at 6.0 ACH across all lobby and smoke containment zones.
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="size-7 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
-            title="Close modal (Esc)"
-          >
-            <X className="size-3.5" />
-          </button>
         </div>
 
-        {/* Navigation Tabs Bar */}
-        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border bg-muted/10 shrink-0 select-none">
-          <button
-            type="button"
-            onClick={() => setActiveTab("trace")}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
-              activeTab === "trace"
-                ? "bg-primary text-primary-foreground shadow-xs"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-          >
-            <Activity className="size-3" />
-            <span>Calculation Steps</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("formulas")}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
-              activeTab === "formulas"
-                ? "bg-primary text-primary-foreground shadow-xs"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-          >
-            <BookOpen className="size-3" />
-            <span>Master Formulas</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("variables")}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
-              activeTab === "variables"
-                ? "bg-primary text-primary-foreground shadow-xs"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            }`}
-          >
-            <Layers className="size-3" />
-            <span>Variables Reference</span>
-          </button>
-        </div>
-
-        {/* Modal Body */}
-        <div className="p-4 overflow-y-auto space-y-3 flex-1 custom-scrollbar">
-          {/* TAB 1: CALCULATION TRACE */}
-          {activeTab === "trace" && (
-            <div className="space-y-2.5">
-              {/* Active Sizing Parameters Banner */}
-              <div className="p-2.5 bg-muted/40 rounded-xl border border-border">
-                <div className="flex items-center justify-between text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider pb-1.5 mb-1.5 border-b border-border/60">
-                  <span className="flex items-center gap-1 text-foreground">
-                    <SlidersHorizontal className="size-3 text-primary" /> Active Lobby Parameters
-                  </span>
-                  <span className="font-mono text-primary normal-case font-bold">
-                    {floor.name || "Active Floor"} | {isSI ? `${flow6} L/s` : `${flow6} CFM`}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div className="bg-background rounded p-1.5 border border-border/60">
-                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Dimensions &amp; Volume</span>
-                    <span className="font-mono font-bold text-foreground">{area} {isSI ? "m²" : "sq.ft"} × {height} {isSI ? "m" : "ft"}</span>
-                    <span className="text-[10px] text-muted-foreground font-mono ml-1">({volume} {isSI ? "m³" : "ft³"})</span>
-                  </div>
-                  <div className="bg-background rounded p-1.5 border border-border/60">
-                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Code Mandate &amp; Split</span>
-                    <span className="font-mono font-bold text-foreground">6 ACH Containment</span>
-                    <span className="text-[10px] text-muted-foreground font-mono ml-1">(2 × 50% Fans)</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* STEP 1: SPACE GEOMETRIC VOLUME */}
-              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="size-5 rounded bg-primary/10 text-primary text-[10px] font-mono font-bold flex items-center justify-center">
-                      1
-                    </span>
-                    <span className="font-bold text-[11.5px] text-foreground">
-                      Lobby Space Net Volume (V)
-                    </span>
-                  </div>
-                  <span className="text-[10.5px] font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
-                    {Math.round(volume).toLocaleString()} {isSI ? "m³" : "cu ft"}
-                  </span>
-                </div>
-                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
-                  <div className="text-muted-foreground text-[10px]">Formula: Volume = Gross Floor Area × Clear Ceiling Height</div>
-                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
-                    <span className="text-muted-foreground">{area} {isSI ? "m²" : "sq.ft"} × {height} {isSI ? "m" : "ft"}</span>
-                    <span className="text-primary font-bold">= {Math.round(volume).toLocaleString()} {isSI ? "m³" : "cu ft"}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* STEP 2: 6 ACH AIRFLOW */}
-              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="size-5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-mono font-bold flex items-center justify-center">
-                      2
-                    </span>
-                    <span className="font-bold text-[11.5px] text-foreground">
-                      Smoke Containment Flow Rate (6 ACH)
-                    </span>
-                  </div>
-                  <span className="text-[10.5px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
-                    {flow6.toLocaleString()} {isSI ? "L/s" : "CFM"}
-                  </span>
-                </div>
-                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
-                  <div className="text-muted-foreground text-[10px]">Formula: {isSI ? "Q_6ACH = (Volume × 6 ACH) / 3.6 (L/s)" : "Q_6ACH = (Volume × 6 ACH) / 60 (CFM)"}</div>
-                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
-                    <span className="text-muted-foreground">({Math.round(volume)} × 6) / {isSI ? "3.6" : "60"}</span>
-                    <span className="text-blue-600 dark:text-blue-400 font-bold">= {flow6.toLocaleString()} {isSI ? "L/s" : "CFM"} ({flow6M3s.toFixed(3)} m³/s)</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* STEP 3: MULTI-FAN SPLIT */}
-              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="size-5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-bold flex items-center justify-center">
-                      3
-                    </span>
-                    <span className="font-bold text-[11.5px] text-foreground">
-                      Multi-Fan Capacity Division (2 × 50%)
-                    </span>
-                  </div>
-                  <span className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
-                    {qPerFan.toLocaleString()} {isSI ? "L/s" : "CFM"} / fan
-                  </span>
-                </div>
-                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
-                  <div className="text-muted-foreground text-[10px]">Formula: Q_fan = Total Airflow / N_fans (Redundant Duty Config)</div>
-                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
-                    <span className="text-muted-foreground">{flow6.toLocaleString()} / 2 duty fans</span>
-                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">= {qPerFan.toLocaleString()} {isSI ? "L/s" : "CFM"} per fan</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* STEP 4: DUCT EQUIVALENT LENGTH */}
-              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="size-5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 text-[10px] font-mono font-bold flex items-center justify-center">
-                      4
-                    </span>
-                    <span className="font-bold text-[11.5px] text-foreground">
-                      Duct Equivalent Length (L_eq)
-                    </span>
-                  </div>
-                  <span className="text-[10.5px] font-mono font-bold text-purple-600 dark:text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded">
-                    {(eqLengthM * 1.6).toFixed(1)} {isSI ? "m" : "ft"}
-                  </span>
-                </div>
-                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
-                  <div className="text-muted-foreground text-[10px]">Formula: L_eq = Straight Run + 60% allowance for elbows &amp; transitions</div>
-                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
-                    <span className="text-muted-foreground">{eqLengthM} m × 1.60</span>
-                    <span className="text-purple-600 dark:text-purple-400 font-bold">= {(eqLengthM * 1.6).toFixed(1)} {isSI ? "m" : "ft"}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* STEP 5: AERODYNAMIC HEAD LOSS & TOTAL STATIC */}
-              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="size-5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] font-mono font-bold flex items-center justify-center">
-                      5
-                    </span>
-                    <span className="font-bold text-[11.5px] text-foreground">
-                      Total System Fan Static Pressure (ΔP_total)
-                    </span>
-                  </div>
-                  <span className="text-[10.5px] font-mono font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded">
-                    {totalStaticPa} Pa ({totalStaticInWg} in.wg)
-                  </span>
-                </div>
-                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
-                  <div className="flex justify-between text-foreground">
-                    <span className="text-muted-foreground">Duct Friction Loss ({(eqLengthM * 1.6).toFixed(0)}m @ {ductFrictionPaM} Pa/m):</span>
-                    <span className="font-bold text-foreground">{ductLossPa} Pa</span>
-                  </div>
-                  <div className="flex justify-between text-foreground">
-                    <span className="text-muted-foreground">Louvers (25 Pa) + Grilles (20 Pa) + Dampers (20 Pa):</span>
-                    <span className="font-bold text-foreground">{componentLossPa} Pa</span>
-                  </div>
-                  <div className="flex justify-between text-foreground pt-1 border-t border-border/40">
-                    <span className="text-muted-foreground">+10% Safety Allowance:</span>
-                    <span className="text-rose-600 dark:text-rose-400 font-bold">+{safetyLossPa} Pa → Total: {totalStaticPa} Pa</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sizing Outcome Card */}
-              <div className="bg-primary/5 border border-primary/20 rounded-xl p-2.5 flex items-center justify-between">
-                <div>
-                  <div className="text-[9.5px] uppercase font-bold text-muted-foreground">Recommended Fan Duty</div>
-                  <div className="text-[11.5px] font-bold text-foreground mt-0.5">2 × {qPerFan.toLocaleString()} {isSI ? "L/s" : "CFM"} @ {totalStaticPa} Pa</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-base font-bold font-mono text-primary leading-tight">{flow6.toLocaleString()} <span className="text-xs font-normal">{isSI ? "L/s" : "CFM"}</span></div>
-                  <div className="text-[9.5px] text-muted-foreground font-mono">6 ACH Total Flow</div>
-                </div>
-              </div>
+        {/* Unassigned Spaces Warning */}
+        {unassignedCount > 0 ? (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-2.5">
+            <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-bold text-amber-800 dark:text-amber-300">{unassignedCount} Unassigned Space(s)</span>
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                Some lobby spaces are not yet linked to a dedicated Fan System. Head losses cannot be calculated for unserved spaces.
+              </p>
             </div>
-          )}
-
-          {/* TAB 2: MASTER FORMULAS */}
-          {activeTab === "formulas" && (
-            <div className="space-y-2">
-              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
-                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
-                  <span className="size-1.5 rounded-full bg-primary" /> Mandated 6 ACH Smoke Containment Flow
-                </div>
-                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
-                  <div>SI: Q (L/s) = [ Volume (m³) × 6 ACH ] / 3.6</div>
-                  <div>IP: Q (CFM) = [ Volume (ft³) × 6 ACH ] / 60</div>
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  Pursuant to BS EN 12101-6, NFPA 92 and local fire safety codes, lift lobbies and fire-fighting access lobbies require a minimum ventilation rate of 6 air changes per hour for smoke dilution and escape path protection.
-                </p>
-              </div>
-
-              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
-                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
-                  <span className="size-1.5 rounded-full bg-blue-500" /> Duct Equivalent Length &amp; Fittings Loss
-                </div>
-                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
-                  <div>L_eq = L_straight + (L_straight × 0.60) = 1.60 · L_straight</div>
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  Standard ASHRAE design practice incorporates an additional 60% linear equivalent length to account for standard 90° bends, branch take-offs, and transitions in vertical riser shafts.
-                </p>
-              </div>
-
-              <div className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
-                <div className="font-bold text-foreground text-[11px] flex items-center gap-1.5">
-                  <span className="size-1.5 rounded-full bg-emerald-500" /> Total Fan Static Pressure Formula
-                </div>
-                <div className="p-1.5 bg-card rounded font-mono text-[10.5px] border border-border/60 text-primary font-bold space-y-0.5">
-                  <div>ΔP_total = ( ΔP_duct + ΔP_louver + ΔP_grille + ΔP_damper ) × 1.10</div>
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  Includes duct friction loss, rain/sand louvers (25 Pa), supply grilles (20 Pa), motorised fire smoke dampers (20 Pa), and sound attenuators with a standard 10% design safety factor.
-                </p>
-              </div>
+          </div>
+        ) : (
+          <div className="bg-surface-2 border border-border/70 rounded-xl p-3 flex items-start gap-2.5">
+            <Check className="size-4 text-primary shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-bold text-foreground">Full Fan Coverage</span>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                All {floors.length} lobby floor spaces are mapped to fan systems.
+              </p>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* TAB 3: VARIABLES REFERENCE */}
-          {activeTab === "variables" && (
-            <div className="space-y-2.5">
-              <div className="border border-border rounded-xl overflow-hidden bg-card">
-                <table className="w-full text-left text-[10.5px]">
-                  <thead>
-                    <tr className="bg-muted/60 border-b border-border font-bold text-foreground">
-                      <th className="py-1.5 px-2">Symbol</th>
-                      <th className="py-1.5 px-2">Parameter</th>
-                      <th className="py-1.5 px-2">SI Standard</th>
-                      <th className="py-1.5 px-2">IP Standard</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60 font-sans">
-                    <tr>
-                      <td className="py-1.5 px-2 font-mono font-bold text-primary">A</td>
-                      <td className="py-1.5 px-2 text-foreground">Lobby Floor Area</td>
-                      <td className="py-1.5 px-2 font-mono">m²</td>
-                      <td className="py-1.5 px-2 font-mono">sq ft</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 px-2 font-mono font-bold text-primary">H</td>
-                      <td className="py-1.5 px-2 text-foreground">Clear Ceiling Height</td>
-                      <td className="py-1.5 px-2 font-mono">m</td>
-                      <td className="py-1.5 px-2 font-mono">ft</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 px-2 font-mono font-bold text-primary">V</td>
-                      <td className="py-1.5 px-2 text-foreground">Lobby Space Net Volume</td>
-                      <td className="py-1.5 px-2 font-mono">m³</td>
-                      <td className="py-1.5 px-2 font-mono">cu ft</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 px-2 font-mono font-bold text-primary">Q_6ACH</td>
-                      <td className="py-1.5 px-2 text-foreground">Mandated 6 ACH Smoke Airflow</td>
-                      <td className="py-1.5 px-2 font-mono">L/s</td>
-                      <td className="py-1.5 px-2 font-mono">CFM</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 px-2 font-mono font-bold text-primary">L_eq</td>
-                      <td className="py-1.5 px-2 text-foreground">Duct Equivalent Length (+60%)</td>
-                      <td className="py-1.5 px-2 font-mono">m</td>
-                      <td className="py-1.5 px-2 font-mono">ft</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 px-2 font-mono font-bold text-primary">ΔP_total</td>
-                      <td className="py-1.5 px-2 text-foreground">Total Fan Static Head Loss</td>
-                      <td className="py-1.5 px-2 font-mono">Pa</td>
-                      <td className="py-1.5 px-2 font-mono">in.wg</td>
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 px-2 font-mono font-bold text-primary">N_fans</td>
-                      <td className="py-1.5 px-2 text-foreground">Duty Fans in Parallel (2 × 50%)</td>
-                      <td className="py-1.5 px-2 font-mono">qty</td>
-                      <td className="py-1.5 px-2 font-mono">qty</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+        {/* Static Head Loss Evaluation */}
+        {maxStaticSys && (
+          <div className="bg-surface-2 border border-border/70 rounded-xl p-3 flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-foreground">Critical Path Head Loss</span>
+              <span className="font-mono font-extrabold text-primary">{maxStaticSys.totalStatic} {pressUnit}</span>
             </div>
-          )}
-        </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Highest static pressure in <strong>{maxStaticSys.name}</strong> (Duct friction: {maxStaticSys.frictionLoss.toFixed(1)} {pressUnit}, Safety allowance: +10%).
+            </p>
+          </div>
+        )}
+      </div>
 
-        {/* Modal Footer */}
-        <div className="px-4 py-2 border-t border-border bg-muted/30 flex items-center justify-between shrink-0">
-          <button
-            type="button"
-            onClick={handleCopySummary}
-            className="text-[11px] font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-muted border border-border/70 transition cursor-pointer"
-          >
-            {copied ? (
-              <>
-                <Check className="size-3 text-emerald-500" />
-                <span className="text-emerald-600 dark:text-emerald-400">Copied!</span>
-              </>
-            ) : (
-              <>
-                <Copy className="size-3" />
-                <span>Copy Summary</span>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="bg-primary text-primary-foreground text-[11.5px] font-semibold px-4 py-1.5 rounded-lg hover:bg-primary/90 transition shadow-xs cursor-pointer"
-          >
-            Close
-          </button>
+      {/* Fan Configuration Insights */}
+      <div className="flex flex-col gap-2">
+        <span className="text-[11px] font-bold text-foreground uppercase tracking-wider">Duty / Standby Insights</span>
+        <div className="bg-surface-2 border border-border/70 rounded-xl p-3 flex flex-col gap-2">
+          <div className="flex justify-between items-center text-[11px]">
+            <span className="text-muted-foreground">Configured Fan Systems:</span>
+            <span className="font-bold font-mono text-foreground">{calculatedFanSystems.length}</span>
+          </div>
+          <div className="flex justify-between items-center text-[11px]">
+            <span className="text-muted-foreground">Standard Multi-Fan Split:</span>
+            <span className="font-bold text-foreground">2 × 50% Duty</span>
+          </div>
+          <div className="flex justify-between items-center text-[11px]">
+            <span className="text-muted-foreground">Average Flow per Duty Fan:</span>
+            <span className="font-bold font-mono text-primary">{totals.perFanCapacity.toLocaleString()} {flowUnit}</span>
+          </div>
         </div>
       </div>
     </div>

@@ -436,6 +436,7 @@ export function EditPclSpaceModal({
                   <input
                     type="text"
                     value={densityInputVal}
+                    onFocus={(e) => e.target.select()}
                     onChange={handleDensityInputChange}
                     onBlur={handleDensityInputBlur}
                     className={`${inputClass} font-mono`}

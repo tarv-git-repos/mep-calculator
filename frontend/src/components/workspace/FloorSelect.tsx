@@ -134,7 +134,7 @@ export function FloorSelect({
                 </span>
               )}
             </div>
-            <ChevronsUpDown className="size-3 text-muted-foreground shrink-0 opacity-55" />
+            <ChevronsUpDown className="size-3.5 text-muted-foreground/60 group-hover:text-primary shrink-0 ml-1.5 transition-colors" />
           </button>
         </PopoverTrigger>
 

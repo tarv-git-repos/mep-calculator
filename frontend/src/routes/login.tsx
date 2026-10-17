@@ -88,6 +88,34 @@ function Login() {
     }
   }, [isLoggedin, userData, navigate]);
 
+  // Auto-authenticate if one-time access link is present in URL (?magicToken=...&email=...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const magicToken = params.get('magicToken');
+    const magicEmail = params.get('email');
+    if (magicToken && magicEmail) {
+      setLoading(true);
+      const loadingToastId = toast.loading("Authenticating via one-time login link...");
+      authService.magicLogin(magicToken, magicEmail).then((res) => {
+        toast.dismiss(loadingToastId);
+        if (res.success && res.userData) {
+          toast.success("Welcome! Authenticated via one-time access link.");
+          setUserData(res.userData as any);
+          navigate({ to: '/dashboard' });
+        } else {
+          toast.error(res.message || "Invalid or expired one-time login link.");
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }).catch((err: any) => {
+        toast.dismiss(loadingToastId);
+        toast.error("Failed to authenticate with login link: " + (err?.message || String(err)));
+      }).finally(() => {
+        setLoading(false);
+      });
+    }
+  }, []);
+
   // Handle individual OTP input box changes
   const handleOtpInput = (val: string, index: number) => {
     const cleanVal = val.replace(/\D/g, '').slice(-1);

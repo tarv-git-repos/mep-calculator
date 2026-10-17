@@ -11,7 +11,7 @@ import {
   AlertDialogOverlay,
 } from "@/components/ui/alert-dialog";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Trash2 } from "lucide-react";
 
 interface ConfirmOptions {
   title?: string;
@@ -158,37 +158,51 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       >
         <AlertDialogPortal>
           <AlertDialogOverlay />
-          <AlertDialogPrimitive.Content className="fixed left-[50%] top-[50%] z-50 grid w-full max-w-[400px] translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-2xl rounded-3xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 flex flex-col focus:outline-none">
+          <AlertDialogPrimitive.Content className="fixed left-[50%] top-[50%] z-50 grid w-full max-w-[420px] translate-x-[-50%] translate-y-[-50%] gap-4 border border-border/80 bg-background/95 dark:bg-[#16161a]/95 backdrop-blur-md p-6 shadow-2xl rounded-2xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 flex flex-col focus:outline-none">
           {state?.variant === "unit-transition" ? (
-            <div className="flex gap-4 items-start pb-2">
-              <div className="size-10 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center text-red-500 shrink-0 select-none">
+            <div className="flex gap-3.5 items-start">
+              <div className="size-10 rounded-xl bg-red-100 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 flex items-center justify-center text-red-500 shrink-0 select-none shadow-xs">
                 <AlertTriangle className="size-5" />
               </div>
-              <div className="space-y-1">
-                <AlertDialogTitle className="text-[15px] font-bold text-foreground">
+              <div className="space-y-1 pt-0.5 flex-1 min-w-0">
+                <AlertDialogTitle className="text-[15px] font-bold text-foreground leading-tight tracking-tight">
                   {state?.title || "Unit System Transition"}
                 </AlertDialogTitle>
-                <AlertDialogDescription className="text-[12px] text-muted-foreground leading-normal font-medium">
+                <AlertDialogDescription className="text-[12.5px] text-muted-foreground leading-relaxed font-normal">
+                  {state?.message}
+                </AlertDialogDescription>
+              </div>
+            </div>
+          ) : isDeleteAction || state?.variant === "destructive" ? (
+            <div className="flex gap-3.5 items-start">
+              <div className="size-10 rounded-xl bg-destructive/10 dark:bg-destructive/20 border border-destructive/20 flex items-center justify-center text-destructive shrink-0 select-none shadow-xs">
+                <Trash2 className="size-5" />
+              </div>
+              <div className="space-y-1 pt-0.5 flex-1 min-w-0">
+                <AlertDialogTitle className="text-[15px] font-bold text-foreground leading-tight tracking-tight">
+                  {state?.title || "Delete Confirmation"}
+                </AlertDialogTitle>
+                <AlertDialogDescription className="text-[12.5px] text-muted-foreground leading-relaxed font-normal">
                   {state?.message}
                 </AlertDialogDescription>
               </div>
             </div>
           ) : (
             <AlertDialogHeader className="space-y-1.5">
-              <AlertDialogTitle className="text-[14px] font-semibold tracking-tight text-foreground">
+              <AlertDialogTitle className="text-[14.5px] font-bold tracking-tight text-foreground leading-tight">
                 {state?.title || "Confirm Action"}
               </AlertDialogTitle>
-              <AlertDialogDescription className="text-[12.5px] text-muted-foreground leading-normal font-normal">
+              <AlertDialogDescription className="text-[12.5px] text-muted-foreground leading-relaxed font-normal">
                 {state?.message}
               </AlertDialogDescription>
             </AlertDialogHeader>
           )}
-          <AlertDialogFooter className="flex items-center justify-end gap-2 mt-2 w-full">
+          <AlertDialogFooter className="flex items-center justify-end gap-2 mt-2 w-full pt-1">
             {state?.threeButtons ? (
               <div className="flex items-center justify-end gap-2 w-full">
                 <AlertDialogCancel
                   onClick={handleCancel}
-                  className="h-8 px-4 border border-border bg-transparent hover:bg-surface-2 rounded text-[12px] font-medium text-foreground transition-colors mt-0 cursor-pointer"
+                  className="h-8.5 px-4 border border-border/80 bg-surface-1 hover:bg-surface-2 rounded-lg text-[12px] font-semibold text-foreground transition-all mt-0 cursor-pointer"
                 >
                   {state.cancelText || "Cancel"}
                 </AlertDialogCancel>
@@ -197,13 +211,13 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                     <button
                       type="button"
                       onClick={handleUnsave}
-                      className="h-8 px-4 border-0 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/30 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded text-[12px] font-semibold transition-colors cursor-pointer"
+                      className="h-8.5 px-4 border-0 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/30 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded-lg text-[12px] font-semibold transition-all cursor-pointer"
                     >
                       {state.unsaveText || "Keep Values As-Is"}
                     </button>
                     <AlertDialogAction
                       onClick={handleConfirm}
-                      className="h-8 px-4 bg-red-600 hover:bg-red-700 text-white rounded text-[12px] font-semibold transition-colors shadow-sm cursor-pointer border-0"
+                      className="h-8.5 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[12px] font-semibold transition-all shadow-xs cursor-pointer border-0"
                     >
                       {state.saveText || "Convert Values"}
                     </AlertDialogAction>
@@ -213,13 +227,13 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                     <button
                       type="button"
                       onClick={handleUnsave}
-                      className="h-8 px-4 border border-destructive/20 bg-destructive/10 hover:bg-destructive hover:text-white rounded text-[12px] font-medium text-destructive transition-colors cursor-pointer"
+                      className="h-8.5 px-4 border border-destructive/20 bg-destructive/10 hover:bg-destructive hover:text-white rounded-lg text-[12px] font-medium text-destructive transition-all cursor-pointer"
                     >
                       {state.unsaveText || "Unsave"}
                     </button>
                     <AlertDialogAction
                       onClick={handleConfirm}
-                      className="h-8 px-4 bg-[#0A7BC7] hover:bg-[#06456F] text-white rounded text-[12px] font-semibold transition-colors shadow-sm cursor-pointer border-0"
+                      className="h-8.5 px-4 bg-[#0A7BC7] hover:bg-[#06456F] text-white rounded-lg text-[12px] font-semibold transition-all shadow-xs cursor-pointer border-0"
                     >
                       {state.saveText || "Save"}
                     </AlertDialogAction>
@@ -231,15 +245,15 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                 {!state?.hideCancel && (
                   <AlertDialogCancel
                     onClick={handleCancel}
-                    className="h-8 px-4 border border-border bg-transparent hover:bg-surface-2 rounded text-[12px] font-medium text-foreground transition-colors mt-0 cursor-pointer"
+                    className="h-8.5 px-4 border border-border/80 bg-surface-1 hover:bg-surface-2 rounded-lg text-[12px] font-semibold text-foreground transition-all mt-0 cursor-pointer"
                   >
                     {cancelText}
                   </AlertDialogCancel>
                 )}
                 <AlertDialogAction
                   onClick={handleConfirm}
-                  className={`h-8 px-4 rounded text-[12px] font-semibold transition-colors shadow-sm text-white cursor-pointer ${
-                    isDeleteAction
+                  className={`h-8.5 px-4 rounded-lg text-[12px] font-semibold transition-all shadow-xs text-white cursor-pointer active:scale-[0.98] border-0 ${
+                    isDeleteAction || state?.variant === "destructive"
                       ? "bg-destructive hover:bg-destructive/90"
                       : "bg-[#0A7BC7] hover:bg-[#06456F]"
                   }`}

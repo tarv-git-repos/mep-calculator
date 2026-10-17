@@ -7,6 +7,9 @@ import {
   formatDateStr,
   getSignatureBlockDetails,
   getExporterUserName,
+  addPdfHeader,
+  addPdfSignatureBlock,
+  addPdfFooter,
 } from "@/lib/pdfHelpers";
 
 export interface ChwPumpHeadPdfData {
@@ -97,53 +100,15 @@ export const exportChwPumpHeadPDF = async (data: ChwPumpHeadPdfData) => {
       }
     };
 
-    // 1. Header Title
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(0, 0, 0);
-    doc.text("Chilled Water Pump Head Calculation Report", 14, 14);
-
-    // 2. Metadata Block (182mm width: 14mm to 196mm)
-    doc.setFontSize(9);
-    doc.setLineWidth(0.3);
-    doc.setDrawColor(0, 0, 0);
-    doc.rect(14, 18, 182, 18);
-
-    doc.line(105, 18, 105, 36);
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    // Column 1
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(String(calcNo), 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(String(projectNo), 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(String(projectName), 42, 34);
-
-    // Column 2
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(String(today), 120, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(String(clientName), 120, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(String(endUser), 125, 34);
+    // 1. Header & Standard Metadata Box (Central Org Branding)
+    const startY = addPdfHeader(doc, "Chilled Water Pump Head Calculation Report", {
+      calcNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser
+    });
 
     const flowLs = isIp ? (calc.flowRateDisplay * 3.78541) / 60 : calc.flowRateDisplay;
     const flowGpm = isIp ? calc.flowRateDisplay : (calc.flowRateDisplay * 60) / 3.78541;
@@ -177,7 +142,7 @@ export const exportChwPumpHeadPDF = async (data: ChwPumpHeadPdfData) => {
     ];
 
     callAutoTable(doc, {
-      startY: 42,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
@@ -320,65 +285,17 @@ export const exportChwPumpHeadPDF = async (data: ChwPumpHeadPdfData) => {
 
     currentY = (doc as any).lastAutoTable.finalY + 7;
 
-    // 7. SIGNATURE / APPROVAL BLOCK (Exact peach header matching user screenshot)
+    // 7. SIGNATURE / APPROVAL BLOCK & Branding
     const currentUserName = getExporterUserName(meta.userName);
-    const {
-      originatedName,
-      originatedDate,
-      reviewerName,
-      reviewerDate,
-      approverName,
-      approverDate
-    } = getSignatureBlockDetails(activeProj?.id || "default", "/chw-pump-head", currentUserName);
+    const sigDetails = getSignatureBlockDetails(activeProj?.id || "default", "/chw-pump-head", currentUserName);
+    addPdfSignatureBlock(doc, currentY, sigDetails, activeProj?.id || "default", "/chw-pump-head");
 
-    callAutoTable(doc, {
-      startY: currentY,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      styles: {
-        fontSize: 8.5,
-        halign: "center",
-        valign: "middle",
-        lineColor: [100, 100, 100],
-        lineWidth: 0.15,
-        cellPadding: { top: 3, bottom: 3, left: 2, right: 2 },
-        textColor: [0, 0, 0]
-      },
-      headStyles: {
-        fillColor: [255, 230, 204],
-        textColor: [0, 0, 0],
-        fontStyle: "bold",
-        fontSize: 9
-      },
-      head: [
-        [
-          { content: "" },
-          { content: "Originator" },
-          { content: "Reviewer" },
-          { content: "Approver" }
-        ]
-      ],
-      body: [
-        [
-          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedName || currentUserName || "System Admin", styles: { halign: "center" } },
-          { content: reviewerName || "", styles: { halign: "center" } },
-          { content: approverName || "", styles: { halign: "center" } }
-        ],
-        [
-          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedDate || today, styles: { halign: "center" } },
-          { content: reviewerDate || "", styles: { halign: "center" } },
-          { content: approverDate || "", styles: { halign: "center" } }
-        ]
-      ],
-      columnStyles: {
-        0: { cellWidth: 32 },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 50 }
-      }
-    });
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
 
     const pdfBuffer = doc.output("arraybuffer");
     const filename = `CHW_Pump_Head_Calculation_Report_${projectNo || "6767"}.pdf`;

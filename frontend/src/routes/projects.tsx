@@ -1,14 +1,86 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { toast } from "sonner";
 import {
   FolderKanban, Plus, Trash2, Copy, Play, Calendar, User, Users, UserPlus, FileCode,
   MapPin, CheckCircle2, X, Edit3, Save, AlertTriangle, Search, ShieldCheck,
-  Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight, ChevronDown, ChevronUp, Pin, Check
+  Building2, FileText, Wind, Boxes, LayoutDashboard, HelpCircle, ChevronRight, ChevronDown, ChevronUp, Pin, Check,
+  ArrowUpDown, ArrowRight, Sparkles, Clock, Layers, Cpu, BarChart3,
+  Home, GraduationCap, ShoppingBag, Landmark, HeartPulse, Briefcase, Lock, Unlock, SlidersHorizontal, CheckSquare, Square
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { TBtn } from "@/components/workspace/Button";
-import { useWorkspace, type Project } from "@/lib/workspace-store";
+import {
+  useWorkspace,
+  type Project,
+  PROJECT_TYPES,
+  PROJECT_STAGES,
+  canEditProjectStages,
+  type ProjectType,
+  type ProjectStageName
+} from "@/lib/workspace-store";
+
+export const PROJECT_TYPE_CONFIG: Record<string, { label: string; icon: any; color: string; bg: string; border: string }> = {
+  "Villa": {
+    label: "Villa",
+    icon: Home,
+    color: "text-foreground/80",
+    bg: "bg-surface-2/80 dark:bg-zinc-800/80",
+    border: "border-border/70"
+  },
+  "School Projects": {
+    label: "School Projects",
+    icon: GraduationCap,
+    color: "text-foreground/80",
+    bg: "bg-surface-2/80 dark:bg-zinc-800/80",
+    border: "border-border/70"
+  },
+  "Mall & Mosque": {
+    label: "Mall & Mosque",
+    icon: ShoppingBag,
+    color: "text-foreground/80",
+    bg: "bg-surface-2/80 dark:bg-zinc-800/80",
+    border: "border-border/70"
+  },
+  "Complex": {
+    label: "Complex",
+    icon: Landmark,
+    color: "text-foreground/80",
+    bg: "bg-surface-2/80 dark:bg-zinc-800/80",
+    border: "border-border/70"
+  },
+  "Buildings / Apartment": {
+    label: "Buildings / Apartment",
+    icon: Building2,
+    color: "text-foreground/80",
+    bg: "bg-surface-2/80 dark:bg-zinc-800/80",
+    border: "border-border/70"
+  },
+  "Hospitals": {
+    label: "Hospitals",
+    icon: HeartPulse,
+    color: "text-foreground/80",
+    bg: "bg-surface-2/80 dark:bg-zinc-800/80",
+    border: "border-border/70"
+  },
+  "Offices / Residential": {
+    label: "Offices / Residential",
+    icon: Briefcase,
+    color: "text-foreground/80",
+    bg: "bg-surface-2/80 dark:bg-zinc-800/80",
+    border: "border-border/70"
+  },
+};
+
+export const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  "Preconcept Design": { label: "Preconcept Design", color: "text-foreground/90", bg: "bg-surface-2/80 dark:bg-zinc-800/80", border: "border-border/70" },
+  "Concept Design": { label: "Concept Design", color: "text-foreground/90", bg: "bg-surface-2/80 dark:bg-zinc-800/80", border: "border-border/70" },
+  "Schematic Design": { label: "Schematic Design", color: "text-foreground/90", bg: "bg-surface-2/80 dark:bg-zinc-800/80", border: "border-border/70" },
+  "Detailed Design": { label: "Detailed Design", color: "text-foreground/90", bg: "bg-surface-2/80 dark:bg-zinc-800/80", border: "border-border/70" },
+  "Tender Documentation": { label: "Tender Documentation", color: "text-foreground/90", bg: "bg-surface-2/80 dark:bg-zinc-800/80", border: "border-border/70" },
+  "Issued For Construction": { label: "Issued For Construction", color: "text-foreground/90", bg: "bg-surface-2/80 dark:bg-zinc-800/80", border: "border-border/70" },
+  "Completed": { label: "Completed", color: "text-foreground/90", bg: "bg-surface-2/80 dark:bg-zinc-800/80", border: "border-border/70" },
+};
 import { api } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useConfirm } from "@/hooks/use-confirm";
@@ -105,6 +177,15 @@ const getUserDisplayName = (userParam: any, usersList: any[]) => {
   }
 
   return String(rawId);
+};
+
+const getInitials = (name?: string) => {
+  if (!name) return 'U';
+  const clean = name.replace(/\([^)]*\)/g, '').trim();
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'U';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 };
 
 function MemberAssignmentPicker({
@@ -442,6 +523,7 @@ function ProjectsPage() {
     duplicateProject,
     deleteProject,
     updateProject,
+    updateProjectStage,
     refreshProjects
   } = useWorkspace();
 
@@ -453,6 +535,9 @@ function ProjectsPage() {
     location: "",
     description: "",
     notes: "",
+    project_type: "Buildings / Apartment" as ProjectType,
+    applicable_stages: [...PROJECT_STAGES] as ProjectStageName[],
+    current_stage: "Concept Design" as ProjectStageName,
     assigned_users: [] as string[],
     assigned_teams: [] as string[],
   });
@@ -477,14 +562,14 @@ function ProjectsPage() {
 
     return allUsers.filter(u => {
       if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return false;
-      if (!myOrgId && !myCompany) return true; // Show all users returned from backend /api/users/list
+      if (!myOrgId && !myCompany) return false;
       const uOrgId = u.organization_id;
       const uCompany = u.company || u.organization;
       if (myOrgId && uOrgId && String(uOrgId) === String(myOrgId)) return true;
       if (myCompany && uCompany && uCompany === myCompany) return true;
       if (myOrgId && uCompany && uCompany === String(myOrgId)) return true;
       if (myCompany && uOrgId && String(uOrgId) === String(myCompany)) return true;
-      return true; // Fallback to displaying returned organization users
+      return false;
     });
   }, [allUsers, profile?.role, profile?.organization_id, profile?.company, (profile as any)?.organization]);
 
@@ -496,11 +581,11 @@ function ProjectsPage() {
     const myCompany = profile?.company || (profile as any)?.organization;
 
     return allTeams.filter(t => {
-      if (!myOrgId && !myCompany) return true;
+      if (!myOrgId && !myCompany) return false;
       const tOrgId = t.organization_id;
       if (myOrgId && tOrgId && String(tOrgId) === String(myOrgId)) return true;
       if (myCompany && tOrgId && String(tOrgId) === String(myCompany)) return true;
-      return true;
+      return false;
     });
   }, [allTeams, profile?.role, profile?.organization_id, profile?.company, (profile as any)?.organization]);
 
@@ -556,6 +641,27 @@ function ProjectsPage() {
     } catch {}
       
     selectProject(id);
+  };
+
+  const navigate = useNavigate();
+
+  const handleOpenWorkspace = (id: string) => {
+    handleSelectProject(id);
+    let targetRoute = "";
+    try {
+      targetRoute =
+        localStorage.getItem(`mep_last_route_${id}`) ||
+        localStorage.getItem("mep_last_active_route") ||
+        "";
+    } catch {}
+
+    if (!targetRoute || targetRoute === "/" || targetRoute === "/dashboard" || targetRoute === "/projects") {
+      targetRoute = "/bim-viewer";
+    }
+
+    const p = projects.find(proj => proj.id === id);
+    toast.info(`Opening ${p ? p.name : "workspace"}...`);
+    navigate({ to: targetRoute as any });
   };
 
   const togglePin = (id: string) => {
@@ -624,6 +730,82 @@ function ProjectsPage() {
     setIsCreateOpen(true);
   };
 
+  const statsMap = useMemo(() => {
+    const map: Record<string, { spaces: number; zones: number; equipment: number }> = {};
+    projects.forEach((p) => {
+      const wdata = (p as any).workspace_data;
+      if (wdata) {
+        map[p.id] = {
+          spaces: Array.isArray(wdata.spaces) ? wdata.spaces.length : 0,
+          zones: Array.isArray(wdata.zones) ? wdata.zones.length : 0,
+          equipment: Array.isArray(wdata.equipment) ? wdata.equipment.length : 0,
+        };
+      } else {
+        map[p.id] = { spaces: 0, zones: 0, equipment: 0 };
+      }
+    });
+    return map;
+  }, [projects]);
+
+  const totalStats = useMemo(() => {
+    let spaces = 0;
+    let zones = 0;
+    let equipment = 0;
+    Object.values(statsMap).forEach((stat) => {
+      spaces += stat.spaces;
+      zones += stat.zones;
+      equipment += stat.equipment;
+    });
+    return { spaces, zones, equipment };
+  }, [statsMap]);
+
+  type ProjectFilterTab = 'ALL' | 'ACTIVE_PINNED' | 'MY_PROJECTS';
+  type ProjectTypeFilter = 'ALL' | ProjectType;
+  type ProjectSortOption = 'RECENT' | 'NAME_ASC' | 'NAME_DESC' | 'TYPE_ASC' | 'STAGE_ASC' | 'SPACES_DESC';
+
+  const [filterTab, setFilterTab] = useState<ProjectFilterTab>('ALL');
+  const [typeFilter, setTypeFilter] = useState<ProjectTypeFilter>('ALL');
+  const [sortBy, setSortBy] = useState<ProjectSortOption>('RECENT');
+  const [showTypologyStats, setShowTypologyStats] = useState(false);
+  const canEditStages = canEditProjectStages(profile);
+
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = { ALL: projects.length };
+    PROJECT_TYPES.forEach(t => { counts[t] = 0; });
+    projects.forEach(p => {
+      const t = (p.project_type || 'Buildings / Apartment') as ProjectType;
+      if (counts[t] !== undefined) counts[t]++;
+      else counts[t] = 1;
+    });
+    return counts;
+  }, [projects]);
+
+  const typologyStats = useMemo(() => {
+    const max = Math.max(1, ...PROJECT_TYPES.map(t => typeCounts[t] || 0));
+    const items = PROJECT_TYPES.map(t => ({
+      type: t,
+      count: typeCounts[t] || 0,
+      pct: projects.length > 0 ? Math.round(((typeCounts[t] || 0) / projects.length) * 100) : 0,
+      barPct: Math.round(((typeCounts[t] || 0) / max) * 100),
+    }));
+    const sorted = [...items].sort((a, b) => b.count - a.count);
+    const highest = sorted[0] || { type: "Buildings / Apartment", count: 0, pct: 0, barPct: 0 };
+    const lowest = sorted[sorted.length - 1] || { type: "Villa", count: 0, pct: 0, barPct: 0 };
+    const zeroCount = items.filter(i => i.count === 0).length;
+    return { items, highest, lowest, zeroCount };
+  }, [typeCounts, projects.length]);
+
+  const pinnedAndActiveCount = useMemo(() => {
+    return projects.filter(p => p.id === activeProjectId || pinnedProjects.includes(p.id)).length;
+  }, [projects, activeProjectId, pinnedProjects]);
+
+  const myProjectsCount = useMemo(() => {
+    return projects.filter(p => 
+      p.created_by === profile?.id || 
+      ((p as any).project_users || []).some((u: any) => String(u.user_id || u.id || u).toLowerCase() === String(profile?.id || '').toLowerCase())
+    ).length;
+  }, [projects, profile?.id]);
+
   const userAssignedProjects = projects;
 
   const filteredProjects = useMemo(() => {
@@ -634,10 +816,55 @@ function ProjectsPage() {
         (p) =>
           p.name.toLowerCase().includes(q) ||
           p.code.toLowerCase().includes(q) ||
-          p.client.toLowerCase().includes(q)
+          p.client.toLowerCase().includes(q) ||
+          (p.location && p.location.toLowerCase().includes(q))
       );
     }
+
+    if (filterTab === 'ACTIVE_PINNED') {
+      result = result.filter(p => p.id === activeProjectId || pinnedProjects.includes(p.id));
+    } else if (filterTab === 'MY_PROJECTS') {
+      result = result.filter(p => 
+        p.created_by === profile?.id || 
+        ((p as any).project_users || []).some((u: any) => String(u.user_id || u.id || u).toLowerCase() === String(profile?.id || '').toLowerCase())
+      );
+    }
+
+    if (typeFilter !== 'ALL') {
+      result = result.filter(p => (p.project_type || 'Buildings / Apartment') === typeFilter);
+    }
+
     return [...result].sort((a, b) => {
+      if (sortBy === 'NAME_ASC') {
+        return a.name.localeCompare(b.name);
+      }
+      if (sortBy === 'NAME_DESC') {
+        return b.name.localeCompare(a.name);
+      }
+      if (sortBy === 'TYPE_ASC') {
+        const getIdx = (t?: string) => {
+          const idx = PROJECT_TYPES.indexOf(t as any);
+          return idx === -1 ? 99 : idx;
+        };
+        const idxA = getIdx(a.project_type);
+        const idxB = getIdx(b.project_type);
+        if (idxA !== idxB) return idxA - idxB;
+        return a.name.localeCompare(b.name);
+      }
+      if (sortBy === 'STAGE_ASC') {
+        const getIdx = (stg?: string) => {
+          const idx = PROJECT_STAGES.indexOf(stg as any);
+          return idx === -1 ? 99 : idx;
+        };
+        return getIdx(a.current_stage) - getIdx(b.current_stage);
+      }
+      if (sortBy === 'SPACES_DESC') {
+        const aSpaces = statsMap[a.id]?.spaces || 0;
+        const bSpaces = statsMap[b.id]?.spaces || 0;
+        return bSpaces - aSpaces;
+      }
+
+      // Default: RECENT with pinned first
       const aPinned = pinnedProjects.includes(a.id);
       const bPinned = pinnedProjects.includes(b.id);
       if (aPinned && !bPinned) return -1;
@@ -647,7 +874,7 @@ function ProjectsPage() {
       const bTime = workspaceHistory[b.id] || new Date((b as any).updated_at || (b as any).created_at || 0).getTime();
       return bTime - aTime;
     });
-  }, [userAssignedProjects, search, pinnedProjects, workspaceHistory]);
+  }, [userAssignedProjects, search, filterTab, typeFilter, sortBy, pinnedProjects, workspaceHistory, activeProjectId, profile?.id, statsMap]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -668,6 +895,9 @@ function ProjectsPage() {
         location: newProject.location.trim(),
         description: newProject.description.trim(),
         notes: newProject.notes.trim(),
+        project_type: newProject.project_type,
+        applicable_stages: newProject.applicable_stages,
+        current_stage: newProject.current_stage,
       }, newProject.assigned_users, newProject.assigned_teams);
 
       if (res && res.success) {
@@ -679,6 +909,9 @@ function ProjectsPage() {
           location: "",
           description: "",
           notes: "",
+          project_type: "Buildings / Apartment",
+          applicable_stages: [...PROJECT_STAGES],
+          current_stage: "Concept Design",
           assigned_users: [],
           assigned_teams: [],
         });
@@ -705,6 +938,10 @@ function ProjectsPage() {
         location: editingProj.location,
         description: editingProj.description,
         notes: editingProj.notes,
+        project_type: editingProj.project_type,
+        applicable_stages: editingProj.applicable_stages,
+        current_stage: editingProj.current_stage,
+        stage_status: editingProj.stage_status,
       });
       if (res && res.success) {
         updateProject(editingProj);
@@ -714,6 +951,25 @@ function ProjectsPage() {
       } else {
         toast.error(res?.message || "Failed to update project details");
       }
+    }
+  };
+
+  const handleQuickStageChange = async (projectId: string, newStage: string) => {
+    const targetProject = projects.find(p => p.id === projectId);
+    if (!canEditProjectStages(profile, targetProject)) {
+      toast.error("Only System Admin, Organization Admin, or assigned Team Leader have permission to change project stages.");
+      return;
+    }
+    try {
+      const res = await updateProjectStage(projectId, newStage);
+      if (res && res.success) {
+        toast.success(`Stage updated to ${newStage}`);
+        await refreshProjects();
+      } else {
+        toast.error(res?.message || "Failed to update stage");
+      }
+    } catch (err: any) {
+      toast.error("Error updating stage: " + err.message);
     }
   };
 
@@ -819,421 +1075,790 @@ function ProjectsPage() {
     }
   };
 
-  const statsMap = useMemo(() => {
-    const map: Record<string, { spaces: number; zones: number; equipment: number }> = {};
-    projects.forEach((p) => {
-      const wdata = (p as any).workspace_data;
-      if (wdata) {
-        map[p.id] = {
-          spaces: Array.isArray(wdata.spaces) ? wdata.spaces.length : 0,
-          zones: Array.isArray(wdata.zones) ? wdata.zones.length : 0,
-          equipment: Array.isArray(wdata.equipment) ? wdata.equipment.length : 0,
-        };
-      } else {
-        map[p.id] = { spaces: 0, zones: 0, equipment: 0 };
-      }
-    });
-    return map;
-  }, [projects]);
-
-  const totalStats = useMemo(() => {
-    let spaces = 0;
-    let zones = 0;
-    let equipment = 0;
-    Object.values(statsMap).forEach((stat) => {
-      spaces += stat.spaces;
-      zones += stat.zones;
-      equipment += stat.equipment;
-    });
-    return { spaces, zones, equipment };
-  }, [statsMap]);
 
   return (
-    <AppShell title="Projects" subtitle={`${projects.length} workspaces`}>
-      <div className="flex flex-col lg:flex-row h-[calc(100vh-80px)] overflow-hidden bg-background">
+    <AppShell title="Projects" hideSubHeader={true}>
+      <div className="flex flex-col h-full min-h-0 w-full bg-transparent overflow-hidden">
         
-        {/* Left Side: Projects List & Control Center Dashboard */}
-        <div className="flex-1 flex flex-col min-h-0 p-6 md:p-8 overflow-y-auto custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
+        {/* Sticky Control Header: Full width till left sidebar, matches teams.tsx executive command deck */}
+        <div className="shrink-0 sticky top-0 z-20 bg-background/95 dark:bg-[#09090b]/95 backdrop-blur-md border-b border-border/70 py-3 px-4 md:px-6 flex flex-col gap-3 select-none shadow-2xs">
           
-          <div className="flex flex-col gap-1 mb-6 select-none">
-            <h1 className="text-[20px] font-black text-foreground tracking-tight">Project Control Center</h1>
-            <p className="text-[12.5px] text-muted-foreground font-semibold">
-              Manage your MEP calculation scopes, workspace metrics, and project environments
-            </p>
-          </div>
+          {/* Row 1: Executive Command Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 bg-primary/10 text-primary rounded-xl border border-primary/20 shadow-2xs shrink-0">
+                <FolderKanban className="size-4.5" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <div className="flex items-center gap-2.5">
+                  <h1 className="text-lg sm:text-xl font-black text-foreground tracking-tight">Projects</h1>
+                  <span className="text-[11px] font-mono font-semibold bg-muted/80 text-foreground/80 border border-border/70 px-2 py-0.5 rounded-md shadow-2xs">
+                    {projects.length} Workspaces
+                  </span>
+                </div>
+                <p className="text-[11.5px] text-muted-foreground font-medium truncate">
+                  Manage your MEP calculation scopes, workspace metrics, and project environments.
+                </p>
+              </div>
+            </div>
 
-          {/* Quick Metrics Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8 select-none">
-            <div className="bg-card border border-border p-4.5 rounded-2xl flex items-center gap-3.5 shadow-sm">
-              <div className="p-2.5 bg-primary/10 text-primary rounded-xl shrink-0">
-                <FolderKanban className="size-5" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Workspaces</span>
-                <span className="text-[18px] font-black text-foreground font-mono">{projects.length}</span>
-              </div>
-            </div>
-            <div className="bg-card border border-border p-4.5 rounded-2xl flex items-center gap-3.5 shadow-sm">
-              <div className="p-2.5 bg-blue-500/10 text-blue-500 rounded-xl shrink-0">
-                <Boxes className="size-5" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Spaces</span>
-                <span className="text-[18px] font-black text-foreground font-mono">{totalStats.spaces}</span>
-              </div>
-            </div>
-            <div className="bg-card border border-border p-4.5 rounded-2xl flex items-center gap-3.5 shadow-sm">
-              <div className="p-2.5 bg-purple-500/10 text-purple-500 rounded-xl shrink-0">
-                <LayoutDashboard className="size-5" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Total Zones</span>
-                <span className="text-[18px] font-black text-foreground font-mono">{totalStats.zones}</span>
-              </div>
-            </div>
-            <div className="bg-card border border-border p-4.5 rounded-2xl flex items-center gap-3.5 shadow-sm">
-              <div className="p-2.5 bg-pink-500/10 text-pink-500 rounded-xl shrink-0">
-                <User className="size-5" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Engineers</span>
-                <span className="text-[18px] font-black text-foreground font-mono">{allUsers.length}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-4 mb-5 select-none">
-            <div className="flex flex-col gap-0.5">
-              <h2 className="font-extrabold text-foreground/90 uppercase tracking-widest text-[11px]">Workspaces List</h2>
-              <p className="text-[11.5px] text-muted-foreground font-medium">Select a project to load it into the active calculator</p>
-            </div>
-            <div className="relative shrink-0">
-              <Search className="absolute left-3.5 top-3 size-4 text-muted-foreground" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search workspaces..."
-                className="h-10 w-60 pl-10 pr-4 bg-card border border-border/80 focus:border-primary/80 focus:ring-1 focus:ring-primary/20 rounded-2xl text-[12.5px] outline-none transition-all duration-150 font-sans shadow-xs text-foreground"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-7xl">
-            {filteredProjects.map((p) => {
-              const isActive = p.id === activeProjectId;
-              const stats = statsMap[p.id] || { spaces: 0, zones: 0, equipment: 0 };
-              return (
-                <div
-                  key={p.id}
-                  className={`border rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 bg-card relative overflow-hidden group shadow-sm hover:shadow-md hover:-translate-y-0.5 ${
-                    isActive
-                      ? "border-primary ring-1 ring-primary/20 bg-primary/[0.01]"
-                      : "border-border hover:border-border-strong"
-                  }`}
+            {/* Action Buttons: Unified Hierarchy (Neutral Secondary + Brand Primary) */}
+            <div className="flex items-center gap-2 shrink-0">
+              {activeProject && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenWorkspace(activeProject.id)}
+                  className="h-8.5 px-3.5 rounded-xl border border-border/80 bg-surface-2/80 hover:bg-surface-3 hover:border-border text-foreground text-xs font-semibold shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  title={`Continue active workspace: ${activeProject.name}`}
                 >
-                  {isActive && (
-                    <div className="absolute top-0 left-0 right-0 h-1 bg-primary" />
-                  )}
-                  
-                  <div className="flex flex-col gap-3.5">
-                    {/* Header */}
-                    <div className="flex items-center justify-between gap-4 select-none">
-                      <div className="flex items-center gap-2">
-                        {pinnedProjects.includes(p.id) && <Pin className="size-3.5 fill-primary text-primary" />}
-                        <span className="font-mono text-[9px] text-primary bg-primary/5 dark:bg-primary/10 border border-primary/25 px-2 py-0.5 rounded font-bold uppercase tracking-widest">
-                          {p.code}
-                        </span>
-                      </div>
-                      {isActive ? (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-primary">
-                          <CheckCircle2 className="size-3.5" /> Active
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground font-medium">
-                          Inactive
-                        </span>
-                      )}
-                    </div>
+                  <Play className="size-3 fill-primary text-primary" />
+                  <span>Continue Active</span>
+                </button>
+              )}
 
-                    {/* Name */}
-                    <div>
-                      <h3 className="text-[14.5px] font-bold tracking-tight leading-snug group-hover:text-primary transition-colors text-foreground">
-                        {p.name}
-                      </h3>
-                      <div className="mt-2 flex flex-col gap-1.5 text-[11.5px] text-muted-foreground font-semibold">
+              <button
+                onClick={openCreateModal}
+                className="h-8.5 px-3.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-xs hover:shadow-primary/20 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="size-3.5 stroke-[2.5]" />
+                <span>New Workspace</span>
+              </button>
+            </div>
+          </div>
+
+
+          {/* Row 3: Filter & Search Toolbar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-0.5">
+            {/* Segmented Filter Control */}
+            <div className="flex items-center gap-1 bg-surface-2/80 dark:bg-zinc-900/80 p-1 rounded-xl border border-border/60 shadow-2xs shrink-0">
+              <button
+                onClick={() => setFilterTab("ALL")}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  filterTab === "ALL"
+                    ? "bg-card text-foreground shadow-2xs border border-border/60"
+                    : "text-muted-foreground hover:text-foreground hover:bg-surface-3/50"
+                }`}
+              >
+                <span>All Workspaces</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                  filterTab === "ALL" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                }`}>
+                  {projects.length}
+                </span>
+              </button>
+              <button
+                onClick={() => setFilterTab("ACTIVE_PINNED")}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  filterTab === "ACTIVE_PINNED"
+                    ? "bg-card text-foreground shadow-2xs border border-border/60"
+                    : "text-muted-foreground hover:text-foreground hover:bg-surface-3/50"
+                }`}
+              >
+                <span>Active & Pinned</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                  filterTab === "ACTIVE_PINNED" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                }`}>
+                  {pinnedAndActiveCount}
+                </span>
+              </button>
+              <button
+                onClick={() => setFilterTab("MY_PROJECTS")}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  filterTab === "MY_PROJECTS"
+                    ? "bg-card text-foreground shadow-2xs border border-border/60"
+                    : "text-muted-foreground hover:text-foreground hover:bg-surface-3/50"
+                }`}
+              >
+                <span>My Projects</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                  filterTab === "MY_PROJECTS" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                }`}>
+                  {myProjectsCount}
+                </span>
+              </button>
+            </div>
+
+            {/* Search and Sort controls */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 sm:w-64">
+                <Search className="absolute left-3 top-2.5 size-3.5 text-muted-foreground/70 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search workspaces or clients..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full h-8.5 bg-surface-2/60 hover:bg-surface-2 focus:bg-card border border-border/70 focus:border-primary/80 focus:ring-1 focus:ring-primary/20 rounded-xl pl-8.5 pr-7 text-xs outline-none transition-all text-foreground placeholder:text-muted-foreground/60 shadow-2xs"
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch("")}
+                    className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Sort selector */}
+              <div className="relative">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="h-8.5 bg-surface-2/60 hover:bg-surface-2 border border-border/70 text-foreground font-semibold text-xs pl-3 pr-8 rounded-xl outline-none focus:border-primary/80 focus:ring-1 focus:ring-primary/20 cursor-pointer appearance-none shadow-2xs transition-all"
+                >
+                  <option value="RECENT">Recently Updated</option>
+                  <option value="NAME_ASC">Name (A → Z)</option>
+                  <option value="NAME_DESC">Name (Z → A)</option>
+                  <option value="TYPE_ASC">Project Typology</option>
+                  <option value="STAGE_ASC">Design Stage Progression</option>
+                  <option value="SPACES_DESC">Most Spaces</option>
+                </select>
+                <ArrowUpDown className="absolute right-2.5 top-2.5 size-3 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+          </div>
+
+          {/* Row 4: Project Typology (Type) Filter Bar */}
+          <div className="flex flex-col gap-1.5 pt-0.5 select-none">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <SlidersHorizontal className="size-3 text-primary" /> Filter By Typology
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTypologyStats(!showTypologyStats)}
+                  className={`flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] rounded-lg border transition cursor-pointer font-semibold ${
+                    showTypologyStats
+                      ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                      : "bg-surface-2 hover:bg-surface-3 text-muted-foreground hover:text-foreground border-border/70"
+                  }`}
+                  title="Toggle Typology Volume Bar Graph"
+                >
+                  <BarChart3 className="size-3" />
+                  <span>{showTypologyStats ? "Hide Volume Graph" : "Typology Bar Graph"}</span>
+                </button>
+                {typeFilter !== 'ALL' && (
+                  <button
+                    type="button"
+                    onClick={() => setTypeFilter('ALL')}
+                    className="text-[10.5px] text-primary hover:underline font-bold cursor-pointer"
+                  >
+                    Show All Typologies
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {showTypologyStats && (
+              <div className="p-3 bg-surface-1/60 dark:bg-zinc-900/60 border border-border/70 rounded-2xl flex flex-col gap-2 mt-1">
+                <div className="flex items-center justify-between text-xs pb-1 border-b border-border/50">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-foreground">Typology Volume Comparison</span>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      (Shows which types have more projects and which have less)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10.5px]">
+                    <span className="text-[#3474c4] font-bold">
+                      ⭐ More: {typologyStats.highest.type} ({typologyStats.highest.count})
+                    </span>
+                    <span className="text-muted-foreground">|</span>
+                    <span className="text-muted-foreground">
+                      {typologyStats.zeroCount > 0 ? `${typologyStats.zeroCount} types with 0` : `Less: ${typologyStats.lowest.type}`}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-1">
+                  {typologyStats.items.map((item) => {
+                    const cfg = PROJECT_TYPE_CONFIG[item.type];
+                    const IconComponent = cfg?.icon || Building2;
+                    const isSelected = typeFilter === item.type;
+                    const isMax = item.count === typologyStats.highest.count && item.count > 0;
+                    return (
+                      <div
+                        key={item.type}
+                        onClick={() => setTypeFilter(isSelected ? "ALL" : (item.type as any))}
+                        className={`p-2 rounded-xl border transition cursor-pointer flex flex-col gap-1.5 ${
+                          isSelected
+                            ? "bg-primary/10 border-primary"
+                            : "bg-surface-2/60 hover:bg-surface-3/60 border-border/60"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold text-foreground flex items-center gap-1.5 truncate">
+                            <IconComponent className="size-3 text-muted-foreground shrink-0" />
+                            <span className="truncate">{item.type}</span>
+                          </span>
+                          <span className="font-mono font-bold text-[#3474c4] shrink-0">
+                            {item.count} <span className="text-[9.5px] text-muted-foreground">({item.pct}%)</span>
+                          </span>
+                        </div>
+                        {/* Horizontal Blue Bar */}
+                        <div className="w-full bg-slate-200 dark:bg-zinc-700 h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-300 bg-[#3474c4]"
+                            style={{ width: `${Math.max(item.count > 0 ? 8 : 0, item.barPct)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+              <button
+                type="button"
+                onClick={() => setTypeFilter("ALL")}
+                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl transition-all cursor-pointer shrink-0 border ${
+                  typeFilter === "ALL"
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs font-semibold"
+                    : "bg-surface-2/70 hover:bg-surface-2 text-muted-foreground hover:text-foreground border-border/70 font-medium"
+                }`}
+              >
+                <span>All Typologies</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                  typeFilter === "ALL" ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+                }`}>
+                  {projects.length}
+                </span>
+              </button>
+
+              {PROJECT_TYPES.map((t) => {
+                const cfg = PROJECT_TYPE_CONFIG[t];
+                const IconComponent = cfg?.icon || Building2;
+                const isSelected = typeFilter === t;
+                const count = typeCounts[t] || 0;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTypeFilter(t)}
+                    className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl transition-all cursor-pointer shrink-0 border ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary shadow-xs font-semibold"
+                        : "bg-surface-2/70 hover:bg-surface-2 text-muted-foreground hover:text-foreground border-border/70 font-medium"
+                    }`}
+                  >
+                    <IconComponent className={`size-3.5 ${isSelected ? "text-inherit" : "text-muted-foreground/70"}`} />
+                    <span>{t}</span>
+                    <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                      isSelected ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Main Workspace Body: Dual-Pane with Scrollable Grid & Productivity Panel */}
+        <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden bg-background">
+          
+          {/* Left Side: Workspaces Grid */}
+          <div className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto custom-scrollbar">
+            {filteredProjects.length === 0 ? (
+              <div className="text-center py-16 bg-card/60 border border-dashed border-border/80 rounded-3xl p-8 max-w-md mx-auto my-8 flex flex-col items-center justify-center gap-3 shadow-2xs">
+                <div className="p-3 bg-muted/40 text-muted-foreground rounded-2xl">
+                  <FolderKanban className="size-7" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <h3 className="text-sm font-bold text-foreground">No workspaces found</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {search ? `No project matched "${search}". Try adjusting your keywords.` : "Create a new project workspace or select another tab."}
+                  </p>
+                </div>
+                <button
+                  onClick={openCreateModal}
+                  className="mt-2 px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-xs"
+                >
+                  Create a Workspace
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 min-[1650px]:grid-cols-3 gap-4.5">
+                {filteredProjects.map((p) => {
+                  const isActive = p.id === activeProjectId;
+                  const stats = statsMap[p.id] || { spaces: 0, zones: 0, equipment: 0 };
+                  const isPinned = pinnedProjects.includes(p.id);
+                  const creatorUser = allUsers.find(u => u.id === p.created_by);
+                  const creatorName = creatorUser?.name || (p as any).creator_name || (p.created_by === profile?.id ? (profile?.name || "You") : "Admin");
+
+                  // Deduplicate and resolve users
+                  const seenUserIds = new Set<string>();
+                  const projectUsers: { id: string; name: string; initials: string; raw: any }[] = [];
+                  ((p as any).project_users || []).forEach((pu: any) => {
+                    if (!pu) return;
+                    const rawId = (typeof pu === 'object' && pu !== null) ? (pu.user_id || pu.id || pu.user?.id || pu.email || '') : pu;
+                    const puId = String(rawId || (typeof pu === 'string' ? pu : '')).toLowerCase();
+                    if (!puId || seenUserIds.has(puId)) return;
+                    seenUserIds.add(puId);
+                    const name = getUserDisplayName(pu, allUsers);
+                    projectUsers.push({
+                      id: rawId || puId,
+                      name,
+                      initials: getInitials(name),
+                      raw: pu,
+                    });
+                  });
+
+                  // Resolve teams
+                  const projectTeams: { id: string; name: string; raw: any }[] = ((p as any).project_teams || []).map((pt: any) => {
+                    const team = allTeams.find(t => String(t.id) === String(pt.team_id) || String(t.id) === String(pt.id));
+                    return {
+                      id: pt.team_id || pt.id,
+                      name: team?.name || pt.teams?.name || pt.team_name || pt.name || 'Team',
+                      raw: pt,
+                    };
+                  });
+
+                  const totalCollaborators = projectUsers.length + projectTeams.length;
+                  const isExpanded = expandedMembers.has(p.id);
+
+                  return (
+                    <div
+                      key={p.id}
+                      className={`bg-card/85 dark:bg-[#0c0d11]/90 backdrop-blur-md border rounded-2xl p-5 shadow-2xs hover:shadow-xl hover:shadow-primary/5 transition-all duration-200 flex flex-col justify-between group relative overflow-hidden h-full ${
+                        isActive
+                          ? "border-primary/80 ring-1 ring-primary/30 bg-primary/[0.02]"
+                          : "border-border/75 hover:border-primary/40"
+                      }`}
+                    >
+                      {/* Ambient top highlight line */}
+                      <div className={`absolute top-0 inset-x-0 ${isActive ? 'h-[2.5px] bg-gradient-to-r from-primary via-sky-400 to-primary' : 'h-[2px] bg-gradient-to-r from-transparent via-primary/20 to-transparent group-hover:via-primary/70'} transition-all duration-300`} />
+
+                      <div className="flex flex-col gap-3.5">
+                        {/* Card Header: Squircle + Title/Meta + Pin & Status */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            {/* Project Monogram Squircle */}
+                            <div className="size-11 rounded-xl bg-gradient-to-br from-primary/20 via-primary/10 to-primary/5 border border-primary/25 text-primary flex items-center justify-center font-black font-mono text-[12.5px] tracking-wider shrink-0 shadow-2xs ring-1 ring-primary/10">
+                              {(p.code || p.name.slice(0, 3) || "PR").toUpperCase().slice(0, 4)}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <h3 className="font-bold text-[15.5px] text-foreground tracking-tight truncate group-hover:text-primary transition-colors" title={p.name}>
+                                {p.name}
+                              </h3>
+                              <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground truncate mt-0.5">
+                                <Building2 className="size-3 text-muted-foreground/70 shrink-0" />
+                                <span className="truncate font-medium text-foreground/80 max-w-[130px]" title={p.client || 'Internal'}>
+                                  {p.client || 'Internal'}
+                                </span>
+                                {p.location && (
+                                  <>
+                                    <span className="text-muted-foreground/40">•</span>
+                                    <MapPin className="size-3 text-muted-foreground/70 shrink-0" />
+                                    <span className="truncate max-w-[110px]" title={p.location}>{p.location}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Top Right Badges: Pin Toggle & Status */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                togglePin(p.id);
+                              }}
+                              className={`size-7.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                                isPinned
+                                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-2xs'
+                                  : 'text-muted-foreground/50 hover:text-foreground hover:bg-surface-2'
+                              }`}
+                              title={isPinned ? "Unpin workspace" : "Pin workspace"}
+                            >
+                              <Pin className={`size-3.5 ${isPinned ? 'fill-amber-400 text-amber-400' : ''}`} />
+                            </button>
+
+                            {isActive ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-2xs">
+                                <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                Active
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono font-medium text-muted-foreground/70 bg-surface-2/70 border border-border/60">
+                                Ready
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Project Typology & Stage Badges */}
                         {(() => {
-                          const creatorUser = allUsers.find(u => u.id === p.created_by);
-                          const creatorName = creatorUser?.name || (p as any).creator_name || (p.created_by === profile?.id ? (profile?.name || "You") : "Admin");
+                          const pType = p.project_type || "Buildings / Apartment";
+                          const typeCfg = PROJECT_TYPE_CONFIG[pType] || PROJECT_TYPE_CONFIG["Buildings / Apartment"];
+                          const TypeIcon = typeCfg.icon || Building2;
+                          const currentStg = p.current_stage || "Concept Design";
+                          const stageCfg = STAGE_CONFIG[currentStg] || STAGE_CONFIG["Concept Design"];
+                          const appStages = (p.applicable_stages && p.applicable_stages.length > 0) ? p.applicable_stages : PROJECT_STAGES;
+                          const currentIdx = appStages.indexOf(currentStg as any);
+                          const completedCount = currentStg === 'Completed'
+                            ? appStages.length
+                            : (currentIdx === -1 ? 1 : currentIdx);
+                          const progressPct = Math.round((completedCount / appStages.length) * 100);
+
                           return (
-                            <div className="flex items-center gap-2">
-                              <User className="size-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
-                              <span>Created by: <strong className="text-foreground font-bold">{creatorName}</strong></span>
+                            <div className="flex flex-col gap-2 pt-1 pb-0.5">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                {/* Typology Badge */}
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-semibold bg-surface-2/80 dark:bg-zinc-800/80 text-foreground/80 border border-border/70">
+                                  <TypeIcon className="size-3.5 text-muted-foreground shrink-0" />
+                                  <span>{pType}</span>
+                                </span>
+
+                                {/* Current Stage Badge + Action */}
+                                <div className="flex items-center gap-1.5">
+                                  {canEditProjectStages(profile, p) ? (
+                                    <div className="relative group/stage">
+                                      <select
+                                        value={currentStg}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          handleQuickStageChange(p.id, e.target.value);
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                        title="Click to update stage (System Admin, Org Admin, or assigned Team Leader)"
+                                        className="text-[10.5px] font-semibold px-2.5 py-1 rounded-lg border border-border/70 bg-surface-2/80 dark:bg-zinc-800/80 text-foreground/90 outline-none cursor-pointer hover:bg-surface-3/80 dark:hover:bg-zinc-700/80 appearance-none pr-5.5 transition-all shadow-2xs"
+                                      >
+                                        {appStages.map((stg) => (
+                                          <option key={stg} value={stg} className="bg-background text-foreground font-medium">
+                                            {stg} {stg === currentStg ? '• (Current)' : ''}
+                                          </option>
+                                        ))}
+                                        <option value="Completed" className="bg-background text-foreground font-semibold">
+                                          ✓ Completed (All Done)
+                                        </option>
+                                      </select>
+                                      <ChevronDown className="size-3 absolute right-1.5 top-2 pointer-events-none text-muted-foreground" />
+                                    </div>
+                                  ) : (
+                                    <span
+                                      title="Design Stage (Managed by System Admin, Org Admin, or assigned Team Leader)"
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-semibold border border-border/70 bg-surface-2/80 dark:bg-zinc-800/80 text-foreground/90"
+                                    >
+                                      <span className="size-1.5 rounded-full bg-slate-400 dark:bg-zinc-500" />
+                                      <span>{currentStg}</span>
+                                      <Lock className="size-2.5 text-muted-foreground ml-0.5" />
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Stage Stepper Progress Strip */}
+                              <div className="flex flex-col gap-1 pt-0.5">
+                                <div className="flex items-center justify-between text-[9.5px] text-muted-foreground font-semibold">
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="size-2.5 text-muted-foreground" />
+                                    <span>Stage {Math.min(completedCount + (currentStg === 'Completed' ? 0 : 1), appStages.length)} of {appStages.length}</span>
+                                  </span>
+                                  <span className="font-mono font-bold text-foreground">{progressPct}%</span>
+                                </div>
+                                <div className="grid gap-1 items-center" style={{ gridTemplateColumns: `repeat(${appStages.length}, minmax(0, 1fr))` }}>
+                                  {appStages.map((stg, sIdx) => {
+                                    const isDone = currentStg === 'Completed' || sIdx < currentIdx;
+                                    const isCurrent = currentStg !== 'Completed' && sIdx === currentIdx;
+                                    return (
+                                      <div
+                                        key={stg}
+                                        title={`${stg}: ${isDone ? 'Completed' : (isCurrent ? 'In Progress (Current)' : 'Upcoming / Remaining')}`}
+                                        className={`h-1.5 rounded-full transition-all ${
+                                          isDone || isCurrent
+                                            ? 'bg-primary'
+                                            : 'bg-slate-200/80 dark:bg-zinc-800'
+                                        }`}
+                                      />
+                                    );
+                                  })}
+                                </div>
+                              </div>
                             </div>
                           );
                         })()}
-                        <div className="flex items-center gap-2">
-                          <User className="size-3.5 text-slate-400 dark:text-zinc-500 shrink-0" />
-                          <span>Client: <strong className="text-foreground/80 font-bold">{p.client}</strong></span>
-                        </div>
-                        {p.location && (
-                          <div className="flex items-center gap-2">
-                            <MapPin className="size-3.5 text-slate-400 dark:text-zinc-500 shrink-0" />
-                            <span>{p.location}</span>
-                          </div>
+
+                        {/* Description: Clean natural typography (no ugly box) */}
+                        {p.description ? (
+                          <p className="text-[12px] text-muted-foreground/90 leading-relaxed font-normal line-clamp-2 px-0.5">
+                            {p.description}
+                          </p>
+                        ) : (
+                          <p className="text-[11.5px] text-muted-foreground/40 italic line-clamp-1 px-0.5">
+                            No workspace scope description provided.
+                          </p>
                         )}
-                        <div className="flex items-center gap-2">
-                          <Calendar className="size-3.5 text-slate-400 dark:text-zinc-500 shrink-0" />
-                          <span>Modified: <span className="text-foreground/75 font-mono">{formatRelativeTime((p as any).updated_at || (p as any).last_modified || p.lastModified || (p as any).created_at || p.createdDate)}</span></span>
+
+                        {/* 3-Cell Metric Widgets */}
+                        <div className="grid grid-cols-3 gap-2 py-0.5 select-none">
+                          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-surface-2/40 dark:bg-zinc-900/60 border border-border/60 hover:border-border transition-all">
+                            <div className="p-1.5 rounded-lg bg-surface-2 text-muted-foreground border border-border/60 shrink-0">
+                              <Layers className="size-3.5" />
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-[13px] font-black font-mono text-foreground leading-tight tracking-tight">{stats.spaces}</span>
+                              <span className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground/75">Spaces</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-surface-2/40 dark:bg-zinc-900/60 border border-border/60 hover:border-border transition-all">
+                            <div className="p-1.5 rounded-lg bg-surface-2 text-muted-foreground border border-border/60 shrink-0">
+                              <Boxes className="size-3.5" />
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-[13px] font-black font-mono text-foreground leading-tight tracking-tight">{stats.zones}</span>
+                              <span className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground/75">Zones</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-surface-2/40 dark:bg-zinc-900/60 border border-border/60 hover:border-border transition-all">
+                            <div className="p-1.5 rounded-lg bg-surface-2 text-muted-foreground border border-border/60 shrink-0">
+                              <Cpu className="size-3.5" />
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-[13px] font-black font-mono text-foreground leading-tight tracking-tight">{stats.equipment}</span>
+                              <span className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground/75">Equip</span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
 
-                    {/* Description block */}
-                    {p.description && (
-                      <p className="text-[11.5px] text-muted-foreground leading-relaxed font-normal bg-slate-50/50 dark:bg-zinc-800/10 p-3.5 rounded-[18px] border border-border/40 line-clamp-2">
-                        {p.description}
-                      </p>
-                    )}
-
-                    {/* Metric Tiles */}
-                    <div className="grid grid-cols-3 gap-2.5 pt-1 select-none">
-                      <div className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-surface-2 border border-border/40 text-center gap-0.5">
-                        <span className="text-[12px] font-bold text-foreground font-mono">{stats.spaces}</span>
-                        <span className="text-[8.5px] text-muted-foreground font-bold uppercase tracking-wider">Spaces</span>
-                      </div>
-                      <div className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-surface-2 border border-border/40 text-center gap-0.5">
-                        <span className="text-[12px] font-bold text-foreground font-mono">{stats.zones}</span>
-                        <span className="text-[8.5px] text-muted-foreground font-bold uppercase tracking-wider">Zones</span>
-                      </div>
-                      <div className="flex flex-col items-center justify-center py-2.5 px-2 rounded-xl bg-surface-2 border border-border/40 text-center gap-0.5">
-                        <span className="text-[12px] font-bold text-foreground font-mono">{stats.equipment}</span>
-                        <span className="text-[8.5px] text-muted-foreground font-bold uppercase tracking-wider">Equip</span>
-                      </div>
-                    </div>
-
-                    {/* Assignments (Users/Teams) */}
-                    {((p as any).project_users?.length > 0 || (p as any).project_teams?.length > 0) && (() => {
-                      const isExpanded = expandedMembers.has(p.id);
-                      const totalUsers = (p as any).project_users?.length || 0;
-                      const totalTeams = (p as any).project_teams?.length || 0;
-                      const totalCount = totalUsers + totalTeams;
-
-                      return (
-                        <div className="pt-2 border-t border-border/50 flex flex-col items-start gap-2">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleExpandMembers(p.id);
-                            }}
-                            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 border border-border/60 px-2.5 py-1 rounded-md transition-all cursor-pointer select-none"
-                          >
-                            <Users className="size-3 text-primary" />
-                            <span>{isExpanded ? "Hide Members" : `Show Assigned Members (${totalCount})`}</span>
-                            {isExpanded ? <ChevronUp className="size-3 ml-0.5" /> : <ChevronDown className="size-3 ml-0.5" />}
-                          </button>
-
-                          {isExpanded && (
-                            <div className="flex flex-wrap gap-1.5 pt-1 w-full animate-in fade-in duration-150">
-                              {(p as any).project_teams?.map((pt: any) => {
-                                const team = allTeams.find(t => String(t.id) === String(pt.team_id) || String(t.id) === String(pt.id));
-                                const teamName = team?.name || pt.teams?.name || pt.team_name || pt.name || 'Team';
-                                return (
-                                  <span key={`t-${pt.team_id || pt.id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
-                                    <Users className="size-3" /> {teamName}
-                                    {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
-                                      <button onClick={() => handleRemoveTeamFromProject(p.id, pt.team_id)} className="hover:bg-primary/20 rounded-full p-0.5 cursor-pointer ml-1">
-                                        <X className="size-2.5" />
-                                      </button>
+                        {/* Collaborator Row: Avatar Stack + Team Badges */}
+                        <div className="flex flex-col gap-2 pt-1 border-t border-border/40">
+                          <div className="flex items-center justify-between gap-2 min-h-[28px]">
+                            {totalCollaborators > 0 ? (
+                              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                {projectUsers.length > 0 && (
+                                  <div className="flex items-center -space-x-1.5 overflow-hidden py-0.5 shrink-0">
+                                    {projectUsers.slice(0, 3).map((u, i) => (
+                                      <div
+                                        key={u.id || i}
+                                        title={u.name}
+                                        className="size-6.5 rounded-full bg-slate-200 dark:bg-zinc-800 border-2 border-background ring-1 ring-border/50 text-[9.5px] font-semibold text-slate-700 dark:text-zinc-300 flex items-center justify-center shrink-0 uppercase shadow-2xs"
+                                      >
+                                        {u.initials}
+                                      </div>
+                                    ))}
+                                    {projectUsers.length > 3 && (
+                                      <div
+                                        title={`${projectUsers.length - 3} more users`}
+                                        className="size-6.5 rounded-full bg-surface-2 border-2 border-background ring-1 ring-border/50 text-[9px] font-bold text-muted-foreground flex items-center justify-center shrink-0 shadow-2xs"
+                                      >
+                                        +{projectUsers.length - 3}
+                                      </div>
                                     )}
+                                  </div>
+                                )}
+
+                                {projectTeams.slice(0, 2).map((t, idx) => (
+                                  <span
+                                    key={t.id || idx}
+                                    className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-md truncate max-w-[110px] shrink-0"
+                                    title={t.name}
+                                  >
+                                    <Users className="size-2.5 shrink-0" />
+                                    <span className="truncate">{t.name}</span>
                                   </span>
-                                );
-                              })}
-                              {(() => {
-                                const seenUserIds = new Set<string>();
-                                return (p as any).project_users?.map((pu: any) => {
-                                  if (!pu) return null;
-                                  const rawId = (typeof pu === 'object' && pu !== null) ? (pu.user_id || pu.id || pu.user?.id || pu.email || '') : pu;
-                                  const puId = String(rawId || (typeof pu === 'string' ? pu : '')).toLowerCase();
-                                  if (!puId || seenUserIds.has(puId)) return null;
-                                  seenUserIds.add(puId);
+                                ))}
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  loadUsersAndTeams();
+                                  setEditingProj(p);
+                                }}
+                                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/80 hover:text-foreground border border-dashed border-border/80 hover:border-primary/50 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                              >
+                                <UserPlus className="size-3 text-muted-foreground" />
+                                <span>Assign Personnel</span>
+                              </button>
+                            )}
 
-                                  const userName = getUserDisplayName(pu, allUsers);
+                            {totalCollaborators > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleExpandMembers(p.id);
+                                }}
+                                className="text-[11px] font-semibold text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0 transition-colors cursor-pointer py-1 px-1.5 rounded-md hover:bg-surface-2 select-none"
+                              >
+                                <span>{isExpanded ? "Hide" : `${totalCollaborators} Assigned`}</span>
+                                <ChevronDown className={`size-3 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                              </button>
+                            )}
+                          </div>
 
-                                  return (
-                                    <span key={`u-${puId}`} className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border">
-                                      <User className="size-3 text-muted-foreground" /> {userName}
-                                      {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
-                                        <button onClick={() => handleRemoveUserFromProject(p.id, String(rawId || puId))} className="hover:bg-slate-200 dark:hover:bg-zinc-700 rounded-full p-0.5 cursor-pointer ml-1">
-                                          <X className="size-2.5" />
-                                        </button>
-                                      )}
-                                    </span>
-                                  );
-                                });
-                              })()}
+                          {/* Expanded Member Roster with removal controls */}
+                          {isExpanded && totalCollaborators > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pt-1 w-full animate-in fade-in duration-150 border-t border-border/30">
+                              {projectTeams.map((pt) => (
+                                <span key={`t-${pt.id}`} className="inline-flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded-md text-[10px] font-semibold border border-primary/20">
+                                  <Users className="size-3" /> {pt.name}
+                                  {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
+                                    <button onClick={() => handleRemoveTeamFromProject(p.id, pt.id)} className="hover:bg-primary/20 rounded-full p-0.5 cursor-pointer ml-1">
+                                      <X className="size-2.5" />
+                                    </button>
+                                  )}
+                                </span>
+                              ))}
+
+                              {projectUsers.map((pu) => (
+                                <span key={`u-${pu.id}`} className="inline-flex items-center gap-1 bg-surface-2 text-foreground px-2 py-0.5 rounded-md text-[10px] font-semibold border border-border/70">
+                                  <User className="size-3 text-muted-foreground" /> {pu.name}
+                                  {(profile?.role === 'SUPER_ADMIN' || profile?.role === 'ORG_ADMIN' || p.created_by === profile?.id) && (
+                                    <button onClick={() => handleRemoveUserFromProject(p.id, String(pu.id))} className="hover:bg-surface-3 rounded-full p-0.5 cursor-pointer ml-1">
+                                      <X className="size-2.5" />
+                                    </button>
+                                  )}
+                                </span>
+                              ))}
                             </div>
                           )}
                         </div>
-                      );
-                    })()}
-                  </div>
 
-                  <div className="mt-5 pt-3.5 border-t border-border/50 flex items-center justify-end gap-1.5">
-                    {!isActive ? (
-                      <button
-                        onClick={() => handleSelectProject(p.id)}
-                        className="flex-1 h-8.5 rounded-lg bg-primary text-primary-foreground font-bold hover:bg-primary/95 flex items-center justify-center gap-1.5 transition-all cursor-pointer text-[11.5px] shadow-sm shadow-primary/5"
-                        title="Open Project"
-                      >
-                        <Play className="size-3 fill-current" /> Open Workspace
-                      </button>
-                    ) : (
-                      <span className="flex-1 text-[11px] text-muted-foreground font-bold italic select-none pl-1">
-                        Currently editing
-                      </span>
-                    )}
-                    <button
-                      onClick={() => togglePin(p.id)}
-                      className={`size-8.5 rounded-lg border flex items-center justify-center transition-all cursor-pointer ${pinnedProjects.includes(p.id) ? 'bg-primary/10 border-primary/30 text-primary hover:bg-primary/20' : 'border-border bg-background text-muted-foreground hover:text-foreground hover:bg-surface-2'}`}
-                      title={pinnedProjects.includes(p.id) ? "Unpin Workspace" : "Pin Workspace"}
-                    >
-                      <Pin className="size-3.5" />
-                    </button>
-                    <button
-                      onClick={() => duplicateProject(p.id)}
-                      className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-surface-2 flex items-center justify-center transition-all cursor-pointer"
-                      title="Duplicate"
-                    >
-                      <Copy className="size-3.5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        loadUsersAndTeams();
-                        setEditingProj(p);
-                      }}
-                      className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-surface-2 flex items-center justify-center transition-all cursor-pointer"
-                      title="Add Members & Edit Details"
-                    >
-                      <UserPlus className="size-3.5" />
-                    </button>
-                    {(p.created_by === profile?.id || profile?.role === 'SUPER_ADMIN') && (
-                      <button
-                        onClick={() => setDeleteConfirmId(p.id)}
-                        className="size-8.5 rounded-lg border border-border bg-background text-muted-foreground hover:text-destructive hover:bg-destructive/5 flex items-center justify-center transition-all cursor-pointer"
-                        title="Delete Workspace"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Empty state if no projects match */}
-          {filteredProjects.length === 0 && (
-            <div className="text-center py-16 bg-card border border-dashed border-border rounded-[28px] p-8 max-w-md mx-auto mt-8 flex flex-col items-center gap-4">
-              <FolderKanban className="size-12 text-muted-foreground" />
-              <div>
-                <p className="text-[14px] font-bold text-foreground">No workspaces found</p>
-                <p className="text-[12px] text-muted-foreground mt-1">Try refining your search term or create a new workspace.</p>
-              </div>
-              <button
-                onClick={openCreateModal}
-                className="px-5 py-2.5 bg-primary text-primary-foreground font-bold rounded-2xl hover:bg-primary/95 text-[12.5px] transition-all cursor-pointer shadow-sm shadow-primary/10"
-              >
-                Create a workspace
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Right Side: Productivity Control Center Panel */}
-        <div className="w-full lg:w-[360px] border-t lg:border-t-0 lg:border-l border-border flex flex-col min-h-0 bg-surface-1 p-6 overflow-y-auto custom-scrollbar select-none">
-          <div className="flex flex-col gap-6">
-            
-            {/* Quick Actions */}
-            <div className="flex flex-col gap-3">
-              <h3 className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wider">Quick Actions</h3>
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={openCreateModal}
-                  className="w-full bg-gradient-to-r from-primary to-accent hover:brightness-105 text-white font-bold h-10 rounded-xl transition-all shadow-md shadow-primary/10 flex items-center justify-center gap-1.5 cursor-pointer text-[12px]"
-                >
-                  <Plus className="size-4" /> Create New Workspace
-                </button>
-                <button
-                  onClick={() => handleSelectProject(activeProject.id)}
-                  className="w-full bg-card border border-border text-foreground hover:bg-surface-2 font-bold h-10 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer text-[12px]"
-                >
-                  <Play className="size-3.5 fill-current text-primary" /> Continue Active Work
-                </button>
-              </div>
-            </div>
-
-            {/* Recently Opened / Contributed */}
-            <div className="flex flex-col gap-3">
-              <h3 className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wider">Recently Opened</h3>
-              <div className="flex flex-col gap-2.5">
-                {[...projects].sort((a,b) => (workspaceHistory[b.id] || new Date((b as any).updated_at || (b as any).created_at || 0).getTime()) - (workspaceHistory[a.id] || new Date((a as any).updated_at || (a as any).created_at || 0).getTime())).slice(0, 3).map((p) => (
-                  <div
-                    key={p.id}
-                    onClick={() => handleSelectProject(p.id)}
-                    className="flex items-center justify-between p-3 bg-card border border-border rounded-xl hover:bg-surface-2 transition-all cursor-pointer group"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="p-2 bg-primary/5 text-primary rounded-lg shrink-0">
-                        <Building2 className="size-4" />
+                        {/* Metadata row */}
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground/75 font-medium pt-0.5">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <div className="size-4.5 rounded-full bg-surface-2 border border-border/60 flex items-center justify-center text-[9px] font-bold text-muted-foreground shrink-0 uppercase">
+                              {creatorName.slice(0, 1)}
+                            </div>
+                            <span className="truncate">
+                              By <strong className="text-foreground/85 font-semibold">{creatorName}</strong>
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 font-mono text-[10.5px] shrink-0 text-muted-foreground/60">
+                            <Clock className="size-3" />
+                            <span>{formatRelativeTime((p as any).updated_at || (p as any).last_modified || p.lastModified || (p as any).created_at || p.createdDate)}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-[12.5px] font-bold text-foreground truncate group-hover:text-primary transition-colors">{p.name}</span>
-                        <span className="text-[10px] text-muted-foreground font-mono">{p.code}</span>
+
+                      {/* Card Footer: Primary Action + Utility Toolbar */}
+                      <div className="border-t border-border/60 pt-3.5 mt-3 flex items-center justify-between gap-2.5">
+                        {!isActive ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenWorkspace(p.id)}
+                            className="flex-1 h-9 px-3.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs hover:shadow-primary/20 active:scale-[0.99] group/btn"
+                            title="Open Workspace"
+                          >
+                            <Play className="size-3 fill-current" />
+                            <span>Open Workspace</span>
+                            <ArrowRight className="size-3.5 opacity-60 group-hover/btn:translate-x-0.5 group-hover/btn:opacity-100 transition-all" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenWorkspace(p.id)}
+                            className="flex-1 h-9 px-3.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-2xs group/btn"
+                            title="Workspace is currently active - click to continue"
+                          >
+                            <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+                            <span>Active Session</span>
+                            <ArrowRight className="size-3.5 opacity-70 group-hover/btn:translate-x-0.5 transition-transform" />
+                          </button>
+                        )}
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => duplicateProject(p.id)}
+                            className="size-8.5 rounded-xl border border-border/70 bg-surface-2/60 hover:bg-surface-2 text-muted-foreground hover:text-foreground hover:border-primary/40 flex items-center justify-center transition-all cursor-pointer shadow-2xs"
+                            title="Duplicate Workspace"
+                          >
+                            <Copy className="size-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              loadUsersAndTeams();
+                              setEditingProj(p);
+                            }}
+                            className="size-8.5 rounded-xl border border-border/70 bg-surface-2/60 hover:bg-surface-2 text-muted-foreground hover:text-foreground hover:border-primary/40 flex items-center justify-center transition-all cursor-pointer shadow-2xs"
+                            title="Manage Members & Edit Scope"
+                          >
+                            <UserPlus className="size-3.5" />
+                          </button>
+
+                          {(p.created_by === profile?.id || profile?.role === 'SUPER_ADMIN') && (
+                            <button
+                              onClick={() => setDeleteConfirmId(p.id)}
+                              className="size-8.5 rounded-xl border border-border/70 bg-surface-2/60 text-muted-foreground/60 hover:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/40 flex items-center justify-center transition-all cursor-pointer shadow-2xs"
+                              title="Delete Workspace"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <ChevronRight className="size-4 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Right Side: Productivity Companion Panel */}
+          <div className="w-full lg:w-[320px] shrink-0 border-t lg:border-t-0 lg:border-l border-border/70 bg-card/30 dark:bg-zinc-950/40 backdrop-blur-md p-5 flex flex-col gap-5 overflow-y-auto custom-scrollbar select-none">
+            
+
+
+            {/* Recently Opened */}
+            <div className="flex flex-col gap-2.5">
+              <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Recently Opened</h3>
+              <div className="flex flex-col gap-2">
+                {[...projects].sort((a,b) => (workspaceHistory[b.id] || new Date((b as any).updated_at || (b as any).created_at || 0).getTime()) - (workspaceHistory[a.id] || new Date((a as any).updated_at || (a as any).created_at || 0).getTime())).slice(0, 4).map((p) => (
+                  <div
+                    key={p.id}
+                    onClick={() => handleOpenWorkspace(p.id)}
+                    className="flex items-center justify-between p-2.5 bg-card/70 border border-border/70 rounded-xl hover:bg-surface-2 hover:border-primary/40 transition-all cursor-pointer group shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="size-7 rounded-lg bg-primary/10 text-primary border border-primary/20 flex items-center justify-center shrink-0">
+                        <Building2 className="size-3.5" />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-semibold text-foreground truncate group-hover:text-primary transition-colors">{p.name}</span>
+                        <span className="text-[9.5px] text-muted-foreground font-mono">{p.code}</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="size-3.5 text-muted-foreground/60 group-hover:text-primary transition-colors shrink-0" />
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Recent Activity (Productivity Placeholders or Dynamic) */}
-            <div className="flex flex-col gap-3">
-              <h3 className="text-[11px] font-extrabold text-muted-foreground uppercase tracking-wider">Recent Workspace Activity</h3>
-              <div className="flex flex-col gap-3">
-                {globalActivity.length > 0 ? globalActivity.map(act => (
-                  <div key={act.id} className="flex gap-2.5 text-[12px] leading-relaxed">
-                    <div className={`size-2 rounded-full ${act.color || 'bg-blue-500'} mt-1.5 shrink-0`} />
+            {/* Recent Activity */}
+            <div className="flex flex-col gap-2.5">
+              <h3 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Workspace Activity</h3>
+              <div className="flex flex-col gap-2.5">
+                {globalActivity.length > 0 ? globalActivity.slice(0, 4).map(act => (
+                  <div key={act.id} className="flex gap-2 text-xs leading-relaxed">
+                    <div className={`size-1.5 rounded-full ${act.color || 'bg-primary'} mt-1.5 shrink-0`} />
                     <div className="flex flex-col">
-                      <span className="font-semibold text-foreground">{act.action}</span>
-                      <span className="text-[10px] text-slate-400 dark:text-zinc-500">
+                      <span className="font-medium text-foreground text-[11.5px]">{act.action}</span>
+                      <span className="text-[10px] text-muted-foreground">
                         {act.detail} · {Math.max(1, Math.floor((Date.now() - act.time) / 60000))}m ago
                       </span>
                     </div>
                   </div>
                 )) : (
-                  <div className="flex gap-2.5 text-[12px] leading-relaxed">
-                    <div className="size-2 rounded-full bg-slate-300 dark:bg-zinc-700 mt-1.5 shrink-0" />
+                  <div className="flex gap-2 text-xs leading-relaxed">
+                    <div className="size-1.5 rounded-full bg-muted-foreground/40 mt-1.5 shrink-0" />
                     <div className="flex flex-col">
-                      <span className="font-semibold text-muted-foreground">No recent activity</span>
-                      <span className="text-[10px] text-slate-400 dark:text-zinc-600">Open a workspace or calculator to track</span>
+                      <span className="font-medium text-muted-foreground text-[11.5px]">No recent activity</span>
+                      <span className="text-[10px] text-muted-foreground/70">Open a calculator to record activity</span>
                     </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Quick Tips */}
-            <div className="flex flex-col gap-2.5 p-4 bg-primary/[0.03] border border-primary/10 rounded-2xl select-none">
-              <div className="flex items-center gap-2 text-primary">
-                <HelpCircle className="size-4" />
-                <span className="font-bold text-[11px] uppercase tracking-wider font-sans">Quick Tip</span>
-              </div>
-              <p className="text-[11.5px] text-muted-foreground leading-relaxed font-sans">
-                Right-click on any project card or the header project dropdown to Rename, Duplicate, or Delete immediately without navigating away.
-              </p>
-            </div>
+
             
           </div>
         </div>
@@ -1334,6 +1959,95 @@ function ProjectsPage() {
                   </div>
                 </div>
 
+                {/* Project Typology / Category Dropdown */}
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">
+                    Project Typology (Category) *
+                  </label>
+                  <div className="relative focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary rounded-2xl transition-all">
+                    <Building2 className="absolute left-3.5 top-3.5 size-4.5 text-muted-foreground/80 pointer-events-none" />
+                    <select
+                      value={newProject.project_type}
+                      onChange={(e) => setNewProject({ ...newProject, project_type: e.target.value as any })}
+                      className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl pl-11 pr-4 py-3 text-[12.5px] text-foreground font-sans outline-none focus:outline-none transition-all cursor-pointer"
+                    >
+                      {PROJECT_TYPES.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Applicable Project Stages Selection */}
+                <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
+                  <div className="flex items-center justify-between">
+                    <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none font-sans flex items-center gap-1.5">
+                      <SlidersHorizontal className="size-3 text-primary" /> Applicable Project Stages
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setNewProject({ ...newProject, applicable_stages: [...PROJECT_STAGES] })}
+                      className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
+                    >
+                      Select All
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Select the stages that apply to this project (projects can work on all or selected stages):
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PROJECT_STAGES.map((stage) => {
+                      const isChecked = newProject.applicable_stages.includes(stage);
+                      return (
+                        <label
+                          key={stage}
+                          className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                            isChecked
+                              ? 'bg-primary/10 border-primary/40 text-foreground font-semibold shadow-2xs'
+                              : 'bg-surface-2/40 border-border/60 text-muted-foreground hover:bg-surface-2'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              const current = newProject.applicable_stages;
+                              const next = e.target.checked
+                                ? [...current, stage]
+                                : current.filter((s) => s !== stage);
+                              const validCurrent = next.includes(newProject.current_stage)
+                                ? newProject.current_stage
+                                : (next[0] || stage);
+                              setNewProject({
+                                ...newProject,
+                                applicable_stages: next,
+                                current_stage: validCurrent as any
+                              });
+                            }}
+                            className="rounded text-primary focus:ring-primary size-3.5"
+                          />
+                          <span className="text-[11.5px] truncate">{stage}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 mt-2">
+                    <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">
+                      Initial Current Stage
+                    </label>
+                    <select
+                      value={newProject.current_stage}
+                      onChange={(e) => setNewProject({ ...newProject, current_stage: e.target.value as any })}
+                      className="w-full bg-slate-50/50 dark:bg-zinc-950/20 border border-border/70 rounded-2xl px-4 py-2.5 text-[12px] text-foreground font-sans outline-none cursor-pointer"
+                    >
+                      {(newProject.applicable_stages.length > 0 ? newProject.applicable_stages : PROJECT_STAGES).map((stg) => (
+                        <option key={stg} value={stg}>{stg} (In Progress)</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div className="flex flex-col gap-1.5">
                   <label className="text-muted-foreground font-extrabold text-[9px] uppercase tracking-widest select-none font-sans">Design Code & Notes</label>
                   <div className="relative focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary rounded-2xl transition-all">
@@ -1418,6 +2132,114 @@ function ProjectsPage() {
                     className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150"
                   />
                 </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-500 dark:text-zinc-400 font-extrabold text-[9px] uppercase tracking-widest mb-1.5 select-none font-sans">
+                    Project Typology (Category)
+                  </label>
+                  <select
+                    value={editingProj.project_type || "Buildings / Apartment"}
+                    onChange={(e) => setEditingProj({ ...editingProj, project_type: e.target.value as any })}
+                    className="w-full bg-background border border-border/70 rounded-2xl px-3.5 py-2.5 outline-none focus:ring-1 focus:ring-primary focus:border-primary text-[12px] text-foreground font-sans transition-all duration-150 cursor-pointer"
+                  >
+                    {PROJECT_TYPES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* SECTION: PROJECT DESIGN STAGES */}
+              <div className="flex flex-col gap-3 pt-3 border-t border-border/50">
+                <div className="flex items-center justify-between">
+                  <label className="text-muted-foreground font-extrabold text-[9.5px] uppercase tracking-widest select-none font-sans flex items-center gap-1.5">
+                    <SlidersHorizontal className="size-3.5 text-primary" /> Project Stages & Progression
+                  </label>
+                  {canEditProjectStages(profile, editingProj) ? (
+                    <span className="text-[10px] text-emerald-500 font-bold flex items-center gap-1">
+                      <Unlock className="size-3" /> System Admin / Org Admin / Assigned Team Leader Access
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1">
+                      <Lock className="size-3" /> Read-Only (Assigned Team Leader / Org Admin only)
+                    </span>
+                  )}
+                </div>
+
+                {canEditProjectStages(profile, editingProj) ? (
+                  <div className="flex flex-col gap-3 bg-surface-2/30 p-3.5 rounded-2xl border border-border/60">
+                    <div>
+                      <span className="text-[11px] font-semibold text-foreground block mb-1.5">
+                        Active Project Stages (Toggle stages relevant to this project):
+                      </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {PROJECT_STAGES.map((stage) => {
+                          const appStages = (editingProj.applicable_stages && editingProj.applicable_stages.length > 0)
+                            ? editingProj.applicable_stages
+                            : PROJECT_STAGES;
+                          const isChecked = appStages.includes(stage);
+                          return (
+                            <label
+                              key={stage}
+                              className={`flex items-center gap-2 p-2 rounded-xl border text-[11px] cursor-pointer transition-all ${
+                                isChecked
+                                  ? 'bg-primary/10 border-primary/40 text-foreground font-semibold'
+                                  : 'bg-surface-2/40 border-border/60 text-muted-foreground hover:bg-surface-2'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const next = e.target.checked
+                                    ? [...appStages, stage]
+                                    : appStages.filter((s) => s !== stage);
+                                  const validCurrent = next.includes(editingProj.current_stage || '')
+                                    ? editingProj.current_stage
+                                    : (next[0] || stage);
+                                  setEditingProj({
+                                    ...editingProj,
+                                    applicable_stages: next,
+                                    current_stage: validCurrent
+                                  });
+                                }}
+                                className="rounded text-primary focus:ring-primary size-3.5"
+                              />
+                              <span className="truncate">{stage}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-foreground mb-1">
+                        Current Stage (In Progress):
+                      </label>
+                      <select
+                        value={editingProj.current_stage || "Concept Design"}
+                        onChange={(e) => setEditingProj({ ...editingProj, current_stage: e.target.value as any })}
+                        className="w-full bg-background border border-border/70 rounded-xl px-3 py-2 text-[12px] text-foreground font-sans outline-none focus:ring-1 focus:ring-primary focus:border-primary cursor-pointer"
+                      >
+                        {((editingProj.applicable_stages && editingProj.applicable_stages.length > 0)
+                          ? editingProj.applicable_stages
+                          : PROJECT_STAGES).map((stg) => (
+                          <option key={stg} value={stg}>
+                            {stg} (In Progress)
+                          </option>
+                        ))}
+                        <option value="Completed">✓ Completed (All Stages Finished)</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-2xl bg-surface-2/50 border border-border/60 flex items-center justify-between text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Lock className="size-4 text-muted-foreground/70" />
+                      <span>Current Stage: <strong className="text-foreground">{editingProj.current_stage || "Concept Design"}</strong></span>
+                    </div>
+                    <span className="text-[10.5px] italic">Only System Admin and Team Leader can update project stages.</span>
+                  </div>
+                )}
               </div>
 
               {/* 2 SECTIONS CARD SELECTION IN EDIT WORKSPACE DETAILS (ORG ADMIN ONLY) */}

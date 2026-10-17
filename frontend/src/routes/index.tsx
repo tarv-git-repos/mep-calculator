@@ -4,7 +4,7 @@ import { DashboardPage } from "./dashboard";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dashboard — MEP Calculator" },
+      { title: "Home — MEP Calculator" },
       { name: "description", content: "MEP project analytics, compliance, alerts, and quick calculation access." },
     ],
   }),

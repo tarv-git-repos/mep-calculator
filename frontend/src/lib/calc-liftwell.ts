@@ -26,13 +26,10 @@ export const CALCULATION_CONSTANTS = {
 export interface LiftwellItem {
   id: string;
   name: string;
-  floor?: string;
   doorType: DoorTypeKey;
   doorArea: number | "";
   openDoorsCount: number | "";
   closedDoorsCount: number | "";
-  flagged?: boolean;
-  comments?: any[];
 }
 
 export function calculateLiftwell(item: LiftwellItem, isIp: boolean = false) {

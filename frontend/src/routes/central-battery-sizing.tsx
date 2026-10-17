@@ -955,7 +955,7 @@ function CentralBatterySizingPage() {
           }}
           className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
         >
-          <Flag className="size-3.5 text-red-500" />
+          <Flag className="size-3.5 text-amber-500" />
           <span>{targetsCount > 1 ? "Flag / Unflag Selected" : (row.flagged ? "Unflag Load" : "Flag for Review")}</span>
         </ContextMenuItem>
 
@@ -1299,7 +1299,7 @@ function CentralBatterySizingPage() {
 
                               <div className="flex items-center justify-between pt-1.5 border-t border-border">
                                 <label htmlFor="filter-cbs-flagged" className="text-[11.5px] font-semibold text-foreground flex items-center gap-1.5 cursor-pointer">
-                                  <Flag className="size-3.5 text-red-500 fill-red-500" />
+                                  <Flag className="size-3.5 text-amber-500 fill-amber-500" />
                                   <span>Flagged Only</span>
                                 </label>
                                 <input

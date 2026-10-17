@@ -27,10 +27,18 @@ export class FloorPlanManager {
         this.isEntering2D = true;
         await this.rendererManager.world.camera.projection.set("Orthographic");
         this.rendererManager.world.camera.set("Plan");
+        if (this.rendererManager.world.camera?.controls) {
+            this.rendererManager.world.camera.controls.mouseButtons.wheel = 32; // CameraControls.ACTION.ZOOM
+            this.rendererManager.world.camera.controls.enabled = true;
+        }
     }
 
     async enter3DMode() {
         await this.rendererManager.world.camera.projection.set("Perspective");
         this.rendererManager.world.camera.set("Orbit");
+        if (this.rendererManager.world.camera?.controls) {
+            this.rendererManager.world.camera.controls.mouseButtons.wheel = 16; // CameraControls.ACTION.DOLLY
+            this.rendererManager.world.camera.controls.enabled = true;
+        }
     }
 }

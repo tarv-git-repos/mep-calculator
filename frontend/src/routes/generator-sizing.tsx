@@ -1682,8 +1682,15 @@ function GeneratorSizingPage() {
                                       onDrop={handleDrop}
                                       onDragEnd={handleDrop}
                                       onClick={(e) => {
-                                        const tagName = (e.target as HTMLElement).tagName;
-                                        if (tagName === "TD") {
+                                        const target = e.target as HTMLElement;
+                                        if (
+                                          target.closest('button[title*="comment"]') ||
+                                          target.closest('.mep-comment-badge') ||
+                                          target.closest('input[type="checkbox"]')
+                                        ) {
+                                          return;
+                                        }
+                                        if (!selectedRows.has(r.id)) {
                                           toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
                                         }
                                       }}
@@ -1721,7 +1728,7 @@ function GeneratorSizingPage() {
                                           />
                                         </div>
                                       </td>
-                                      <td style={{ width: `${colWidths.desc}px`, minWidth: `${colWidths.desc}px` }} className="p-0">
+                                      <td style={{ width: `${colWidths.desc}px`, minWidth: `${colWidths.desc}px` }} className={`p-0 ${!selectedRows.has(r.id) ? "pointer-events-none select-none" : ""}`}>
                                         <div className="flex items-center gap-1.5 w-full h-full px-2">
                                           
                                           <input
@@ -1735,7 +1742,7 @@ function GeneratorSizingPage() {
                                           />
                                         </div>
                                       </td>
-                                      <td style={{ width: `${colWidths.unit}px`, minWidth: `${colWidths.unit}px` }} className="p-0">
+                                      <td style={{ width: `${colWidths.unit}px`, minWidth: `${colWidths.unit}px` }} className={`p-0 ${!selectedRows.has(r.id) ? "pointer-events-none select-none" : ""}`}>
                                         <input
                                           data-row={rowIndex}
                                           data-col={1}
@@ -1745,7 +1752,7 @@ function GeneratorSizingPage() {
                                           onChange={(e) => updateRow(r.id, "unit", e.target.value)}
                                         />
                                       </td>
-                                      <td style={{ width: `${colWidths.kwPerUnit}px`, minWidth: `${colWidths.kwPerUnit}px` }} className="p-0">
+                                      <td style={{ width: `${colWidths.kwPerUnit}px`, minWidth: `${colWidths.kwPerUnit}px` }} className={`p-0 ${!selectedRows.has(r.id) ? "pointer-events-none select-none" : ""}`}>
                                         <input
                                           data-row={rowIndex}
                                           data-col={2}
@@ -1755,7 +1762,7 @@ function GeneratorSizingPage() {
                                           onChange={(e) => updateRow(r.id, "kwPerUnit", e.target.value)}
                                         />
                                       </td>
-                                      <td style={{ width: `${colWidths.starter}px`, minWidth: `${colWidths.starter}px` }} className="p-0">
+                                      <td style={{ width: `${colWidths.starter}px`, minWidth: `${colWidths.starter}px` }} className={`p-0 ${!selectedRows.has(r.id) ? "pointer-events-none select-none" : ""}`}>
                                         <select
                                           data-row={rowIndex}
                                           data-col={3}
@@ -1770,7 +1777,7 @@ function GeneratorSizingPage() {
                                           <option value="None" className="bg-popover text-popover-foreground">None</option>
                                         </select>
                                       </td>
-                                      <td style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className="p-0 text-center">
+                                      <td style={{ width: `${colWidths.multiplier}px`, minWidth: `${colWidths.multiplier}px` }} className={`p-0 text-center ${!selectedRows.has(r.id) ? "pointer-events-none select-none" : ""}`}>
                                         <input
                                           data-row={rowIndex}
                                           data-col={4}
@@ -1788,7 +1795,7 @@ function GeneratorSizingPage() {
                                       <td style={{ width: `${colWidths.totalKw}px`, minWidth: `${colWidths.totalKw}px` }} className="p-0 text-center font-mono text-[12px] text-muted-foreground">
                                         {totalKw.toFixed(2)}
                                       </td>
-                                      <td style={{ width: `${colWidths.standby}px`, minWidth: `${colWidths.standby}px` }} className="p-0">
+                                      <td style={{ width: `${colWidths.standby}px`, minWidth: `${colWidths.standby}px` }} className={`p-0 ${!selectedRows.has(r.id) ? "pointer-events-none select-none" : ""}`}>
                                         <input
                                           data-row={rowIndex}
                                           data-col={5}
@@ -1801,7 +1808,7 @@ function GeneratorSizingPage() {
                                       <td style={{ width: `${colWidths.acl}px`, minWidth: `${colWidths.acl}px` }} className="p-0 text-center font-mono text-[12px] font-semibold text-primary">
                                         {actualKw.toFixed(2)}
                                       </td>
-                                      <td style={{ width: `${colWidths.emergency}px`, minWidth: `${colWidths.emergency}px` }} className="p-0 relative group/em">
+                                      <td style={{ width: `${colWidths.emergency}px`, minWidth: `${colWidths.emergency}px` }} className={`p-0 relative group/em ${!selectedRows.has(r.id) ? "pointer-events-none select-none" : ""}`}>
                                         <div className="flex items-center w-full h-full">
                                           <input
                                             data-row={rowIndex}
@@ -1833,7 +1840,7 @@ function GeneratorSizingPage() {
                                           </button>
                                         </div>
                                       </td>
-                                      <td style={{ width: `${colWidths.powerFail}px`, minWidth: `${colWidths.powerFail}px` }} className="p-0">
+                                      <td style={{ width: `${colWidths.powerFail}px`, minWidth: `${colWidths.powerFail}px` }} className={`p-0 ${!selectedRows.has(r.id) ? "pointer-events-none select-none" : ""}`}>
                                         <div className="flex items-center w-full h-full">
                                           <input
                                             data-row={rowIndex}
@@ -1867,7 +1874,7 @@ function GeneratorSizingPage() {
                                           </select>
                                         </div>
                                       </td>
-                                      <td style={{ width: `${colWidths.remark}px`, minWidth: `${colWidths.remark}px` }} className="p-0">
+                                      <td style={{ width: `${colWidths.remark}px`, minWidth: `${colWidths.remark}px` }} className={`p-0 ${!selectedRows.has(r.id) ? "pointer-events-none select-none" : ""}`}>
                                         <input
                                           data-row={rowIndex}
                                           data-col={8}

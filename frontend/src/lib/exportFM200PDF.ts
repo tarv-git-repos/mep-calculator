@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
 import { workspaceStore } from "./workspace-store";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { toast } from "sonner";
 import { type PresetOption } from "./calc-plumbing-fm200";
 
@@ -91,54 +91,15 @@ export const exportFM200PDF = async (
     const primaryFill: [number, number, number] = [217, 217, 217]; // Uniform gray #D9D9D9 (Matching Ventilation)
     const blueFill: [number, number, number] = [218, 233, 248];    // Soft Blue highlight #DAE9F8 (Matching Ventilation)
 
-    // 1. Header Title matching Preliminary/Heating Load standard
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(0, 0, 0);
-    doc.text("FM-200 Clean Agent Fire Suppression Calculation", 14, 14);
-
-    // 2. Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
-    doc.setFontSize(9);
-    doc.setLineWidth(0.3);
-    doc.setDrawColor(100, 100, 100);
-    doc.rect(14, 18, 182, 18); // Outer box for metadata
-
-    // Vertical line to separate left/right metadata
-    doc.line(105, 18, 105, 36);
-
-    // Horizontal lines
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 120, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 120, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName, 42, 34);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, 125, 34);
+    // 1. Header & Standard Metadata Box (Central Org Branding)
+    const startY = addPdfHeader(doc, "FM-200 Clean Agent Fire Suppression Calculation", {
+      calcNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser
+    });
 
     const hazardLabelMap: Record<string, string> = {
       class_a: "Class A - Surface Fire (6.857%)",
@@ -192,7 +153,7 @@ export const exportFM200PDF = async (
     ];
 
     callAutoTable(doc, {
-      startY: 40,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       body: summaryRows,
@@ -332,60 +293,21 @@ export const exportFM200PDF = async (
       currentY = 14;
     }
 
-    // 6. Table 4: Professional Review & Sign-Off Block (Exact Preliminary #FFE6CC Header)
+    // 6. Table 4: Professional Review & Sign-Off Block & Branding
     const sigDetails = getSignatureBlockDetails(
       activeProj?.id || "default",
       "/plumbing-fm200",
       currentUserName,
       meta.reviewState
     );
+    addPdfSignatureBlock(doc, currentY + 5, sigDetails, activeProj?.id || "default", "/plumbing-fm200");
 
-    callAutoTable(doc, {
-      startY: currentY + 5,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      styles: {
-        fontSize: 8,
-        halign: "center",
-        valign: "middle",
-        lineColor: [100, 100, 100],
-        lineWidth: 0.1,
-        cellPadding: { top: 2.2, bottom: 2.2, left: 1, right: 1 },
-      },
-      headStyles: {
-        fillColor: [255, 230, 204],
-        textColor: 0,
-        fontStyle: "bold",
-      },
-      head: [
-        [
-          { content: "" },
-          { content: "Originator" },
-          { content: "Reviewer" },
-          { content: "Approver" },
-        ],
-      ],
-      body: [
-        [
-          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: sigDetails.originatedName || currentUserName || "Design Engineer", styles: { halign: "center" } },
-          { content: sigDetails.reviewerName || "-", styles: { halign: "center" } },
-          { content: sigDetails.approverName || "-", styles: { halign: "center" } },
-        ],
-        [
-          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: sigDetails.originatedDate || today, styles: { halign: "center" } },
-          { content: sigDetails.reviewerDate || "-", styles: { halign: "center" } },
-          { content: sigDetails.approverDate || "-", styles: { halign: "center" } },
-        ],
-      ],
-      columnStyles: {
-        0: { cellWidth: 32 },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 50 },
-      },
-    });
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
 
     const pdfBuffer = doc.output("arraybuffer");
     await downloadFile(new Uint8Array(pdfBuffer), `FM200_Suppression_Calculation_${projectNo}.pdf`, "PDF Document", ["pdf"]);

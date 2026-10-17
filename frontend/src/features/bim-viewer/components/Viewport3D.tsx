@@ -1,5 +1,4 @@
 import * as OBC from '@thatopen/components';
-import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer';
 import { RendererManager } from '../frontend/RendererManager';
@@ -9,10 +8,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useViewerStore } from '../store/viewer-store';
 import { Toolbar } from './Toolbar';
 import { DropOverlay } from './DropOverlay';
-import { workspaceStore } from '@/lib/workspace-store';
+import { workspaceStore, useWorkspace } from '@/lib/workspace-store';
+import { Box, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { saveProjectIfcFile, getProjectIfcFile, deleteProjectIfcFile } from '@/lib/projectIfcStorage';
-import { isMepValidSpaceName, sortSpacesByFloorAndName, resolveBestSpaceName } from '@/lib/bimViewerSpaceExtractor';
+import { isMepValidSpaceName, sortSpacesByFloorAndName, resolveBestSpaceName, getFloorRank } from '@/lib/bimViewerSpaceExtractor';
 import { api as backendApi } from '@/services/api';
+import { hasLiteralDimensions, getEquipmentLiteralDimensions } from '@/lib/ahu-dimensions-data';
 
 import { ensureApiBridge } from '../tauri-bridge';
 
@@ -31,6 +33,10 @@ export function Viewport3D() {
     const [isReady, setIsReady] = useState(false);
     const [webglError, setWebglError] = useState(false);
     const rendererManagerRef = useRef<RendererManager | null>(null);
+
+    const selectedEquipmentId = useViewerStore(state => state.selectedEquipmentId);
+    const { equipment } = useWorkspace();
+    const selectedEquip = equipment.find(e => e.id === selectedEquipmentId && (e.locationSpaceId || e.positionX !== undefined) && hasLiteralDimensions(e));
 
     useEffect(() => {
         if (!viewportRef.current || isInitialized.current) return;
@@ -149,12 +155,34 @@ export function Viewport3D() {
         window.addEventListener('keydown', handleShiftDown);
         window.addEventListener('keyup', handleShiftUp);
 
-        ui.viewport.addEventListener('wheel', (e: WheelEvent) => {
-            if (e.shiftKey && world.camera?.controls) {
-                const delta = e.deltaY < 0 ? 1.5 : -1.5;
-                world.camera.controls.dolly(delta, true);
+        const handleViewportWheel = (e: WheelEvent) => {
+            if (!world?.camera?.controls) return;
+
+            // Guarantee camera controls are enabled whenever the user is not actively dragging equipment
+            if (!(window as any)._isActivelyDraggingEquipment) {
+                world.camera.controls.enabled = true;
             }
-        }, { passive: true });
+
+            const is2D = ui.btn2d.classList.contains('active') || ((world.camera.three as any)?.isOrthographicCamera ?? false);
+            if (is2D) {
+                world.camera.controls.mouseButtons.wheel = 32; // CameraControls.ACTION.ZOOM
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    const currentZoom = (world.camera.three as any).zoom || 1;
+                    const factor = e.deltaY < 0 ? 1.3 : 0.77;
+                    world.camera.controls.zoomTo(Math.max(0.001, Math.min(100, currentZoom * factor)), true);
+                }
+            } else {
+                world.camera.controls.mouseButtons.wheel = 16; // CameraControls.ACTION.DOLLY
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    const delta = e.deltaY < 0 ? 3.0 : -3.0;
+                    world.camera.controls.dolly(delta, true);
+                }
+            }
+        };
+
+        ui.viewport.addEventListener('wheel', handleViewportWheel, { passive: false });
 
         ui.viewport.addEventListener('dblclick', () => ui.btnClip.classList.contains('active') && ui.selectLevel.value === '' && floorPlanManager.createClipPlane());
         window.addEventListener('keydown', e => e.code === 'Delete' && floorPlanManager.deleteClipPlane());
@@ -201,7 +229,22 @@ export function Viewport3D() {
         let activeSpace2dPickMeshes: THREE.Mesh[] = [];
         let activeSpaceBoundsMap = new Map<number, { box: THREE.Box3, center: THREE.Vector3, space: any, storeyExpressId: number }>();
         let activeSpaceWorldPolygons = new Map<number, { worldXZ: { x: number, z: number }[], space: any, storeyExpressId: number }>();
+
+        const getMedianSpaceMinY = (spaces: any[]): number | null => {
+            if (!spaces || spaces.length === 0) return null;
+            const currentVerticalAxis = (world?.camera?.three && Math.abs(world.camera.three.up.z) > 0.5) ? 'z' : 'y';
+            const yVals = spaces
+                .map(sp => (currentVerticalAxis === 'y' ? sp.box?.min?.y : sp.box?.min?.z))
+                .filter(y => typeof y === 'number' && !isNaN(y))
+                .sort((a, b) => a - b);
+            if (yVals.length === 0) return null;
+            return yVals[Math.floor(yVals.length / 2)];
+        };
+
         let placedEquipment3DMeshes: THREE.Group[] = [];
+        let activeStoreys: { name: string; elevation: number; expressId: number; spaces: any[]; localSpaceIds: Set<number>; localElementIds: Set<number> }[] = [];
+        let activeGetWorldHeight: ((elevation: number) => number) | null = null;
+        let activeRenderEquipmentMeshes: (() => void) | null = null;
         let unsubEquipmentStore: (() => void) | null = null;
         let activeSelectHighlightHandler: any = null;
         let activeSelectClearHandler: any = null;
@@ -212,6 +255,24 @@ export function Viewport3D() {
                 list.forEach(m => {
                     try {
                         if (m.parent) m.parent.remove(m);
+                        else if (world?.scene?.three) world.scene.three.remove(m);
+
+                        m.traverse?.((child: any) => {
+                            if (child.parent && child !== m) child.parent.remove(child);
+                            if (child.geometry && typeof child.geometry.dispose === 'function') child.geometry.dispose();
+                            if (child.material) {
+                                if (Array.isArray(child.material)) {
+                                    child.material.forEach((mat: any) => {
+                                        if (mat.map && typeof mat.map.dispose === 'function') mat.map.dispose();
+                                        if (typeof mat.dispose === 'function') mat.dispose();
+                                    });
+                                } else {
+                                    if (child.material.map && typeof child.material.map.dispose === 'function') child.material.map.dispose();
+                                    if (typeof child.material.dispose === 'function') child.material.dispose();
+                                }
+                            }
+                        });
+
                         if (m.geometry && typeof m.geometry.dispose === 'function') m.geometry.dispose();
                         if (m.material) {
                             if (Array.isArray(m.material)) {
@@ -228,6 +289,82 @@ export function Viewport3D() {
                 });
             } catch { }
             list.length = 0;
+        };
+
+        const getStoreyElevationInMeters = (elev: number): number => {
+            if (typeof elev !== 'number' || isNaN(elev)) return 0;
+            if (Math.abs(elev) > 50) return elev / 1000;
+            return elev;
+        };
+
+        const normalizeFloorName = (name?: string): string => {
+            if (!name) return '';
+            const clean = String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (clean.includes('ground') || clean === 'gf' || clean === 'g' || clean === 'level0' || clean === 'floor0' || clean === 'l0' || clean === 'l00' || clean === '0' || clean === '00') return 'ground';
+            if (clean.includes('first') || clean.includes('1st') || clean === 'ff' || clean === 'level1' || clean === 'floor1' || clean === 'l1' || clean === 'l01' || clean === '1' || clean === '01') return 'first';
+            if (clean.includes('second') || clean.includes('2nd') || clean === 'sf' || clean === 'level2' || clean === 'floor2' || clean === 'l2' || clean === 'l02' || clean === '2' || clean === '02') return 'second';
+            if (clean.includes('third') || clean.includes('3rd') || clean === 'tf' || clean === 'level3' || clean === 'floor3' || clean === 'l3' || clean === 'l03' || clean === '3' || clean === '03') return 'third';
+            if (clean.includes('roof') || clean.includes('terrace') || clean.includes('top') || clean.includes('parapet')) return 'roof';
+            if (clean.includes('basement') || clean === 'b1' || clean.includes('level-1') || clean === 'lb') return 'basement';
+            return clean;
+        };
+
+        const matchFloorNames = (a?: string, b?: string): boolean => {
+            if (!a || !b) return false;
+            const strA = String(a).trim().toLowerCase();
+            const strB = String(b).trim().toLowerCase();
+            if (strA === strB) return true;
+            const normA = normalizeFloorName(strA);
+            const normB = normalizeFloorName(strB);
+            if (normA !== '' && normA === normB) return true;
+            const rankA = getFloorRank(strA);
+            const rankB = getFloorRank(strB);
+            if (rankA !== 500 && rankA !== 999 && rankA === rankB) return true;
+            return false;
+        };
+
+        const findStoreyByFloor = (floorNameOrId?: string | number) => {
+            if (!floorNameOrId) return null;
+            const str = String(floorNameOrId).trim();
+            if (!str) return null;
+
+            if (activeStoreys && activeStoreys.length > 0) {
+                const byId = activeStoreys.find((s: any) => String(s.expressId) === str);
+                if (byId) return byId;
+                const byExact = activeStoreys.find((s: any) => s.name?.toLowerCase() === str.toLowerCase());
+                if (byExact) return byExact;
+                const byNorm = activeStoreys.find((s: any) => matchFloorNames(s.name, str));
+                if (byNorm) return byNorm;
+            }
+
+            const storeLevels = useViewerStore.getState().levels;
+            if (storeLevels && storeLevels.length > 0) {
+                const byId = storeLevels.find((s: any) => String(s.expressId) === str);
+                if (byId) return { ...byId, spaces: (byId as any).spaces || [] };
+                const byExact = storeLevels.find((s: any) => s.name?.toLowerCase() === str.toLowerCase());
+                if (byExact) return { ...byExact, spaces: (byExact as any).spaces || [] };
+                const byNorm = storeLevels.find((s: any) => matchFloorNames(s.name, str));
+                if (byNorm) return { ...byNorm, spaces: (byNorm as any).spaces || [] };
+            }
+
+            // Fallback for roof queries: if query indicates roof, return roof storey or virtual roof
+            if (/roof|terrace|parapet|deck/i.test(str) || normalizeFloorName(str) === 'roof') {
+                const roofSt = activeStoreys?.find((s: any) => /roof|terrace|parapet|deck/i.test(s.name));
+                if (roofSt) return roofSt;
+                const topElev = (activeStoreys && activeStoreys.length > 0)
+                    ? Math.max(...activeStoreys.map((s: any) => getStoreyElevationInMeters(s.elevation))) + 3.8
+                    : 7.6;
+                return {
+                    name: 'ROOF LEVEL',
+                    elevation: topElev * 1000,
+                    expressId: -9999,
+                    spaces: [],
+                    localSpaceIds: new Set<number>(),
+                    localElementIds: new Set<number>()
+                };
+            }
+
+            return null;
         };
 
         const cleanupCurrentSceneAndModel = async () => {
@@ -285,6 +422,8 @@ export function Viewport3D() {
             disposeMeshList(placedEquipment3DMeshes);
             activeSpaceBoundsMap.clear();
             activeSpaceWorldPolygons.clear();
+            activeStoreys = [];
+            activeGetWorldHeight = null;
             if (unsubEquipmentStore) { unsubEquipmentStore(); unsubEquipmentStore = null; }
 
             // 5. Remove clip plane
@@ -330,6 +469,35 @@ export function Viewport3D() {
                 }
             } catch { }
         };
+
+        const safeRaycastModel = (raycaster: THREE.Raycaster, modelObject?: THREE.Object3D | null): THREE.Intersection[] => {
+            if (!modelObject) return [];
+            const results: THREE.Intersection[] = [];
+            modelObject.traverse((child: any) => {
+                if (!child.visible) return;
+                if (child.isMesh || child.isInstancedMesh) {
+                    const geom = child.geometry;
+                    if (!geom || !geom.attributes || !geom.attributes.position || !geom.attributes.position.array) {
+                        return;
+                    }
+                    if (geom.attributes.position.count === 0) {
+                        return;
+                    }
+                    try {
+                        const childIntersects: THREE.Intersection[] = [];
+                        child.raycast(raycaster, childIntersects);
+                        for (let k = 0; k < childIntersects.length; k++) {
+                            results.push(childIntersects[k]);
+                        }
+                    } catch (_) {
+                        // Skip faulty mesh safely without failing the raycast for the rest of the model
+                    }
+                }
+            });
+            results.sort((a, b) => a.distance - b.distance);
+            return results;
+        };
+        (window as any)._safeRaycastModel = safeRaycastModel;
 
         let isModelLoadingInProgress = false;
         let activeModelSignature = '';
@@ -508,7 +676,7 @@ export function Viewport3D() {
                 activeSpace2dOutlineMeshes = space2dOutlineMeshes;
                 activeSpace2dPickMeshes = space2dPickMeshes;
 
-                const raycastSpaceUnderCursor = (e: MouseEvent): { space: any; expressId: number; storeyExpressId: number; point: THREE.Vector3 } | null => {
+                const raycastSpaceUnderCursor = (e: MouseEvent, targetStoreyExpressId?: number | string): { space: any; expressId: number; storeyExpressId: number; point: THREE.Vector3 } | null => {
                     const is2DActive = ui.btn2d.classList.contains('active') || store().viewMode === '2d';
                     if (!is2DActive) return null;
 
@@ -520,12 +688,17 @@ export function Viewport3D() {
                     const raycaster = new THREE.Raycaster();
                     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), world.camera.three);
 
-                    const activeLevelId = ui.selectLevel.value;
-                    const currentLevel = useViewerStore.getState().levels.find((l: any) => String(l.expressId) === String(activeLevelId));
-                    const floorElevation = currentLevel ? (currentLevel.elevation ?? 0) : 0;
+                    const activeLevelId = targetStoreyExpressId || ui.selectLevel.value;
+                    const effectiveLevel = activeLevelId
+                        ? (useViewerStore.getState().levels.find((l: any) => String(l.expressId) === String(activeLevelId)) || (activeStoreys && activeStoreys.find((l: any) => String(l.expressId) === String(activeLevelId))))
+                        : (activeStoreys && activeStoreys.length > 0 ? [...activeStoreys].sort((a, b) => a.elevation - b.elevation)[0] : null);
+                    const effectiveLevelId = effectiveLevel ? String(effectiveLevel.expressId) : (activeLevelId ? String(activeLevelId) : '');
 
-                    // Intersect horizontal floor plane at floorElevation
-                    const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -floorElevation);
+                    const floorElevation = effectiveLevel ? (effectiveLevel.elevation ?? 0) : 0;
+                    const floorWorldY = activeGetWorldHeight ? activeGetWorldHeight(floorElevation) : (floorElevation > 100 ? floorElevation * 0.001 : floorElevation);
+
+                    // Intersect horizontal floor plane at floorWorldY
+                    const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -floorWorldY);
                     const planeHit = new THREE.Vector3();
                     const hasPlaneHit = raycaster.ray.intersectPlane(floorPlane, planeHit);
                     const worldPoint = hasPlaneHit ? planeHit : new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
@@ -537,8 +710,8 @@ export function Viewport3D() {
                         console.log('[MEP-DND] client:', { clientX: e.clientX, clientY: e.clientY });
                         console.log('[MEP-DND] viewport rect:', { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) });
                         console.log('[MEP-DND] NDC:', { ndcX: Number(ndcX.toFixed(3)), ndcY: Number(ndcY.toFixed(3)) });
-                        console.log('[MEP-DND] world:', { clickX: Number(clickX.toFixed(2)), clickZ: Number(clickZ.toFixed(2)), floorElevation });
-                        console.log('[MEP-DND] selected level:', activeLevelId || '(all)');
+                        console.log('[MEP-DND] world:', { clickX: Number(clickX.toFixed(2)), clickZ: Number(clickZ.toFixed(2)), floorWorldY });
+                        console.log('[MEP-DND] effective level:', effectiveLevelId || '(none)');
                         console.log('[MEP-DND] polygons available:', spaceWorldPolygons.size, '| bounds available:', spaceBoundsMap.size);
                     }
 
@@ -554,28 +727,30 @@ export function Viewport3D() {
                         return inside;
                     };
 
-                    // PASS 1: Test against 2D polygon footprints (exact polygon match if available)
+                    // PASS 1: Test against 2D polygon footprints on effective level
                     if (spaceWorldPolygons.size > 0) {
                         for (const [expressId, data] of spaceWorldPolygons) {
-                            if (activeLevelId && String(data.storeyExpressId) !== String(activeLevelId)) continue;
+                            if (effectiveLevelId && String(data.storeyExpressId) !== effectiveLevelId) continue;
                             if (pointInPoly(clickX, clickZ, data.worldXZ)) {
                                 if (isDndEvent) {
                                     console.log('[MEP-DND] candidate spaces: [Polygon Match]', data.space?.longName || data.space?.name || expressId);
                                     console.log('[MEP-DND] hitSpace:', data.space?.longName || data.space?.name || expressId);
                                 }
-                                return { space: data.space, expressId, storeyExpressId: data.storeyExpressId, point: new THREE.Vector3(clickX, floorElevation, clickZ) };
+                                const roomFloorY = (spaceBoundsMap.get(expressId)?.box?.min?.y !== undefined)
+                                    ? spaceBoundsMap.get(expressId)!.box.min.y
+                                    : floorWorldY;
+                                return { space: data.space, expressId, storeyExpressId: data.storeyExpressId, point: new THREE.Vector3(clickX, roomFloorY, clickZ) };
                             }
                         }
                     }
 
-                    // PASS 2: Test 3D World Bounding Box & Center Proximity (Forgiving, hits anywhere in the room)
+                    // PASS 2: Test 3D World Bounding Box on effective level
                     if (spaceBoundsMap.size > 0) {
                         const candidateHits: { expressId: number; data: any; distSq: number }[] = [];
                         const margin = 0.5; // 0.5m boundary tolerance for edge placement
 
-                        // First check spaces on active level
                         for (const [expressId, data] of spaceBoundsMap) {
-                            if (activeLevelId && String(data.storeyExpressId) !== String(activeLevelId)) continue;
+                            if (effectiveLevelId && String(data.storeyExpressId) !== effectiveLevelId) continue;
                             const b = data.box;
                             if (clickX >= b.min.x - margin && clickX <= b.max.x + margin &&
                                 clickZ >= b.min.z - margin && clickZ <= b.max.z + margin) {
@@ -585,21 +760,8 @@ export function Viewport3D() {
                             }
                         }
 
-                        // If active level is set but no candidate hit, search all storeys as fallback
-                        if (candidateHits.length === 0 && activeLevelId) {
-                            for (const [expressId, data] of spaceBoundsMap) {
-                                const b = data.box;
-                                if (clickX >= b.min.x - margin && clickX <= b.max.x + margin &&
-                                    clickZ >= b.min.z - margin && clickZ <= b.max.z + margin) {
-                                    const dx = clickX - data.center.x;
-                                    const dz = clickZ - data.center.z;
-                                    candidateHits.push({ expressId, data, distSq: dx * dx + dz * dz });
-                                }
-                            }
-                        }
-
                         if (isDndEvent) {
-                            console.log('[MEP-DND] candidate spaces:', candidateHits.map(c => `${c.data.space?.longName || c.data.space?.name || c.expressId} (dist=${Math.sqrt(c.distSq).toFixed(1)}m, storey=${c.data.storeyExpressId})`));
+                            console.log('[MEP-DND] candidate spaces on level:', candidateHits.map(c => `${c.data.space?.longName || c.data.space?.name || c.expressId} (dist=${Math.sqrt(c.distSq).toFixed(1)}m, storey=${c.data.storeyExpressId})`));
                         }
 
                         if (candidateHits.length > 0) {
@@ -609,33 +771,42 @@ export function Viewport3D() {
                             if (isDndEvent) {
                                 console.log('[MEP-DND] hitSpace:', best.data.space?.longName || best.data.space?.name || best.expressId);
                             }
+                            const roomFloorY = (best.data.box?.min?.y !== undefined)
+                                ? best.data.box.min.y
+                                : floorWorldY;
                             return {
                                 space: best.data.space,
                                 expressId: best.expressId,
                                 storeyExpressId: best.data.storeyExpressId,
-                                point: new THREE.Vector3(clickX, floorElevation, clickZ)
+                                point: new THREE.Vector3(clickX, roomFloorY, clickZ)
                             };
                         }
                     }
 
-                    // PASS 3: Fallback polygon test across all levels
-                    if (spaceWorldPolygons.size > 0) {
+                    // PASS 3: Fallback polygon test strictly constrained to effective level
+                    if (spaceWorldPolygons.size > 0 && effectiveLevelId) {
                         for (const [expressId, data] of spaceWorldPolygons) {
+                            if (String(data.storeyExpressId) !== effectiveLevelId) continue;
                             if (pointInPoly(clickX, clickZ, data.worldXZ)) {
                                 if (isDndEvent) {
                                     console.log('[MEP-DND] candidate spaces: [Polygon Fallback]', data.space?.longName || data.space?.name || expressId);
                                     console.log('[MEP-DND] hitSpace:', data.space?.longName || data.space?.name || expressId);
                                 }
-                                return { space: data.space, expressId, storeyExpressId: data.storeyExpressId, point: new THREE.Vector3(clickX, floorElevation, clickZ) };
+                                const roomFloorY = (spaceBoundsMap.get(expressId)?.box?.min?.y !== undefined)
+                                    ? spaceBoundsMap.get(expressId)!.box.min.y
+                                    : floorWorldY;
+                                return { space: data.space, expressId, storeyExpressId: data.storeyExpressId, point: new THREE.Vector3(clickX, roomFloorY, clickZ) };
                             }
                         }
                     }
 
-                    if (isDndEvent) {
-                        console.log('[MEP-DND] candidate spaces: []');
-                        console.log('[MEP-DND] hitSpace: null');
-                    }
-                    return null;
+                    // PASS 4: Clean fallback on target floor plane
+                    return {
+                        space: null,
+                        expressId: 0,
+                        storeyExpressId: Number(effectiveLevelId) || 0,
+                        point: new THREE.Vector3(clickX, floorWorldY, clickZ)
+                    };
                 };
 
                 (window as any)._raycastSpaceUnderCursor = raycastSpaceUnderCursor;
@@ -772,25 +943,23 @@ export function Viewport3D() {
                 }, { signal });
 
                 const checkEquipmentHit = (ndcX: number, ndcY: number) => {
-                    const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
-                    const clickX = worldPos.x;
-                    const clickZ = worldPos.z;
-                    for (const group of placedEquipment3DMeshes) {
-                        if (!group.userData?.isEquipmentGroup) continue;
-                        const localClick = new THREE.Vector3(clickX, group.position.y, clickZ);
-                        group.worldToLocal(localClick);
-                        let hit = false;
-                        group.traverse((c: any) => {
-                            if (c.geometry && c.geometry.type === 'BoxGeometry') {
-                                if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
-                                const bbox = c.geometry.boundingBox;
-                                if (bbox && localClick.x >= bbox.min.x && localClick.x <= bbox.max.x &&
-                                    localClick.z >= bbox.min.z && localClick.z <= bbox.max.z) {
-                                    hit = true;
-                                }
-                            }
-                        });
-                        if (hit) return group;
+                    const raycaster = new THREE.Raycaster();
+                    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), world.camera.three);
+                    const meshes: THREE.Object3D[] = [];
+                    placedEquipment3DMeshes.forEach(g => {
+                        if (g.visible) {
+                            g.traverse(c => {
+                                if (c instanceof THREE.Mesh) meshes.push(c);
+                            });
+                        }
+                    });
+                    const hits = raycaster.intersectObjects(meshes, true);
+                    if (hits.length > 0) {
+                        let curr: THREE.Object3D | null = hits[0].object;
+                        while (curr) {
+                            if (curr.userData?.isEquipmentGroup) return curr as THREE.Group;
+                            curr = curr.parent;
+                        }
                     }
                     return null;
                 };
@@ -909,9 +1078,10 @@ export function Viewport3D() {
                             if (areaPattern.test(nameStr) || areaPattern.test(longNameStr)) return false;
                             return true;
                         });
+                        const rawElev = typeof node.elevation === 'number' ? node.elevation : 0;
                         storeys.push({
                             name: node.name || 'Unnamed Level',
-                            elevation: typeof node.elevation === 'number' ? node.elevation : 0,
+                            elevation: rawElev,
                             expressId: node.expressId,
                             spaces: spaceChildren,
                             localSpaceIds: new Set<number>(),
@@ -921,7 +1091,39 @@ export function Viewport3D() {
                     if (node.children) node.children.forEach(findStoreys);
                 };
                 findStoreys(jsonData.project);
-                storeys.sort((a, b) => a.elevation - b.elevation);
+
+                const allElevationsZero = storeys.length > 1 && storeys.every(s => Math.abs(s.elevation) < 0.001);
+                if (allElevationsZero) {
+                    storeys.sort((a, b) => getFloorRank(a.name) - getFloorRank(b.name));
+                    storeys.forEach((s, idx) => {
+                        s.elevation = idx * 3800; // 3.8m spacing in mm
+                    });
+                } else {
+                    storeys.sort((a, b) => {
+                        const elevDiff = a.elevation - b.elevation;
+                        if (Math.abs(elevDiff) > 0.05) return elevDiff;
+                        return getFloorRank(a.name) - getFloorRank(b.name);
+                    });
+                }
+
+                // If model has no explicit Roof storey, synthesize ROOF LEVEL above the highest floor
+                const hasRoofStorey = storeys.some(s => /roof|terrace|parapet|deck/i.test(s.name));
+                if (!hasRoofStorey && storeys.length > 0) {
+                    const topStorey = storeys[storeys.length - 1];
+                    const topElevMeters = getStoreyElevationInMeters(topStorey.elevation);
+                    const modelTopMeters = verticalAxis === 'y' ? bbox.max.y : bbox.max.z;
+                    const roofElevMeters = (modelTopMeters && !isNaN(modelTopMeters) && modelTopMeters > topElevMeters + 0.5)
+                        ? modelTopMeters
+                        : (topElevMeters + 3.8);
+                    storeys.push({
+                        name: 'ROOF LEVEL',
+                        elevation: Math.round(roofElevMeters * 1000),
+                        expressId: -9999,
+                        spaces: [],
+                        localSpaceIds: new Set<number>(),
+                        localElementIds: new Set<number>()
+                    });
+                }
 
                 for (const s of storeys) {
                     const ids = s.spaces.map(sp => sp.expressId);
@@ -931,6 +1133,13 @@ export function Viewport3D() {
                     const storeyNode = findNodeById(jsonData.project, s.expressId);
                     const elemExpressIds: number[] = [];
                     getStoreyElements(storeyNode, elemExpressIds);
+                    if (jsonData.elements) {
+                        Object.values(jsonData.elements).forEach((el: any) => {
+                            if (el && el.storeyId === s.expressId && el.expressId) {
+                                elemExpressIds.push(el.expressId);
+                            }
+                        });
+                    }
                     const localElemIds = await model.getLocalIdsFromItemIds(elemExpressIds);
                     s.localElementIds = new Set(localElemIds);
                 }
@@ -938,10 +1147,11 @@ export function Viewport3D() {
                 _levels = [];
                 ui.selectLevel.innerHTML = '<option value="">All Levels (No Cut)</option>';
                 storeys.forEach(s => {
+                    const elevInMeters = getStoreyElevationInMeters(s.elevation);
                     const opt = document.createElement('option');
                     opt.value = s.expressId.toString();
-                    opt.innerText = `${s.name} (${(s.elevation / 1000).toFixed(2)}m)`;
-                    _levels.push({ expressId: opt.value, name: opt.innerText.split(' (')[0], elevation: parseFloat(opt.innerText.match(/\((.*?)\)/)?.[1] || '0') * 1000 });
+                    opt.innerText = `${s.name} (${elevInMeters.toFixed(2)}m)`;
+                    _levels.push({ expressId: opt.value, name: s.name, elevation: elevInMeters * 1000 });
                 });
                 store().setLevels(_levels);
 
@@ -950,8 +1160,9 @@ export function Viewport3D() {
                 model.object.traverse((child: any) => {
                     child.frustumCulled = false;
                     if (child.isInstancedMesh && child.fragment && child.fragment.ids) {
-                        const firstId = Array.from(child.fragment.ids as Set<number>)[0];
-                        if (allSpaceLocalIdsSet.has(firstId)) {
+                        const idsArray = Array.from(child.fragment.ids as Set<number>);
+                        const hasMatchingSpaceId = idsArray.some(id => allSpaceLocalIdsSet.has(id));
+                        if (hasMatchingSpaceId) {
                             spaceMeshes.push(child);
                             const fixSpaceMaterial = (m: any) => { m.side = THREE.DoubleSide; m.transparent = true; m.opacity = 0.0; m.color.setHex(0x3bb2d0); m.depthWrite = false; m.depthTest = false; m.polygonOffset = true; m.polygonOffsetFactor = -1.0; m.polygonOffsetUnits = -1.0; m.needsUpdate = true; };
                             if (Array.isArray(child.material)) child.material.forEach(fixSpaceMaterial); else fixSpaceMaterial(child.material);
@@ -1049,15 +1260,256 @@ export function Viewport3D() {
                     }
                 });
 
-                const getWorldHeight = (elevation: number): number => {
+                // --- ROBUST PHYSICAL SLAB TOP DETECTION FOR ALL BUILDING STOREYS ---
+                const storeySlabTopMap = new Map<number, number>();
+
+                // 1. Query ThatOpen IFC Categories for Slabs, Roofs, and Plates
+                let slabLocalIdsSet = new Set<number>();
+                try {
+                    const slabCategories = await model.getItemsOfCategories([/IfcSlab/i, /IfcRoof/i, /IfcPlate/i, /IfcFloor/i]);
+                    const slabIds = Object.values(slabCategories).flat() as number[];
+                    slabLocalIdsSet = new Set(slabIds);
+                } catch (_) {}
+
+                // Also collect from jsonData.elements where element type indicates a slab/roof/floor
+                const slabExpressIdsByStorey = new Map<number, number[]>();
+                if (jsonData.elements) {
+                    Object.values(jsonData.elements).forEach((el: any) => {
+                        if (!el || !el.expressId) return;
+                        const type = String(el.type || '').toUpperCase();
+                        if (type.includes('SLAB') || type.includes('ROOF') || type.includes('FLOOR') || type.includes('PLATE')) {
+                            const sId = el.storeyId;
+                            if (sId !== undefined) {
+                                if (!slabExpressIdsByStorey.has(sId)) slabExpressIdsByStorey.set(sId, []);
+                                slabExpressIdsByStorey.get(sId)!.push(el.expressId);
+                            }
+                        }
+                    });
+                }
+
+                // Compute bounding box of slab elements per storey using bboxer
+                for (const s of storeys) {
+                    const candidateLocalIds = new Set<number>();
+                    if (s.localElementIds) {
+                        for (const locId of s.localElementIds) {
+                            if (slabLocalIdsSet.has(locId)) candidateLocalIds.add(locId);
+                        }
+                    }
+                    const sSlabExpIds = slabExpressIdsByStorey.get(s.expressId) || [];
+                    if (sSlabExpIds.length > 0) {
+                        try {
+                            const locIds = await model.getLocalIdsFromItemIds(sSlabExpIds);
+                            locIds.forEach(id => { if (id !== undefined) candidateLocalIds.add(id); });
+                        } catch (_) {}
+                    }
+
+                    if (candidateLocalIds.size > 0 && bboxer) {
+                        try {
+                            bboxer.list.clear();
+                            await bboxer.addFromModelIdMap({ [model.modelId]: candidateLocalIds });
+                            const b = bboxer.get();
+                            if (!b.isEmpty() && isFinite(b.max.y)) {
+                                storeySlabTopMap.set(s.expressId, b.max.y);
+                                (s as any).physicalSlabTopY = b.max.y;
+                                console.log(`[MEP-SLAB-DETECT] Storey "${s.name}" (ID ${s.expressId}) physical slab top via bboxer: ${b.max.y.toFixed(3)}m`);
+                            }
+                        } catch (err) {
+                            console.warn(`[MEP-SLAB-DETECT] bboxer error for ${s.name}:`, err);
+                        }
+                    }
+                }
+
+                // 2. Physical 3D Downward Raycasting Probes to detect all horizontal slab planes across the building
+                if (model.object) {
+                    try {
+                        const curBBox = new THREE.Box3().setFromObject(model.object);
+                        const bCenter = new THREE.Vector3();
+                        curBBox.getCenter(bCenter);
+                        const bSize = new THREE.Vector3();
+                        curBBox.getSize(bSize);
+
+                        const probePoints: { x: number; z: number }[] = [];
+                        probePoints.push({ x: bCenter.x, z: bCenter.z });
+                        const gridSteps = 4;
+                        for (let ix = 1; ix < gridSteps; ix++) {
+                            for (let iz = 1; iz < gridSteps; iz++) {
+                                probePoints.push({
+                                    x: curBBox.min.x + (bSize.x * ix) / gridSteps,
+                                    z: curBBox.min.z + (bSize.z * iz) / gridSteps
+                                });
+                            }
+                        }
+
+                        // Also include space centroids from jsonData if present
+                        if (jsonData.elements) {
+                            Object.values(jsonData.elements).forEach((el: any) => {
+                                if (el && el.type === 'IFCSPACE' && el.polygon && Array.isArray(el.polygon) && el.polygon.length > 0) {
+                                    let sx = 0, sy = 0;
+                                    el.polygon.forEach((pt: any) => { sx += pt.x; sy += pt.y; });
+                                    const scale = (bSize.y > 100 || bSize.x > 1000) ? 1.0 : 0.001;
+                                    probePoints.push({ x: (sx / el.polygon.length) * scale, z: -(sy / el.polygon.length) * scale });
+                                }
+                            });
+                        }
+
+                        const rayStartY = curBBox.max.y + 4.0;
+                        const rayDist = (curBBox.max.y - curBBox.min.y) + 8.0;
+                        const detectedSurfaces: number[] = [];
+
+                        for (const pt of probePoints) {
+                            const probeRay = new THREE.Raycaster(
+                                new THREE.Vector3(pt.x, rayStartY, pt.z),
+                                new THREE.Vector3(0, -1, 0),
+                                0.01,
+                                rayDist
+                            );
+                            const hits = safeRaycastModel(probeRay, model.object);
+                            for (const hit of hits) {
+                                let worldNormalY = 1.0;
+                                if (hit.face) {
+                                    const norm = hit.face.normal.clone();
+                                    if ((hit.object as any).isInstancedMesh && typeof hit.instanceId === 'number') {
+                                        const instMesh = hit.object as THREE.InstancedMesh;
+                                        const instMat = new THREE.Matrix4();
+                                        instMesh.getMatrixAt(hit.instanceId, instMat);
+                                        const worldMat = new THREE.Matrix4().multiplyMatrices(instMesh.matrixWorld, instMat);
+                                        const normMat = new THREE.Matrix3().getNormalMatrix(worldMat);
+                                        norm.applyMatrix3(normMat).normalize();
+                                    } else {
+                                        const normMat = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
+                                        norm.applyMatrix3(normMat).normalize();
+                                    }
+                                    worldNormalY = norm.y;
+                                }
+                                if (worldNormalY > 0.75) {
+                                    detectedSurfaces.push(hit.point.y);
+                                }
+                            }
+                        }
+
+                        if (detectedSurfaces.length > 0) {
+                            detectedSurfaces.sort((a, b) => a - b);
+                            const clusters: { y: number; count: number }[] = [];
+                            for (const y of detectedSurfaces) {
+                                const c = clusters.find(cl => Math.abs(cl.y - y) < 0.15);
+                                if (c) {
+                                    c.y = (c.y * c.count + y) / (c.count + 1);
+                                    c.count++;
+                                } else {
+                                    clusters.push({ y, count: 1 });
+                                }
+                            }
+
+                            // Keep clusters with multiple hits, sorted ascending by Y
+                            const slabPlanes = clusters.filter(c => c.count >= 2).sort((a, b) => a.y - b.y);
+                            console.log('[MEP-SLAB-DETECT] Raycast detected slab planes:', slabPlanes.map(p => `${p.y.toFixed(3)}m (hits=${p.count})`));
+
+                            const sortedStoreys = [...storeys].sort((a, b) => a.elevation - b.elevation);
+
+                            // Find a reference datum offset from any already-detected storey
+                            let refDatumOffset: number | null = null;
+                            for (const s of sortedStoreys) {
+                                if (storeySlabTopMap.has(s.expressId)) {
+                                    refDatumOffset = storeySlabTopMap.get(s.expressId)! - getStoreyElevationInMeters(s.elevation);
+                                    break;
+                                }
+                            }
+
+                            if (refDatumOffset !== null) {
+                                for (const s of sortedStoreys) {
+                                    if (!storeySlabTopMap.has(s.expressId)) {
+                                        const expY = getStoreyElevationInMeters(s.elevation) + refDatumOffset;
+                                        const closest = slabPlanes.find(p => Math.abs(p.y - expY) < 0.6);
+                                        const finalY = closest ? closest.y : expY;
+                                        storeySlabTopMap.set(s.expressId, finalY);
+                                        (s as any).physicalSlabTopY = finalY;
+                                        console.log(`[MEP-SLAB-DETECT] Storey "${s.name}" slab top matched via ref offset: ${finalY.toFixed(3)}m`);
+                                    }
+                                }
+                            } else if (slabPlanes.length > 0) {
+                                const roofStorey = sortedStoreys[sortedStoreys.length - 1];
+                                const highestPlane = slabPlanes[slabPlanes.length - 1];
+                                const impliedOffset = highestPlane.y - getStoreyElevationInMeters(roofStorey.elevation);
+
+                                for (const s of sortedStoreys) {
+                                    if (!storeySlabTopMap.has(s.expressId)) {
+                                        const expY = getStoreyElevationInMeters(s.elevation) + impliedOffset;
+                                        let closest = slabPlanes[0];
+                                        let minDiff = Infinity;
+                                        for (const p of slabPlanes) {
+                                            const diff = Math.abs(p.y - expY);
+                                            if (diff < minDiff) { minDiff = diff; closest = p; }
+                                        }
+                                        const finalY = minDiff < 0.8 ? closest.y : expY;
+                                        storeySlabTopMap.set(s.expressId, finalY);
+                                        (s as any).physicalSlabTopY = finalY;
+                                        console.log(`[MEP-SLAB-DETECT] Storey "${s.name}" slab top matched via slab planes: ${finalY.toFixed(3)}m`);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (probeErr) {
+                        console.warn('[MEP-SLAB-DETECT] 3D raycast probe error:', probeErr);
+                    }
+                }
+
+                // Determine the global calibrated datum offset
+                let globalDatumOffset = 0;
+                let foundGlobalDatum = false;
+                for (const s of storeys) {
+                    if (storeySlabTopMap.has(s.expressId)) {
+                        globalDatumOffset = storeySlabTopMap.get(s.expressId)! - getStoreyElevationInMeters(s.elevation);
+                        foundGlobalDatum = true;
+                        break;
+                    }
+                }
+
+                if (!foundGlobalDatum) {
+                    for (const s of storeys) {
+                        const spaces = Array.from(activeSpaceBoundsMap.values()).filter(sp => String(sp.storeyExpressId) === String(s.expressId));
+                        const medianY = getMedianSpaceMinY(spaces);
+                        if (medianY !== null) {
+                            globalDatumOffset = medianY - getStoreyElevationInMeters(s.elevation);
+                            foundGlobalDatum = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!foundGlobalDatum) {
                     const curBBox = new THREE.Box3().setFromObject(model.object);
-                    const currentVerticalAxis = (Math.abs(world.camera.three.up.z) > 0.5) ? 'z' : 'y';
-                    const height = currentVerticalAxis === 'y' ? (curBBox.max.y - curBBox.min.y) : (curBBox.max.z - curBBox.min.z);
-                    const scale = height > 100 ? 1.0 : 0.001;
-                    const bottomCoordinate = currentVerticalAxis === 'y' ? curBBox.min.y : curBBox.min.z;
-                    const lowestStoreyElevation = storeys.length > 0 ? storeys[0].elevation : 0;
-                    return bottomCoordinate + (elevation - lowestStoreyElevation) * scale;
+                    const baseElevation = storeys.length > 0 ? getStoreyElevationInMeters(storeys[0].elevation) : 0;
+                    globalDatumOffset = (verticalAxis === 'y' ? curBBox.min.y : curBBox.min.z) - baseElevation;
+                }
+
+                console.warn('[MEP-CALIBRATED-DATUM]', {
+                    globalDatumOffset,
+                    foundGlobalDatum,
+                    detectedStoreysCount: storeySlabTopMap.size,
+                    detectedStoreys: Array.from(storeySlabTopMap.entries()).map(([id, y]) => ({ id, y }))
+                });
+
+                const getWorldHeight = (elevation: number): number => {
+                    const elevInMeters = getStoreyElevationInMeters(elevation);
+
+                    // 1. Check if elevation matches a known storey with detected physical slab
+                    const matchedStorey = storeys.find(s => Math.abs(getStoreyElevationInMeters(s.elevation) - elevInMeters) < 0.2);
+                    if (matchedStorey) {
+                        if (storeySlabTopMap.has(matchedStorey.expressId)) {
+                            return storeySlabTopMap.get(matchedStorey.expressId)!;
+                        }
+                        const spacesOnStorey = Array.from(activeSpaceBoundsMap.values()).filter(sp => String(sp.storeyExpressId) === String(matchedStorey.expressId));
+                        const medianY = getMedianSpaceMinY(spacesOnStorey);
+                        if (medianY !== null) {
+                            return medianY;
+                        }
+                    }
+
+                    return elevInMeters + globalDatumOffset;
                 };
+
+                activeStoreys = storeys;
+                activeGetWorldHeight = getWorldHeight;
 
                 const update2dSpaceOverlays = (selectedExpressId: string) => {
                     const is2DView = ui.btn2d.classList.contains('active') || store().viewMode === '2d';
@@ -1182,11 +1634,15 @@ export function Viewport3D() {
                 };
 
                 const displaySelectedSpaceInfo = (space: any) => {
-                    const parentStorey = storeys.find(st => st.spaces.some(sp => sp.expressId === space.expressId));
+                    if (!space) {
+                        ui.selectedSpaceInfo.innerHTML = '<div class="text-[#777] italic">Select a space in 3D or 2D view to inspect properties</div>';
+                        return;
+                    }
+                    const parentStorey = storeys?.find(st => st.spaces?.some(sp => sp?.expressId === space.expressId));
                     const floorLabel = parentStorey ? parentStorey.name : 'Unknown Floor';
 
                     ui.selectedSpaceInfo.innerHTML = `
-                        <div style="margin-bottom: 6px;"><strong>Name:</strong> ${space.longName || 'Room'}</div>
+                        <div style="margin-bottom: 6px;"><strong>Name:</strong> ${space.longName || space.name || 'Room'}</div>
                         <div style="margin-bottom: 6px;"><strong>Number:</strong> ${space.name || ''}</div>
                         <div style="margin-bottom: 6px;"><strong>Level:</strong> ${floorLabel}</div>
                         <div style="margin-bottom: 6px;"><strong>Area:</strong> ${space.quantities?.Area?.toFixed(2) || 0} m²</div>
@@ -1289,6 +1745,7 @@ export function Viewport3D() {
                         await hider.set(false, spaceMap);
                         updateTagsForLevel('');
                         spaceLineMeshes.forEach(line => line.visible = false);
+                        if (activeRenderEquipmentMeshes) activeRenderEquipmentMeshes();
                         return;
                     }
 
@@ -1296,11 +1753,22 @@ export function Viewport3D() {
                     if (!storey) return;
 
                     const index = storeys.indexOf(storey);
-                    const nextElevation = (index < storeys.length - 1) ? storeys[index + 1].elevation : storey.elevation + 4000;
-                    const cutElevation = Math.max(nextElevation + 1500, storey.elevation + 3500);
+                    const storeyElevMeters = getStoreyElevationInMeters(storey.elevation);
+                    const nextStorey = (index < storeys.length - 1) ? storeys[index + 1] : null;
+                    const storeyHeightMeters = nextStorey
+                        ? Math.max(2.4, getStoreyElevationInMeters(nextStorey.elevation) - storeyElevMeters)
+                        : 3.5;
+
+                    const isRoofLevel = /roof|terrace|parapet|deck/i.test(storey.name);
                     const currentVerticalAxis = (Math.abs(world.camera.three.up.z) > 0.5) ? 'z' : 'y';
-                    const worldHeight = getWorldHeight(cutElevation);
-                    const worldCutPoint = currentVerticalAxis === 'y' ? new THREE.Vector3(0, worldHeight, 0) : new THREE.Vector3(0, 0, worldHeight);
+                    const floorWorldHeight = getWorldHeight(storey.elevation);
+
+                    // For interior storeys, cut away ceiling and upper roof: cut plane at ~2.2m above floor slab
+                    // For roof levels, don't cut into the roof: cut well above the roof surface
+                    const cutOffsetFromFloor = isRoofLevel ? 10.0 : Math.min(storeyHeightMeters - 0.3, 2.2);
+                    const cutWorldHeight = floorWorldHeight + cutOffsetFromFloor;
+
+                    const worldCutPoint = currentVerticalAxis === 'y' ? new THREE.Vector3(0, cutWorldHeight, 0) : new THREE.Vector3(0, 0, cutWorldHeight);
                     const normal = currentVerticalAxis === 'y' ? new THREE.Vector3(0, -1, 0) : new THREE.Vector3(0, 0, -1);
                     floorPlanManager.activePlaneId = floorPlanManager.clipper.createFromNormalAndCoplanarPoint(world, normal, worldCutPoint);
                     const list = floorPlanManager.clipper.list as any;
@@ -1333,10 +1801,7 @@ export function Viewport3D() {
                     spaceLineMeshes.forEach(line => { line.visible = showSpaces && ((line as any).storeyId === storey.expressId); });
 
                     if (is2DView) {
-                        const sortedStoreys = [...storeys].sort((a, b) => a.elevation - b.elevation);
-                        const storeyIdx = sortedStoreys.findIndex(st => st.expressId === storey.expressId);
-                        const planeElevation = storeyIdx > 0 ? sortedStoreys[storeyIdx - 1].elevation : 0;
-                        const planeY = getWorldHeight(planeElevation);
+                        const planeY = getWorldHeight(storey.elevation);
 
                         const cam = world.camera.three;
                         cam.position.y = planeY + 50;
@@ -1358,6 +1823,12 @@ export function Viewport3D() {
                             console.warn("Level camera fitToSphere safely skipped:", fitErr);
                         }
                     }
+                    if (world.camera?.controls) {
+                        if (is2DView) world.camera.controls.mouseButtons.wheel = 32;
+                        else world.camera.controls.mouseButtons.wheel = 16;
+                        world.camera.controls.enabled = true;
+                    }
+                    if (activeRenderEquipmentMeshes) activeRenderEquipmentMeshes();
                 };
 
                 ui.btnClip.onclick = async () => {
@@ -1398,10 +1869,7 @@ export function Viewport3D() {
                         if (ui.btn2d.classList.contains('active')) {
                             const selectedStorey = storeys.find(st => String(st.expressId) === String(val));
                             if (selectedStorey) {
-                                const sortedStoreys = [...storeys].sort((a, b) => a.elevation - b.elevation);
-                                const storeyIdx = sortedStoreys.findIndex(st => st.expressId === selectedStorey.expressId);
-                                const planeElevation = storeyIdx > 0 ? sortedStoreys[storeyIdx - 1].elevation : 0;
-                                const planeY = getWorldHeight(planeElevation);
+                                const planeY = getWorldHeight(selectedStorey.elevation);
 
                                 const cam = world.camera.three;
                                 cam.position.y = planeY + 50;
@@ -1427,6 +1895,10 @@ export function Viewport3D() {
                     if (ui.btnWalk.classList.contains('active')) { document.exitPointerLock(); ui.btnWalk.classList.remove('active'); ui.btnOrbit.classList.add('active'); store().setCameraMode('orbit'); }
                     ui.selectLevel.style.display = 'inline-block';
                     await floorPlanManager.enter2DMode();
+                    if (world.camera?.controls) {
+                        world.camera.controls.mouseButtons.wheel = 32;
+                        world.camera.controls.enabled = true;
+                    }
                     if (!ui.btnSpaces.classList.contains('active')) { ui.btnSpaces.classList.add('active'); store().setIsSpacesActive(true); }
                     if (!ui.btnTags.classList.contains('active')) { ui.btnTags.classList.add('active'); store().setIsTagsActive(true); }
                     await hider.set(ui.btnSpaces.classList.contains('active'), spaceMap);
@@ -1436,6 +1908,7 @@ export function Viewport3D() {
                         store().setSelectedLevel(gfStorey.expressId.toString());
                     }
                     await (ui.selectLevel as any).onchange();
+                    if (activeRenderEquipmentMeshes) activeRenderEquipmentMeshes();
                 };
 
                 ui.btn3d.onclick = async () => {
@@ -1444,6 +1917,10 @@ export function Viewport3D() {
                     store().setViewMode('3d');
                     ui.btnOrbit.style.display = 'inline-block'; ui.btnWalk.style.display = 'inline-block'; ui.btnClip.style.display = 'inline-block';
                     await floorPlanManager.enter3DMode();
+                    if (world.camera?.controls) {
+                        world.camera.controls.mouseButtons.wheel = 16;
+                        world.camera.controls.enabled = true;
+                    }
                     await hider.set(false, spaceMap);
                     spaceLineMeshes.forEach(line => line.visible = false);
                     space2dFillMeshes.forEach(mesh => mesh.visible = false);
@@ -1491,6 +1968,7 @@ export function Viewport3D() {
                     } catch (fitErr) {
                         console.warn("3D button camera fitToSphere safely skipped:", fitErr);
                     }
+                    if (activeRenderEquipmentMeshes) activeRenderEquipmentMeshes();
                 };
 
                 const applyGrayscaleMode = (enableGrayscale: boolean) => {
@@ -1680,18 +2158,16 @@ export function Viewport3D() {
 
                     // Construct 2D Space Boundary Overlay
                     if (s.polygon && Array.isArray(s.polygon) && s.polygon.length > 2) {
-                        const sortedStoreys = [...storeys].sort((a, b) => a.elevation - b.elevation);
-                        const storeyIdx = parentStorey ? sortedStoreys.findIndex(st => st.expressId === parentStorey.expressId) : -1;
-                        const planeElevation = storeyIdx > 0 ? sortedStoreys[storeyIdx - 1].elevation : 0;
-                        const targetY = getWorldHeight(planeElevation);
+                        const boundsData = activeSpaceBoundsMap.get(s.expressId);
+                        const targetY = boundsData?.box?.min?.y !== undefined
+                            ? boundsData.box.min.y + 0.02
+                            : (parentStorey ? getWorldHeight(parentStorey.elevation) : getWorldHeight(0));
 
                         const shape = new THREE.Shape();
                         const linePoints: THREE.Vector3[] = [];
                         const worldXZ: { x: number, z: number }[] = [];
 
                         // Robustly map the raw 2D polygon footprint exactly into the true 3D bounding box of the physical mesh
-                        const boundsData = activeSpaceBoundsMap.get(s.expressId);
-
                         if (boundsData && boundsData.box && s.polygon.length > 0) {
                             const instanceBox = boundsData.box;
 
@@ -1811,6 +2287,22 @@ export function Viewport3D() {
 
                 store().setIsLoaded(true);
                 store().setIsLoading(false);
+
+                // Re-subscribe workspace store so reverts/edits trigger live re-render
+                if (unsubEquipmentStore) {
+                    try { unsubEquipmentStore(); } catch {}
+                    unsubEquipmentStore = null;
+                }
+                unsubEquipmentStore = workspaceStore.subscribe(() => {
+                    try {
+                        if (activeRenderEquipmentMeshes) activeRenderEquipmentMeshes();
+                    } catch (subErr) {
+                        console.warn('[MEP-EQUIPMENT-RENDER] subscribe error:', subErr);
+                    }
+                });
+                if (activeRenderEquipmentMeshes) {
+                    try { activeRenderEquipmentMeshes(); } catch (e) { console.warn(e); }
+                }
             } catch (err) {
                 console.error("loadIfcFile error:", err);
                 store().setLoadingText('Error: ' + err);
@@ -1820,10 +2312,315 @@ export function Viewport3D() {
             }
         };
 
+        let selectedEquipmentId: string | null = null;
+        const setSelectedEquipment = (id: string | null) => {
+            selectedEquipmentId = id;
+            try {
+                useViewerStore.getState().setSelectedEquipmentId(id);
+            } catch (_) {}
+        };
+        (window as any)._setSelectedEquipment = setSelectedEquipment;
+
+        const detectStoreyFromY = (y: number): any => {
+            if (!activeStoreys || activeStoreys.length === 0) return null;
+            const sorted = [...activeStoreys].sort((a, b) => a.elevation - b.elevation);
+            for (let i = sorted.length - 1; i >= 0; i--) {
+                const s = sorted[i];
+                const sY = activeGetWorldHeight
+                    ? activeGetWorldHeight(s.elevation)
+                    : getStoreyElevationInMeters(s.elevation);
+                if (y >= sY - 0.6) {
+                    return s;
+                }
+            }
+            return sorted[0];
+        };
+        (window as any)._detectStoreyFromY = detectStoreyFromY;
+
+        const getPhysicalFloorSurfaceY = (x: number, z: number, storey?: any): number => {
+            // 1. Resolve target storey
+            let targetStorey = storey;
+            if (!targetStorey) {
+                const activeLevelVal = useViewerStore.getState().selectedLevel || ui.selectLevel?.value;
+                if (activeLevelVal) targetStorey = findStoreyByFloor(activeLevelVal);
+            }
+            // Auto-detect storey from physical top-down raycast at (x, z) if not explicitly set
+            if (!targetStorey && currentModel?.object) {
+                try {
+                    const curBBox = new THREE.Box3().setFromObject(currentModel.object);
+                    const topDownRay = new THREE.Raycaster(
+                        new THREE.Vector3(x, curBBox.max.y + 2.0, z),
+                        new THREE.Vector3(0, -1, 0),
+                        0.01,
+                        curBBox.max.y - curBBox.min.y + 4.0
+                    );
+                    const hits = safeRaycastModel(topDownRay, currentModel.object);
+                    if (hits && hits.length > 0) {
+                        targetStorey = detectStoreyFromY(hits[0].point.y);
+                    }
+                } catch (_) {}
+            }
+            if (!targetStorey && activeStoreys && activeStoreys.length > 0) {
+                targetStorey = activeStoreys.find((st: any) => /ground/i.test(st.name) || /^gf/i.test(st.name))
+                    || activeStoreys.find((st: any) => st.spaces && st.spaces.length > 0)
+                    || [...activeStoreys].sort((a, b) => a.elevation - b.elevation)[0];
+            }
+
+            // Nominal floor elevation datum
+            const nominalY = (targetStorey && activeGetWorldHeight)
+                ? activeGetWorldHeight(targetStorey.elevation)
+                : (targetStorey && typeof targetStorey.elevation === 'number'
+                    ? getStoreyElevationInMeters(targetStorey.elevation)
+                    : 0);
+
+            console.warn('[MEP-DEBUG-FLOOR-Y]', {
+                targetStoreyName: targetStorey?.name,
+                targetStoreyElev: targetStorey?.elevation,
+                nominalY,
+                modelObjExists: Boolean(currentModel?.object),
+                x,
+                z
+            });
+
+            if (!currentModel?.object) return nominalY;
+
+            try {
+                // A storey is an exterior roof if its name explicitly indicates roof/terrace/deck/parapet
+                const isExplicitRoof = Boolean(
+                    (targetStorey && /roof|terrace|parapet|deck/i.test(targetStorey.name)) ||
+                    (typeof storey === 'string' && /roof|terrace|parapet|deck/i.test(storey))
+                );
+
+                const sortedStoreys = [...(activeStoreys || [])].sort((a, b) => a.elevation - b.elevation);
+                const sIdx = targetStorey ? sortedStoreys.findIndex((s: any) => String(s.expressId) === String(targetStorey.expressId) || s.name?.toLowerCase() === targetStorey.name?.toLowerCase()) : -1;
+                const nextStorey = (sIdx !== -1 && sIdx < sortedStoreys.length - 1) ? sortedStoreys[sIdx + 1] : null;
+                const nextStoreyY = nextStorey
+                    ? (activeGetWorldHeight ? activeGetWorldHeight(nextStorey.elevation) : getStoreyElevationInMeters(nextStorey.elevation))
+                    : (nominalY + 3.8);
+
+                const curBBox = new THREE.Box3().setFromObject(currentModel.object);
+
+                let rayStartY: number;
+                let rayDist: number;
+                let bottomLimit: number;
+                let upperLimit: number;
+
+                if (isExplicitRoof) {
+                    // For roof/terrace, start above highest building geometry and raycast down
+                    rayStartY = curBBox.max.y + 4.0;
+                    bottomLimit = nominalY - 0.8;
+                    upperLimit = curBBox.max.y + 2.0;
+                    rayDist = Math.max(10.0, (rayStartY - bottomLimit) + 2.0);
+                } else {
+                    // For interior storeys (Ground, First, Second Floor, etc.):
+                    // Raycast downward strictly from BELOW the ceiling/slab above:
+                    rayStartY = Math.min(nextStoreyY - 0.2, nominalY + 2.8);
+                    // Floor slab top is within ±0.4m of nominal storey elevation.
+                    // Set bottomLimit to nominalY - 0.45m so the ray NEVER pierces the slab to hit the subfloor/foundation below!
+                    bottomLimit = nominalY - 0.45;
+                    upperLimit = rayStartY - 0.05;
+                    rayDist = Math.max(2.0, (rayStartY - bottomLimit) + 0.5);
+                }
+
+                const downRay = new THREE.Raycaster(
+                    new THREE.Vector3(x, rayStartY, z),
+                    new THREE.Vector3(0, -1, 0),
+                    0.01,
+                    rayDist
+                );
+
+                const intersects = safeRaycastModel(downRay, currentModel.object);
+                if (intersects && intersects.length > 0) {
+                    // Extract upward-facing hits (world normal.y > 0.35)
+                    const upwardHits: { y: number; normalY: number; dist: number }[] = [];
+                    for (const hit of intersects) {
+                        if (hit.point.y < bottomLimit) continue;
+                        if (hit.point.y > upperLimit) continue;
+
+                        let worldNormalY = 1.0;
+                        if (hit.face) {
+                            const norm = hit.face.normal.clone();
+                            if ((hit.object as any).isInstancedMesh && typeof hit.instanceId === 'number') {
+                                const instMesh = hit.object as THREE.InstancedMesh;
+                                const instMat = new THREE.Matrix4();
+                                instMesh.getMatrixAt(hit.instanceId, instMat);
+                                const worldMat = new THREE.Matrix4().multiplyMatrices(instMesh.matrixWorld, instMat);
+                                const normMat = new THREE.Matrix3().getNormalMatrix(worldMat);
+                                norm.applyMatrix3(normMat).normalize();
+                            } else {
+                                const normMat = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
+                                norm.applyMatrix3(normMat).normalize();
+                            }
+                            worldNormalY = norm.y;
+                        }
+
+                        // Surface must be facing upwards (slab/floor/deck surface, not ceiling or vertical wall)
+                        if (worldNormalY > 0.35) {
+                            upwardHits.push({ y: hit.point.y, normalY: worldNormalY, dist: hit.distance });
+                        }
+                    }
+
+                    if (upwardHits.length > 0) {
+                        if (isExplicitRoof) {
+                            // On roof level, the highest upward-facing surface from above is the top of the roof/terrace slab!
+                            upwardHits.sort((a, b) => b.y - a.y);
+                            return upwardHits[0].y;
+                        } else {
+                            // On interior floors: prioritize upward surfaces in the floor slab zone (nominalY ± 0.45m)
+                            // Among surfaces in the slab zone, take the highest surface (top floor finish / tiles of the slab)
+                            const slabHits = upwardHits.filter(h => Math.abs(h.y - nominalY) <= 0.45);
+                            if (slabHits.length > 0) {
+                                slabHits.sort((a, b) => b.y - a.y);
+                                return slabHits[0].y;
+                            }
+                            // Fallback to upward hit closest to nominal storey level
+                            upwardHits.sort((a, b) => Math.abs(a.y - nominalY) - Math.abs(b.y - nominalY));
+                            return upwardHits[0].y;
+                        }
+                    } else if (isExplicitRoof && intersects.length > 0) {
+                        // Fallback on roof: highest surface hit directly from above
+                        return intersects[0].point.y;
+                    }
+                }
+            } catch (err) {
+                console.warn('[MEP-RAYCAST-SLAB] error detecting physical floor surface:', err);
+            }
+
+            // Fallback to space median min Y if available
+            if (targetStorey && activeSpaceBoundsMap.size > 0) {
+                const spacesOnStorey = Array.from(activeSpaceBoundsMap.values()).filter(sp => String(sp.storeyExpressId) === String(targetStorey.expressId));
+                const medianY = getMedianSpaceMinY(spacesOnStorey);
+                if (medianY !== null) return medianY;
+            }
+
+            return nominalY;
+        };
+        (window as any)._getPhysicalFloorSurfaceY = getPhysicalFloorSurfaceY;
+
+        const getEquipmentBaseFloorY = (equip: any): number => {
+            // 1. If equipment specifies a floor, prioritize finding that storey
+            if (equip.locationFloor) {
+                const targetStorey = findStoreyByFloor(equip.locationFloor);
+                if (targetStorey) {
+                    if (typeof equip.positionX === 'number' && typeof equip.positionZ === 'number' && currentModel?.object) {
+                        return getPhysicalFloorSurfaceY(equip.positionX, equip.positionZ, targetStorey);
+                    }
+                    // Check if assigned space belongs to this storey
+                    if (equip.locationSpaceId && equip.locationSpaceId !== 'outside' && activeSpaceBoundsMap.has(Number(equip.locationSpaceId))) {
+                        const spaceData = activeSpaceBoundsMap.get(Number(equip.locationSpaceId));
+                        if (spaceData && String(spaceData.storeyExpressId) === String(targetStorey.expressId) && spaceData.box?.min?.y !== undefined) {
+                            return spaceData.box.min.y;
+                        }
+                    }
+                    if (activeGetWorldHeight) return activeGetWorldHeight(targetStorey.elevation);
+                    if (typeof targetStorey.elevation === 'number') {
+                        return getStoreyElevationInMeters(targetStorey.elevation);
+                    }
+                }
+            }
+
+            // 2. If equipment has an assigned space, check if space exists in bounds map
+            if (equip.locationSpaceId && equip.locationSpaceId !== 'outside' && activeSpaceBoundsMap.has(Number(equip.locationSpaceId))) {
+                const spaceData = activeSpaceBoundsMap.get(Number(equip.locationSpaceId));
+                if (spaceData?.box?.min?.y !== undefined) {
+                    return spaceData.box.min.y;
+                }
+            }
+
+            // 3. Fallback to active level selector
+            const activeLevelVal = useViewerStore.getState().selectedLevel || ui.selectLevel?.value;
+            if (activeLevelVal) {
+                const st = findStoreyByFloor(activeLevelVal);
+                if (st) {
+                    if (typeof equip.positionX === 'number' && typeof equip.positionZ === 'number' && currentModel?.object) {
+                        return getPhysicalFloorSurfaceY(equip.positionX, equip.positionZ, st);
+                    }
+                    if (activeGetWorldHeight) return activeGetWorldHeight(st.elevation);
+                    if (typeof st.elevation === 'number') return getStoreyElevationInMeters(st.elevation);
+                }
+            }
+
+            // 4. Fallback to lowest elevation storey (Ground Floor), never roof
+            if (activeStoreys && activeStoreys.length > 0) {
+                const sorted = [...activeStoreys].sort((a, b) => a.elevation - b.elevation);
+                if (typeof equip.positionX === 'number' && typeof equip.positionZ === 'number' && currentModel?.object) {
+                    return getPhysicalFloorSurfaceY(equip.positionX, equip.positionZ, sorted[0]);
+                }
+                if (activeGetWorldHeight) return activeGetWorldHeight(sorted[0].elevation);
+                if (typeof sorted[0].elevation === 'number') return getStoreyElevationInMeters(sorted[0].elevation);
+            }
+            return 0;
+        };
+        (window as any)._getEquipmentBaseFloorY = getEquipmentBaseFloorY;
+
         let activeGhostMesh: THREE.Group | null = null;
+
+        const getEquipmentWorldY = (equip: any): number => {
+            // Equipment is always attached directly to the floor surface!
+            let targetStorey: any = null;
+            if (equip.locationFloor) {
+                targetStorey = findStoreyByFloor(equip.locationFloor);
+            }
+            const isRoof = Boolean(
+                (equip.locationFloor && /roof|terrace|parapet|deck/i.test(equip.locationFloor)) ||
+                (equip.locationSpaceName && /roof|terrace|parapet|deck/i.test(equip.locationSpaceName)) ||
+                (targetStorey && /roof|terrace|parapet|deck/i.test(targetStorey.name))
+            );
+            if (isRoof && (!targetStorey || !/roof|terrace|parapet|deck/i.test(targetStorey.name))) {
+                targetStorey = findStoreyByFloor('ROOF LEVEL') || {
+                    name: 'ROOF LEVEL',
+                    expressId: -9999,
+                    elevation: 7600
+                };
+            }
+            if (!targetStorey && equip.locationSpaceId && equip.locationSpaceId !== 'outside' && activeSpaceBoundsMap.has(Number(equip.locationSpaceId))) {
+                const spaceData = activeSpaceBoundsMap.get(Number(equip.locationSpaceId));
+                if (spaceData?.storeyExpressId) targetStorey = findStoreyByFloor(spaceData.storeyExpressId);
+            }
+
+            const floorY = (typeof equip.positionX === 'number' && typeof equip.positionZ === 'number' && currentModel?.object)
+                ? getPhysicalFloorSurfaceY(equip.positionX, equip.positionZ, targetStorey)
+                : getEquipmentBaseFloorY(equip);
+
+            // If equip.positionY exists and is within 0.15m of floorY, keep equip.positionY; otherwise snap to floorY
+            if (typeof equip.positionY === 'number' && !isNaN(equip.positionY) && Math.abs(equip.positionY - floorY) < 0.15) {
+                return equip.positionY;
+            }
+            return floorY;
+        };
+
+        const createEquipmentTagSprite = (tag: string, isSelected: boolean, is2D: boolean = false) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 384;
+            canvas.height = 96;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.fillStyle = isSelected ? '#b45309' : '#1e3a8a';
+                ctx.strokeStyle = isSelected ? '#fbbf24' : '#60a5fa';
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(8, 8, 368, 80, 16);
+                else ctx.rect(8, 8, 368, 80);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.font = 'bold 38px sans-serif';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(tag || 'EQUIP', 192, 48);
+            }
+            const tex = new THREE.CanvasTexture(canvas);
+            const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: !is2D, depthWrite: false });
+            const sprite = new THREE.Sprite(spriteMat);
+            sprite.scale.set(2.4, 0.6, 1);
+            return sprite;
+        };
+
         const handleDragOver = (e: DragEvent) => e.preventDefault();
         const handleDrop = (e: DragEvent) => {
             e.preventDefault();
+            const fallbackEquipId = useViewerStore.getState().draggedEquipmentId || (window as any)._currentlyDraggedEquipmentId;
             if (activeGhostMesh) {
                 world.scene.three.remove(activeGhostMesh);
                 activeGhostMesh = null;
@@ -1831,42 +2628,178 @@ export function Viewport3D() {
             useViewerStore.getState().setDraggedEquipmentId(null);
 
             try {
+                let equipId: string | null = null;
                 if (e.dataTransfer?.getData('text/plain')) {
-                    const raw = e.dataTransfer.getData('text/plain');
-                    console.log('[MEP-DND] handleDrop fired. raw dataTransfer:', raw, '| 2D active:', ui.btn2d.classList.contains('active'));
-                    const data = JSON.parse(raw);
-                    if (data.type === 'equipment' && ui.btn2d.classList.contains('active')) {
-                        const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(e) : null;
-                        const hitSpace = hit ? { space: hit.space, expressId: hit.expressId, storeyExpressId: hit.storeyExpressId } : null;
-                        const clickX = hit ? hit.point.x : (new THREE.Vector3(((e.clientX - ui.viewport.getBoundingClientRect().left) / ui.viewport.getBoundingClientRect().width) * 2 - 1, -((e.clientY - ui.viewport.getBoundingClientRect().top) / ui.viewport.getBoundingClientRect().height) * 2 + 1, 0).unproject(world.camera.three).x);
-                        const clickZ = hit ? hit.point.z : (new THREE.Vector3(((e.clientX - ui.viewport.getBoundingClientRect().left) / ui.viewport.getBoundingClientRect().width) * 2 - 1, -((e.clientY - ui.viewport.getBoundingClientRect().top) / ui.viewport.getBoundingClientRect().height) * 2 + 1, 0).unproject(world.camera.three).z);
-                        console.log('[MEP-DND] handleDrop hitSpace:', hitSpace ? `${hitSpace.space?.longName || hitSpace.space?.name} (id=${hitSpace.expressId})` : 'NULL — drop outside any valid space');
-
-                        if (hitSpace) {
-                            const level = useViewerStore.getState().levels.find((l: any) => String(l.expressId) === String(hitSpace!.storeyExpressId));
-                            const floorElevation = level ? (level.elevation ?? 0) : 0;
-                            console.log('[MEP-DND] floor:', level?.name, '| elevation:', floorElevation);
-                            const state = workspaceStore.getState();
-                            const equipIdx = state.equipment.findIndex(eq => eq.id === data.id);
-                            console.log('[MEP-DND] equipIdx:', equipIdx, '| equipId:', data.id);
-                            if (equipIdx !== -1) {
-                                const newEquipment = [...state.equipment];
-                                newEquipment[equipIdx] = {
-                                    ...newEquipment[equipIdx],
-                                    locationSpaceId: String(hitSpace.expressId),
-                                    locationSpaceName: hitSpace.space.longName || hitSpace.space.name || `Space ${hitSpace.expressId}`,
-                                    locationFloor: level ? level.name : 'Unknown Floor',
-                                    positionX: clickX,
-                                    positionY: floorElevation,
-                                    positionZ: clickZ
-                                };
-                                console.log('[MEP-DND] calling updateEquipment with:', { locationSpaceId: String(hitSpace.expressId), positionX: clickX, positionY: floorElevation, positionZ: clickZ });
-                                workspaceStore.updateEquipment(newEquipment);
-                                console.log('[MEP-DND] updateEquipment done. New locationSpaceId:', workspaceStore.getState().equipment[equipIdx]?.locationSpaceId);
-                            }
+                    try {
+                        const raw = e.dataTransfer.getData('text/plain');
+                        console.log('[MEP-DND] handleDrop fired. raw dataTransfer:', raw, '| 2D active:', ui.btn2d.classList.contains('active'));
+                        const data = JSON.parse(raw);
+                        if (data && data.type === 'equipment' && data.id) {
+                            equipId = data.id;
                         }
+                    } catch (_) {}
+                }
+                if (!equipId && fallbackEquipId) {
+                    equipId = fallbackEquipId;
+                }
+                if (!equipId && (window as any)._currentlyDraggedEquipmentId) {
+                    equipId = (window as any)._currentlyDraggedEquipmentId;
+                }
+
+                if (equipId) {
+                    const stateForDrop = workspaceStore.getState();
+                    const equipToPlace = stateForDrop.equipment.find((eq: any) => eq.id === equipId || String(eq.id) === String(equipId));
+                    if (!equipToPlace || !hasLiteralDimensions(equipToPlace)) {
+                        toast.error(`"${equipToPlace?.tag || 'Equipment'}" has no dimensions assigned. Please assign zones to equipment in Ventilation first.`);
+                        (window as any)._isActivelyDraggingEquipment = false;
                         return;
                     }
+
+                    // Determine the target storey: prioritize equipment designated floor (e.g. ROOF LEVEL) or top dropdown
+                    const selectedLevelFromStore = useViewerStore.getState().selectedLevel;
+                    const activeLevelId = selectedLevelFromStore || ui.selectLevel?.value;
+                    const isEquipExplicitRoof = Boolean(
+                        (equipToPlace.locationFloor && /roof|terrace|parapet|deck/i.test(equipToPlace.locationFloor)) ||
+                        (equipToPlace.locationSpaceName && /roof|terrace|parapet|deck/i.test(equipToPlace.locationSpaceName))
+                    );
+
+                    let targetStorey: any = null;
+                    if (isEquipExplicitRoof) {
+                        targetStorey = findStoreyByFloor('ROOF LEVEL') || (equipToPlace.locationFloor ? findStoreyByFloor(equipToPlace.locationFloor) : null);
+                    } else if (activeLevelId) {
+                        targetStorey = findStoreyByFloor(activeLevelId);
+                    } else if (equipToPlace.locationFloor) {
+                        targetStorey = findStoreyByFloor(equipToPlace.locationFloor);
+                    }
+                    if (!targetStorey && activeStoreys && activeStoreys.length > 0) {
+                        targetStorey = activeStoreys.find((st: any) => /ground/i.test(st.name) || /^gf/i.test(st.name))
+                            || activeStoreys.find((st: any) => st.spaces && st.spaces.length > 0)
+                            || [...activeStoreys].sort((a, b) => a.elevation - b.elevation)[0];
+                    }
+                    const targetFloorWorldY = (targetStorey && activeGetWorldHeight)
+                        ? activeGetWorldHeight(targetStorey.elevation)
+                        : (targetStorey && typeof targetStorey.elevation === 'number'
+                            ? getStoreyElevationInMeters(targetStorey.elevation)
+                            : 0);
+
+                    const is2D = ui.btn2d.classList.contains('active');
+                    let clickX = 0, clickZ = 0;
+                    let hitSpace: any = null;
+
+                    if (is2D) {
+                        const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(e, targetStorey?.expressId) : null;
+                        if (hit) {
+                            clickX = hit.point.x;
+                            clickZ = hit.point.z;
+                            if (hit.space) {
+                                hitSpace = { space: hit.space, expressId: hit.expressId, storeyExpressId: hit.storeyExpressId };
+                            }
+                        } else {
+                            const planeHit = getFloorPlaneIntersection(e.clientX, e.clientY, targetFloorWorldY);
+                            clickX = planeHit.x;
+                            clickZ = planeHit.z;
+                        }
+                    } else {
+                        // 3D Drop Mode: Raycast directly from camera through cursor onto 3D model!
+                        const rect = ui.viewport.getBoundingClientRect();
+                        const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                        const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                        const raycaster = new THREE.Raycaster();
+                        raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), world.camera.three);
+
+                        let direct3DHit: THREE.Intersection | null = null;
+                        if (currentModel?.object) {
+                            try {
+                                const intersects = safeRaycastModel(raycaster, currentModel.object);
+                                if (intersects && intersects.length > 0) {
+                                    const effectiveStorey = targetStorey || (activeLevelId ? findStoreyByFloor(activeLevelId) : null);
+                                    const isRoof = isEquipExplicitRoof || Boolean(effectiveStorey && /roof|terrace|parapet|deck/i.test(effectiveStorey.name));
+                                    if (effectiveStorey) {
+                                        const expY = (activeGetWorldHeight) ? activeGetWorldHeight(effectiveStorey.elevation) : targetFloorWorldY;
+                                        const filtered = intersects.filter(i => isRoof ? (i.point.y >= expY - 2.5) : Math.abs(i.point.y - expY) < 2.5);
+                                        direct3DHit = filtered.length > 0 ? filtered[0] : intersects[0];
+                                    } else {
+                                        // "All Levels" in 3D: Use exact physical 3D surface clicked!
+                                        direct3DHit = intersects[0];
+                                    }
+                                }
+                            } catch (_) {}
+                        }
+
+                        if (direct3DHit) {
+                            clickX = direct3DHit.point.x;
+                            clickZ = direct3DHit.point.z;
+                            // Automatically detect storey from 3D surface height ONLY if targetStorey was NOT determined!
+                            if (!targetStorey) {
+                                targetStorey = detectStoreyFromY(direct3DHit.point.y);
+                            }
+                        } else {
+                            const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -targetFloorWorldY);
+                            const planePoint = new THREE.Vector3();
+                            raycaster.ray.intersectPlane(floorPlane, planePoint);
+                            clickX = planePoint.x;
+                            clickZ = planePoint.z;
+                        }
+
+                        // Constrain 3D space bounding-box search to targetStorey ONLY
+                        if (activeSpaceBoundsMap.size > 0 && targetStorey) {
+                            for (const [expressId, spData] of activeSpaceBoundsMap) {
+                                if (String(spData.storeyExpressId) !== String(targetStorey.expressId)) continue;
+                                const b = spData.box;
+                                if (clickX >= b.min.x && clickX <= b.max.x && clickZ >= b.min.z && clickZ <= b.max.z) {
+                                    hitSpace = { space: spData.space, expressId, storeyExpressId: spData.storeyExpressId };
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    const isRoofStorey = isEquipExplicitRoof || Boolean(targetStorey && /roof|terrace|parapet|deck/i.test(targetStorey.name));
+
+                    // Dynamically resolve exact physical slab top surface at (clickX, clickZ) for targetStorey
+                    let targetWorldY = getPhysicalFloorSurfaceY(clickX, clickZ, targetStorey);
+                    if (targetWorldY === undefined || isNaN(targetWorldY)) {
+                        if (direct3DHit && typeof direct3DHit.point?.y === 'number') {
+                            if (isRoofStorey || Math.abs(direct3DHit.point.y - targetFloorWorldY) < 3.0) {
+                                targetWorldY = direct3DHit.point.y;
+                            } else {
+                                targetWorldY = targetFloorWorldY;
+                            }
+                        } else {
+                            targetWorldY = targetFloorWorldY;
+                        }
+                    }
+
+                    const spaceId = hitSpace ? String(hitSpace.expressId) : 'outside';
+                    const spaceName = hitSpace ? (hitSpace.space?.longName || hitSpace.space?.name || `Space ${hitSpace.expressId}`) : (isRoofStorey ? 'Roof Deck / Open Area' : 'Floor / Open Area');
+                    const floorName = (hitSpace?.storeyExpressId ? findStoreyByFloor(hitSpace.storeyExpressId)?.name : null) || targetStorey?.name || (isRoofStorey ? 'ROOF LEVEL' : 'Ground Floor');
+
+                    const state = workspaceStore.getState();
+                    const equipIdx = state.equipment.findIndex((eq: any) => eq.id === equipId || String(eq.id) === String(equipId));
+                    if (equipIdx !== -1) {
+                        const newEquipment = [...state.equipment];
+                        newEquipment[equipIdx] = {
+                            ...newEquipment[equipIdx],
+                            locationSpaceId: spaceId,
+                            locationSpaceName: spaceName,
+                            locationFloor: floorName,
+                            positionX: clickX,
+                            positionY: targetWorldY,
+                            positionZ: clickZ,
+                            rotationY: 0
+                        };
+                        workspaceStore.updateEquipment(newEquipment);
+                        setSelectedEquipment(newEquipment[equipIdx].id);
+                        renderEquipmentMeshes();
+                        toast.success(`Placed "${newEquipment[equipIdx].tag}" on ${floorName}`);
+                    }
+                    (window as any)._isActivelyDraggingEquipment = false;
+                    if (world.camera?.controls) {
+                        world.camera.controls.enabled = true;
+                        if (ui.btn2d.classList.contains('active')) world.camera.controls.mouseButtons.wheel = 32;
+                        else world.camera.controls.mouseButtons.wheel = 16;
+                    }
+                    return;
                 }
             } catch (err) { console.error('[MEP-DND] handleDrop error:', err); }
 
@@ -1881,24 +2814,17 @@ export function Viewport3D() {
             const equip = customEvent.detail;
             if (!equip) return;
 
-            if (!ui.btn2d.classList.contains('active')) {
-                if (ui.btn2d.onclick) {
-                    const p = ui.btn2d.onclick(new MouseEvent('click') as any);
-                    if (p && (p as any).then) await p;
-                }
-            }
-
-            if (equip.locationSpaceId) {
-                let targetStoreyId = null;
-                for (const [expressId, spData] of spaceWorldPolygons) {
-                    if (String(expressId) === equip.locationSpaceId || String(spData.space?.expressId) === equip.locationSpaceId) {
-                        targetStoreyId = spData.storeyExpressId;
-                        break;
-                    }
+            if (ui.btn2d.classList.contains('active')) {
+                let targetStoreyId: string | null = null;
+                if (equip.locationSpaceId && activeSpaceBoundsMap.has(Number(equip.locationSpaceId))) {
+                    targetStoreyId = String(activeSpaceBoundsMap.get(Number(equip.locationSpaceId))?.storeyExpressId || '');
+                } else if (equip.locationFloor && activeStoreys) {
+                    const st = findStoreyByFloor(equip.locationFloor);
+                    if (st) targetStoreyId = String(st.expressId);
                 }
 
-                if (targetStoreyId && String(ui.selectLevel.value) !== String(targetStoreyId)) {
-                    ui.selectLevel.value = String(targetStoreyId);
+                if (targetStoreyId && String(ui.selectLevel.value) !== targetStoreyId) {
+                    ui.selectLevel.value = targetStoreyId;
                     if (ui.selectLevel.onchange) {
                         const p2 = ui.selectLevel.onchange(new Event('change') as any);
                         if (p2 && (p2 as any).then) await p2;
@@ -1906,187 +2832,240 @@ export function Viewport3D() {
                 }
             }
 
-            await new Promise(r => setTimeout(r, 100));
+            setSelectedEquipment(equip.id);
+            renderEquipmentMeshes();
+
+            await new Promise(r => setTimeout(r, 60));
 
             if (!world?.camera?.controls) return;
             const eqMesh = placedEquipment3DMeshes.find(m => m.userData?.equipmentId === equip.id);
             if (eqMesh) {
                 const pos = eqMesh.position;
                 world.camera.controls.moveTo(pos.x, pos.y, pos.z, true);
-                if (world.camera.three.isOrthographicCamera || (world.camera.projection as any).current === 'Orthographic') {
+                if (ui.btn2d.classList.contains('active')) {
                     world.camera.controls.zoomTo(10, true);
                 } else {
                     world.camera.controls.dollyTo(15, true);
                 }
-
-                if (transformControl) {
-                    transformControl.camera = world.camera.three;
-                    transformControl.setMode('translate');
-                    transformControl.showX = true;
-                    transformControl.showY = false;
-                    transformControl.showZ = true;
-                    transformControl.attach(eqMesh);
-                }
             }
         };
-
-        let transformControl: any = null;
 
         document.addEventListener('dragover', handleDragOver);
         document.addEventListener('drop', handleDrop);
         window.addEventListener('mep-focus-equipment', handleFocusEquipment);
 
-
         const renderEquipmentMeshes = () => {
-            console.log('[MEP-EQUIPMENT-RENDER] renderEquipmentMeshes called');
-            const state = workspaceStore.getState();
-            disposeMeshList(placedEquipment3DMeshes);
-            placedEquipment3DMeshes = [];
+            try {
+                const is2D = ui.btn2d.classList.contains('active');
+                const state = workspaceStore.getState();
+                disposeMeshList(placedEquipment3DMeshes);
+                placedEquipment3DMeshes = [];
 
-            state.equipment.forEach((equip) => {
-                if (equip.locationSpaceId) {
-                    console.log('[MEP-EQUIPMENT-RENDER] Rendering equipment:', {
-                        id: equip.id,
-                        tag: equip.tag,
-                        locationSpaceId: equip.locationSpaceId,
-                        locationSpaceName: equip.locationSpaceName,
-                        locationFloor: equip.locationFloor,
-                        dimL: equip.dimensions?.length,
-                        dimW: equip.dimensions?.width,
-                        dimH: equip.dimensions?.height,
-                        posX: equip.positionX,
-                        posY: equip.positionY,
-                        posZ: equip.positionZ,
-                        rotY: equip.rotationY
-                    });
+                const activeLevelVal = useViewerStore.getState().selectedLevel || ui.selectLevel?.value;
+                const currentSelectedStorey = activeLevelVal ? findStoreyByFloor(activeLevelVal) : null;
 
-                    let worldY = equip.positionY || 0;
-                    if (equip.locationSpaceId && activeSpaceBoundsMap.has(Number(equip.locationSpaceId))) {
+                state.equipment.forEach((equip) => {
+                    const isPlaced = Boolean(equip.locationSpaceId || (equip.positionX !== undefined && equip.positionZ !== undefined));
+                    if (!isPlaced) return;
+                    if (!hasLiteralDimensions(equip)) return;
+
+                    const dims = getEquipmentLiteralDimensions(equip);
+                    if (!dims) return;
+
+                    // Resolve target storey
+                    let equipStorey: any = null;
+                    if (equip.locationFloor) {
+                        equipStorey = findStoreyByFloor(equip.locationFloor);
+                    }
+                    if (!equipStorey && equip.locationSpaceId && equip.locationSpaceId !== 'outside' && activeSpaceBoundsMap.has(Number(equip.locationSpaceId))) {
                         const spaceData = activeSpaceBoundsMap.get(Number(equip.locationSpaceId));
-                        if (spaceData) {
-                            worldY = spaceData.box.min.y; // Correct physical world height of the space
+                        if (spaceData?.storeyExpressId) equipStorey = findStoreyByFloor(spaceData.storeyExpressId);
+                    }
+
+                    // Auto-initialize positionX and positionZ if not yet set
+                    if (equip.positionX === undefined || equip.positionZ === undefined) {
+                        if (equip.locationSpaceId && equip.locationSpaceId !== 'outside' && activeSpaceBoundsMap.has(Number(equip.locationSpaceId))) {
+                            const spaceData = activeSpaceBoundsMap.get(Number(equip.locationSpaceId));
+                            if (spaceData?.center) {
+                                equip.positionX = spaceData.center.x;
+                                equip.positionZ = spaceData.center.z;
+                            }
+                        } else if (equipStorey) {
+                            const spacesOnStorey = Array.from(activeSpaceBoundsMap.values()).filter(sp => String(sp.storeyExpressId) === String(equipStorey.expressId));
+                            if (spacesOnStorey.length > 0 && spacesOnStorey[0].center) {
+                                equip.positionX = spacesOnStorey[0].center.x;
+                                equip.positionZ = spacesOnStorey[0].center.z;
+                            }
+                        }
+                        if (equip.positionX === undefined) equip.positionX = 0;
+                        if (equip.positionZ === undefined) equip.positionZ = 0;
+                    }
+
+                    const worldY = getEquipmentWorldY(equip);
+                    console.warn('[MEP-DEBUG-RENDER-EQUIP]', {
+                        equipTag: equip.tag,
+                        locationFloor: equip.locationFloor,
+                        positionX: equip.positionX,
+                        positionY_before: equip.positionY,
+                        positionZ: equip.positionZ,
+                        worldY
+                    });
+                    equip.positionY = worldY;
+
+                    // Strict floor filtering when a specific floor is selected in the top dropdown
+                    let isVisibleOnCurrentLevel = true;
+                    if (activeLevelVal && currentSelectedStorey) {
+                        const equipStorey = equip.locationFloor ? findStoreyByFloor(equip.locationFloor) : null;
+                        if (equipStorey) {
+                            isVisibleOnCurrentLevel = String(equipStorey.expressId) === String(currentSelectedStorey.expressId)
+                                || equipStorey.name?.toLowerCase() === currentSelectedStorey.name?.toLowerCase()
+                                || matchFloorNames(equipStorey.name, currentSelectedStorey.name);
+                        } else {
+                            const matchesSpaceStorey = Boolean(equip.locationSpaceId && String(activeSpaceBoundsMap.get(Number(equip.locationSpaceId))?.storeyExpressId) === String(currentSelectedStorey.expressId));
+                            const matchesFloorName = Boolean(equip.locationFloor && matchFloorNames(equip.locationFloor, currentSelectedStorey.name));
+                            isVisibleOnCurrentLevel = matchesSpaceStorey || matchesFloorName;
                         }
                     }
 
                     const group = new THREE.Group();
-                    group.position.set(equip.positionX || 0, worldY, equip.positionZ || 0);
+                    group.position.set(equip.positionX || 0, worldY + 0.002, equip.positionZ || 0);
                     if (equip.rotationY) group.rotation.y = equip.rotationY;
                     group.userData = { equipmentId: equip.id, isEquipmentGroup: true };
+                    group.visible = isVisibleOnCurrentLevel;
 
-                    const L = (equip.dimensions?.length || 1500) / 1000;
-                    const W = (equip.dimensions?.width || 1000) / 1000;
-                    const H = (equip.dimensions?.height || 1000) / 1000;
+                    const L = dims.length / 1000;
+                    const W = dims.width / 1000;
+                    const H = dims.height / 1000;
+                    const isSelected = equip.id === selectedEquipmentId;
+
+                    // 1. Equipment main solid box mesh
                     const geometry = new THREE.BoxGeometry(L, H, W);
-                    const material = new THREE.MeshBasicMaterial({ color: 0x3b82f6 });
-                    const mesh = new THREE.Mesh(geometry, material);
+                    const boxMat = new THREE.MeshBasicMaterial({
+                        color: isSelected ? 0xf59e0b : 0x2563eb,
+                        transparent: true,
+                        opacity: is2D ? 0.92 : 0.85,
+                        depthTest: !is2D,
+                        depthWrite: !is2D
+                    });
+                    const mesh = new THREE.Mesh(geometry, boxMat);
                     mesh.position.y = H / 2;
+                    if (is2D) mesh.renderOrder = 10010;
                     group.add(mesh);
 
-                    const canvas = document.createElement('canvas');
-                    canvas.width = 256; canvas.height = 64;
-                    const ctx = canvas.getContext('2d');
-                    if (ctx) {
-                        ctx.fillStyle = '#1d4ed8';
-                        ctx.fillRect(0, 0, 256, 64);
-                        ctx.font = 'bold 32px sans-serif';
-                        ctx.fillStyle = 'white';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText(equip.tag || 'EQUIP', 128, 32);
+                    // 2. High-contrast sharp wireframe edges
+                    const edgesGeom = new THREE.EdgesGeometry(geometry);
+                    const edgesMat = new THREE.LineBasicMaterial({
+                        color: isSelected ? 0xd97706 : (is2D ? 0x0f172a : 0x1e3a8a),
+                        linewidth: 2,
+                        depthTest: !is2D,
+                        depthWrite: !is2D
+                    });
+                    const edgesLine = new THREE.LineSegments(edgesGeom, edgesMat);
+                    edgesLine.position.y = H / 2;
+                    if (is2D) edgesLine.renderOrder = 10012;
+                    group.add(edgesLine);
+
+                    // 3. Direction / Orientation indicator arrow on top face (points forward along +Z)
+                    const arrowShape = new THREE.Shape();
+                    const arrowSize = Math.min(L, W) * 0.38;
+                    arrowShape.moveTo(0, arrowSize);
+                    arrowShape.lineTo(-arrowSize * 0.55, -arrowSize * 0.4);
+                    arrowShape.lineTo(0, -arrowSize * 0.15);
+                    arrowShape.lineTo(arrowSize * 0.55, -arrowSize * 0.4);
+                    arrowShape.closePath();
+
+                    const arrowGeom = new THREE.ShapeGeometry(arrowShape);
+                    arrowGeom.rotateX(-Math.PI / 2);
+                    const arrowMat = new THREE.MeshBasicMaterial({
+                        color: isSelected ? 0xffffff : 0xbfdbfe,
+                        depthTest: !is2D,
+                        depthWrite: !is2D
+                    });
+                    const arrowMesh = new THREE.Mesh(arrowGeom, arrowMat);
+                    arrowMesh.position.y = H + 0.02;
+                    if (is2D) arrowMesh.renderOrder = 10014;
+                    group.add(arrowMesh);
+
+                    // 4. Interactive Rotation Handle (Knob) when selected
+                    if (isSelected) {
+                        const handleDist = W / 2 + 0.75;
+                        const stemGeom = new THREE.BufferGeometry().setFromPoints([
+                            new THREE.Vector3(0, H + 0.05, 0),
+                            new THREE.Vector3(0, H + 0.05, handleDist)
+                        ]);
+                        const stemMat = new THREE.LineBasicMaterial({
+                            color: 0x10b981,
+                            linewidth: 2,
+                            depthTest: false,
+                            depthWrite: false
+                        });
+                        const stemLine = new THREE.Line(stemGeom, stemMat);
+                        if (is2D) stemLine.renderOrder = 10016;
+                        group.add(stemLine);
+
+                        const knobGeom = new THREE.SphereGeometry(0.24, 16, 16);
+                        const knobMat = new THREE.MeshBasicMaterial({
+                            color: 0x10b981,
+                            depthTest: false,
+                            depthWrite: false
+                        });
+                        const knobMesh = new THREE.Mesh(knobGeom, knobMat);
+                        knobMesh.position.set(0, H + 0.05, handleDist);
+                        knobMesh.userData = { isRotationHandle: true, equipmentId: equip.id };
+                        if (is2D) knobMesh.renderOrder = 10018;
+                        group.add(knobMesh);
                     }
-                    const tex = new THREE.CanvasTexture(canvas);
-                    const spriteMat = new THREE.SpriteMaterial({ map: tex });
-                    const sprite = new THREE.Sprite(spriteMat);
-                    sprite.scale.set(2.0, 0.5, 1);
-                    sprite.position.y = 1.2;
+
+                    // 5. Crisp floating badge label sprite
+                    const sprite = createEquipmentTagSprite(equip.tag || 'EQUIP', isSelected, is2D);
+                    sprite.position.y = H + 0.7;
+                    if (is2D) sprite.renderOrder = 10020;
                     group.add(sprite);
 
                     world.scene.three.add(group);
                     placedEquipment3DMeshes.push(group);
-                }
-            });
-            console.log('[MEP-EQUIPMENT-RENDER] placedEquipment3DMeshes count:', placedEquipment3DMeshes.length);
-            console.log('[MEP-EQUIPMENT-RENDER] scene equipment group count:', world.scene.three.children.filter(c => c.userData?.isEquipmentGroup).length);
+                });
+
+                // Keep activeRenderEquipmentMeshes reference updated
+                activeRenderEquipmentMeshes = renderEquipmentMeshes;
+
+            } catch (err) {
+                console.warn('[MEP-EQUIPMENT-RENDER] error caught safely:', err);
+            }
         };
+
+        activeRenderEquipmentMeshes = renderEquipmentMeshes;
+        (window as any)._renderEquipmentMeshes = () => {
+            try {
+                if (activeRenderEquipmentMeshes) activeRenderEquipmentMeshes();
+            } catch (err) {
+                console.warn('[MEP-EQUIPMENT-RENDER] manual trigger error:', err);
+            }
+        };
+
+        const handleEquipmentUpdated = () => {
+            try {
+                if (activeRenderEquipmentMeshes) activeRenderEquipmentMeshes();
+            } catch (err) {
+                console.warn('[MEP-EQUIPMENT-RENDER] event trigger error:', err);
+            }
+        };
+        window.addEventListener('mep-equipment-updated', handleEquipmentUpdated);
 
         if (unsubEquipmentStore) unsubEquipmentStore();
         unsubEquipmentStore = workspaceStore.subscribe(() => {
+            try {
+                renderEquipmentMeshes();
+            } catch (subErr) {
+                console.warn('[MEP-EQUIPMENT-RENDER] subscribe error:', subErr);
+            }
+        });
+        try {
             renderEquipmentMeshes();
-        });
-        renderEquipmentMeshes();
+        } catch (initErr) {
+            console.warn('[MEP-EQUIPMENT-RENDER] initial render error:', initErr);
+        }
 
-        transformControl = new TransformControls(world.camera.three, ui.viewport);
-        transformControl.addEventListener('dragging-changed', (event: any) => {
-            world.camera.controls.enabled = !event.value;
-            if (!event.value && transformControl.object) {
-                const eqId = transformControl.object.userData.equipmentId;
-                const state = workspaceStore.getState();
-                const equipIdx = state.equipment.findIndex(eq => eq.id === eqId);
-                if (equipIdx !== -1) {
-                    const newEquipment = [...state.equipment];
-                    newEquipment[equipIdx] = {
-                        ...newEquipment[equipIdx],
-                        positionX: transformControl.object.position.x,
-                        positionY: transformControl.object.position.y,
-                        positionZ: transformControl.object.position.z,
-                        rotationY: transformControl.object.rotation.y
-                    };
-                    workspaceStore.setState({ equipment: newEquipment });
-                }
-            }
-        });
-        world.scene.three.add(transformControl);
-
-        ui.viewport.addEventListener('pointerup', (e: PointerEvent) => {
-            if (ui.btn2d.classList.contains('active')) { if (transformControl) transformControl.detach(); return; }
-
-            const rect = ui.viewport.getBoundingClientRect();
-            const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-            const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-            const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
-            const clickX = worldPos.x;
-            const clickZ = worldPos.z;
-
-            let eqHitGroup = null;
-            for (const group of placedEquipment3DMeshes) {
-                if (!group.userData?.isEquipmentGroup) continue;
-                const localClick = new THREE.Vector3(clickX, group.position.y, clickZ);
-                group.worldToLocal(localClick);
-                let hit = false;
-                group.traverse((c: any) => {
-                    if (c.geometry && c.geometry.type === 'BoxGeometry') {
-                        if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
-                        const bbox = c.geometry.boundingBox;
-                        if (bbox && localClick.x >= bbox.min.x && localClick.x <= bbox.max.x &&
-                            localClick.z >= bbox.min.z && localClick.z <= bbox.max.z) {
-                            hit = true;
-                        }
-                    }
-                });
-                if (hit) { eqHitGroup = group; break; }
-            }
-
-            if (eqHitGroup) {
-                if (transformControl) {
-                    transformControl.camera = world.camera.three;
-                    if (transformControl.object === eqHitGroup) {
-                        transformControl.setMode(transformControl.getMode() === 'translate' ? 'rotate' : 'translate');
-                        transformControl.showX = transformControl.getMode() === 'translate';
-                        transformControl.showY = transformControl.getMode() === 'rotate';
-                        transformControl.showZ = transformControl.getMode() === 'translate';
-                    } else {
-                        transformControl.setMode('translate');
-                        transformControl.showX = true;
-                        transformControl.showY = false;
-                        transformControl.showZ = true;
-                        transformControl.attach(eqHitGroup);
-                    }
-                }
-            } else {
-                if (transformControl) transformControl.detach();
-            }
-        });
 
 
         const keys = { w: 0, a: 0, s: 0, d: 0, q: 0, e: 0 };
@@ -2110,10 +3089,16 @@ export function Viewport3D() {
         ui.btnWalk.onclick = () => { ui.btnWalk.classList.add('active'); ui.btnOrbit.classList.remove('active'); };
 
         activeGhostMesh = null;
+        (window as any)._clearEquipmentGhostMesh = () => {
+            if (activeGhostMesh) {
+                world.scene.three.remove(activeGhostMesh);
+                activeGhostMesh = null;
+            }
+        };
 
         ui.viewport.addEventListener('dragover', (e: DragEvent) => {
             e.preventDefault();
-            const draggedId = useViewerStore.getState().draggedEquipmentId;
+            const draggedId = useViewerStore.getState().draggedEquipmentId || (window as any)._currentlyDraggedEquipmentId;
             if (!draggedId) {
                 if (activeGhostMesh) {
                     world.scene.three.remove(activeGhostMesh);
@@ -2123,37 +3108,122 @@ export function Viewport3D() {
             }
 
             const equip = workspaceStore.getState().equipment.find(eq => eq.id === draggedId);
-            if (!equip) return;
+            if (!equip || !hasLiteralDimensions(equip)) return;
 
-            const L = (equip.dimensions?.length || 1500) / 1000;
-            const W = (equip.dimensions?.width || 1000) / 1000;
-            const H = (equip.dimensions?.height || 1000) / 1000;
+            const dims = getEquipmentLiteralDimensions(equip);
+            if (!dims) return;
+
+            const L = dims.length / 1000;
+            const W = dims.width / 1000;
+            const H = dims.height / 1000;
+
+            if (activeGhostMesh && activeGhostMesh.userData?.equipmentId !== draggedId) {
+                world.scene.three.remove(activeGhostMesh);
+                activeGhostMesh = null;
+            }
 
             if (!activeGhostMesh) {
-                console.log('[MEP-DND] viewport dragover: creating ghost for', draggedId, { L, W, H });
                 activeGhostMesh = new THREE.Group();
+                activeGhostMesh.userData = { equipmentId: draggedId };
                 const geom = new THREE.BoxGeometry(L, H, W);
-                const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 });
+                const mat = new THREE.MeshBasicMaterial({
+                    color: 0x10b981,
+                    transparent: true,
+                    opacity: 0.6,
+                    depthTest: false,
+                    depthWrite: false
+                });
                 const mesh = new THREE.Mesh(geom, mat);
                 mesh.position.y = H / 2;
+                mesh.renderOrder = 10050;
                 activeGhostMesh.add(mesh);
+
+                const edgesGeom = new THREE.EdgesGeometry(geom);
+                const edgesMat = new THREE.LineBasicMaterial({
+                    color: 0x047857,
+                    linewidth: 2,
+                    depthTest: false,
+                    depthWrite: false
+                });
+                const edgesLine = new THREE.LineSegments(edgesGeom, edgesMat);
+                edgesLine.position.y = H / 2;
+                edgesLine.renderOrder = 10052;
+                activeGhostMesh.add(edgesLine);
+
                 world.scene.three.add(activeGhostMesh);
             }
 
-            const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(e) : null;
-            if (hit) {
-                (activeGhostMesh.children[0] as THREE.Mesh).material = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 });
-                const level = useViewerStore.getState().levels.find(l => String(l.expressId) === String(hit.storeyExpressId));
-                const floorElevation = level ? level.elevation : 0;
-                activeGhostMesh.position.set(hit.point.x, floorElevation, hit.point.z);
+            const is2D = ui.btn2d.classList.contains('active');
+            let ghostX = 0, ghostY = 0, ghostZ = 0;
+
+            const selectedLevelFromStore = useViewerStore.getState().selectedLevel;
+            const activeLevelId = selectedLevelFromStore || ui.selectLevel?.value;
+            const currentLevel = (activeLevelId ? findStoreyByFloor(activeLevelId) : null) || (activeStoreys && activeStoreys[0]);
+            const floorElevation = currentLevel ? (currentLevel.elevation ?? 0) : 0;
+            const floorWorldY = (currentLevel && activeGetWorldHeight)
+                ? activeGetWorldHeight(floorElevation)
+                : (floorElevation > 100 ? floorElevation * 0.001 : floorElevation);
+            let targetStoreyForGhost = currentLevel;
+
+            if (is2D) {
+                const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(e, currentLevel?.expressId) : null;
+                if (hit) {
+                    ghostX = hit.point.x;
+                    ghostY = hit.point.y;
+                    ghostZ = hit.point.z;
+                } else {
+                    const planeHit = getFloorPlaneIntersection(e.clientX, e.clientY, floorWorldY);
+                    ghostX = planeHit.x;
+                    ghostY = floorWorldY;
+                    ghostZ = planeHit.z;
+                }
             } else {
-                (activeGhostMesh.children[0] as THREE.Mesh).material = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5 });
+                // 3D View Drag Over: Raycast onto physical model surfaces
                 const rect = ui.viewport.getBoundingClientRect();
                 const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
                 const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-                const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
-                activeGhostMesh.position.set(worldPos.x, 0, worldPos.z);
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), world.camera.three);
+
+                let direct3DHit: THREE.Intersection | null = null;
+                if (currentModel?.object) {
+                    try {
+                        const intersects = safeRaycastModel(raycaster, currentModel.object);
+                        if (intersects && intersects.length > 0) {
+                            if (activeLevelId) {
+                                const expectedStorey = findStoreyByFloor(activeLevelId);
+                                const expY = (expectedStorey && activeGetWorldHeight) ? activeGetWorldHeight(expectedStorey.elevation) : floorWorldY;
+                                const isRoof = expectedStorey && /roof|terrace/i.test(expectedStorey.name);
+                                const filtered = intersects.filter(i => isRoof ? (i.point.y >= expY - 1.5) : Math.abs(i.point.y - expY) < 2.0);
+                                direct3DHit = filtered.length > 0 ? filtered[0] : intersects[0];
+                            } else {
+                                direct3DHit = intersects[0];
+                            }
+                        }
+                    } catch (_) {}
+                }
+
+                if (direct3DHit) {
+                    ghostX = direct3DHit.point.x;
+                    ghostZ = direct3DHit.point.z;
+                    if (!activeLevelId) {
+                        targetStoreyForGhost = detectStoreyFromY(direct3DHit.point.y);
+                    }
+                } else {
+                    const planeHit = getFloorPlaneIntersection(e.clientX, e.clientY, floorWorldY);
+                    ghostX = planeHit.x;
+                    ghostZ = planeHit.z;
+                }
             }
+
+            ghostY = getPhysicalFloorSurfaceY(ghostX, ghostZ, targetStoreyForGhost);
+            if ((ghostY === undefined || isNaN(ghostY)) && !is2D && targetStoreyForGhost) {
+                const elev = (targetStoreyForGhost && activeGetWorldHeight)
+                    ? activeGetWorldHeight(targetStoreyForGhost.elevation)
+                    : getStoreyElevationInMeters(targetStoreyForGhost.elevation);
+                if (typeof elev === 'number' && !isNaN(elev)) ghostY = elev;
+            }
+            activeGhostMesh.position.set(ghostX, ghostY + 0.002, ghostZ);
         });
 
         ui.viewport.addEventListener('dragleave', () => {
@@ -2163,153 +3233,516 @@ export function Viewport3D() {
             }
         });
 
-        // Viewport drop listener handles ghost mesh and drag state cleanup.
-        // Equipment placement mutation is authoritatively handled by document-level handleDrop.
-        ui.viewport.addEventListener('drop', () => {
-            if (activeGhostMesh) {
-                world.scene.three.remove(activeGhostMesh);
-                activeGhostMesh = null;
-            }
-            useViewerStore.getState().setDraggedEquipmentId(null);
+        ui.viewport.addEventListener('drop', (e: DragEvent) => {
+            handleDrop(e);
         });
-        // --- 2D DIRECT EQUIPMENT DRAGGING ---
-        let selectedEquipmentId: string | null = null;
+
+        // --- UNIFIED EQUIPMENT SELECTION, DRAGGING & ROTATION ---
         let activePlacedDragGroup: THREE.Group | null = null;
+        let activeRotatingGroup: THREE.Group | null = null;
         let pointerIsDraggingPlaced = false;
+        let pointerIsRotating = false;
         let dragStartX = 0;
         let dragStartY = 0;
+        let lastPointerDownTime = 0;
+        let lastPointerDownObjId: string | null = null;
 
-        const updateEquipmentHighlights = () => {
-            placedEquipment3DMeshes.forEach(g => {
-                const isSelected = g.userData?.equipmentId === selectedEquipmentId;
-                g.traverse(c => {
-                    if (c instanceof THREE.Mesh) {
-                        (c.material as THREE.MeshBasicMaterial).color.setHex(isSelected ? 0xffa500 : 0x3b82f6);
-                    }
-                });
-            });
-        };
-
-        const checkPlacedEquipmentHit = (ndcX: number, ndcY: number) => {
-            if (!ui.btn2d.classList.contains('active')) return null;
-            const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
-            const clickX = worldPos.x;
-            const clickZ = worldPos.z;
-
-            for (const group of placedEquipment3DMeshes) {
-                if (!group.userData?.isEquipmentGroup) continue;
-                const localClick = new THREE.Vector3(clickX, group.position.y, clickZ);
-                group.worldToLocal(localClick);
-                let hit = false;
-                group.traverse((c: any) => {
-                    if (c.geometry && c.geometry.type === 'BoxGeometry') {
-                        if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
-                        const bbox = c.geometry.boundingBox;
-                        if (bbox && localClick.x >= bbox.min.x && localClick.x <= bbox.max.x &&
-                            localClick.z >= bbox.min.z && localClick.z <= bbox.max.z) {
-                            hit = true;
-                        }
-                    }
-                });
-                if (hit) return group;
+        const getFloorPlaneIntersection = (clientX: number, clientY: number, planeY: number): THREE.Vector3 => {
+            const rect = ui.viewport.getBoundingClientRect();
+            const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+            const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), world.camera.three);
+            const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
+            const hitPoint = new THREE.Vector3();
+            if (raycaster.ray.intersectPlane(plane, hitPoint)) {
+                return hitPoint;
             }
-            return null;
+            return new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
         };
 
-        ui.viewport.addEventListener('pointerdown', (e: PointerEvent) => {
-            if (!ui.btn2d.classList.contains('active')) return;
+        const handleUnifiedPointerDown = (e: PointerEvent) => {
+            if (e.button !== 0) return;
+
             const rect = ui.viewport.getBoundingClientRect();
             const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
             const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-            const hitGroup = checkPlacedEquipmentHit(ndcX, ndcY);
-            if (hitGroup) {
-                selectedEquipmentId = hitGroup.userData.equipmentId;
-                activePlacedDragGroup = hitGroup;
-                pointerIsDraggingPlaced = false;
-                dragStartX = e.clientX;
-                dragStartY = e.clientY;
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), world.camera.three);
 
-                updateEquipmentHighlights();
-
-                ui.viewport.setPointerCapture(e.pointerId);
-                if (world.camera?.controls) world.camera.controls.enabled = false;
-                e.stopImmediatePropagation();
-            } else {
-                selectedEquipmentId = null;
-                updateEquipmentHighlights();
-                activePlacedDragGroup = null;
-            }
-        });
-
-        ui.viewport.addEventListener('pointermove', (e: PointerEvent) => {
-            if (!ui.btn2d.classList.contains('active')) return;
-            if (activePlacedDragGroup && ui.viewport.hasPointerCapture(e.pointerId)) {
-                if (!pointerIsDraggingPlaced && (Math.abs(e.clientX - dragStartX) > 3 || Math.abs(e.clientY - dragStartY) > 3)) {
-                    pointerIsDraggingPlaced = true;
+            // 1. Check if rotation handle knob was clicked
+            const handleMeshes: THREE.Object3D[] = [];
+            placedEquipment3DMeshes.forEach(g => {
+                if (g.visible) {
+                    g.traverse(c => {
+                        if (c.userData?.isRotationHandle) handleMeshes.push(c);
+                    });
                 }
+            });
+            const handleHits = raycaster.intersectObjects(handleMeshes, true);
+            if (handleHits.length > 0) {
+                const equipId = handleHits[0].object.userData?.equipmentId;
+                const targetGroup = placedEquipment3DMeshes.find(g => g.userData?.equipmentId === equipId);
+                if (targetGroup) {
+                    pointerIsRotating = true;
+                    activeRotatingGroup = targetGroup;
+                    activePlacedDragGroup = targetGroup;
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+                    try { ui.viewport.setPointerCapture(e.pointerId); } catch (_) {}
+                    (window as any)._isActivelyDraggingEquipment = true;
+                    if (world.camera?.controls) world.camera.controls.enabled = false;
+                    e.stopImmediatePropagation();
+                    return;
+                }
+            }
 
-                if (pointerIsDraggingPlaced) {
-                    const rect = ui.viewport.getBoundingClientRect();
-                    const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-                    const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-                    const worldPos = new THREE.Vector3(ndcX, ndcY, 0).unproject(world.camera.three);
-
-                    const pseudoMouseEvent = new MouseEvent('mousemove', { clientX: e.clientX, clientY: e.clientY });
-                    const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(pseudoMouseEvent) : null;
-
-                    if (hit) {
-                        const level = useViewerStore.getState().levels.find((l: any) => String(l.expressId) === String(hit.storeyExpressId));
-                        const floorElevation = level ? level.elevation : 0;
-                        activePlacedDragGroup.position.set(hit.point.x, floorElevation, hit.point.z);
-                    } else {
-                        activePlacedDragGroup.position.set(worldPos.x, activePlacedDragGroup.position.y, worldPos.z);
+            // 2. Check if equipment box was clicked
+            const equipMeshes: THREE.Object3D[] = [];
+            placedEquipment3DMeshes.forEach(g => {
+                if (g.visible) {
+                    g.traverse(c => {
+                        if (c instanceof THREE.Mesh && !c.userData?.isRotationHandle && !(c instanceof THREE.Sprite)) {
+                            equipMeshes.push(c);
+                        }
+                    });
+                }
+            });
+            const equipHits = raycaster.intersectObjects(equipMeshes, true);
+            if (equipHits.length > 0) {
+                let targetGroup: THREE.Group | null = null;
+                let curr: THREE.Object3D | null = equipHits[0].object;
+                while (curr) {
+                    if (curr.userData?.isEquipmentGroup) {
+                        targetGroup = curr as THREE.Group;
+                        break;
                     }
+                    curr = curr.parent;
                 }
-                e.stopImmediatePropagation();
+
+                if (targetGroup) {
+                    const now = Date.now();
+                    const clickedEquipId = targetGroup.userData?.equipmentId;
+
+                    // Double Click to rotate 90° clockwise!
+                    if (clickedEquipId === lastPointerDownObjId && (now - lastPointerDownTime) < 320) {
+                        targetGroup.rotation.y = (targetGroup.rotation.y || 0) + Math.PI / 2;
+                        const state = workspaceStore.getState();
+                        const equipIdx = state.equipment.findIndex(eq => eq.id === clickedEquipId);
+                        if (equipIdx !== -1) {
+                            const newEquipment = [...state.equipment];
+                            newEquipment[equipIdx] = {
+                                ...newEquipment[equipIdx],
+                                rotationY: targetGroup.rotation.y
+                            };
+                            workspaceStore.updateEquipment(newEquipment);
+                        }
+                        lastPointerDownTime = 0;
+                        lastPointerDownObjId = null;
+                        e.stopImmediatePropagation();
+                        return;
+                    }
+
+                    lastPointerDownTime = now;
+                    lastPointerDownObjId = clickedEquipId;
+
+                    setSelectedEquipment(clickedEquipId);
+                    pointerIsDraggingPlaced = false;
+                    pointerIsRotating = false;
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+
+                    renderEquipmentMeshes();
+
+                    const liveGroup = placedEquipment3DMeshes.find(g => g.userData?.equipmentId === clickedEquipId) || targetGroup;
+                    activePlacedDragGroup = liveGroup;
+
+                    // If Ctrl is held down during click, prepare rotation
+                    if (e.ctrlKey || e.metaKey) {
+                        pointerIsRotating = true;
+                        activeRotatingGroup = liveGroup;
+                    }
+
+                    // DO NOT disable camera controls on initial click! Camera controls remain enabled for immediate zooming/panning
+                    if (world.camera?.controls) {
+                        world.camera.controls.enabled = true;
+                        if (ui.btn2d.classList.contains('active')) world.camera.controls.mouseButtons.wheel = 32;
+                        else world.camera.controls.mouseButtons.wheel = 16;
+                    }
+
+                    e.stopImmediatePropagation();
+                    return;
+                }
             }
-        });
 
-        ui.viewport.addEventListener('pointerup', (e: PointerEvent) => {
-            if (activePlacedDragGroup && ui.viewport.hasPointerCapture(e.pointerId)) {
-                ui.viewport.releasePointerCapture(e.pointerId);
-                if (world.camera?.controls) world.camera.controls.enabled = true;
+            // 2b. If equipment is already selected and user holds Ctrl and clicks anywhere around it, rotate towards click
+            if (selectedEquipmentId && (e.ctrlKey || e.metaKey)) {
+                const targetGroup = placedEquipment3DMeshes.find(g => g.userData?.equipmentId === selectedEquipmentId);
+                if (targetGroup) {
+                    pointerIsRotating = true;
+                    activeRotatingGroup = targetGroup;
+                    activePlacedDragGroup = targetGroup;
+                    dragStartX = e.clientX;
+                    dragStartY = e.clientY;
+                    try { ui.viewport.setPointerCapture(e.pointerId); } catch (_) {}
+                    (window as any)._isActivelyDraggingEquipment = true;
+                    if (world.camera?.controls) world.camera.controls.enabled = false;
 
-                if (pointerIsDraggingPlaced) {
-                    const equipId = activePlacedDragGroup.userData.equipmentId;
-                    const pseudoMouseEvent = new MouseEvent('mouseup', { clientX: e.clientX, clientY: e.clientY });
-                    const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(pseudoMouseEvent) : null;
+                    const planeHit = getFloorPlaneIntersection(e.clientX, e.clientY, targetGroup.position.y);
+                    const dx = planeHit.x - targetGroup.position.x;
+                    const dz = planeHit.z - targetGroup.position.z;
+                    if (Math.abs(dx) > 0.05 || Math.abs(dz) > 0.05) {
+                        targetGroup.rotation.y = Math.atan2(dx, dz);
+                    }
+                    e.stopImmediatePropagation();
+                    return;
+                }
+            }
 
-                    if (hit) {
-                        const updatedEquipment = workspaceStore.getState().equipment.map((eq: any) => {
-                            if (eq.id === equipId) {
-                                const level = useViewerStore.getState().levels.find((l: any) => String(l.expressId) === String(hit.storeyExpressId));
-                                const floorElevation = level ? level.elevation : 0;
-                                return {
-                                    ...eq,
-                                    locationSpaceId: String(hit.expressId),
-                                    locationSpaceName: hit.space?.name || hit.space?.longName || 'Unknown Space',
-                                    locationFloor: level ? level.name : 'Unknown Floor',
-                                    positionX: hit.point.x,
-                                    positionY: floorElevation,
-                                    positionZ: hit.point.z
-                                };
+            // 3. Clicked outside -> deselect equipment
+            if (selectedEquipmentId !== null) {
+                setSelectedEquipment(null);
+                renderEquipmentMeshes();
+            }
+            activePlacedDragGroup = null;
+            activeRotatingGroup = null;
+            pointerIsDraggingPlaced = false;
+            pointerIsRotating = false;
+            (window as any)._isActivelyDraggingEquipment = false;
+            if (world.camera?.controls) {
+                world.camera.controls.enabled = true;
+                if (ui.btn2d.classList.contains('active')) world.camera.controls.mouseButtons.wheel = 32;
+                else world.camera.controls.mouseButtons.wheel = 16;
+            }
+        };
+
+        const handleUnifiedPointerMove = (e: PointerEvent) => {
+            const isCtrl = e.ctrlKey || e.metaKey;
+
+            // Rotating via knob handle OR Ctrl+drag
+            if (activePlacedDragGroup || activeRotatingGroup) {
+                const targetObj = activeRotatingGroup || activePlacedDragGroup;
+                if (targetObj) {
+                    const dist = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
+
+                    // If user is holding Ctrl or was rotating via knob
+                    if (pointerIsRotating || isCtrl) {
+                        if (dist > 3 || pointerIsRotating) {
+                            pointerIsRotating = true;
+                            activeRotatingGroup = targetObj;
+                            try { ui.viewport.setPointerCapture(e.pointerId); } catch (_) {}
+                            (window as any)._isActivelyDraggingEquipment = true;
+                            if (world.camera?.controls) world.camera.controls.enabled = false;
+
+                            const planeHit = getFloorPlaneIntersection(e.clientX, e.clientY, targetObj.position.y);
+                            const dx = planeHit.x - targetObj.position.x;
+                            const dz = planeHit.z - targetObj.position.z;
+                            if (Math.abs(dx) > 0.05 || Math.abs(dz) > 0.05) {
+                                const angle = Math.atan2(dx, dz);
+                                targetObj.rotation.y = angle;
                             }
-                            return eq;
-                        });
-                        workspaceStore.getState().updateEquipment(updatedEquipment);
-                    } else {
-                        // Invalid drop: revert to previous valid state
-                        const orig = workspaceStore.getState().equipment.find((eq: any) => eq.id === equipId);
-                        if (orig && activePlacedDragGroup) {
-                            activePlacedDragGroup.position.set(orig.positionX || 0, orig.positionY || 0, orig.positionZ || 0);
+                            e.stopImmediatePropagation();
+                            return;
+                        }
+                    }
+
+                    // Direct Dragging equipment across floor (in BOTH 2D and 3D views)
+                    if (!isCtrl && !pointerIsRotating && activePlacedDragGroup) {
+                        if (!pointerIsDraggingPlaced && dist > 4) {
+                            pointerIsDraggingPlaced = true;
+                            try { ui.viewport.setPointerCapture(e.pointerId); } catch (_) {}
+                            (window as any)._isActivelyDraggingEquipment = true;
+                            if (world.camera?.controls) world.camera.controls.enabled = false;
+                            // Show only the green box while dragging
+                            activePlacedDragGroup.traverse((child: any) => {
+                                if (child instanceof THREE.Sprite || child.userData?.isRotationHandle || child instanceof THREE.Line) {
+                                    child.visible = false;
+                                } else if (child instanceof THREE.Mesh && child.geometry instanceof THREE.BoxGeometry && child.material) {
+                                    child.material.color?.setHex(0x10b981);
+                                    child.material.opacity = 0.65;
+                                } else if (child instanceof THREE.LineSegments && child.material) {
+                                    child.material.color?.setHex(0x047857);
+                                }
+                            });
+                        }
+
+                        if (pointerIsDraggingPlaced) {
+                            if (world.camera?.controls) world.camera.controls.enabled = false;
+                            const is2D = ui.btn2d.classList.contains('active');
+                            const selectedLevelFromStore = useViewerStore.getState().selectedLevel;
+                            const activeLevelId = selectedLevelFromStore || ui.selectLevel?.value;
+                            const activeEquipId = activePlacedDragGroup.userData?.equipmentId;
+                            const equipData = workspaceStore.getState().equipment.find((eq: any) => eq.id === activeEquipId);
+                            const isRoofStorey = Boolean(
+                                (equipData?.locationFloor && /roof|terrace|parapet|deck/i.test(equipData.locationFloor)) ||
+                                (equipData?.locationSpaceName && /roof|terrace|parapet|deck/i.test(equipData.locationSpaceName)) ||
+                                (activeLevelId && /roof|terrace|parapet|deck/i.test(activeLevelId))
+                            );
+
+                            let equipFloorStorey = (isRoofStorey ? findStoreyByFloor('ROOF LEVEL') : null)
+                                || (equipData?.locationFloor ? findStoreyByFloor(equipData.locationFloor) : null)
+                                || (activeLevelId ? findStoreyByFloor(activeLevelId) : null)
+                                || (activeStoreys && activeStoreys[0]);
+
+                            if (is2D) {
+                                const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(e, equipFloorStorey?.expressId) : null;
+                                if (hit) {
+                                    activePlacedDragGroup.position.x = hit.point.x;
+                                    activePlacedDragGroup.position.z = hit.point.z;
+                                } else {
+                                    const planeHit = getFloorPlaneIntersection(e.clientX, e.clientY, activePlacedDragGroup.position.y);
+                                    activePlacedDragGroup.position.x = planeHit.x;
+                                    activePlacedDragGroup.position.z = planeHit.z;
+                                }
+                            } else {
+                                // 3D Direct Model & Planar Floor Dragging
+                                const rect = ui.viewport.getBoundingClientRect();
+                                const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+                                const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+                                const raycaster = new THREE.Raycaster();
+                                raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), world.camera.three);
+
+                                let direct3DHit: THREE.Intersection | null = null;
+                                if (currentModel?.object) {
+                                    try {
+                                        const intersects = safeRaycastModel(raycaster, currentModel.object);
+                                        if (intersects && intersects.length > 0) {
+                                            const effectiveStorey = equipFloorStorey || (activeLevelId ? findStoreyByFloor(activeLevelId) : null);
+                                            const isRoof = isRoofStorey || Boolean(effectiveStorey && /roof|terrace|parapet|deck/i.test(effectiveStorey.name));
+                                            if (effectiveStorey) {
+                                                const expY = (activeGetWorldHeight) ? activeGetWorldHeight(effectiveStorey.elevation) : activePlacedDragGroup.position.y;
+                                                const filtered = intersects.filter(i => isRoof ? (i.point.y >= expY - 2.5) : Math.abs(i.point.y - expY) < 2.5);
+                                                direct3DHit = filtered.length > 0 ? filtered[0] : intersects[0];
+                                            } else {
+                                                direct3DHit = intersects[0];
+                                            }
+                                        }
+                                    } catch (_) {}
+                                }
+
+                                if (direct3DHit) {
+                                    activePlacedDragGroup.position.x = direct3DHit.point.x;
+                                    activePlacedDragGroup.position.z = direct3DHit.point.z;
+                                    if (!activeLevelId && !equipData?.locationFloor) {
+                                        equipFloorStorey = detectStoreyFromY(direct3DHit.point.y);
+                                    }
+                                } else {
+                                    const planeHit = getFloorPlaneIntersection(e.clientX, e.clientY, activePlacedDragGroup.position.y);
+                                    activePlacedDragGroup.position.x = planeHit.x;
+                                    activePlacedDragGroup.position.z = planeHit.z;
+                                }
+                            }
+                            const liveFloorY = getPhysicalFloorSurfaceY(activePlacedDragGroup.position.x, activePlacedDragGroup.position.z, equipFloorStorey);
+                            activePlacedDragGroup.position.y = liveFloorY + 0.002;
+                            e.stopImmediatePropagation();
+                            return;
                         }
                     }
                 }
+            }
+        };
+
+        const handleUnifiedPointerEnd = (e: PointerEvent | MouseEvent) => {
+            (window as any)._isActivelyDraggingEquipment = false;
+
+            if (pointerIsRotating && (activeRotatingGroup || activePlacedDragGroup)) {
+                try {
+                    if ('pointerId' in e && ui.viewport.hasPointerCapture(e.pointerId)) {
+                        ui.viewport.releasePointerCapture(e.pointerId);
+                    }
+                } catch (_) {}
+
+                const targetObj = activeRotatingGroup || activePlacedDragGroup;
+                const equipId = targetObj?.userData?.equipmentId;
+                const currentRotationY = targetObj?.rotation.y;
+                if (equipId && currentRotationY !== undefined) {
+                    const state = workspaceStore.getState();
+                    const equipIdx = state.equipment.findIndex(eq => eq.id === equipId);
+                    if (equipIdx !== -1) {
+                        const newEquipment = [...state.equipment];
+                        newEquipment[equipIdx] = {
+                            ...newEquipment[equipIdx],
+                            rotationY: currentRotationY
+                        };
+                        workspaceStore.updateEquipment(newEquipment);
+                    }
+                }
+
+                pointerIsRotating = false;
+                activeRotatingGroup = null;
+            }
+
+            if (activePlacedDragGroup) {
+                try {
+                    if ('pointerId' in e && ui.viewport.hasPointerCapture(e.pointerId)) {
+                        ui.viewport.releasePointerCapture(e.pointerId);
+                    }
+                } catch (_) {}
+
+                if (pointerIsDraggingPlaced) {
+                    const equipId = activePlacedDragGroup.userData?.equipmentId;
+                    const posX = activePlacedDragGroup.position.x;
+                    const posZ = activePlacedDragGroup.position.z;
+                    let posY = activePlacedDragGroup.position.y;
+
+                    const state = workspaceStore.getState();
+                    const equipIdx = state.equipment.findIndex(eq => eq.id === equipId);
+                    const existingEquip = equipIdx !== -1 ? state.equipment[equipIdx] : null;
+
+                    const is2D = ui.btn2d.classList.contains('active');
+                    const selectedLevelFromStore = useViewerStore.getState().selectedLevel;
+                    const activeLevelId = selectedLevelFromStore || ui.selectLevel?.value;
+
+                    const isRoofStorey = Boolean(
+                        (existingEquip?.locationFloor && /roof|terrace|parapet|deck/i.test(existingEquip.locationFloor)) ||
+                        (existingEquip?.locationSpaceName && /roof|terrace|parapet|deck/i.test(existingEquip.locationSpaceName)) ||
+                        (activeLevelId && /roof|terrace|parapet|deck/i.test(activeLevelId))
+                    );
+
+                    // Prioritize: 1. Roof storey if designated roof, 2. Top dropdown selection, 3. Equipment's existing locationFloor, 4. Detect from Y only if unassigned
+                    let equipFloorStorey = (isRoofStorey ? findStoreyByFloor('ROOF LEVEL') : null)
+                        || (existingEquip?.locationFloor ? findStoreyByFloor(existingEquip.locationFloor) : null)
+                        || (activeLevelId ? findStoreyByFloor(activeLevelId) : null);
+                    if (!equipFloorStorey && !is2D) {
+                        equipFloorStorey = detectStoreyFromY(activePlacedDragGroup.position.y);
+                    }
+                    if (!equipFloorStorey) {
+                        equipFloorStorey = (activeStoreys && activeStoreys.length > 0 ? [...activeStoreys].sort((a, b) => a.elevation - b.elevation)[0] : null);
+                    }
+
+                    let spaceId = 'outside';
+                    let spaceName = 'Floor / Open Area';
+                    let floorName = equipFloorStorey?.name || (isRoofStorey ? 'ROOF LEVEL' : 'Ground Floor');
+
+                    if (is2D) {
+                        const hit = (window as any)._raycastSpaceUnderCursor ? (window as any)._raycastSpaceUnderCursor(e, equipFloorStorey?.expressId) : null;
+                        if (hit) {
+                            if (hit.point?.y !== undefined) posY = hit.point.y;
+                            if (hit.space) {
+                                spaceId = String(hit.expressId);
+                                spaceName = hit.space.longName || hit.space.name || `Space ${hit.expressId}`;
+                                if (hit.storeyExpressId) {
+                                    const st = findStoreyByFloor(hit.storeyExpressId);
+                                    if (st) floorName = st.name;
+                                }
+                            }
+                        }
+                    } else {
+                        // 3D mode space lookup constrained to equipFloorStorey
+                        if (activeSpaceBoundsMap.size > 0 && equipFloorStorey) {
+                            for (const [expressId, spData] of activeSpaceBoundsMap) {
+                                if (String(spData.storeyExpressId) !== String(equipFloorStorey.expressId)) continue;
+                                const b = spData.box;
+                                if (posX >= b.min.x && posX <= b.max.x && posZ >= b.min.z && posZ <= b.max.z) {
+                                    spaceId = String(expressId);
+                                    spaceName = spData.space?.longName || spData.space?.name || `Space ${expressId}`;
+                                    break;
+                                }
+                            }
+                        }
+                        if (spaceId === 'outside' && (isRoofStorey || (equipFloorStorey && /roof|terrace/i.test(equipFloorStorey.name)))) {
+                            spaceName = 'Roof Deck / Open Area';
+                        }
+                    }
+
+                    // Snap directly to physical slab surface at (posX, posZ) for equipFloorStorey
+                    posY = getPhysicalFloorSurfaceY(posX, posZ, equipFloorStorey);
+                    const storeyElevY = (equipFloorStorey && activeGetWorldHeight) ? activeGetWorldHeight(equipFloorStorey.elevation) : 0;
+                    if (posY === undefined || isNaN(posY)) {
+                        posY = storeyElevY;
+                    } else if (!isRoofStorey && Math.abs(posY - storeyElevY) > 3.5) {
+                        posY = storeyElevY;
+                    }
+                    activePlacedDragGroup.position.y = posY + 0.002;
+
+                    if (equipIdx !== -1) {
+                        const newEquipment = [...state.equipment];
+                        newEquipment[equipIdx] = {
+                            ...newEquipment[equipIdx],
+                            locationSpaceId: spaceId,
+                            locationSpaceName: spaceName,
+                            locationFloor: floorName,
+                            positionX: posX,
+                            positionY: posY,
+                            positionZ: posZ,
+                            rotationY: activePlacedDragGroup.rotation.y
+                        };
+                        workspaceStore.updateEquipment(newEquipment);
+                        renderEquipmentMeshes();
+                    }
+                }
 
                 activePlacedDragGroup = null;
                 pointerIsDraggingPlaced = false;
-                e.stopImmediatePropagation();
+            }
+
+            // GUARANTEE camera controls are re-enabled:
+            if (world.camera?.controls) {
+                world.camera.controls.enabled = true;
+                if (ui.btn2d.classList.contains('active')) {
+                    world.camera.controls.mouseButtons.wheel = 32;
+                } else {
+                    world.camera.controls.mouseButtons.wheel = 16;
+                }
+            }
+        };
+
+        ui.viewport.addEventListener('pointerdown', handleUnifiedPointerDown);
+        ui.viewport.addEventListener('pointermove', handleUnifiedPointerMove);
+        ui.viewport.addEventListener('pointerup', handleUnifiedPointerEnd);
+        ui.viewport.addEventListener('pointercancel', handleUnifiedPointerEnd);
+        window.addEventListener('pointerup', handleUnifiedPointerEnd);
+        window.addEventListener('mouseup', handleUnifiedPointerEnd);
+
+        window.addEventListener('keydown', (e: KeyboardEvent) => {
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+            if ((e.key === 'r' || e.key === 'R') && selectedEquipmentId) {
+                const targetGroup = placedEquipment3DMeshes.find(g => g.userData?.equipmentId === selectedEquipmentId);
+                if (!targetGroup) return;
+
+                targetGroup.rotation.y = (targetGroup.rotation.y || 0) + Math.PI / 4;
+                const state = workspaceStore.getState();
+                const equipIdx = state.equipment.findIndex(eq => eq.id === selectedEquipmentId);
+                if (equipIdx !== -1) {
+                    const newEquipment = [...state.equipment];
+                    newEquipment[equipIdx] = {
+                        ...newEquipment[equipIdx],
+                        rotationY: targetGroup.rotation.y
+                    };
+                    workspaceStore.updateEquipment(newEquipment);
+                }
+            }
+
+            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEquipmentId) {
+                const targetEquipId = selectedEquipmentId;
+                const state = workspaceStore.getState();
+                const targetEquip = state.equipment.find((eq: any) => eq.id === targetEquipId);
+                if (targetEquip) {
+                    const updated = state.equipment.map((eq: any) => {
+                        if (eq.id === targetEquipId) {
+                            return {
+                                ...eq,
+                                locationSpaceId: undefined,
+                                locationSpaceName: undefined,
+                                locationFloor: undefined,
+                                positionX: undefined,
+                                positionY: undefined,
+                                positionZ: undefined,
+                                rotationY: undefined,
+                            };
+                        }
+                        return eq;
+                    });
+                    setSelectedEquipment(null);
+                    workspaceStore.updateEquipment(updated);
+                }
+            }
+
+            if (e.key === 'Escape' && selectedEquipmentId) {
+                setSelectedEquipment(null);
+                renderEquipmentMeshes();
             }
         });
         // Expose Toolbar callbacks to window so the React component can trigger them
@@ -2374,14 +3807,34 @@ export function Viewport3D() {
         return () => {
             isInitialized.current = false;
             document.getElementById = getElementByIdBackup;
+            if (typeof document !== 'undefined' && document.pointerLockElement) {
+                try { document.exitPointerLock(); } catch {}
+            }
+            if (cameraUpdateDebounce) clearTimeout(cameraUpdateDebounce);
+            if (viewportAbortController) {
+                try { viewportAbortController.abort(); } catch {}
+            }
+            if (unsubEquipmentStore) {
+                try { unsubEquipmentStore(); } catch {}
+                unsubEquipmentStore = null;
+            }
             document.removeEventListener('dragover', handleDragOver);
             document.removeEventListener('drop', handleDrop);
             window.removeEventListener('mep-focus-equipment', handleFocusEquipment);
-            if (transformControl) { transformControl.detach(); transformControl.dispose(); }
+            window.removeEventListener('mep-equipment-updated', handleEquipmentUpdated);
             window.removeEventListener('keydown', handleShiftDown);
             window.removeEventListener('keyup', handleShiftUp);
             window.removeEventListener('keydown', handleWalkKeyDown);
             window.removeEventListener('keyup', handleWalkKeyUp);
+            try {
+                ui.viewport.removeEventListener('wheel', handleViewportWheel);
+                ui.viewport.removeEventListener('pointerdown', handleUnifiedPointerDown);
+                ui.viewport.removeEventListener('pointermove', handleUnifiedPointerMove);
+                ui.viewport.removeEventListener('pointerup', handleUnifiedPointerEnd);
+                ui.viewport.removeEventListener('pointercancel', handleUnifiedPointerEnd);
+                window.removeEventListener('pointerup', handleUnifiedPointerEnd);
+                window.removeEventListener('mouseup', handleUnifiedPointerEnd);
+            } catch (_) {}
             if (rendererManagerRef.current) {
                 rendererManagerRef.current.pause();
             }
@@ -2448,6 +3901,56 @@ export function Viewport3D() {
                     </span>
                 </div>
             </div>
+
+            {/* Selected Equipment Information HUD */}
+            {selectedEquip && hasLiteralDimensions(selectedEquip) && (
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-[#18181b]/95 backdrop-blur-md border border-slate-700/80 shadow-2xl rounded-2xl px-4 py-2.5 text-white max-w-lg animate-in fade-in slide-in-from-bottom-3 duration-200">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                        <Box className="w-4 h-4" />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-sm text-white">
+                                {selectedEquip.tag}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-medium border border-blue-500/30">
+                                {selectedEquip.type || 'Equipment'}
+                            </span>
+                            {(() => {
+                                const dims = getEquipmentLiteralDimensions(selectedEquip);
+                                return dims ? (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold border border-emerald-500/30">
+                                        {dims.formatted}
+                                    </span>
+                                ) : null;
+                            })()}
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium border border-purple-500/30">
+                                Floor-Mounted
+                            </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 truncate flex items-center gap-1.5 mt-0.5">
+                            <span>Level: {selectedEquip.locationFloor || 'Floor'}</span>
+                            <span>•</span>
+                            <span>{selectedEquip.locationSpaceName || 'Floor Surface'}</span>
+                            <span className="text-slate-400 ml-1">| Drag to move • Ctrl+Drag or &apos;R&apos; to change direction</span>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (typeof (window as any)._setSelectedEquipment === 'function') {
+                                (window as any)._setSelectedEquipment(null);
+                            } else {
+                                useViewerStore.getState().setSelectedEquipmentId(null);
+                            }
+                        }}
+                        className="w-7 h-7 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer ml-1 shrink-0"
+                        title="Deselect Equipment"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
         </div>
     );
 }

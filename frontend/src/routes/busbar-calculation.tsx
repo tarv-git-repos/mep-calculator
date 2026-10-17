@@ -2,15 +2,18 @@ import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOn
 import { useAuth } from "@/contexts/AuthContext";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
-import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails } from "@/lib/pdfHelpers";
+import { addPdfSignatureBlock, addPdfHeader, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { exportBusbarPDF } from "@/lib/exportBusbarPDF";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { ImportExcelBtn } from "@/components/workspace/ImportExcelBtn";
+import { ImportSourceModal } from "@/components/workspace/ImportSourceModal";
 import { EditBusbarRowModal } from "@/components/workspace/EditBusbarRowModal";
-import { TBtn } from "@/components/workspace/Button";
+import { BusbarIntelligenceDrawer } from "@/components/workspace/BusbarIntelligenceDrawer";
+import { TBtn, BulkBtn } from "@/components/workspace/Button";
 import { getMergedItemComments } from "@/utils/commentHelpers";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
@@ -18,10 +21,11 @@ import { UnitToggle } from "@/components/workspace/UnitToggle";
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { TaskComment } from "@/lib/ventilation-calc";
 import { toast } from "sonner";
-import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare, Flag, Filter, SlidersHorizontal, Lock, Sparkles } from "lucide-react";
+import { Plus, Trash2, Download, Upload, ChevronRight, ChevronDown, Trash, Copy, CopyPlus, Check, ArrowRight, Zap, FolderPlus, X, Eye, EyeOff, LayoutGrid, Info, Search, FileText, Edit3, MessageSquare, Flag, Filter, ArrowUpDown, SlidersHorizontal, RefreshCw, Lock, Sparkles, Printer, Scissors, Activity, BookOpen, Calculator, Sliders, Layers } from "lucide-react";
 import { syncBusbarFrom3DAndLoadSummary, BusbarSyncResult } from "@/lib/calc-busbar-sync";
 import { SyncBusbarModal } from "@/components/workspace/SyncBusbarModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { useConfirm } from "@/hooks/use-confirm";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
@@ -63,12 +67,14 @@ const COPPER_BUSBAR_DATA: Record<string, { r: number; x: number; label: string }
 import { BusbarRow, BusbarSection, LVPanel, calculateBusbarPanels, getBusbarRowValidation } from "@/lib/calc-busbar-calculation";
 
 function BusbarCalculationPage() {
-  const { project, activeProjectId } = useWorkspace();
+  const { project, activeProjectId, updateProject } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/busbar-calculation", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/busbar-calculation", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
-  const isApproved = useCalculationLock("/busbar-calculation");
+  const lockApproved = useCalculationLock("/busbar-calculation");
+  const isApproved = lockApproved || isEffectiveReadOnly;
   const currentUserName = userData?.name || profile?.name || "System Admin";
+  const [intelOpen, setIntelOpen] = useState(false);
 
   const confirm = useConfirm();
   const [panels, setPanels] = useState<LVPanel[]>(() => {
@@ -176,6 +182,8 @@ function BusbarCalculationPage() {
   const [editingRow, setEditingRow] = useState<{ row: BusbarRow; panelId: string; sectionId: string } | null>(null);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [syncResult, setSyncResult] = useState<BusbarSyncResult | null>(null);
+  const [showImportSourceModal, setShowImportSourceModal] = useState(false);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   const handleSync3DAndLoadSummary = async () => {
     if (isApproved) {
@@ -195,17 +203,18 @@ function BusbarCalculationPage() {
     }
   };
 
-  const handleApplySync = (mode: "replace" | "append") => {
-    if (!syncResult) return;
+  const handleApplySync = (mode: "replace" | "append", customResult?: BusbarSyncResult) => {
+    const res = customResult || syncResult;
+    if (!res) return;
     pushToUndo(panels);
     if (mode === "replace") {
-      setPanels([syncResult.panel]);
+      setPanels([res.panel]);
     } else {
-      setPanels((prev) => [...prev, syncResult.panel]);
+      setPanels((prev) => [...prev, res.panel]);
     }
     setSyncModalOpen(false);
     toast.success(
-      `Generated vertical busduct riser (${syncResult.floors.length} floors) with ${syncResult.recommendedRatingLabel}!`
+      `Generated vertical busduct riser (${res.floors.length} floors) with ${res.recommendedRatingLabel}!`
     );
   };
 
@@ -264,6 +273,8 @@ function BusbarCalculationPage() {
     return () => window.removeEventListener("mep-scroll-to-item" as any, handleScrollToItem);
   }, [panels]);
 
+  const [activeTab, setActiveTab] = useState<"sizing" | "report">("sizing");
+  const [showFormulaModal, setShowFormulaModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterVd, setFilterVd] = useState<"all" | "within" | "exceeds">("all");
   const [filterLoad, setFilterLoad] = useState<"all" | "high" | "low">("all");
@@ -310,6 +321,14 @@ function BusbarCalculationPage() {
   const [collapsedPanels, setCollapsedPanels] = useState<Set<string>>(new Set());
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
 
+  // Add LV Panel Modal State
+  const [showAddPanelModal, setShowAddPanelModal] = useState(false);
+  const [newPanelName, setNewPanelName] = useState("");
+  const [newSectionName, setNewSectionName] = useState("BB-1");
+  const [newRatingId, setNewRatingId] = useState("2500_rt");
+  const [newVolts, setNewVolts] = useState<number | "">(415);
+  const [newPf, setNewPf] = useState<number | "">(0.8);
+
   useEffect(() => {
     if (isApproved) {
       setSelectedRows(new Set());
@@ -317,17 +336,33 @@ function BusbarCalculationPage() {
   }, [isApproved]);
   const [lastSelectedRowId, setLastSelectedRowId] = useState<string | null>(null);
 
+  const DEFAULT_BUSBAR_COL_WIDTHS: Record<string, number> = useMemo(() => ({
+    select: 36,
+    desc: 230,
+    len: 90,
+    loadKw: 90,
+    tclKw: 90,
+    div: 70,
+    mdKw: 90,
+    curA: 90,
+    vdV: 90,
+    vdPct: 90,
+    actions: 44,
+  }), []);
+
   const [busbarColWidths, setBusbarColWidths] = useState<Record<string, number>>(() => {
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("mep_grid_busbar_cols");
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed.select === "number" && !parsed.no) return parsed;
+        }
       } catch (e) {}
     }
     return {
-      select: 32,
-      no: 36,
-      desc: 220,
+      select: 36,
+      desc: 230,
       len: 90,
       loadKw: 90,
       tclKw: 90,
@@ -336,13 +371,22 @@ function BusbarCalculationPage() {
       curA: 90,
       vdV: 90,
       vdPct: 90,
-      actions: 60,
+      actions: 44,
     };
   });
 
   const totalBusbarTableWidth = useMemo(() => {
     return Object.values(busbarColWidths).reduce((a, b) => a + b, 0);
   }, [busbarColWidths]);
+
+  const getBusbarColStyle = (key: string) => {
+    const val = busbarColWidths[key] ?? DEFAULT_BUSBAR_COL_WIDTHS[key] ?? 90;
+    const pct = ((val / totalBusbarTableWidth) * 100).toFixed(2);
+    return {
+      width: `${pct}%`,
+      minWidth: `${Math.min(val, 40)}px`,
+    };
+  };
 
   const handleResizeMouseDown = (key: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -663,25 +707,127 @@ function BusbarCalculationPage() {
     }
   };
 
-  const addPanel = () => {
+  const openAddPanelModal = () => {
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    const num = panels.length + 1;
+    setNewPanelName(`LV PANEL-${num}`);
+    setNewSectionName("BB-1");
+    setNewRatingId("2500_rt");
+    setNewVolts(415);
+    setNewPf(0.8);
+    setShowAddPanelModal(true);
+  };
+
+  const handleAddNewTapOff = () => {
     if (isApproved) {
       toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
       return;
     }
     pushToUndo(panels);
-    const num = panels.length + 1;
-    setPanels([...panels, {
+    let targetPanel = panels[0];
+    let panelId: string;
+    let sectionId: string;
+
+    if (!targetPanel) {
+      const newPanId = `pan_${Date.now()}`;
+      const newSecId = `sec_${Date.now()}`;
+      targetPanel = {
+        id: newPanId,
+        name: "LV PANEL-1",
+        sections: [{
+          id: newSecId,
+          name: "BB-1",
+          ratingId: "2500_rt",
+          volts: 415,
+          pf: 0.8,
+          rows: []
+        }]
+      };
+      setPanels([targetPanel]);
+      panelId = newPanId;
+      sectionId = newSecId;
+    } else {
+      panelId = targetPanel.id;
+      sectionId = targetPanel.sections[0]?.id || `sec_${Date.now()}`;
+    }
+
+    const targetSec = targetPanel.sections.find((s) => s.id === sectionId) || targetPanel.sections[0];
+    const fromName = targetSec?.rows && targetSec.rows.length > 0 
+      ? targetSec.rows[targetSec.rows.length - 1].from 
+      : targetPanel.name;
+    const defaultDesc = `Tap Off ${(targetSec?.rows.length || 0) + 1}`;
+
+    const newRow: BusbarRow = {
+      id: `bb_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      from: fromName,
+      desc: defaultDesc,
+      ref: targetSec?.name || "BB-1",
+      length: 10,
+      loadKw: 15,
+      div: 0.7,
+    };
+
+    setPanels((prev) => {
+      const exists = prev.some((p) => p.id === panelId);
+      if (!exists) {
+        return [...prev, { ...targetPanel, sections: [{ ...targetSec, rows: [newRow] }] }];
+      }
+      return prev.map((p) => {
+        if (p.id === panelId) {
+          return {
+            ...p,
+            sections: p.sections.map((s) => {
+              if (s.id === sectionId) {
+                return { ...s, rows: [...s.rows, newRow] };
+              }
+              return s;
+            })
+          };
+        }
+        return p;
+      });
+    });
+
+    toast.success("New Tap Off added!");
+  };
+
+  const addPanel = openAddPanelModal;
+
+  const handleAddPanelSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    if (!newPanelName.trim()) {
+      toast.error("Please enter a panel name");
+      return;
+    }
+    pushToUndo(panels);
+    const newPanel: LVPanel = {
       id: `pan_${Date.now()}`,
-      name: `LV PANEL-${num}`,
+      name: newPanelName.trim(),
       sections: [{
         id: `sec_${Date.now()}`,
-        name: `BB-1`,
-        ratingId: "2500_rt",
-        volts: 415,
-        pf: 0.8,
+        name: newSectionName.trim() || "BB-1",
+        ratingId: newRatingId || "2500_rt",
+        volts: typeof newVolts === "number" ? newVolts : Number(newVolts) || 415,
+        pf: typeof newPf === "number" ? newPf : Number(newPf) || 0.8,
         rows: []
       }]
-    }]);
+    };
+    setPanels([...panels, newPanel]);
+    setShowAddPanelModal(false);
+    toast.success(`LV Panel "${newPanel.name}" added successfully!`);
+    setTimeout(() => {
+      const el = document.getElementById(`panel-${newPanel.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 150);
   };
 
   const removePanel = async (id: string) => {
@@ -811,7 +957,7 @@ function BusbarCalculationPage() {
                     ref: refVal !== "" ? refVal : currentRows[idx].ref,
                     length: lenVal !== "" ? lenVal : currentRows[idx].length,
                     loadKw: loadVal !== "" ? loadVal : currentRows[idx].loadKw,
-                    div: divVal !== "" ? divVal : currentRows[idx].div,
+                    div: divVal !== undefined ? Number(divVal) : currentRows[idx].div,
                   });
                 } else {
                   // Append new row
@@ -844,27 +990,249 @@ function BusbarCalculationPage() {
     }));
   };
 
+  const busbarTopImportMapping = {
+    from: ["From", "Source", "Panel", "Panel Name", "LV Panel", "From Panel"],
+    desc: ["Description of connection", "Description", "Tap Off Points", "Tap Off Point", "Tap Off", "Connection", "Name", "Desc", "Load Description"],
+    ref: ["Busbar Reference", "Busbar ref", "Busbar reference", "Busbar referece", "Ref", "Reference", "Riser", "Busduct"],
+    length: ["Length of busbar upto tap off (m)", "Length of busbar upto tap off (ft)", "Length of busbar", "Length (m)", "Length (ft)", "Length", "Len", "Height"],
+    loadKw: ["SMDB load (kW)", "SMDB load", "Load (kW)", "Load kW", "LoadKW", "Load", "KW", "Connected Load (kW)"],
+    div: ["Diversity Factor", "Diversity", "DF", "Div"],
+    volts: ["Volts (V)", "Volts", "Voltage", "Voltage (V)", "V"],
+    pf: ["Power factor (Cos Φ)", "Power factor", "Power Factor", "PF", "Cos Phi", "Cos phi"],
+    rating: ["Busbar Rating (A) (Copper)", "Busbar Rating", "Rating", "Rating (A)", "Size"]
+  };
+
+  const handleTopLevelImportExcel = (mappedRows: any[]) => {
+    if (!mappedRows || mappedRows.length === 0) return;
+    if (isApproved) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+
+    pushToUndo(panels);
+
+    // Group rows by Panel Name, then by Section Name/Ref
+    const panelGroups = new Map<string, Map<string, any[]>>();
+
+    mappedRows.forEach((r, idx) => {
+      const rawFrom = r.from !== undefined && String(r.from).trim() !== "" ? String(r.from).trim() : "";
+      const pName = rawFrom || (panels[0]?.name) || "LV PANEL-1";
+
+      const rawRef = r.ref !== undefined && String(r.ref).trim() !== "" ? String(r.ref).trim() : "";
+      const sName = rawRef || (panels[0]?.sections[0]?.name) || "BB-1";
+
+      if (!panelGroups.has(pName)) {
+        panelGroups.set(pName, new Map());
+      }
+      const secMap = panelGroups.get(pName)!;
+      if (!secMap.has(sName)) {
+        secMap.set(sName, []);
+      }
+      secMap.get(sName)!.push({ ...r, _idx: idx });
+    });
+
+    const newPanels: LVPanel[] = [];
+    let pCount = 0;
+
+    panelGroups.forEach((secMap, pName) => {
+      pCount++;
+      const sections: BusbarSection[] = [];
+      let sCount = 0;
+
+      secMap.forEach((rows, sName) => {
+        sCount++;
+        const firstRow = rows[0] || {};
+        const volts = Number(firstRow.volts) || 415;
+        const pf = Number(firstRow.pf) || 0.8;
+
+        let ratingId = panels[0]?.sections[0]?.ratingId || "2500_rt";
+        if (firstRow.rating) {
+          const rStr = String(firstRow.rating).toLowerCase().trim();
+          const matchKey = Object.keys(ALL_BUSBAR_DATA).find((k) => {
+            const data = ALL_BUSBAR_DATA[k];
+            return (
+              k.toLowerCase() === rStr ||
+              data.label.toLowerCase() === rStr ||
+              data.label.toLowerCase().includes(rStr) ||
+              rStr.includes(data.label.toLowerCase())
+            );
+          });
+          if (matchKey) ratingId = matchKey;
+        }
+
+        const busbarRows: BusbarRow[] = rows.map((mr, rIdx) => {
+          const descVal = mr.desc !== undefined && String(mr.desc).trim() !== "" ? String(mr.desc).trim() : `Tap Off ${rIdx + 1}`;
+          const fromVal = mr.from !== undefined && String(mr.from).trim() !== "" ? String(mr.from).trim() : pName;
+          const refVal = mr.ref !== undefined && String(mr.ref).trim() !== "" ? String(mr.ref).trim() : sName;
+          const lenVal = mr.length !== undefined && mr.length !== "" && !isNaN(Number(mr.length)) ? Number(mr.length) : 10;
+          const loadVal = mr.loadKw !== undefined && mr.loadKw !== "" && !isNaN(Number(mr.loadKw)) ? Number(mr.loadKw) : 0;
+          const divVal = mr.div !== undefined && mr.div !== "" && !isNaN(Number(mr.div)) ? Number(mr.div) : 0.7;
+
+          return {
+            id: `bb_${Date.now()}_${pCount}_${sCount}_${rIdx}`,
+            from: fromVal,
+            desc: descVal,
+            ref: refVal,
+            length: lenVal,
+            loadKw: loadVal,
+            div: divVal,
+          };
+        });
+
+        sections.push({
+          id: `sec_${Date.now()}_${pCount}_${sCount}`,
+          name: sName,
+          ratingId,
+          volts,
+          pf,
+          useMdForCurrent: true,
+          rows: busbarRows,
+        });
+      });
+
+      newPanels.push({
+        id: `pan_${Date.now()}_${pCount}`,
+        name: pName,
+        sections,
+      });
+    });
+
+    if (newPanels.length > 0) {
+      setPanels(newPanels);
+      toast.success(`Successfully imported ${mappedRows.length} tap off row(s) into ${newPanels.length} panel(s)!`);
+    }
+  };
+
+  const handleExcelFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = evt.target?.result;
+        const workbook = XLSX.read(data, { type: "binary" });
+        if (!workbook.SheetNames.length) {
+          toast.error("Excel file is empty");
+          return;
+        }
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const raw2D = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1 });
+        if (!raw2D || raw2D.length === 0) {
+          toast.error("No data found in the Excel sheet");
+          return;
+        }
+
+        let headerRowIndex = -1;
+        let headerRow: string[] = [];
+        const isHeaderTerm = (val: any) => {
+          if (typeof val !== "string" && typeof val !== "number") return false;
+          const s = String(val).toLowerCase().replace(/[^a-z0-9]/g, "");
+          return ["description", "tapoff", "len", "length", "load", "kw", "ref", "from", "diversity", "df", "rating", "current"].some(t => s.includes(t));
+        };
+
+        for (let i = 0; i < Math.min(raw2D.length, 30); i++) {
+          const rowArr = raw2D[i];
+          if (Array.isArray(rowArr) && rowArr.some(isHeaderTerm)) {
+            headerRowIndex = i;
+            headerRow = rowArr.map(c => String(c || "").trim());
+            break;
+          }
+        }
+
+        const jsonRows: Record<string, any>[] = [];
+        if (headerRowIndex !== -1 && headerRow.length > 0) {
+          for (let i = headerRowIndex + 1; i < raw2D.length; i++) {
+            const rowArr = raw2D[i];
+            if (!Array.isArray(rowArr) || rowArr.length === 0) continue;
+            const rowObj: Record<string, any> = {};
+            let hasValue = false;
+            rowArr.forEach((cellVal, colIdx) => {
+              const hName = headerRow[colIdx];
+              if (hName) {
+                rowObj[hName] = cellVal;
+                if (cellVal !== undefined && cellVal !== null && String(cellVal).trim() !== "") {
+                  hasValue = true;
+                }
+              }
+            });
+            if (hasValue) jsonRows.push(rowObj);
+          }
+        } else {
+          const simpleJson = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet);
+          jsonRows.push(...simpleJson);
+        }
+
+        const mappedRows: any[] = [];
+        jsonRows.forEach((rowObj) => {
+          const newObj: Record<string, any> = {};
+          let matchedAny = false;
+
+          Object.entries(busbarTopImportMapping).forEach(([targetKey, aliases]) => {
+            const aliasList = Array.isArray(aliases) ? aliases : [aliases];
+            for (const rawKey of Object.keys(rowObj)) {
+              const cleanKey = rawKey.trim().toLowerCase();
+              const isMatch = aliasList.some(alias => {
+                const cleanAlias = alias.toLowerCase().trim();
+                return cleanKey === cleanAlias || cleanKey.replace(/[^a-z0-9]/g, "") === cleanAlias.replace(/[^a-z0-9]/g, "");
+              });
+              if (isMatch) {
+                newObj[targetKey] = rowObj[rawKey];
+                matchedAny = true;
+                break;
+              }
+            }
+          });
+
+          if (matchedAny && Object.keys(newObj).length > 0) {
+            mappedRows.push(newObj);
+          }
+        });
+
+        if (mappedRows.length === 0) {
+          toast.error("Could not map any columns. Please verify Excel column headers like Description, Length, Load, etc.");
+          return;
+        }
+
+        handleTopLevelImportExcel(mappedRows);
+      } catch (err) {
+        console.error("Error reading Excel:", err);
+        toast.error("Failed to parse Excel file");
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = "";
+  };
+
   const addRow = (panelId: string, sectionId: string) => {
     if (isApproved) {
       toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
       return;
     }
     pushToUndo(panels);
+    const targetPanel = panels.find(p => p.id === panelId);
+    const targetSec = targetPanel?.sections.find(s => s.id === sectionId);
+    const fromName = targetSec?.rows && targetSec.rows.length > 0 
+      ? targetSec.rows[targetSec.rows.length - 1].from 
+      : (targetPanel?.name || "LV PANEL");
+    const defaultDesc = `Tap Off ${(targetSec?.rows.length || 0) + 1}`;
+
+    const newRow: BusbarRow = {
+      id: `bb_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      from: fromName,
+      desc: defaultDesc,
+      ref: targetSec?.name || "BB-1",
+      length: 10,
+      loadKw: 15,
+      div: 0.7,
+    };
+
     setPanels(panels.map(p => {
       if (p.id === panelId) {
         return {
           ...p,
           sections: p.sections.map(s => {
             if (s.id === sectionId) {
-              const newRow: BusbarRow = {
-                id: `bb_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-                from: s.rows.length === 0 ? p.name : s.rows[s.rows.length - 1].from,
-                desc: s.rows.length === 0 ? "SMDB-L7-1" : "",
-                ref: s.name,
-                length: "",
-                loadKw: "",
-                div: 0.7,
-              };
               return { ...s, rows: [...s.rows, newRow] };
             }
             return s;
@@ -873,6 +1241,8 @@ function BusbarCalculationPage() {
       }
       return p;
     }));
+
+    toast.success("New Tap Off added!");
   };
 
   const removeRow = (panelId: string, sectionId: string, rowId: string) => {
@@ -971,7 +1341,7 @@ function BusbarCalculationPage() {
   }, [calculatedPanels]);
 
   const flatCalculatedSections = useMemo(() => {
-    return calculatedPanels.flatMap(p => p.calcSections.map(s => ({ ...s, panelName: p.name })));
+    return calculatedPanels.flatMap(p => p.calcSections.map(s => ({ ...s, panelId: p.id, panelName: p.name })));
   }, [calculatedPanels]);
 
   const flagStats = useMemo(() => {
@@ -988,6 +1358,83 @@ function BusbarCalculationPage() {
     });
     return { totalCount, flaggedCount };
   }, [calculatedPanels]);
+
+  // Aggregate electrical totals & counts for bottom summary footer bar
+  const footerStats = useMemo(() => {
+    let totalAllTapOffs = 0;
+    let totalFilteredTapOffs = 0;
+    let totalRunLength = 0;
+    let totalTclKw = 0;
+    let totalDemandKw = 0;
+    let maxVdPercent = 0;
+    let compliantSectionsCount = 0;
+    let totalSectionsCount = 0;
+    const totalPanelsCount = calculatedPanels.length;
+
+    calculatedPanels.forEach((panel) => {
+      panel.calcSections.forEach((section) => {
+        totalSectionsCount++;
+        const secLen = section.calcRows.reduce((sum, r) => sum + (Number(r.length) || 0), 0);
+        totalRunLength += secLen;
+
+        if (section.calcRows.length > 0) {
+          totalTclKw += section.calcRows[0].tcl || 0;
+          totalDemandKw += section.calcRows[0].md || 0;
+        }
+
+        const secCumVd = section.totalCumulativeVd || 0;
+        if (secCumVd > maxVdPercent) {
+          maxVdPercent = secCumVd;
+        }
+
+        if (secCumVd <= 2.5) {
+          compliantSectionsCount++;
+        }
+
+        section.calcRows.forEach((r) => {
+          totalAllTapOffs++;
+          let match = true;
+          if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase().trim();
+            if (!(r.desc || "").toLowerCase().includes(q) && !(r.from || "").toLowerCase().includes(q)) match = false;
+          }
+          if (match && showFlaggedOnly && !getBusbarRowValidation(r, r.vdPercent).isFlagged) match = false;
+          if (match && filterVd === "within" && r.vdPercent > 2.5) match = false;
+          if (match && filterVd === "exceeds" && r.vdPercent <= 2.5) match = false;
+          if (match && filterLoad === "high" && (Number(r.loadKw) || 0) <= 100) match = false;
+          if (match && filterLoad === "low" && (Number(r.loadKw) || 0) > 100) match = false;
+
+          if (match) {
+            totalFilteredTapOffs++;
+          }
+        });
+      });
+    });
+
+    const isFiltered = Boolean(
+      searchQuery.trim() ||
+      showFlaggedOnly ||
+      filterVd !== "all" ||
+      filterLoad !== "all"
+    );
+
+    const complianceRate = totalSectionsCount > 0
+      ? Math.round((compliantSectionsCount / totalSectionsCount) * 100)
+      : 100;
+
+    return {
+      totalAllTapOffs,
+      totalFilteredTapOffs,
+      totalPanelsCount,
+      totalSectionsCount,
+      totalRunLength,
+      totalTclKw,
+      totalDemandKw,
+      maxVdPercent,
+      complianceRate,
+      isFiltered,
+    };
+  }, [calculatedPanels, searchQuery, showFlaggedOnly, filterVd, filterLoad]);
 
   const toggleFlagRows = (targetRowId: string, currentFlagged: boolean) => {
     pushToUndo(panels);
@@ -1298,299 +1745,27 @@ function BusbarCalculationPage() {
     });
 
     
-    const sigRow = worksheet.rowCount ? worksheet.rowCount + 2 : 20;
-    addExcelSignatureBlock(worksheet, sigRow, currentUserName, project?.id || "default", "busbar-calculation");
+    const lastWorksheet = workbook.worksheets[workbook.worksheets.length - 1];
+    if (lastWorksheet) {
+      const sigRow = lastWorksheet.rowCount ? lastWorksheet.rowCount + 2 : 20;
+      addExcelSignatureBlock(lastWorksheet, sigRow, currentUserName, project?.id || "default", "busbar-calculation");
+    }
     const buffer = await workbook.xlsx.writeBuffer();
     await downloadFile(new Uint8Array(buffer), "Busbar_Calculation.xlsx", "Excel Document", ["xlsx"]);
   };
 
   const exportPdf = () => {
-    try {
-      const doc = new jsPDF("l", "mm", "a4");
-      const primaryFill: [number, number, number] = [217, 217, 217];
-
-      const runAutoTable = (options: any) => {
-        if (typeof autoTable === 'function') {
-          autoTable(doc, options);
-        } else if (typeof (autoTable as any)?.default === 'function') {
-          (autoTable as any).default(doc, options);
-        } else if ((doc as any).autoTable) {
-          (doc as any).autoTable(options);
-        }
-      };
-
-      let lastSectionCardEndY = 50;
-
-      if (flatCalculatedSections.length === 0) {
-        const startY = addPdfHeader(doc, "Busbar Voltage Drop Calculation Report");
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text("No busbar sections calculated.", 14, startY + 5);
-        lastSectionCardEndY = startY + 15;
-      } else {
-        flatCalculatedSections.forEach((section, sIndex) => {
-          if (sIndex > 0) doc.addPage();
-          
-          const headerStartY = addPdfHeader(doc, "Busbar Voltage Drop Calculation Report");
-          
-          const ratingLabel = ALL_BUSBAR_DATA[section.ratingId]?.label || section.ratingId;
-          const rawR = ALL_BUSBAR_DATA[section.ratingId]?.r || 0;
-          const rawX = ALL_BUSBAR_DATA[section.ratingId]?.x || 0;
-          const rVal = (unitSystem === "ip" ? (rawR * 0.3048) : rawR).toFixed(4);
-          const xVal = (unitSystem === "ip" ? (rawX * 0.3048) : rawX).toFixed(4);
-          const rUnit = unitSystem === "ip" ? "mOhm/ft" : "mOhm/m";
-
-          // Styled Subheader Info Box
-          const infoBoxStartY = headerStartY + 2;
-          doc.setFillColor(245, 247, 250);
-          doc.setDrawColor(200, 200, 200);
-          doc.roundedRect(14, infoBoxStartY, 269, 12, 1.5, 1.5, "FD");
-
-          doc.setFontSize(8.5);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(0, 0, 0);
-          doc.text(`Panel: ${section.panelName}  |  Busbar Section: ${section.name}`, 18, infoBoxStartY + 4.5);
-
-          doc.setFontSize(8.0);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(60, 60, 60);
-          const useMd = section.useMdForCurrent !== false;
-          const currentBasis = useMd ? "MD" : "TCL";
-          doc.text(`Selected Busbar: ${ratingLabel} (R: ${rVal} ${rUnit}, X: ${xVal} ${rUnit})  |  Voltage: ${section.volts}V  |  PF: ${section.pf}  |  Current Basis: ${currentBasis}`, 18, infoBoxStartY + 9);
-
-          const tableData = (section.calcRows || []).map((r, idx) => {
-            const row = [
-              idx + 1,
-              r.desc || "",
-              (r.length || 0).toString(),
-              (r.loadKw || 0).toString(),
-              (r.tcl || 0).toFixed(2),
-            ];
-            if (useMd) {
-              row.push((r.md || 0).toFixed(2));
-            }
-            row.push(
-              (r.current || 0).toFixed(2),
-              (r.vd || 0).toFixed(2),
-              (r.vdPercent || 0).toFixed(3) + "%",
-              (r.cumulativeVdPercent || 0).toFixed(3) + "%"
-            );
-            return row;
-          });
-
-          const totalVd = (section.calcRows || []).reduce((sum, row) => sum + (Number(row.vd) || 0), 0);
-          const totalCumVd = (section as any).totalCumulativeVd ?? (section.calcRows?.[section.calcRows.length - 1]?.cumulativeVdPercent ?? 0);
-          const isExceeded = totalCumVd > 2.5;
-
-          const footData = [
-            useMd ? [
-              "",
-              "Cumulative VD up to SMDB",
-              "",
-              "",
-              "",
-              "",
-              "",
-              totalVd.toFixed(2) + " V",
-              Number(totalCumVd).toFixed(3) + "%",
-              isExceeded ? "EXCEEDS (FAIL)" : "PASS"
-            ] : [
-              "",
-              "Cumulative VD up to SMDB",
-              "",
-              "",
-              "",
-              totalVd.toFixed(2) + " V",
-              Number(totalCumVd).toFixed(3) + "%",
-              isExceeded ? "EXCEEDS (FAIL)" : "PASS"
-            ]
-          ];
-
-          const lenHeader = unitSystem === "ip" ? "Len (ft)" : "Len (m)";
-
-          // Dynamic Column Widths (Printable width: 269mm)
-          const columnStyles: Record<number, any> = useMd ? {
-            0: { cellWidth: 12, halign: "center", fontStyle: "bold" },
-            1: { cellWidth: 45, halign: "left", fontStyle: "bold", cellPadding: { left: 3.5, right: 1.5, top: 3.0, bottom: 3.0 } },
-            2: { cellWidth: 26.5, halign: "center" },
-            3: { cellWidth: 26.5, halign: "center" },
-            4: { cellWidth: 26.5, halign: "center" },
-            5: { cellWidth: 26.5, halign: "center" },
-            6: { cellWidth: 26.5, halign: "center" },
-            7: { cellWidth: 26.5, halign: "center" },
-            8: { cellWidth: 26.5, halign: "center" },
-            9: { cellWidth: 26.5, halign: "center" }
-          } : {
-            0: { cellWidth: 12, halign: "center", fontStyle: "bold" },
-            1: { cellWidth: 47, halign: "left", fontStyle: "bold", cellPadding: { left: 3.5, right: 1.5, top: 3.0, bottom: 3.0 } },
-            2: { cellWidth: 30, halign: "center" },
-            3: { cellWidth: 30, halign: "center" },
-            4: { cellWidth: 30, halign: "center" },
-            5: { cellWidth: 30, halign: "center" },
-            6: { cellWidth: 30, halign: "center" },
-            7: { cellWidth: 30, halign: "center" },
-            8: { cellWidth: 30, halign: "center" }
-          };
-
-          const pdfHead = [
-            useMd
-              ? ["No.", "Description", lenHeader, "Load\n(kW)", "TCL\n(kW)", "MD\n(kW)", "Current\n(A)", "Vdrop\n(V)", "Vdrop\n%", "Cum.\n%"]
-              : ["No.", "Description", lenHeader, "Load\n(kW)", "TCL\n(kW)", "Current\n(A)", "Vdrop\n(V)", "Vdrop\n%", "Cum.\n%"]
-          ];
-
-          runAutoTable({
-            head: pdfHead,
-            body: tableData,
-            foot: footData,
-            startY: infoBoxStartY + 15,
-            theme: "grid",
-            styles: {
-              font: "helvetica",
-              fontSize: 7.5,
-              textColor: [0, 0, 0],
-              halign: "center",
-              valign: "middle",
-              lineColor: [100, 100, 100],
-              lineWidth: 0.1,
-              cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
-              minCellHeight: 8.5
-            },
-            headStyles: {
-              fillColor: primaryFill,
-              textColor: [0, 0, 0],
-              fontStyle: "bold",
-              fontSize: 7.5,
-              halign: "center",
-              valign: "middle",
-              lineColor: [100, 100, 100],
-              lineWidth: 0.1,
-              cellPadding: { top: 3.0, bottom: 3.0, left: 1.0, right: 1.0 },
-              minCellHeight: 8.5
-            },
-            bodyStyles: {
-              fontSize: 7.5,
-              textColor: [0, 0, 0],
-              halign: "center",
-              valign: "middle",
-              lineColor: [100, 100, 100],
-              lineWidth: 0.1,
-              cellPadding: { top: 3.0, bottom: 3.0, left: 1.5, right: 1.5 },
-              minCellHeight: 8.5
-            },
-            footStyles: {
-              fillColor: isExceeded ? [255, 230, 230] : [240, 240, 240],
-              textColor: isExceeded ? [180, 0, 0] : [0, 0, 0],
-              fontStyle: "bold",
-              fontSize: 7.5,
-              halign: "center",
-              valign: "middle",
-              lineColor: [100, 100, 100],
-              lineWidth: 0.1,
-              minCellHeight: 8.5
-            },
-            columnStyles: columnStyles,
-            margin: { left: 14, right: 14 }
-          });
-
-          const tableFinalY = (doc as any).lastAutoTable?.finalY || (infoBoxStartY + 35);
-          const cardStartY = tableFinalY + 6;
-          
-          // Draw Summary & Recommendation Card (Spanning full 269mm width)
-          doc.setFillColor(isExceeded ? 253 : 245, isExceeded ? 237 : 248, isExceeded ? 237 : 245);
-          doc.setDrawColor(isExceeded ? 231 : 180, isExceeded ? 76 : 180, isExceeded ? 60 : 180);
-          doc.roundedRect(14, cardStartY, 269, 14, 2, 2, "FD");
-
-          doc.setFontSize(8.5);
-          doc.setFont("helvetica", "bold");
-          doc.setTextColor(isExceeded ? 192 : 39, isExceeded ? 57 : 174, isExceeded ? 43 : 96);
-          doc.text(`SELECTED / SUGGESTED BUSBAR: ${ratingLabel}`, 18, cardStartY + 5);
-          
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(0, 0, 0);
-          doc.text(`Cumulative Voltage Drop: ${Number(totalCumVd).toFixed(3)}% | Status: ${isExceeded ? 'EXCEEDS 2.5% STANDARD LIMIT (Select larger busbar rating)' : 'WITHIN 2.5% STANDARD LIMIT (PASS)'}`, 18, cardStartY + 10);
-
-          lastSectionCardEndY = cardStartY + 14;
-        });
+    exportBusbarPDF(
+      { flatCalculatedSections },
+      unitSystem,
+      {
+        projectName: project?.name,
+        projectNo: project?.code,
+        client: (project as any)?.client,
+        userName: currentUserName,
+        allBusbarData: ALL_BUSBAR_DATA,
       }
-      
-      const sigFinalY = Math.max(lastSectionCardEndY + 8, 75);
-      
-      // Add Signature Block matching Full Page Width (269mm)
-      const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails(project?.id || "default", "busbar-calculation", currentUserName);
-
-      runAutoTable({
-        startY: sigFinalY,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          font: "helvetica",
-          fontSize: 8.5,
-          textColor: [0, 0, 0],
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
-          minCellHeight: 9.0
-        },
-        headStyles: {
-          fillColor: [255, 230, 204],
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
-          minCellHeight: 9.0
-        },
-        bodyStyles: {
-          fontSize: 8.5,
-          textColor: [0, 0, 0],
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
-          minCellHeight: 9.0
-        },
-        head: [
-          [
-            { content: "" },
-            { content: "Originator" },
-            { content: "Reviewer" },
-            { content: "Approver" }
-          ]
-        ],
-        body: [
-          [
-            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedName, styles: { halign: "center" } },
-            { content: reviewerName, styles: { halign: "center" } },
-            { content: approverName, styles: { halign: "center" } }
-          ],
-          [
-            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedDate, styles: { halign: "center" } },
-            { content: reviewerDate, styles: { halign: "center" } },
-            { content: approverDate, styles: { halign: "center" } }
-          ]
-        ],
-        columnStyles: {
-          0: { cellWidth: 38, fontStyle: "bold", halign: "right" },
-          1: { cellWidth: 77, halign: "center" },
-          2: { cellWidth: 77, halign: "center" },
-          3: { cellWidth: 77, halign: "center" }
-        }
-      });
-
-      const pdfBuffer = doc.output("arraybuffer");
-      downloadFile(new Uint8Array(pdfBuffer), "Busbar_Calculation.pdf", "PDF Document", ["pdf"]);
-      toast.success("Busbar calculation PDF exported successfully!");
-    } catch (err) {
-      console.error("Failed to export PDF:", err);
-      toast.error("Failed to export Busbar calculation PDF.");
-    }
+    );
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1644,205 +1819,402 @@ function BusbarCalculationPage() {
   return (
     <AppShell 
       title="Busbar Calculation" 
-      spaceCount={panels.length}
-      spaceCountUnit={panels.length === 1 ? "panel" : "panels"}
-      actions={
-        <UnitToggle
-          unitSystem={unitSystem}
-          onChange={handleUnitToggle}
-          disabled={isApproved}
-          ipLabel="IP"
-          siLabel="SI"
-          ipDescription="Imperial (IP) [Feet - ft]"
-          siDescription="Metric (SI) [Meters - m]"
-          inputDescriptions="Busbar Run Lengths"
-          conversionExample={
-            unitSystem === "si"
-              ? "Convert 160.0 m → 524.93 ft, 3.5 m → 11.48 ft"
-              : "Convert 524.93 ft → 160.0 m, 11.48 ft → 3.5 m"
-          }
-        />
-      }
+      hideSubHeader={true}
+      onIntelClick={() => setIntelOpen((v) => !v)}
+      intelOpen={intelOpen}
     >
-      
-      <div className={`flex-1 flex flex-col overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
-            ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
-            : calcReviewState?.status === "REJECTED"
-            ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
-            : calcReviewState?.status === "REVIEWED"
-            ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
-            : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
+      <div className="flex h-full min-h-0 bg-transparent">
+        <div className="flex-1 min-w-0 flex flex-col pt-2 gap-4 overflow-y-auto h-full">
+          {/* Page Header */}
+          <div className="flex justify-between items-center shrink-0 select-none no-print modal-blur-bg">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-baseline gap-2">
+                <h1 className="text-[28px] font-bold tracking-tight text-foreground">Busbar Calculation</h1>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIntelOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-colors text-[12.5px] font-semibold border cursor-pointer shrink-0 ${
+                  intelOpen
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-primary/10 text-primary hover:bg-primary/20 border-primary/20"
+                }`}
+                title="Toggle Busbar Intelligence"
+              >
+                <Sparkles className="size-3.5" /> Intelligence
+              </button>
+              <CalculationReviewBar 
+                projectId={activeProjectId || project?.id || "default"} 
+                calculatorPath="/busbar-calculation" 
+                calculatorTitle="Busbar Calculation" 
+              />
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isApproved} />
+            </div>
+          </div>
+
+          {/* White Card Container for Content */}
+          <div className={`flex-1 flex flex-col min-h-[450px] overflow-hidden rounded-2xl transition-all duration-300 ${calcReviewState?.status === "APPROVED" 
+                ? "bg-card border-2 border-emerald-500 ring-2 ring-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.25)]" 
+                : calcReviewState?.status === "REJECTED"
+                ? "bg-card border-2 border-red-500 ring-2 ring-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.25)]"
+                : calcReviewState?.status === "REVIEWED"
+                ? "bg-card border-2 border-indigo-500 ring-2 ring-indigo-500/50 shadow-[0_0_30px_rgba(99,102,241,0.25)]"
+                : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"} h-full relative overflow-hidden bg-slate-50/30 dark:bg-slate-950/30`}>
         {/* Subtle Grid Background */}
         <div className="absolute inset-0 pointer-events-none [background-image:linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] z-0"></div>
         <div className="relative z-10 flex flex-col h-full w-full">
-        {/* Sizer Section Header with Search, Filters, View, Flag Filter & Module Actions */}
-        <div className="flex flex-wrap items-center justify-between px-4 py-2 min-h-[44px] h-auto border-b border-border bg-background shrink-0 select-none gap-2 overflow-visible">
-          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-              <input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter tap offs..."
-                className="h-7 w-56 pl-8 pr-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none transition-all"
-              />
+        {/* Top Row 1: Section Navigation Tabs & Print matching Pump Sizing */}
+        <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/80 gap-3 flex-wrap">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex bg-surface-2 p-1 rounded-full gap-1 border border-border/80">
+              <button
+                type="button"
+                onClick={() => setActiveTab("sizing")}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                  activeTab === "sizing"
+                    ? "bg-background text-foreground shadow-xs font-bold"
+                    : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                }`}
+              >
+                Busbar Sizing
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("report")}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                  activeTab === "report"
+                    ? "bg-background text-foreground shadow-xs font-bold"
+                    : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                }`}
+              >
+                Report
+              </button>
             </div>
-
-            {/* Filters Icon Popover */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                    activeFiltersCount > 0
-                      ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                      : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                  }`}
-                >
-                  <Filter className="size-3.5 shrink-0" />
-                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
-                    Filter
-                  </span>
-                  {activeFiltersCount > 0 && (
-                    <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
-                      {activeFiltersCount}
-                    </span>
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
-                <div className="flex items-center justify-between pb-1.5 border-b border-border">
-                  <span className="text-xs font-bold text-foreground">Filter Tap Offs</span>
-                  {activeFiltersCount > 0 && (
-                    <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold">
-                      Reset All
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Voltage Drop</span>
-                  <select
-                    value={filterVd}
-                    onChange={(e) => setFilterVd(e.target.value as any)}
-                    className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                  >
-                    <option value="all">All V.Drop Status</option>
-                    <option value="within">Within Limit (â‰¤ 2.5%)</option>
-                    <option value="exceeds">Exceeds Limit (&gt; 2.5%)</option>
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Load Range</span>
-                  <select
-                    value={filterLoad}
-                    onChange={(e) => setFilterLoad(e.target.value as any)}
-                    className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                  >
-                    <option value="all">All Loads</option>
-                    <option value="high">High Load (&gt; 100 kW)</option>
-                    <option value="low">Low Load (â‰¤ 100 kW)</option>
-                  </select>
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            {/* View Icon Popover */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
-                    sortBy !== "none" || rowDensity === "compact"
-                      ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
-                      : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                  }`}
-                >
-                  <SlidersHorizontal className="size-3.5 shrink-0" />
-                  <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
-                    View / Sort
-                  </span>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
-                <div className="pb-1.5 border-b border-border text-xs font-bold text-foreground">
-                  View Options
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Row Density</span>
-                  <div className="flex rounded-full border border-border p-0.5 bg-surface-2">
-                    <button
-                      onClick={() => setRowDensity("default")}
-                      className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
-                        rowDensity === "default" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
-                      }`}
-                    >
-                      Default
-                    </button>
-                    <button
-                      onClick={() => setRowDensity("compact")}
-                      className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all ${
-                        rowDensity === "compact" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
-                      }`}
-                    >
-                      Compact
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Sort By</span>
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as any)}
-                    className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
-                  >
-                    <option value="none">Original Order</option>
-                    <option value="desc">Description (A-Z)</option>
-                    <option value="load">Load kW (High to Low)</option>
-                    <option value="vd">V.Drop % (High to Low)</option>
-                  </select>
-                </div>
-              </PopoverContent>
-            </Popover>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
-            <button
-              disabled={isApproved}
-              onClick={handleSync3DAndLoadSummary}
-              className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-primary/30 bg-primary/10 text-primary transition-all shadow-xs ${
-                isApproved
-                  ? "opacity-50 cursor-not-allowed pointer-events-none"
-                  : "cursor-pointer hover:bg-primary/20 hover:border-primary/50"
-              }`}
-              title="Automatically generate vertical busduct riser from 3D Studio floor heights & Load Summary active kW"
+          {/* Action button on the right of tabs matching Preliminary Standard */}
+          <div className="flex items-center gap-2 select-none shrink-0">
+            <TBtn
+              onClick={() => setShowFormulaModal(true)}
+              title="View Step-by-Step Formula Breakdown"
             >
-              <Sparkles className="size-3.5" />
-              <span>Sync 3D & Load Summary</span>
-            </button>
+              <Info className="size-3.5 text-primary" /> Formula Breakdown
+            </TBtn>
+            <TBtn onClick={exportPdf} title="Export PDF Calculation">
+              <FileText className="size-3.5" /> Export PDF
+            </TBtn>
+          </div>
+        </div>
 
-            <label className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border border-border bg-surface-2 text-foreground transition-all ${isApproved ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer hover:bg-surface-3"}`}>
-              <Download className="size-3.5" /> Import Ratings
+        {/* Sizer Section Header with Search, Filters, View, Flag Filter & Module Actions Matching Ventilation */}
+        {activeTab === "sizing" ? (
+          <>
+            <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print modal-blur-bg select-none">
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filter spaces..."
+            className="h-7 w-56 px-3 bg-surface-2 border border-transparent focus:border-border-strong focus:bg-background rounded-full text-[12px] outline-none"
+          />
+
+          {/* Filters Icon Popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                  activeFiltersCount > 0
+                    ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                    : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                }`}
+              >
+                <Filter className="size-3.5 shrink-0" />
+                <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                  Filter
+                </span>
+                {activeFiltersCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                    {activeFiltersCount}
+                  </span>
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50">
+              <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                <span className="text-xs font-bold text-foreground">Filter Tap Offs</span>
+                {activeFiltersCount > 0 && (
+                  <button onClick={handleResetFilters} className="text-[10px] text-primary hover:underline font-semibold cursor-pointer">
+                    Reset All
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Voltage Drop</span>
+                <select
+                  value={filterVd}
+                  onChange={(e) => setFilterVd(e.target.value as any)}
+                  className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                >
+                  <option value="all">All V.Drop Status</option>
+                  <option value="within">Within Limit (≤ 2.5%)</option>
+                  <option value="exceeds">Exceeds Limit (&gt; 2.5%)</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Load Range</span>
+                <select
+                  value={filterLoad}
+                  onChange={(e) => setFilterLoad(e.target.value as any)}
+                  className="h-7 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                >
+                  <option value="all">All Loads</option>
+                  <option value="high">High Load (&gt; 100 kW)</option>
+                  <option value="low">Low Load (≤ 100 kW)</option>
+                </select>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* Sort Popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                  sortBy !== "none"
+                    ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                    : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                }`}
+                title="Sort Tap Offs"
+              >
+                <ArrowUpDown className="size-3.5 shrink-0" />
+                <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                  Sort
+                </span>
+                {sortBy !== "none" && (
+                  <span className="absolute -top-1 -right-1 flex items-center justify-center bg-primary text-white font-bold rounded-full size-3.5 text-[8.5px] shadow-sm border border-background">
+                    ✓
+                  </span>
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-56 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-3 z-50 text-xs">
+              <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                <span className="text-xs font-bold text-foreground">Sort By</span>
+                {sortBy !== "none" && (
+                  <button onClick={() => setSortBy("none")} className="text-[10px] text-primary hover:underline font-semibold cursor-pointer">
+                    Reset
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-col gap-1">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="h-8 w-full px-2 bg-surface-2 border border-border rounded-lg text-xs outline-none cursor-pointer"
+                >
+                  <option value="none">Original Order</option>
+                  <option value="desc">Description (A-Z)</option>
+                  <option value="load">Load kW (High to Low)</option>
+                  <option value="vd">V.Drop % (High to Low)</option>
+                </select>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* View Options & Column Distribution Popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                className={`relative inline-flex items-center justify-center h-7 w-7 rounded-full border transition-all duration-150 ease-out outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer group overflow-visible ${
+                  rowDensity === "compact"
+                    ? "bg-primary/10 border-primary/45 text-primary font-medium hover:bg-primary/15"
+                    : "border-border text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                }`}
+                title="View / Column Distribution"
+              >
+                <SlidersHorizontal className="size-3.5 shrink-0" />
+                <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 px-2 py-0.5 bg-popover text-popover-foreground text-[11px] font-semibold border border-border rounded-md shadow-sm pointer-events-none opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-150 origin-center select-none z-50 whitespace-nowrap">
+                  View Options
+                </span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-60 p-3 bg-popover border border-border rounded-xl shadow-lg flex flex-col gap-2.5 z-50 text-xs font-sans">
+              <div className="pb-1.5 border-b border-border text-[12px] font-semibold text-foreground">
+                Column Distribution
+              </div>
+              <p className="text-[10.5px] text-muted-foreground leading-snug">
+                Drag column divider lines in table headers to adjust custom widths. Click below to restore auto-distribution.
+              </p>
+                            <button
+                onClick={() => {
+                  try {
+                    localStorage.removeItem("mep_grid_busbar_cols");
+                    setBusbarColWidths(DEFAULT_BUSBAR_COL_WIDTHS);
+                    window.dispatchEvent(new Event("resize"));
+                    toast.success("Column widths reset to auto-distribution");
+                  } catch (e) {}
+                }}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground font-semibold text-[11.5px] border border-border transition-colors cursor-pointer"
+              >
+                <RefreshCw className="size-3 text-primary" />
+                Reset Column Widths
+              </button>
+              <div className="flex flex-col gap-1 pt-2 border-t border-border">
+                <span className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wider">Row Density</span>
+                <div className="flex rounded-full border border-border p-0.5 bg-surface-2">
+                  <button
+                    onClick={() => setRowDensity("default")}
+                    className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all cursor-pointer ${
+                      rowDensity === "default" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                    }`}
+                  >
+                    Default
+                  </button>
+                  <button
+                    onClick={() => setRowDensity("compact")}
+                    className={`flex-1 py-0.5 text-[10.5px] font-semibold rounded-full transition-all cursor-pointer ${
+                      rowDensity === "compact" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"
+                    }`}
+                  >
+                    Compact
+                  </button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* Right Controls: Import, Import Ratings, Add LV Panel */}
+          <div className="ml-auto flex items-center gap-1.5">
+            <TBtn
+              disabled={isApproved}
+              onClick={() => {
+                if (isApproved) {
+                  toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+                  return;
+                }
+                setShowImportSourceModal(true);
+              }}
+              title="Import spaces or schedule"
+            >
+              <Download className="size-3.5" /> Import
+            </TBtn>
+
+            <label className={`inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium border border-border bg-surface-2 text-foreground transition-colors ${isApproved ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer hover:bg-surface-3"}`}>
+              <Upload className="size-3.5" /> Import Ratings
               <input type="file" disabled={isApproved} accept=".xlsx, .xls" className="hidden" onChange={handleImport} />
             </label>
 
-            <button
-              onClick={exportPdf}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-full border border-border/60 bg-white dark:bg-slate-900 text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer shadow-2xs"
-            >
-              <FileText className="size-3.5" /> Export
-            </button>
-
-
-            <button
+            <TBtn
+              primary
               disabled={isApproved}
-              onClick={addPanel}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-full bg-primary hover:bg-primary/90 text-white shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={openAddPanelModal}
             >
               <Plus className="size-3.5" /> Add LV Panel
-            </button>
+            </TBtn>
           </div>
+
+          {/* Bulk actions bar overlay */}
+          {!isApproved && selectedRows.size > 0 && (
+            <div className="absolute inset-0 flex items-center gap-2 px-3 bg-[#eef6fc] dark:bg-[#0c2233] text-[12px] text-[#06456F] dark:text-[#0A7BC7] z-20 no-print modal-blur-bg">
+              <span className="font-semibold">{selectedRows.size} selected</span>
+              <span className="text-primary/30">·</span>
+              {selectedRows.size === 1 && (() => {
+                const rId = Array.from(selectedRows)[0];
+                for (const p of panels) {
+                  for (const s of p.sections) {
+                    const foundRow = s.rows.find(r => r.id === rId);
+                    if (foundRow) {
+                      return (
+                        <BulkBtn
+                          icon={Edit3}
+                          onClick={() => setEditingRow({ row: foundRow, panelId: p.id, sectionId: s.id })}
+                        >
+                          Edit Tap Off
+                        </BulkBtn>
+                      );
+                    }
+                  }
+                }
+                return null;
+              })()}
+              <BulkBtn
+                icon={Copy}
+                onClick={() => {
+                  copyRows(Array.from(selectedRows));
+                }}
+              >
+                Copy
+              </BulkBtn>
+              <BulkBtn
+                icon={Scissors}
+                onClick={() => {
+                  cutRows(Array.from(selectedRows));
+                }}
+              >
+                Cut
+              </BulkBtn>
+              <BulkBtn
+                icon={Flag}
+                onClick={() => {
+                  let anyUnflagged = false;
+                  for (const p of panels) {
+                    for (const s of p.sections) {
+                      for (const r of s.rows) {
+                        if (selectedRows.has(r.id) && !r.flagged) {
+                          anyUnflagged = true;
+                          break;
+                        }
+                      }
+                    }
+                  }
+                  pushToUndo(panels);
+                  setPanels((prev) =>
+                    prev.map((p) => ({
+                      ...p,
+                      sections: p.sections.map((s) => ({
+                        ...s,
+                        rows: s.rows.map((r) =>
+                          selectedRows.has(r.id) ? { ...r, flagged: anyUnflagged } : r
+                        ),
+                      })),
+                    }))
+                  );
+                  toast.info(anyUnflagged ? `Flagged ${selectedRows.size} tap offs for review` : `Unflagged ${selectedRows.size} tap offs`);
+                }}
+              >
+                Flag
+              </BulkBtn>
+              <BulkBtn
+                icon={Trash2}
+                onClick={() => {
+                  pushToUndo(panels);
+                  const count = selectedRows.size;
+                  setPanels(prev => prev.map(p => ({
+                    ...p,
+                    sections: p.sections.map(s => ({
+                      ...s,
+                      rows: s.rows.filter(r => !selectedRows.has(r.id))
+                    }))
+                  })));
+                  setSelectedRows(new Set());
+                  toast.info(`Deleted ${count} tap off(s)`);
+                }}
+              >
+                Delete
+              </BulkBtn>
+              <button
+                type="button"
+                onClick={() => setSelectedRows(new Set())}
+                className="ml-auto text-[#06456F]/70 hover:text-[#06456F] dark:text-[#0A7BC7]/80 dark:hover:text-[#0A7BC7] inline-flex items-center gap-1 text-[11.5px] font-semibold transition-colors hover:bg-primary/5 active:bg-primary/10 px-2 py-0.5 rounded cursor-pointer"
+              >
+                <X className="size-3" /> Clear
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-auto bg-background p-4 md:p-6 gap-4 flex flex-col min-h-0">
@@ -1853,12 +2225,12 @@ function BusbarCalculationPage() {
               </div>
               <h3 className="text-sm font-bold text-foreground">No LV Panels</h3>
               <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-                All panels have been removed. Click "+ Add LV Panel" or "Sync 3D & Load Summary" to create one.
+                All panels and tap-offs have been removed. Click "Add LV Panel" or "Sync 3D & Load Summary" to create one.
               </p>
               <div className="flex items-center gap-2 mt-4">
                 <button
                   disabled={isApproved}
-                  onClick={addPanel}
+                  onClick={openAddPanelModal}
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-full bg-primary text-white hover:bg-primary/90 transition-all cursor-pointer shadow-sm disabled:opacity-50"
                 >
                   <Plus className="size-3.5" /> Add LV Panel
@@ -1876,7 +2248,7 @@ function BusbarCalculationPage() {
 
           {calculatedPanels.map((panel, pIdx) => {
             return (
-              <div key={panel.id} className="flex flex-col bg-card border border-border rounded-2xl shadow-xs overflow-hidden shrink-0">
+              <div key={panel.id} id={`panel-${panel.id}`} className="flex flex-col bg-card border border-border rounded-2xl shadow-xs overflow-hidden shrink-0">
                 {/* Panel Header */}
                 <div className="bg-surface-2/80 border-b border-border/60 py-2 px-4 flex gap-4 items-center flex-wrap hover:bg-surface-2 transition-colors">
                   <button onClick={() => togglePanel(panel.id)} className="p-1 rounded hover:bg-black/5 flex items-center justify-center shrink-0">
@@ -1889,7 +2261,7 @@ function BusbarCalculationPage() {
                       disabled={isApproved}
                       value={panel.name} 
                       onChange={e => updatePanel(panel.id, "name", e.target.value)}
-                      className="h-8 px-2 border border-border rounded bg-background focus:bg-white outline-none font-bold w-48 text-[13px] disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="h-8 px-2.5 border border-border/60 hover:border-border focus:border-primary rounded bg-surface-2/60 text-foreground focus:bg-surface-2 focus:ring-1 focus:ring-primary outline-none font-bold w-52 text-[13px] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                       onClick={(e) => e.stopPropagation()}
                     />
                   </div>
@@ -2013,50 +2385,53 @@ function BusbarCalculationPage() {
                           </div>
 
                           <div className="overflow-auto max-h-[500px]">
-                            <table className="table-fixed text-[12px] border-collapse whitespace-nowrap w-full" style={{ width: "100%", minWidth: `${Math.max(950, totalBusbarTableWidth)}px` }}>
-                              <thead className="bg-header-bg sticky top-0 z-10 border-b border-border text-muted-foreground font-semibold select-none">
-                                <tr className="text-left">
-                                  <th style={{ width: busbarColWidths.select }} className="px-1 py-2 text-center relative group">
-                                    <input 
-                                      type="checkbox" 
-                                      className="cursor-pointer"
-                                      checked={isAllSelected}
-                                      onChange={(e) => {
-                                        const newSet = new Set(selectedRows);
-                                        section.calcRows.forEach(r => {
-                                          if (e.target.checked) newSet.add(r.id);
-                                          else newSet.delete(r.id);
-                                        });
-                                        setSelectedRows(newSet);
-                                      }}
-                                    />
-                                    <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                            <table className="table-fixed text-[13.5px] border-collapse whitespace-nowrap w-full" style={{ width: "100%", minWidth: `${Math.max(900, totalBusbarTableWidth)}px` }}>
+                              <thead className="sticky top-0 z-10 bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong text-muted-foreground font-semibold select-none">
+                                <tr className="text-left h-10 text-[11.5px] font-semibold uppercase tracking-wider">
+                                  <th
+                                    style={getBusbarColStyle("select")}
+                                    className="px-1 py-2 text-center text-[11px] font-mono select-none cursor-pointer relative group"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (isApproved) return;
+                                      const allRowIds = section.calcRows.map(r => r.id);
+                                      const isAllSelected = allRowIds.length > 0 && allRowIds.every(id => selectedRows.has(id));
+                                      const newSet = new Set(selectedRows);
+                                      if (isAllSelected) {
+                                        allRowIds.forEach(id => newSet.delete(id));
+                                      } else {
+                                        allRowIds.forEach(id => newSet.add(id));
+                                      }
+                                      setSelectedRows(newSet);
+                                    }}
+                                    title={isAllSelected ? "Click to deselect all rows in section" : "Click to select all rows in section"}
+                                  >
+                                    <div className="flex items-center justify-center font-bold text-[11px] text-muted-foreground hover:text-foreground">
+                                      #
+                                    </div>
+                                    <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                                   </th>
-                                  <th style={{ width: busbarColWidths.no }} className="px-1 py-2 text-center text-[11px] relative group">
-                                    No.
-                                    <div onMouseDown={(e) => handleResizeMouseDown("no", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
-                                  </th>
-                                  <th style={{ width: busbarColWidths.desc }} className="px-2 py-2 relative group">
+                                  <th style={getBusbarColStyle("desc")} className="px-2 py-2 relative group">
                                     Description
-                                    <div onMouseDown={(e) => handleResizeMouseDown("desc", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                    <div onMouseDown={(e) => handleResizeMouseDown("desc", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                                   </th>
-                                  <th style={{ width: busbarColWidths.len }} className="px-2 py-2 text-center relative group">
+                                  <th style={getBusbarColStyle("len")} className="px-2 py-2 text-center relative group">
                                     Len ({unitSystem === "ip" ? "ft" : "m"})
-                                    <div onMouseDown={(e) => handleResizeMouseDown("len", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                    <div onMouseDown={(e) => handleResizeMouseDown("len", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                                   </th>
-                                  <th style={{ width: busbarColWidths.loadKw }} className="px-2 py-2 text-center relative group">
+                                  <th style={getBusbarColStyle("loadKw")} className="px-2 py-2 text-center relative group">
                                     Load (kW)
-                                    <div onMouseDown={(e) => handleResizeMouseDown("loadKw", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                    <div onMouseDown={(e) => handleResizeMouseDown("loadKw", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                                   </th>
-                                  <th style={{ width: busbarColWidths.tclKw }} className="px-2 py-2 text-center bg-surface-2 text-foreground relative group">
+                                  <th style={getBusbarColStyle("tclKw")} className="px-2 py-2 text-center bg-surface-2 text-foreground relative group">
                                     TCL (kW)
-                                    <div onMouseDown={(e) => handleResizeMouseDown("tclKw", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                    <div onMouseDown={(e) => handleResizeMouseDown("tclKw", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                                   </th>
-                                  <th style={{ width: busbarColWidths.div }} className="px-2 py-2 text-center relative group">
+                                  <th style={getBusbarColStyle("div")} className="px-2 py-2 text-center relative group">
                                     Div
-                                    <div onMouseDown={(e) => handleResizeMouseDown("div", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                    <div onMouseDown={(e) => handleResizeMouseDown("div", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                                   </th>
-                                  <th style={{ width: busbarColWidths.mdKw }} className="px-1 py-1.5 text-center bg-surface-2 text-foreground relative group select-none">
+                                  <th style={getBusbarColStyle("mdKw")} className="px-1 py-1.5 text-center bg-surface-2 text-foreground relative group select-none">
                                     <div className="flex flex-col items-center justify-center gap-0.5">
                                       <span className="text-[11.5px] font-bold">MD (kW)</span>
                                       <button
@@ -2079,26 +2454,26 @@ function BusbarCalculationPage() {
                                         {section.useMdForCurrent !== false ? "ON" : "OFF (TCL)"}
                                       </button>
                                     </div>
-                                    <div onMouseDown={(e) => handleResizeMouseDown("mdKw", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                    <div onMouseDown={(e) => handleResizeMouseDown("mdKw", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                                   </th>
-                                  <th style={{ width: busbarColWidths.curA }} className="px-2 py-2 text-center bg-surface-2 text-foreground relative group">
+                                  <th style={getBusbarColStyle("curA")} className="px-2 py-2 text-center bg-surface-2 text-foreground relative group">
                                     Cur. (A)
-                                    <div onMouseDown={(e) => handleResizeMouseDown("curA", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                    <div onMouseDown={(e) => handleResizeMouseDown("curA", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                                   </th>
-                                  <th style={{ width: busbarColWidths.vdV }} className="px-2 py-2 text-center text-primary relative group">
+                                  <th style={getBusbarColStyle("vdV")} className="px-2 py-2 text-center text-primary relative group">
                                     Vd (V)
-                                    <div onMouseDown={(e) => handleResizeMouseDown("vdV", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                    <div onMouseDown={(e) => handleResizeMouseDown("vdV", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                                   </th>
-                                  <th style={{ width: busbarColWidths.vdPct }} className="px-2 py-2 text-center text-primary relative group">
+                                  <th style={getBusbarColStyle("vdPct")} className="px-2 py-2 text-center text-primary relative group">
                                     Vd %
-                                    <div onMouseDown={(e) => handleResizeMouseDown("vdPct", e)} className="absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize hover:bg-primary/40 group-hover:bg-border/60 z-30" />
+                                    <div onMouseDown={(e) => handleResizeMouseDown("vdPct", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                                   </th>
-                                  <th style={{ width: busbarColWidths.actions }} className="px-2 py-2 text-center text-[11px]">
+                                  <th style={getBusbarColStyle("actions")} className="px-1 py-2 text-center text-[11px]">
                                     Actions
                                   </th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-border">
+                              <tbody className="divide-y divide-border/60 text-[13.5px]">
                                 {(() => {
                                   const displayRows = section.calcRows.filter(r => {
                                     if (searchQuery.trim()) {
@@ -2124,7 +2499,7 @@ function BusbarCalculationPage() {
                                   if (displayRows.length === 0) {
                                     return (
                                       <tr>
-                                        <td colSpan={16} className="text-center py-10 text-muted-foreground italic">
+                                        <td colSpan={11} className="text-center py-10 text-muted-foreground italic">
                                           {showFlaggedOnly ? `No flagged tap offs found in ${section.name}.` : `No tap offs added to ${section.name}.`}
                                         </td>
                                       </tr>
@@ -2168,163 +2543,309 @@ function BusbarCalculationPage() {
                                         }
                                       };
 
-                                    return (
-                                    <tr 
-                                      key={r.id} 
-                                      id={`busbar-row-${r.id}`} 
-                                      data-row-id={r.id}
-                                      className={`transition-all duration-200 cursor-pointer ${rowDensity === "compact" ? "h-6 text-[11px]" : ""} ${
-                                        editingRow?.row.id === r.id
-                                          ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
-                                          : editingRow !== null
-                                          ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
-                                          : selectedRows.has(r.id)
-                                          ? "bg-primary/10"
-                                          : "hover:bg-surface-2"
-                                      }`}
-                                      onDoubleClick={() => {
-                                        if (isApproved) return;
-                                        setSelectedRows(new Set([r.id]));
-                                        setEditingRow({ row: r, panelId: panel.id, sectionId: section.id });
-                                      }}
-                                      onClick={(e) => {
-                                        const tagName = (e.target as HTMLElement).tagName;
-                                        if (tagName === 'TD') {
-                                          toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                                        }
-                                      }}
-                                      onContextMenu={(e) => {
-                                        e.preventDefault();
-                                        if (!selectedRows.has(r.id)) {
-                                          toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                                        }
-                                        setContextMenu({
-                                          x: e.clientX,
-                                          y: e.clientY,
-                                          panelId: panel.id,
-                                          sectionId: section.id,
-                                          rowId: r.id
-                                        });
-                                      }}
-                                    >
-                                        <td style={{ width: busbarColWidths.select, minWidth: busbarColWidths.select, maxWidth: busbarColWidths.select }} className="p-0 text-center">
-                                           <div className="flex items-center justify-center h-full w-full">
-                                             <input 
-                                               type="checkbox" 
-                                               disabled={isApproved}
-                                               className="cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-                                               checked={selectedRows.has(r.id)}
-                                               onChange={() => {}}
-                                               onClick={(e) => {
-                                                 e.stopPropagation();
-                                                 toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                                               }}
-                                             />
-                                           </div>
-                                         </td>
-                                         <td style={{ width: busbarColWidths.no, minWidth: busbarColWidths.no, maxWidth: busbarColWidths.no }} className="text-center text-muted-foreground font-medium px-0.5 text-[11.5px] relative">
-                                           {(() => {
-                                             const itemComments = getMergedItemComments(r.id, r.desc || r.from || `Tap Off ${r.ref || r.id}`, r.comments, "/busbar-calculation", project?.id);
-                                             return (
-                                               <RowCommentCornerBadge
-                                                 id={r.id}
-                                                 count={itemComments.length}
-                                                 onClick={() => handleOpenComment(r)}
-                                                 title={`${itemComments.length} comment(s)/task(s) assigned to "${r.desc || r.from || `Tap Off ${r.ref || r.id}`}"`}
-                                               />
-                                             );
-                                           })()}
-                                           {idx + 1}
-                                         </td>
-                                         <td style={{ width: busbarColWidths.desc, minWidth: busbarColWidths.desc, maxWidth: busbarColWidths.desc }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
-                                          <div className="flex items-center gap-1.5 w-full px-1">
-                                            <input 
-                                              disabled={isApproved}
-                                              data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} 
-                                              onKeyDown={(e) => handleKeyDown(e, 0)} 
-                                              onDoubleClick={(e) => { e.stopPropagation(); if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
-                                              type="text" 
-                                              className="w-full h-8 px-1 bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground flex-1 disabled:opacity-60 disabled:cursor-not-allowed" 
-                                              value={r.desc} 
-                                              onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} 
-                                            />
-                                          </div>
-                                        </td>
-                                        <td style={{ width: busbarColWidths.len, minWidth: busbarColWidths.len, maxWidth: busbarColWidths.len }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
-                                          <input 
-                                            disabled={isApproved}
-                                            data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={1} 
-                                            onKeyDown={(e) => handleKeyDown(e, 1)} 
-                                            onDoubleClick={(e) => { e.stopPropagation(); if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
-                                            type="number" step="0.1" 
-                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground disabled:opacity-60 disabled:cursor-not-allowed" 
-                                            value={r.length} 
-                                            onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
-                                          />
-                                        </td>
-                                        <td style={{ width: busbarColWidths.loadKw, minWidth: busbarColWidths.loadKw, maxWidth: busbarColWidths.loadKw }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
-                                          <input 
-                                            disabled={isApproved}
-                                            data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={2} 
-                                            onKeyDown={(e) => handleKeyDown(e, 2)} 
-                                            onDoubleClick={(e) => { e.stopPropagation(); if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
-                                            type="number" step="0.1" 
-                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground disabled:opacity-60 disabled:cursor-not-allowed" 
-                                            value={r.loadKw} 
-                                            onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
-                                          />
-                                        </td>
-                                        
-                                        <td style={{ width: busbarColWidths.tclKw, minWidth: busbarColWidths.tclKw, maxWidth: busbarColWidths.tclKw }} className="px-2 py-1 text-center font-bold bg-surface-2 text-foreground cursor-pointer" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.tcl.toFixed(2)}</td>
-                                        
-                                        <td style={{ width: busbarColWidths.div, minWidth: busbarColWidths.div, maxWidth: busbarColWidths.div }} className="p-0" onDoubleClick={() => { if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>
-                                          <input 
-                                            disabled={isApproved}
-                                            data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={3} 
-                                            onKeyDown={(e) => handleKeyDown(e, 3)} 
-                                            onDoubleClick={(e) => { e.stopPropagation(); if (isApproved) return; setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}
-                                            type="number" step="0.01" max="1" 
-                                            className="w-full h-8 px-2 text-center bg-transparent outline-none focus:bg-white dark:focus:bg-surface-2 focus:text-foreground [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-foreground disabled:opacity-60 disabled:cursor-not-allowed" 
-                                            value={r.div} 
-                                            onChange={e => updateRow(panel.id, section.id, r.id, "div", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
-                                          />
-                                        </td>
-                                        
-                                        <td style={{ width: busbarColWidths.mdKw, minWidth: busbarColWidths.mdKw, maxWidth: busbarColWidths.mdKw }} className="px-2 py-1 text-center font-semibold bg-surface-2 font-mono text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.md.toFixed(2)}</td>
-                                        <td style={{ width: busbarColWidths.curA, minWidth: busbarColWidths.curA, maxWidth: busbarColWidths.curA }} className="px-2 py-1 text-center font-semibold bg-surface-2 font-mono text-foreground cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.current.toFixed(2)}</td>
-                                        <td style={{ width: busbarColWidths.vdV, minWidth: busbarColWidths.vdV, maxWidth: busbarColWidths.vdV }} className="px-2 py-1 text-center text-primary font-medium font-mono cursor-pointer" onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.vd.toFixed(2)}</td>
-                                        <td style={{ width: busbarColWidths.vdPct, minWidth: busbarColWidths.vdPct, maxWidth: busbarColWidths.vdPct }} className={`px-2 py-1 text-center font-mono font-medium cursor-pointer ${r.vdPercent > 2.5 ? "text-destructive bg-destructive/5" : "text-primary"}`} onDoubleClick={() => { setSelectedRows(new Set([r.id])); setEditingRow({ row: r, panelId: panel.id, sectionId: section.id }); }}>{r.vdPercent.toFixed(3)}%</td>
-                                        
-                                        <td style={{ width: busbarColWidths.actions, minWidth: busbarColWidths.actions, maxWidth: busbarColWidths.actions }} className="text-center p-0">
-                                         <div className="flex items-center justify-center gap-1 px-1">
-                                           {(() => {
-                                             const { isAutoFlagged, isFlagged, warnings } = getBusbarRowValidation(r, r.vdPercent);
-                                             const tooltipText = isFlagged
-                                               ? warnings.length > 0
-                                                 ? `Flagged for review. Warning(s): ${warnings.join(", ")}`
-                                                 : "Flagged for manual review"
-                                               : "Flag tap off for review";
+                                    const rowValidation = getBusbarRowValidation(r, r.vdPercent);
+                                      const isRowFlagged = rowValidation.isFlagged;
+                                      const isSelected = selectedRows.has(r.id);
+                                      const isCellInteractive = isSelected && !isApproved;
 
-                                             return (
-                                               <button 
-                                                 onClick={(e) => {
-                                                   e.stopPropagation();
-                                                   toggleFlagRows(r.id, isFlagged);
-                                                 }} 
-                                                 className={`p-1 rounded transition-colors cursor-pointer ${
-                                                   isFlagged
-                                                     ? "bg-red-500/10 text-red-600 dark:bg-red-500/20 dark:text-red-400 hover:bg-red-500/20"
-                                                     : "text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
-                                                 }`}
-                                                 title={tooltipText}
-                                               >
-                                                 <Flag className={`size-3.5 ${isFlagged ? "fill-red-500 text-red-500" : ""}`} />
-                                               </button>
-                                             );
-                                           })()}
-                                         </div>
-                                       </td>
-                                     </tr>
+                                      return (
+                                      <tr 
+                                        key={r.id} 
+                                        id={`busbar-row-${r.id}`} 
+                                        data-row-id={r.id}
+                                        className={cn(
+                                          "h-[30px] border-b border-border/60 hover:bg-row-hover text-[13.5px] transition-colors cursor-pointer select-none",
+                                          editingRow?.row.id === r.id
+                                            ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
+                                            : editingRow !== null
+                                            ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
+                                            : isSelected
+                                            ? "bg-row-selected bg-primary/15 font-medium"
+                                            : isRowFlagged
+                                            ? "bg-red-500/[0.04] dark:bg-red-500/[0.08]"
+                                            : ""
+                                        )}
+                                        onDoubleClick={(e) => {
+                                          const target = e.target as HTMLElement;
+                                          if (target.closest("button")) return;
+                                          if (isApproved) return;
+                                          setSelectedRows(new Set([r.id]));
+                                          setEditingRow({ row: r, panelId: panel.id, sectionId: section.id });
+                                        }}
+                                        onClick={(e) => {
+                                          const target = e.target as HTMLElement;
+                                          if (
+                                            target.closest('button[title*="comment"]') ||
+                                            target.closest('.mep-comment-badge') ||
+                                            target.closest('button')
+                                          ) {
+                                            return;
+                                          }
+                                          if (!isSelected) {
+                                            toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                          }
+                                        }}
+                                        onContextMenu={(e) => {
+                                          e.preventDefault();
+                                          if (!selectedRows.has(r.id)) {
+                                            toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                          }
+                                          setContextMenu({
+                                            x: e.clientX,
+                                            y: e.clientY,
+                                            panelId: panel.id,
+                                            sectionId: section.id,
+                                            rowId: r.id
+                                          });
+                                        }}
+                                      >
+                                          {/* Serial Number Column (Matching Ventilation) */}
+                                          <td
+                                            style={getBusbarColStyle("select")}
+                                            className={cn(
+                                              "px-1 py-0 h-[30px] text-center border-r border-border/40 relative select-none cursor-pointer transition-colors duration-150",
+                                              isSelected
+                                                ? "bg-primary/15 text-primary font-bold shadow-inner"
+                                                : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
+                                            )}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (isApproved) {
+                                                toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+                                                return;
+                                              }
+                                              toggleRowSelect(r.id, e.shiftKey, true);
+                                            }}
+                                            title={isSelected ? `Row ${idx + 1} selected. Click to deselect.` : `Click to select row ${idx + 1}.`}
+                                          >
+                                            {(() => {
+                                              const itemComments = getMergedItemComments(r.id, r.desc || r.from || `Tap Off ${r.ref || r.id}`, r.comments, "/busbar-calculation", project?.id);
+                                              if (!itemComments || itemComments.length === 0) return null;
+                                              return (
+                                                <RowCommentCornerBadge
+                                                  id={r.id}
+                                                  count={itemComments.length}
+                                                  position="left"
+                                                  onClick={() => handleOpenComment(r)}
+                                                  title={`${itemComments.length} comment(s)/task(s) assigned to "${r.desc || r.from || `Tap Off ${r.ref || r.id}`}"`}
+                                                />
+                                              );
+                                            })()}
+                                            <span className="text-[11px] font-mono leading-none tracking-tight">
+                                              {idx + 1}
+                                            </span>
+                                          </td>
+
+                                          {/* Description */}
+                                          <td 
+                                            style={getBusbarColStyle("desc")} 
+                                            className={cn("p-0 h-[30px] border-r border-border/40 relative", !isSelected && !isApproved ? "cursor-pointer hover:bg-primary/5 transition-colors" : "")}
+                                            onClick={(e) => {
+                                              if (!isSelected) {
+                                                e.stopPropagation();
+                                                toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                              }
+                                            }}
+                                            title={!isSelected && !isApproved ? "Click to select row, click again to edit" : undefined}
+                                          >
+                                            <div className={cn("flex items-center gap-1.5 w-full h-full px-1", !isCellInteractive && "pointer-events-none select-none")}>
+                                              <input 
+                                                disabled={isApproved}
+                                                data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={0} 
+                                                onKeyDown={(e) => handleKeyDown(e, 0)} 
+                                                type="text" 
+                                                onClick={(e) => e.stopPropagation()} 
+                                                onMouseDown={(e) => e.stopPropagation()} 
+                                                className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded font-medium text-[13.5px] text-foreground transition-colors flex-1 cursor-text disabled:opacity-60 disabled:cursor-not-allowed" 
+                                                value={r.desc} 
+                                                onChange={e => updateRow(panel.id, section.id, r.id, "desc", e.target.value)} 
+                                              />
+                                            </div>
+                                          </td>
+
+                                          {/* Length */}
+                                          <td 
+                                            style={getBusbarColStyle("len")} 
+                                            className={cn("p-0 h-[30px] border-r border-border/40 relative", !isSelected && !isApproved ? "cursor-pointer hover:bg-primary/5 transition-colors" : "")}
+                                            onClick={(e) => {
+                                              if (!isSelected) {
+                                                e.stopPropagation();
+                                                toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                              }
+                                            }}
+                                            title={!isSelected && !isApproved ? "Click to select row, click again to edit" : undefined}
+                                          >
+                                            <div className={cn("flex items-center w-full h-full", !isCellInteractive && "pointer-events-none select-none")}>
+                                              <input 
+                                                disabled={isApproved}
+                                                data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={1} 
+                                                onKeyDown={(e) => handleKeyDown(e, 1)} 
+                                                type="number" step="0.1" 
+                                                onClick={(e) => e.stopPropagation()} 
+                                                onMouseDown={(e) => e.stopPropagation()} 
+                                                className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text disabled:opacity-60 disabled:cursor-not-allowed" 
+                                                value={r.length} 
+                                                onChange={e => updateRow(panel.id, section.id, r.id, "length", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
+                                              />
+                                            </div>
+                                          </td>
+
+                                          {/* Load kW */}
+                                          <td 
+                                            style={getBusbarColStyle("loadKw")} 
+                                            className={cn("p-0 h-[30px] border-r border-border/40 relative", !isSelected && !isApproved ? "cursor-pointer hover:bg-primary/5 transition-colors" : "")}
+                                            onClick={(e) => {
+                                              if (!isSelected) {
+                                                e.stopPropagation();
+                                                toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                              }
+                                            }}
+                                            title={!isSelected && !isApproved ? "Click to select row, click again to edit" : undefined}
+                                          >
+                                            <div className={cn("flex items-center w-full h-full", !isCellInteractive && "pointer-events-none select-none")}>
+                                              <input 
+                                                disabled={isApproved}
+                                                data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={2} 
+                                                onKeyDown={(e) => handleKeyDown(e, 2)} 
+                                                type="number" step="0.1" 
+                                                onClick={(e) => e.stopPropagation()} 
+                                                onMouseDown={(e) => e.stopPropagation()} 
+                                                className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text disabled:opacity-60 disabled:cursor-not-allowed" 
+                                                value={r.loadKw} 
+                                                onChange={e => updateRow(panel.id, section.id, r.id, "loadKw", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
+                                              />
+                                            </div>
+                                          </td>
+                                          
+                                          {/* TCL kW (Calculated) */}
+                                          <td 
+                                            style={getBusbarColStyle("tclKw")} 
+                                            className="px-2 py-0 h-[30px] text-center font-mono tabular text-[13.5px] font-semibold bg-surface-2 text-foreground cursor-pointer border-r border-border/40"
+                                            onClick={(e) => {
+                                              if (!isSelected) {
+                                                e.stopPropagation();
+                                                toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                              }
+                                            }}
+                                          >
+                                            {r.tcl.toFixed(2)}
+                                          </td>
+                                          
+                                          {/* Diversity */}
+                                          <td 
+                                            style={getBusbarColStyle("div")} 
+                                            className={cn("p-0 h-[30px] border-r border-border/40 relative", !isSelected && !isApproved ? "cursor-pointer hover:bg-primary/5 transition-colors" : "")}
+                                            onClick={(e) => {
+                                              if (!isSelected) {
+                                                e.stopPropagation();
+                                                toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                              }
+                                            }}
+                                            title={!isSelected && !isApproved ? "Click to select row, click again to edit" : undefined}
+                                          >
+                                            <div className={cn("flex items-center w-full h-full", !isCellInteractive && "pointer-events-none select-none")}>
+                                              <input 
+                                                disabled={isApproved}
+                                                data-pan={pIdx} data-sec={sIdx} data-row={idx} data-col={3} 
+                                                onKeyDown={(e) => handleKeyDown(e, 3)} 
+                                                type="number" step="0.01" max="1" 
+                                                onClick={(e) => e.stopPropagation()} 
+                                                onMouseDown={(e) => e.stopPropagation()} 
+                                                className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text disabled:opacity-60 disabled:cursor-not-allowed" 
+                                                value={r.div} 
+                                                onChange={e => updateRow(panel.id, section.id, r.id, "div", e.target.value === "" ? "" : (parseFloat(e.target.value) || 0))} 
+                                              />
+                                            </div>
+                                          </td>
+                                          
+                                          {/* MD kW */}
+                                          <td 
+                                            style={getBusbarColStyle("mdKw")} 
+                                            className="px-2 py-0 h-[30px] text-center font-mono tabular text-[13.5px] font-semibold bg-surface-2 text-foreground cursor-pointer border-r border-border/40"
+                                            onClick={(e) => {
+                                              if (!isSelected) {
+                                                e.stopPropagation();
+                                                toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                              }
+                                            }}
+                                          >
+                                            {r.md.toFixed(2)}
+                                          </td>
+
+                                          {/* Current A */}
+                                          <td 
+                                            style={getBusbarColStyle("curA")} 
+                                            className="px-2 py-0 h-[30px] text-center font-mono tabular text-[13.5px] font-semibold bg-surface-2 text-foreground cursor-pointer border-r border-border/40"
+                                            onClick={(e) => {
+                                              if (!isSelected) {
+                                                e.stopPropagation();
+                                                toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                              }
+                                            }}
+                                          >
+                                            {r.current.toFixed(2)}
+                                          </td>
+
+                                          {/* VD V */}
+                                          <td 
+                                            style={getBusbarColStyle("vdV")} 
+                                            className="px-2 py-0 h-[30px] text-center font-mono tabular text-[13.5px] text-primary font-medium cursor-pointer border-r border-border/40"
+                                            onClick={(e) => {
+                                              if (!isSelected) {
+                                                e.stopPropagation();
+                                                toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                              }
+                                            }}
+                                          >
+                                            {r.vd.toFixed(2)}
+                                          </td>
+
+                                          {/* VD % */}
+                                          <td 
+                                            style={getBusbarColStyle("vdPct")} 
+                                            className={cn(
+                                              "px-2 py-0 h-[30px] text-center font-mono tabular text-[13.5px] font-medium cursor-pointer border-r border-border/40",
+                                              r.vdPercent > 2.5 ? "text-destructive bg-destructive/5" : "text-primary"
+                                            )}
+                                            onClick={(e) => {
+                                              if (!isSelected) {
+                                                e.stopPropagation();
+                                                toggleRowSelect(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                              }
+                                            }}
+                                          >
+                                            {r.vdPercent.toFixed(3)}
+                                          </td>
+                                          
+                                          {/* Actions: Flag only (Matching Ventilation, Pencil removed) */}
+                                          <td style={getBusbarColStyle("actions")} className="text-center p-0 h-[30px]">
+                                            <div className="flex items-center justify-center px-1 h-full">
+                                              {(() => {
+                                                const { isFlagged, warnings } = getBusbarRowValidation(r, r.vdPercent);
+                                                return (
+                                                  <button 
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      toggleFlagRows(r.id, isFlagged);
+                                                    }} 
+                                                    className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+                                                    title={isFlagged ? "Unflag tap off" : (warnings.length > 0 ? `Flagged: ${warnings.join(", ")}` : "Flag tap off for review")}
+                                                  >
+                                                    <Flag
+                                                      className={cn(
+                                                        "size-3.5 transition-all duration-200",
+                                                        isFlagged
+                                                          ? "fill-red-500 text-red-500 scale-110"
+                                                          : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+                                                      )}
+                                                    />
+                                                  </button>
+                                                );
+                                              })()}
+                                            </div>
+                                          </td>
+                                      </tr>
                                     );
                                   });
                                 })()}
@@ -2340,47 +2861,120 @@ function BusbarCalculationPage() {
             );
           })}
         </div>
+
+        {/* Table Footer Summary Bar */}
+        <div className="flex items-center justify-between px-4 h-8 border-t border-border bg-header-bg/80 text-[11.5px] text-muted-foreground shrink-0 select-none no-print modal-blur-bg">
+          <div>
+            Showing <span className="text-foreground font-semibold tabular">{footerStats.isFiltered ? footerStats.totalFilteredTapOffs : footerStats.totalAllTapOffs}</span> tap-off(s)
+            {footerStats.isFiltered && (
+              <> of <span className="tabular">{footerStats.totalAllTapOffs}</span></>
+            )} across {footerStats.totalSectionsCount} busbar(s) in {footerStats.totalPanelsCount} panel(s)
+          </div>
+          <div className="flex items-center gap-4 tabular">
+            <span>
+              Σ Total Load:{" "}
+              <strong className="font-mono text-foreground font-bold">
+                {footerStats.totalTclKw.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kW
+                {footerStats.totalTclKw >= 1000 && ` (${(footerStats.totalTclKw / 1000).toFixed(2)} MW)`}
+              </strong>
+            </span>
+            <span>
+              Σ Max Demand:{" "}
+              <strong className="font-mono text-foreground font-bold">
+                {footerStats.totalDemandKw.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kW
+              </strong>
+            </span>
+            <span>
+              Σ Busbar Length:{" "}
+              <strong className="font-mono text-foreground font-bold">
+                {footerStats.totalRunLength.toFixed(1)} {unitSystem === "ip" ? "ft" : "m"}
+              </strong>
+            </span>
+            <span>
+              Max V.Drop:{" "}
+              <strong
+                className={cn(
+                  "font-mono font-bold",
+                  footerStats.maxVdPercent > 2.5
+                    ? "text-destructive"
+                    : footerStats.maxVdPercent > 2.0
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-primary"
+                )}
+              >
+                {footerStats.maxVdPercent.toFixed(3)}%
+              </strong>
+            </span>
+            <span>
+              Compliance:{" "}
+              <strong
+                className={cn(
+                  "font-mono font-bold",
+                  footerStats.complianceRate >= 100
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : footerStats.complianceRate >= 80
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-destructive"
+                )}
+              >
+                {footerStats.complianceRate}% {footerStats.complianceRate >= 100 ? "PASS" : "FAIL"}
+              </strong>
+            </span>
+          </div>
+        </div>
+          </>
+        ) : (
+          <BusbarReportView
+            panels={panels}
+            flatCalculatedSections={flatCalculatedSections}
+            unitSystem={unitSystem}
+            project={project}
+            calcReviewState={calcReviewState}
+            currentUserName={currentUserName}
+            onExportPdf={exportPdf}
+            allBusbarData={ALL_BUSBAR_DATA}
+          />
+        )}
       </div>
+    </div>
+  </div>
+
+        {/* Busbar Sizing Intelligence Drawer */}
+        <div
+          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
+            intelOpen
+              ? "w-[360px] mt-2 mb-0 ml-4 mr-0.5 border border-border rounded-2xl bg-card shadow-lg flex flex-col"
+              : "w-0"
+          }`}
+        >
+          {intelOpen && (
+            <BusbarIntelligenceDrawer
+              panels={panels}
+              flatCalculatedSections={flatCalculatedSections}
+              selectedRowIds={selectedRows}
+              onClose={() => setIntelOpen(false)}
+              onUpdateSectionRating={(panelId, sectionId, newRatingId) => {
+                updateSection(panelId, sectionId, "ratingId", newRatingId);
+              }}
+              onOpenEditModal={(r, panelId, sectionId) => {
+                setSelectedRows(new Set([r.id]));
+                setEditingRow({ row: r, panelId, sectionId });
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {/* Floating Right-Click Context Menu */}
       {contextMenu && (
         <div
-          className="fixed z-50 bg-white dark:bg-slate-900 border border-border rounded-xl shadow-xl py-1.5 text-xs font-bold text-foreground w-48 select-none"
-          style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+          className="fixed z-50 w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground select-none animate-in fade-in zoom-in-95 duration-100"
+          style={{ top: `${Math.min(contextMenu.y, window.innerHeight - 260)}px`, left: `${Math.min(contextMenu.x, window.innerWidth - 270)}px` }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="px-3 py-1 text-[10.5px] text-muted-foreground border-b border-border/60 uppercase">
-            Options ({selectedRows.has(contextMenu.rowId) ? selectedRows.size : 1} selected)
-          </div>
+          {/* Add Comment - AT THE TOP with blue ventilation styling */}
           <button
-            onClick={() => {
-              if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setContextMenu(null); return; }
-              const idsToCopy = selectedRows.has(contextMenu.rowId) ? Array.from(selectedRows) : [contextMenu.rowId];
-              pushToUndo(panels);
-              copyRows(idsToCopy);
-              pasteRows();
-              setContextMenu(null);
-            }}
-            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium"
-          >
-            <Copy className="size-3.5 text-[#0A7BC7]" /> Duplicate Row(s)
-          </button>
-          <button
-            onClick={() => {
-              if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setContextMenu(null); return; }
-              const inputEl = document.querySelector(`tr[data-row-id="${contextMenu.rowId}"] input[type="text"]`) as HTMLInputElement;
-              if (inputEl) {
-                inputEl.focus();
-                inputEl.select();
-              }
-              setContextMenu(null);
-            }}
-            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium"
-          >
-            <Edit3 className="size-3.5 text-amber-500" /> Edit Parameters
-          </button>
-          <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               let targetRow: any = null;
@@ -2398,12 +2992,50 @@ function BusbarCalculationPage() {
               handleOpenComment(rowToComment);
               setContextMenu(null);
             }}
-            className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-blue-600 dark:text-blue-400 rounded"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium transition-colors"
           >
             <MessageSquare className="size-3.5" />
             <span>Add Comment</span>
           </button>
+
+          {/* Edit Parameters */}
           <button
+            type="button"
+            onClick={() => {
+              if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setContextMenu(null); return; }
+              let target: { row: any; panelId: string; sectionId: string } | null = null;
+              for (const p of panels) {
+                for (const s of p.sections) {
+                  const r = s.rows.find(row => row.id === contextMenu.rowId);
+                  if (r) {
+                    target = { row: r, panelId: p.id, sectionId: s.id };
+                    break;
+                  }
+                }
+                if (target) break;
+              }
+              if (target) {
+                setSelectedRows(new Set([contextMenu.rowId]));
+                setEditingRow(target);
+              } else {
+                const inputEl = document.querySelector(`tr[data-row-id="${contextMenu.rowId}"] input[type="text"]`) as HTMLInputElement;
+                if (inputEl) {
+                  inputEl.focus();
+                  inputEl.select();
+                }
+              }
+              setContextMenu(null);
+            }}
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
+          >
+            <Edit3 className="size-3.5 text-muted-foreground" />
+            <span>Edit Parameters</span>
+            <span className="text-[10px] text-muted-foreground font-mono ml-auto pl-3 whitespace-nowrap text-right">Double Click</span>
+          </button>
+
+          {/* Flag / Unflag Tap Off */}
+          <button
+            type="button"
             onClick={() => {
               if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setContextMenu(null); return; }
               let isCurrentlyFlagged = false;
@@ -2413,12 +3045,37 @@ function BusbarCalculationPage() {
               toggleFlagRows(contextMenu.rowId, isCurrentlyFlagged);
               setContextMenu(null);
             }}
-            className="w-full px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-medium text-red-600 dark:text-red-400"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
           >
-            <Flag className="size-3.5" /> Flag / Unflag Row(s)
+            <Flag className="size-3.5 text-muted-foreground" />
+            <span>{selectedRows.has(contextMenu.rowId) && selectedRows.size > 1 ? "Flag / Unflag Selected" : "Flag / Unflag Tap Off"}</span>
           </button>
-          <div className="my-1 border-t border-border/60"></div>
+
+          <div className="h-px bg-border my-1" />
+
+          {/* Duplicate Row(s) */}
           <button
+            type="button"
+            onClick={() => {
+              if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setContextMenu(null); return; }
+              const idsToCopy = selectedRows.has(contextMenu.rowId) ? Array.from(selectedRows) : [contextMenu.rowId];
+              pushToUndo(panels);
+              copyRows(idsToCopy);
+              pasteRows();
+              setContextMenu(null);
+            }}
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
+          >
+            <CopyPlus className="size-3.5 text-muted-foreground" />
+            <span>{selectedRows.has(contextMenu.rowId) && selectedRows.size > 1 ? `Duplicate Selected (${selectedRows.size})` : "Duplicate Tap Off"}</span>
+            <span className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+D</span>
+          </button>
+
+          <div className="h-px bg-border my-1" />
+
+          {/* Delete Row(s) */}
+          <button
+            type="button"
             onClick={() => {
               if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setContextMenu(null); return; }
               const idsToDelete = selectedRows.has(contextMenu.rowId) ? Array.from(selectedRows) : [contextMenu.rowId];
@@ -2434,9 +3091,11 @@ function BusbarCalculationPage() {
               setContextMenu(null);
               toast.info(`Deleted ${idsToDelete.length} row(s)`);
             }}
-            className="w-full px-3 py-2 text-left hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 flex items-center gap-2 cursor-pointer border-0 bg-transparent font-semibold"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium transition-colors"
           >
-            <Trash2 className="size-3.5" /> Delete Row(s)
+            <Trash2 className="size-3.5" />
+            <span>{selectedRows.has(contextMenu.rowId) && selectedRows.size > 1 ? `Delete Selected (${selectedRows.size})` : "Delete Tap Off"}</span>
+            <span className="text-[10px] text-destructive/80 font-mono ml-auto">Delete</span>
           </button>
         </div>
       )}
@@ -2491,10 +3150,10 @@ function BusbarCalculationPage() {
 
             if (project?.id) {
               try {
-                let wdata = project.workspace_data || {};
+                let wdata = (project as any).workspace_data || {};
                 if (typeof wdata === 'string') { try { wdata = JSON.parse(wdata); } catch(e) {} }
                 wdata.busbar_calc = { panels: nextPanels, updatedAt: new Date().toISOString() };
-                api.updateProject(project.id, { workspace_data: wdata }).catch(console.error);
+                if (updateProject) updateProject({ ...project, workspace_data: wdata });
               } catch(e) {}
             }
           }}
@@ -2516,6 +3175,7 @@ function BusbarCalculationPage() {
             rowIndex={rIndex >= 0 ? rIndex + 1 : 1}
             sectionName={panels.find(p => p.id === editingRow.panelId)?.sections.find(s => s.id === editingRow.sectionId)?.name}
             panelName={panels.find(p => p.id === editingRow.panelId)?.name}
+            availablePanels={panels.map(p => p.name)}
             ratingOptions={Object.entries(ALL_BUSBAR_DATA).map(([id, data]) => ({
               id,
               label: data.label,
@@ -2528,13 +3188,70 @@ function BusbarCalculationPage() {
             onClose={() => setEditingRow(null)}
             onSave={(updated) => {
               if (isApproved) { toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" }); setEditingRow(null); return; }
-              if (updated.desc !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "desc", updated.desc);
-              if (updated.length !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "length", updated.length);
-              if (updated.loadKw !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "loadKw", updated.loadKw);
-              if (updated.div !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "div", updated.div);
-              if (updated.ratingId !== undefined) updateSection(editingRow.panelId, editingRow.sectionId, "ratingId", updated.ratingId);
-              if (updated.volts !== undefined) updateSection(editingRow.panelId, editingRow.sectionId, "volts", updated.volts);
-              if (updated.pf !== undefined) updateSection(editingRow.panelId, editingRow.sectionId, "pf", updated.pf);
+              const currentPanel = panels.find((p) => p.id === editingRow.panelId);
+              const targetPanelName = updated.panelName ? String(updated.panelName).trim() : "";
+              if (targetPanelName && currentPanel && targetPanelName.toLowerCase() !== currentPanel.name.toLowerCase()) {
+                setPanels((prevPanels) => {
+                  const movedRow = {
+                    ...editingRow.row,
+                    desc: updated.desc !== undefined ? updated.desc : editingRow.row.desc,
+                    length: updated.length !== undefined ? updated.length : editingRow.row.length,
+                    loadKw: updated.loadKw !== undefined ? updated.loadKw : editingRow.row.loadKw,
+                    div: updated.div !== undefined ? updated.div : editingRow.row.div,
+                    flagged: updated.flagged !== undefined ? updated.flagged : editingRow.row.flagged,
+                  };
+                  let updatedPanels = prevPanels.map((p) => {
+                    if (p.id === editingRow.panelId) {
+                      return {
+                        ...p,
+                        sections: p.sections.map((s) => {
+                          if (s.id === editingRow.sectionId) {
+                            return { ...s, rows: s.rows.filter((r) => r.id !== editingRow.row.id) };
+                          }
+                          return s;
+                        }),
+                      };
+                    }
+                    return p;
+                  });
+                  const destPanel = updatedPanels.find((p) => p.name.trim().toLowerCase() === targetPanelName.toLowerCase());
+                  if (destPanel) {
+                    updatedPanels = updatedPanels.map((p) => {
+                      if (p.id === destPanel.id) {
+                        return {
+                          ...p,
+                          sections: p.sections.map((s, idx) => (idx === 0 ? { ...s, rows: [...s.rows, movedRow] } : s)),
+                        };
+                      }
+                      return p;
+                    });
+                  } else {
+                    const newPan: LVPanel = {
+                      id: `pan_${Date.now()}`,
+                      name: targetPanelName,
+                      sections: [{
+                        id: `sec_${Date.now()}`,
+                        name: "BB-1",
+                        ratingId: updated.ratingId || "2500_rt",
+                        volts: updated.volts || 415,
+                        pf: updated.pf || 0.8,
+                        rows: [movedRow],
+                      }],
+                    };
+                    updatedPanels.push(newPan);
+                  }
+                  return updatedPanels;
+                });
+              } else {
+                if (updated.desc !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "desc", updated.desc);
+                if (updated.length !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "length", updated.length);
+                if (updated.loadKw !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "loadKw", updated.loadKw);
+                if (updated.div !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "div", updated.div);
+                if (updated.ratingId !== undefined) updateSection(editingRow.panelId, editingRow.sectionId, "ratingId", updated.ratingId);
+                if (updated.volts !== undefined) updateSection(editingRow.panelId, editingRow.sectionId, "volts", updated.volts);
+                if (updated.pf !== undefined) updateSection(editingRow.panelId, editingRow.sectionId, "pf", updated.pf);
+                if (updated.flagged !== undefined) updateRow(editingRow.panelId, editingRow.sectionId, editingRow.row.id, "flagged", updated.flagged);
+              }
               setEditingRow(null);
             }}
           />
@@ -2547,6 +3264,900 @@ function BusbarCalculationPage() {
           onClose={() => setSyncModalOpen(false)}
         />
       )}
+
+      
+
+      <input
+        ref={excelInputRef}
+        type="file"
+        accept=".xlsx,.xls,.csv"
+        onChange={handleExcelFileChange}
+        className="hidden"
+      />
+
+      <ImportSourceModal
+        isOpen={showImportSourceModal}
+        onClose={() => setShowImportSourceModal(false)}
+        title="Import Busbar Schedule"
+        subtitle="Select data source to generate schedule"
+        excelTitle="Import from Excel (.xlsx)"
+        excelSubtitle="Upload schedule or spreadsheet formatted with Panel, Busbar, Tap Off, Length & Load."
+        viewerTitle="Import from 3D Studio"
+        viewerSubtitle="Extract spatial geometry, room names, levels, and floor areas directly from active 3D model."
+        viewerBadge="3D Studio"
+        sync3DTitle="Sync 3D & Load Summary"
+        sync3DSubtitle="Automatically generate vertical busduct riser from 3D Studio floor heights & Load Summary active kW."
+        sync3DBadge="3D & Load Summary"
+        onSelectExcel={() => {
+          if (excelInputRef.current) {
+            excelInputRef.current.value = "";
+            excelInputRef.current.click();
+          }
+        }}
+        onSelect3DViewer={handleSync3DAndLoadSummary}
+        onSelectSync3DAndLoadSummary={handleSync3DAndLoadSummary}
+        footerNote="Automatic code baseline & space classification applied"
+      />
+      {/* Formula Breakdown Modal */}
+      {showFormulaModal && (
+        <BusbarFormulaBreakdownModal
+          onClose={() => setShowFormulaModal(false)}
+          unitSystem={unitSystem}
+          panels={panels}
+          flatCalculatedSections={flatCalculatedSections}
+        />
+      )}
+
+      {/* Add LV Panel Modal */}
+      {showAddPanelModal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-150"
+          onClick={() => setShowAddPanelModal(false)}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-background border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-surface-1">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                  <Layers className="size-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">Add New LV Panel</h3>
+                  <p className="text-[11px] text-muted-foreground">Configure main low-voltage distribution board and busbar riser</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddPanelModal(false)}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleAddPanelSubmit} className="p-5 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground flex items-center justify-between">
+                  <span>LV Panel Name</span>
+                  <span className="text-[10px] text-muted-foreground font-mono">Required</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={newPanelName}
+                  onChange={(e) => setNewPanelName(e.target.value)}
+                  placeholder="e.g. LV PANEL-2 or MDB - RISER BUSDUCT"
+                  className="w-full h-9 px-3 text-xs bg-background border border-border rounded-lg text-foreground font-medium focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground flex items-center justify-between">
+                  <span>Initial Busbar Reference</span>
+                  <span className="text-[10px] text-muted-foreground font-mono">Section Ref</span>
+                </label>
+                <input
+                  type="text"
+                  value={newSectionName}
+                  onChange={(e) => setNewSectionName(e.target.value)}
+                  placeholder="e.g. BB-1 or BB-RISER-01"
+                  className="w-full h-9 px-3 text-xs bg-background border border-border rounded-lg text-foreground font-medium focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">
+                  Standard Busbar Rating
+                </label>
+                <select
+                  value={newRatingId}
+                  onChange={(e) => setNewRatingId(e.target.value)}
+                  className="w-full h-9 px-2.5 text-xs bg-background border border-border rounded-lg text-foreground font-medium focus:ring-1 focus:ring-primary focus:border-primary outline-none cursor-pointer"
+                >
+                  {Object.entries(ALL_BUSBAR_DATA).map(([id, data]) => (
+                    <option key={id} value={id}>
+                      {data.label} (R: {data.r.toFixed(4)}, X: {data.x.toFixed(4)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground">
+                    System Volts (V)
+                  </label>
+                  <input
+                    type="number"
+                    value={newVolts}
+                    onChange={(e) => setNewVolts(e.target.value === "" ? "" : Number(e.target.value))}
+                    placeholder="415"
+                    className="w-full h-9 px-3 text-xs bg-background border border-border rounded-lg text-foreground font-medium focus:ring-1 focus:ring-primary focus:border-primary outline-none font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground">
+                    Power Factor (PF)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.5"
+                    max="1.0"
+                    value={newPf}
+                    onChange={(e) => setNewPf(e.target.value === "" ? "" : Number(e.target.value))}
+                    placeholder="0.8"
+                    className="w-full h-9 px-3 text-xs bg-background border border-border rounded-lg text-foreground font-medium focus:ring-1 focus:ring-primary focus:border-primary outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setShowAddPanelModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-surface-2 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="size-3.5" />
+                  Create LV Panel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AppShell>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Preliminary Engineering Report Component (Matching Preliminary Cooling Load Standard)
+// ─────────────────────────────────────────────────────────────────────────────
+function BusbarReportView({
+  panels,
+  flatCalculatedSections,
+  unitSystem,
+  project,
+  calcReviewState,
+  currentUserName,
+  onExportPdf,
+  allBusbarData,
+}: {
+  panels: any[];
+  flatCalculatedSections: any[];
+  unitSystem: "si" | "ip";
+  project: any;
+  calcReviewState: CalculationReviewState | null;
+  currentUserName: string;
+  onExportPdf: () => void;
+  allBusbarData?: Record<string, { r: number; x: number; label: string }>;
+}) {
+  const ip = unitSystem === "ip";
+  const lenUnit = ip ? "ft" : "m";
+
+  const sigDetails = getSignatureBlockDetails(project?.id || "default", "/busbar-calculation", currentUserName, calcReviewState);
+
+  const calcNo = (project as any)?.calcNo || "TRV-CAL-BB-001";
+  const today = formatDateStr(new Date().toISOString());
+  const projectNo = project?.code || (project as any)?.projectNo || "P000";
+  const projectName = project?.name || (project as any)?.projectName || "Busbar Trunking System Sizing";
+  const clientName = project?.client || "-";
+  const endUser = (project as any)?.endUser || (project as any)?.location || "-";
+
+  let totalRunLength = 0;
+  let totalConnectedKw = 0;
+  let totalDesignIb = 0;
+  let maxVdObserved = 0;
+  let totalTapOffsCount = 0;
+
+  flatCalculatedSections.forEach((sec) => {
+    totalRunLength += sec.busbarLength || 0;
+    totalConnectedKw += sec.totalConnectedLoad || 0;
+    totalDesignIb += sec.totalDesignCurrent || 0;
+    if ((sec.maxVdPct || 0) > maxVdObserved) maxVdObserved = sec.maxVdPct || 0;
+    totalTapOffsCount += (sec.calcRows || []).length;
+  });
+
+  let globalSrNo = 1;
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Printable Sheet View */}
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+        <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
+          
+          {/* 1. Title (Exact Preliminary format with Calculation keyword) */}
+          <div className="pb-1">
+            <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+              Busbar Sizing Calculation
+            </h2>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              Low Voltage Busbar Trunking System (BBT) Sizing, Tap-Off Distribution & Voltage Drop Analysis (IEC 61439-6)
+            </p>
+          </div>
+
+          {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format) */}
+          <div className="border border-border rounded-xl overflow-hidden text-xs">
+            <table className="w-full border-collapse">
+              <tbody>
+                <tr className="border-b border-border divide-x divide-border">
+                  <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                  <td className="p-2.5 font-mono text-foreground font-medium">{calcNo}</td>
+                  <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                  <td className="p-2.5 font-mono font-medium">{today}</td>
+                </tr>
+                <tr className="border-b border-border divide-x divide-border">
+                  <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                  <td className="p-2.5 font-mono">{projectNo}</td>
+                  <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                  <td className="p-2.5">{clientName}</td>
+                </tr>
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                  <td className="p-2.5">{projectName}</td>
+                  <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                  <td className="p-2.5">{endUser}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* 3. Busbar Sizing & Tap-Off Schedule Table */}
+          <div className="border border-border rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                  <th rowSpan={2} className="p-2 border-r border-border w-12 text-center">
+                    Sr.<br />No.
+                  </th>
+                  <th colSpan={3} className="p-2 border-r border-border text-center">
+                    Busbar Section & Tap-Off Details
+                  </th>
+                  <th colSpan={3} className="p-2 border-r border-border text-center">
+                    Electrical Load Parameters
+                  </th>
+                  <th colSpan={3} className="p-2 text-center">
+                    Voltage Drop & Compliance
+                  </th>
+                </tr>
+                <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                  <th className="p-2 border-r border-border text-left min-w-[130px]">Panel / Busbar Section</th>
+                  <th className="p-2 border-r border-border text-left min-w-[120px]">Tap-Off / Floor</th>
+                  <th className="p-2 border-r border-border w-24 text-center">Distance ({lenUnit})</th>
+                  <th className="p-2 border-r border-border w-24 text-center">Load (kW)</th>
+                  <th className="p-2 border-r border-border w-24 text-center">Current Ib (A)</th>
+                  <th className="p-2 border-r border-border w-24 text-center">PF (cos φ)</th>
+                  <th className="p-2 border-r border-border w-24 text-center">ΔV (V)</th>
+                  <th className="p-2 border-r border-border w-24 text-center">Cumul. VD (%)</th>
+                  <th className="p-2 w-24 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {flatCalculatedSections.map((sec) => {
+                  const busbarLookup = allBusbarData || COPPER_BUSBAR_DATA;
+                  const ratingLabel = busbarLookup[sec.ratingId]?.label || sec.ratingId;
+                  const rows = sec.calcRows || [];
+
+                  return (
+                    <React.Fragment key={sec.id}>
+                      {/* Section Header Row */}
+                      <tr className="bg-slate-100/70 dark:bg-zinc-800/60 font-bold border-t border-b border-border">
+                        <td colSpan={10} className="p-2 text-foreground">
+                          {sec.panelName || "Panel"} · {sec.name} ({ratingLabel}) · Total Length: {(sec.totalLength || sec.busbarLength || (rows.reduce((sum, rx) => sum + (Number(rx.length) || 0), 0))).toFixed(1)} {lenUnit}
+                        </td>
+                      </tr>
+
+                      {rows.map((r: any) => (
+                        <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                          <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">
+                            {globalSrNo++}
+                          </td>
+                          <td className="p-2 border-r border-border font-bold text-foreground">
+                            {sec.name}
+                          </td>
+                          <td className="p-2 border-r border-border">
+                            <span className="font-semibold text-foreground">{r.floor || "-"}</span> - {r.description || r.desc || "Tap Off"}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono">
+                            {(Number(r.length) || 0).toFixed(1)}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono font-semibold">
+                            {(Number(r.loadKw) || 0).toFixed(2)}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono">
+                            {(Number(r.current ?? r.designCurrent ?? 0)).toFixed(1)} A
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">
+                            {(Number(r.pf) || 0.85).toFixed(2)}
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono">
+                            {(Number(r.vd ?? r.cumulativeVd ?? 0)).toFixed(3)} V
+                          </td>
+                          <td className="p-2 border-r border-border text-center font-mono font-bold text-primary">
+                            {(Number(r.vdPercent ?? r.cumulativeVdPct ?? 0)).toFixed(3)}%
+                          </td>
+                          <td className="p-2 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${r.isCompliant ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-rose-500/10 text-rose-600 dark:text-rose-400"}`}>
+                              {r.isCompliant ? "PASS" : "FAIL"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {/* Section Subtotal Row */}
+                      <tr className="bg-slate-50 dark:bg-zinc-900/60 font-semibold border-b border-border text-xs">
+                        <td className="p-2 border-r border-border text-center font-sans font-bold">Subtotal</td>
+                        <td colSpan={2} className="p-2 border-r border-border font-bold text-foreground">{sec.name} Subtotal ({rows.length} Tap-Offs)</td>
+                        <td className="p-2 border-r border-border text-center font-mono font-bold">{sec.busbarLength} {lenUnit}</td>
+                        <td className="p-2 border-r border-border text-center font-mono font-bold text-primary">{(sec.totalConnectedLoad || 0).toFixed(2)} kW</td>
+                        <td className="p-2 border-r border-border text-center font-mono font-bold">{(sec.totalDesignCurrent || 0).toFixed(1)} A</td>
+                        <td className="p-2 border-r border-border text-center font-mono">-</td>
+                        <td className="p-2 border-r border-border text-center font-mono">-</td>
+                        <td className="p-2 border-r border-border text-center font-mono font-bold text-primary">{(sec.maxVdPct || 0).toFixed(2)}% max</td>
+                        <td className="p-2 text-center font-bold text-emerald-700 dark:text-emerald-300">
+                          {rows.every((r: any) => r.isCompliant) ? "PASS" : "FAIL"}
+                        </td>
+                      </tr>
+                    </React.Fragment>
+                  );
+                })}
+
+                {/* Grand Total Row */}
+                <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] font-bold border-t-2 border-border text-foreground">
+                  <td className="p-2 border-r border-border text-center font-sans">TOTAL</td>
+                  <td colSpan={2} className="p-2 border-r border-border font-sans font-bold">ALL BUSBAR RUNS ({flatCalculatedSections.length} Sections · {totalTapOffsCount} Tap-Offs)</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">{totalRunLength.toFixed(1)} {lenUnit}</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold text-primary">{totalConnectedKw.toFixed(2)} kW</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">{totalDesignIb.toFixed(1)} A</td>
+                  <td className="p-2 border-r border-border text-center font-mono">-</td>
+                  <td className="p-2 border-r border-border text-center font-mono">-</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold text-primary text-xs">{maxVdObserved.toFixed(2)}% max</td>
+                  <td className="p-2 text-center font-bold text-emerald-700 dark:text-emerald-300">
+                    {maxVdObserved <= 3 ? "PASS (≤3%)" : maxVdObserved <= 5 ? "WARNING" : "FAIL (>5%)"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* 4. Executive Sizing & Governance Summary */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+              Executive Electrical Sizing Summary
+            </h3>
+            <div className="border border-border rounded-xl overflow-hidden text-xs">
+              <table className="w-full text-left border-collapse font-sans">
+                <thead>
+                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2 w-12 text-center border-r border-border">Sr.</th>
+                    <th className="p-2 text-left border-r border-border min-w-[200px]">Electrical Parameter</th>
+                    <th className="p-2 text-left border-r border-border w-40">Governing Standard</th>
+                    <th className="p-2 text-center border-r border-border w-44">Calculated Value</th>
+                    <th className="p-2 text-center border-r border-border w-20">Unit</th>
+                    <th className="p-2 text-left min-w-[200px]">Engineering Compliance Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                    <td className="p-2 text-center font-mono text-muted-foreground border-r border-border">1</td>
+                    <td className="p-2 font-medium border-r border-border">Total Busbar Run Length</td>
+                    <td className="p-2 text-muted-foreground border-r border-border">Route Layout</td>
+                    <td className="p-2 text-center font-mono font-bold border-r border-border">{totalRunLength.toFixed(1)}</td>
+                    <td className="p-2 text-center text-muted-foreground border-r border-border">{lenUnit}</td>
+                    <td className="p-2 text-muted-foreground text-[11px]">Sum of all vertical risers and horizontal sandwich runs</td>
+                  </tr>
+                  <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                    <td className="p-2 text-center font-mono text-muted-foreground border-r border-border">2</td>
+                    <td className="p-2 font-bold text-foreground border-r border-border">TOTAL CONNECTED DISTRIBUTION LOAD</td>
+                    <td className="p-2 text-muted-foreground border-r border-border">Sum(Tap-Off Loads)</td>
+                    <td className="p-2 text-center font-mono text-primary text-xs font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
+                      {totalConnectedKw.toFixed(2)} kW
+                    </td>
+                    <td className="p-2 text-center font-mono border-r border-border">kW</td>
+                    <td className="p-2 text-muted-foreground text-[11px]">Aggregate connected branch load across all active tap-off units</td>
+                  </tr>
+                  <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                    <td className="p-2 text-center font-mono text-muted-foreground border-r border-border">3</td>
+                    <td className="p-2 font-bold text-foreground border-r border-border">MAXIMUM OBSERVED VOLTAGE DROP</td>
+                    <td className="p-2 text-muted-foreground border-r border-border">IEC 61439-6 / IEEE 141</td>
+                    <td className="p-2 text-center font-mono text-emerald-700 dark:text-emerald-300 text-xs font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
+                      {maxVdObserved.toFixed(2)}%
+                    </td>
+                    <td className="p-2 text-center font-mono border-r border-border">%</td>
+                    <td className="p-2 text-muted-foreground text-[11px]">Permissible maximum voltage drop: 3.0% (lighting) / 5.0% (power)</td>
+                  </tr>
+                  <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                    <td className="p-2 text-center font-mono text-muted-foreground border-r border-border">4</td>
+                    <td className="p-2 font-medium border-r border-border">Total Configured Tap-Off Units</td>
+                    <td className="p-2 text-muted-foreground border-r border-border">Floor Distribution</td>
+                    <td className="p-2 text-center font-mono font-bold border-r border-border">{totalTapOffsCount} Units</td>
+                    <td className="p-2 text-center text-muted-foreground border-r border-border">units</td>
+                    <td className="p-2 text-muted-foreground text-[11px]">Plug-in tap-off boxes with integrated MCCB / fuse protection</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 5. 3-Tier Signature Sign-Off Block (Exact #FFE6CC Header) */}
+          <div className="pt-2">
+            <div className="border border-border rounded-xl overflow-hidden text-xs">
+              <table className="w-full border-collapse">
+                <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
+                  <tr className="divide-x border-border">
+                    <th className="p-2.5 w-28 text-center"></th>
+                    <th className="p-2.5 text-center w-1/3">Originator</th>
+                    <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                    <th className="p-2.5 text-center w-1/3">Approver</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr className="divide-x divide-border">
+                    <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                    <td className="p-2.5 text-center font-medium">
+                      {sigDetails?.originatedName || currentUserName || "-"}
+                    </td>
+                    <td className="p-2.5 text-center font-medium">
+                      {sigDetails?.reviewerName || ""}
+                    </td>
+                    <td className="p-2.5 text-center font-medium">
+                      {sigDetails?.approverName || ""}
+                    </td>
+                  </tr>
+                  <tr className="divide-x divide-border">
+                    <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                    <td className="p-2.5 text-center font-mono">
+                      {sigDetails?.originatedDate || today}
+                    </td>
+                    <td className="p-2.5 text-center font-mono">
+                      {sigDetails?.reviewerDate || ""}
+                    </td>
+                    <td className="p-2.5 text-center font-mono">
+                      {sigDetails?.approverDate || ""}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Compact Step-by-Step Formula Breakdown & Electrical Derivation Modal (Matching Fresh Air Cooling Load Standard)
+// ─────────────────────────────────────────────────────────────────────────────
+function BusbarFormulaBreakdownModal({
+  onClose,
+  unitSystem,
+  panels,
+  flatCalculatedSections,
+}: {
+  onClose: () => void;
+  unitSystem: "si" | "ip";
+  panels: any[];
+  flatCalculatedSections: any[];
+}) {
+  const [activeTab, setActiveTab] = useState<"trace" | "formulas" | "variables">("trace");
+  const [copied, setCopied] = useState(false);
+  const ip = unitSystem === "ip";
+  const lenUnit = ip ? "ft" : "m";
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  const sec = flatCalculatedSections?.[0] || {
+    panelName: "Main LV Switchboard",
+    name: "Busbar Run A (Ground to L10)",
+    ratingLabel: "1600A Copper (Rt)",
+    ratingAmps: 1600,
+    r: 0.0277,
+    x: 0.015,
+    busbarLength: ip ? 150 : 45,
+    totalConnectedLoad: 450,
+    totalDesignCurrent: 683.7,
+    maxVdVolts: 6.84,
+    maxVdPct: 1.71,
+    calcRows: [
+      {
+        desc: "Tap Off 1 - Floor 1 Panel",
+        loadKw: 75,
+        length: ip ? 15 : 4.5,
+        ib: 113.9,
+        vdVolts: 0.95,
+        cumVdPct: 0.24,
+      }
+    ]
+  };
+
+  const sampleRow = sec.calcRows?.[0] || {
+    desc: "Tap Off 1",
+    loadKw: 75,
+    length: ip ? 15 : 4.5,
+    ib: 113.9,
+    vdVolts: 0.95,
+    cumVdPct: 0.24,
+  };
+
+  const pKw = sampleRow.loadKw || 75;
+  const vLine = 400;
+  const pf = 0.85;
+  const sinPhi = Math.sqrt(1 - pf * pf);
+  const ibSample = sampleRow.ib || (pKw * 1000) / (Math.sqrt(3) * vLine * pf);
+  const rVal = sec.r || 0.0277;
+  const xVal = sec.x || 0.015;
+  const lenM = ip ? (sampleRow.length || 15) * 0.3048 : (sampleRow.length || 4.5);
+  const vdVolts = Math.sqrt(3) * ibSample * (lenM / 1000) * (rVal * pf + xVal * sinPhi);
+  const vdPct = (vdVolts / vLine) * 100;
+
+  const handleCopySummary = () => {
+    const text = `=== BUSBAR SIZING & VOLTAGE DROP FORMULA BREAKDOWN ===
+Governing Design Standards: IEC 61439-6 (Low-Voltage Switchgear and Controlgear Assemblies - Busbar Trunking Systems) & BS EN 61439
+Unit System: ${ip ? "IP Imperial (ft, kW, A, %)" : "SI Metric (m, kW, A, %)"}
+Busway Section: ${sec.panelName} - ${sec.name} (${sec.ratingLabel})
+
+--- 1. ACTIVE SIZING PARAMETERS ---
+• Nominal Operating Voltage: 400 V Line-to-Line (3-Phase, 50/60 Hz)
+• Operating Power Factor: cos φ = ${pf} (sin φ = ${sinPhi.toFixed(3)})
+• Busbar AC Resistance (R): ${rVal} mΩ/m | Reactance (X): ${xVal} mΩ/m
+• Total Connected Busway Load: ${sec.totalConnectedLoad} kW
+• Total Design Current (Ib): ${sec.totalDesignCurrent.toFixed(1)} A (Rating: ${sec.ratingAmps || 1600} A)
+• Sample Tap-Off: ${sampleRow.desc} (${pKw} kW @ ${sampleRow.length} ${lenUnit})
+• Peak Observed Cumulative Drop: ${sec.maxVdPct?.toFixed(2)}% (Max Allowable: 3.00% / 5.00%)
+
+--- 2. STEP-BY-STEP CALCULATION STEPS ---
+[1] Tap-Off Full Load Design Current (Ib):
+    Ib = (P × 1000) / (√3 × V_L × cos φ) = (${pKw} × 1000) / (1.732 × 400 × ${pf}) = ${ibSample.toFixed(1)} A
+
+[2] Busbar Effective Impedance Vector (Z_eff):
+    Z_eff = R × cos φ + X × sin φ = (${rVal} × ${pf}) + (${xVal} × ${sinPhi.toFixed(3)}) = ${(rVal * pf + xVal * sinPhi).toFixed(4)} mΩ/m
+
+[3] Line-to-Line Voltage Drop (ΔV):
+    ΔV = √3 × Ib × (L / 1000) × Z_eff = 1.732 × ${ibSample.toFixed(1)} A × ${(lenM/1000).toFixed(4)} km × ${(rVal * pf + xVal * sinPhi).toFixed(4)} mΩ/m = ${vdVolts.toFixed(2)} V
+
+[4] Percentage Voltage Drop (%VD):
+    %VD = (ΔV / V_nom) × 100% = (${vdVolts.toFixed(2)} V / 400 V) × 100% = ${vdPct.toFixed(2)}%
+
+[5] Thermal Overcurrent Verification:
+    Condition: In_rating ≥ Ib → ${sec.ratingAmps || 1600} A ≥ ${sec.totalDesignCurrent.toFixed(1)} A → Pass (Thermal Headroom: ${((sec.ratingAmps || 1600) - sec.totalDesignCurrent).toFixed(1)} A)
+
+[6] Cumulative Voltage Drop Compliance:
+    Cumul. %VD = ${sec.maxVdPct?.toFixed(2)}% ≤ 3.00% (Sub-distribution limit) → Pass
+`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    toast.success("Busbar calculation breakdown copied to clipboard!");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-150 font-sans"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-card border border-border rounded-2xl shadow-2xl max-w-xl w-full max-h-[86vh] flex flex-col overflow-hidden text-xs animate-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header matching Fresh Air Cooling Load Standard */}
+        <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-muted/30 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 pr-2">
+            <div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
+              <Calculator className="size-3.5" />
+            </div>
+            <div className="truncate">
+              <h2 className="text-[13px] font-bold text-foreground truncate">
+                Busbar Sizing &amp; Voltage Drop Formula Breakdown
+              </h2>
+            </div>
+            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[10px] font-mono font-semibold shrink-0">
+              IEC 61439-6
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border text-[10px] font-mono font-medium shrink-0">
+              {ip ? "IP" : "SI"}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="size-7 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title="Close modal (Esc)"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+
+        {/* Navigation Tabs Bar */}
+        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border bg-muted/10 shrink-0 select-none">
+          <button
+            type="button"
+            onClick={() => setActiveTab("trace")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "trace"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <Activity className="size-3" />
+            <span>Calculation Steps</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("formulas")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "formulas"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <BookOpen className="size-3" />
+            <span>Master Formulas</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("variables")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
+              activeTab === "variables"
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            <Layers className="size-3" />
+            <span>Variables Reference</span>
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-4 overflow-y-auto space-y-3 flex-1 custom-scrollbar">
+          {/* TAB 1: CALCULATION STEPS */}
+          {activeTab === "trace" && (
+            <div className="space-y-2.5">
+              {/* Active Section Banner */}
+              <div className="p-2.5 bg-muted/40 rounded-xl border border-border">
+                <div className="flex items-center justify-between text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider pb-1.5 mb-1.5 border-b border-border/60">
+                  <span className="flex items-center gap-1 text-foreground">
+                    <Sliders className="size-3 text-primary" /> Active Busway ({sec.ratingLabel})
+                  </span>
+                  <span className="font-mono text-primary normal-case font-bold">
+                    Peak VD: {sec.maxVdPct?.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="bg-background rounded p-1.5 border border-border/60">
+                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Total Busway Load</span>
+                    <span className="font-mono font-bold text-foreground">{sec.totalConnectedLoad} kW ({sec.totalDesignCurrent.toFixed(1)} A)</span>
+                  </div>
+                  <div className="bg-background rounded p-1.5 border border-border/60">
+                    <span className="text-[9.5px] text-muted-foreground font-semibold block uppercase">Impedance Constants</span>
+                    <span className="font-mono font-bold text-foreground">R: {rVal} | X: {xVal} mΩ/m</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 1: TAP-OFF DESIGN CURRENT */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-primary/10 text-primary text-[10px] font-mono font-bold flex items-center justify-center">1</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Full Load Operating Current (Ib)</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                    {ibSample.toFixed(1)} A
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: Ib = (P × 1000) / (√3 × V_L × cos φ)</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">({pKw} kW × 1000) / (1.732 × 400V × {pf})</span>
+                    <span className="text-primary font-bold">= {ibSample.toFixed(1)} A</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 2: LINE-TO-LINE VOLTAGE DROP */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-mono font-bold flex items-center justify-center">2</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Section Line Voltage Drop (ΔV)</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
+                    {vdVolts.toFixed(2)} V
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: ΔV = √3 × Ib × L × (R cos φ + X sin φ)</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">1.732 × {ibSample.toFixed(1)}A × {lenM.toFixed(1)}m × Z_eff</span>
+                    <span className="text-blue-600 dark:text-blue-400 font-bold">= {vdVolts.toFixed(2)} V</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 3: PERCENTAGE VOLTAGE DROP */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-bold flex items-center justify-center">3</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Percentage Drop &amp; Compliance (%VD)</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+                    {vdPct.toFixed(2)}% (≤ 3.0%)
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Formula: %VD = (ΔV / 400V) × 100%</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">({vdVolts.toFixed(2)} V / 400 V) × 100%</span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">Pass (Compliant)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 4: BUSBAR THERMAL RATING CHECK */}
+              <div className="border border-border/70 rounded-xl bg-card p-2.5 space-y-1.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="size-5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-mono font-bold flex items-center justify-center">4</span>
+                    <span className="font-bold text-[11.5px] text-foreground">Continuous Current Carrying Capacity</span>
+                  </div>
+                  <span className="text-[10.5px] font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
+                    {sec.ratingAmps || 1600} A Rating
+                  </span>
+                </div>
+                <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
+                  <div className="text-muted-foreground text-[10px]">Criterion: Rated Current In ≥ Total Design Current Ib</div>
+                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
+                    <span className="text-muted-foreground">{sec.ratingAmps || 1600} A ≥ {sec.totalDesignCurrent.toFixed(1)} A</span>
+                    <span className="text-amber-600 dark:text-amber-400 font-bold">Safe Thermal Loading</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: MASTER FORMULAS */}
+          {activeTab === "formulas" && (
+            <div className="space-y-3">
+              <div className="p-3 bg-card border border-border rounded-xl space-y-2">
+                <div className="font-bold text-foreground text-[12px] flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-primary" /> 1. AC Voltage Drop Calculation (IEC 61439-6)
+                </div>
+                <div className="bg-muted/50 p-2.5 rounded-lg font-mono text-[11px] space-y-1 border border-border/60">
+                  <div className="text-primary font-bold">ΔV = √3 × I × L × (R·cos φ + X·sin φ)</div>
+                  <div className="text-foreground">%VD = (ΔV / V_nominal) × 100%</div>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Applies the standard phasor representation across the resistive and inductive reactance components of the copper or aluminum busbar conductor. R is corrected for steady-state operating temperature.
+                </p>
+              </div>
+
+              <div className="p-3 bg-card border border-border rounded-xl space-y-2">
+                <div className="font-bold text-foreground text-[12px] flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-blue-500" /> 2. 3-Phase Symmetrical Current Derivation
+                </div>
+                <div className="bg-muted/50 p-2.5 rounded-lg font-mono text-[11px] space-y-1 border border-border/60">
+                  <div className="text-blue-600 dark:text-blue-400 font-bold">I_b = (P_kW × 1000) / (√3 × V_L × cos φ)</div>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Computes line current per phase assuming a balanced 3-phase, 4-wire 400V/230V commercial electrical distribution network.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: VARIABLES REFERENCE */}
+          {activeTab === "variables" && (
+            <div className="space-y-2">
+              <div className="border border-border rounded-xl overflow-hidden text-xs">
+                <table className="w-full border-collapse">
+                  <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <tr className="divide-x divide-border">
+                      <th className="p-2 text-left w-24">Symbol</th>
+                      <th className="p-2 text-left">Description</th>
+                      <th className="p-2 text-left w-24">Typical Value</th>
+                      <th className="p-2 text-left w-20">Unit</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">V_L</td>
+                      <td className="p-2 text-muted-foreground">Nominal 3-phase line-to-line RMS system voltage</td>
+                      <td className="p-2 font-mono text-[11px]">400 / 415</td>
+                      <td className="p-2 font-mono text-[11px]">Volts (V)</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">R</td>
+                      <td className="p-2 text-muted-foreground">Conductor AC resistance per unit length at operating temp</td>
+                      <td className="p-2 font-mono text-[11px]">Manufacturer</td>
+                      <td className="p-2 font-mono text-[11px]">mΩ/m</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">X</td>
+                      <td className="p-2 text-muted-foreground">Conductor inductive reactance per unit length at 50/60 Hz</td>
+                      <td className="p-2 font-mono text-[11px]">Manufacturer</td>
+                      <td className="p-2 font-mono text-[11px]">mΩ/m</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">cos φ</td>
+                      <td className="p-2 text-muted-foreground">Operating electrical load displacement power factor</td>
+                      <td className="p-2 font-mono text-[11px]">0.85</td>
+                      <td className="p-2 font-mono text-[11px]">-</td>
+                    </tr>
+                    <tr className="divide-x divide-border">
+                      <td className="p-2 font-mono font-bold text-primary">%VD_max</td>
+                      <td className="p-2 text-muted-foreground">Permissible voltage drop threshold for power circuits</td>
+                      <td className="p-2 font-mono text-[11px]">3.0% - 5.0%</td>
+                      <td className="p-2 font-mono text-[11px]">%</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer matching Fresh Air Cooling Load Standard */}
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted/20 shrink-0">
+          <button
+            type="button"
+            onClick={handleCopySummary}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground border border-border transition-colors cursor-pointer"
+          >
+            <Copy className="size-3.5" />
+            {copied ? "Copied!" : "Copy Breakdown"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer shadow-xs"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

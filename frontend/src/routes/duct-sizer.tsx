@@ -21,8 +21,7 @@ import {
   MessageSquare, ShieldAlert, Check, Activity, Copy, Clipboard, RotateCcw,
   Trash2, Edit3, Lock, Droplets, Waves, Gauge, Clock, ShieldCheck, Layers,
   ArrowRight, Download, Save, Zap, Cylinder, ArrowUpRight, ChevronDown, ChevronRight, ChevronsUpDown,
-  SlidersHorizontal, Wind, Maximize2, BookOpen, Lightbulb, Building2, Store, Hotel, Utensils, Factory, FileSpreadsheet, Flame,
-  Calculator, Sliders
+  SlidersHorizontal, Wind, Maximize2, BookOpen, Lightbulb, Building2, Store, Hotel, Utensils, Factory, FileSpreadsheet, Flame
 } from "lucide-react";
 import {
   ContextMenu,
@@ -69,7 +68,13 @@ function DuctSizerPage() {
   const [formulaModalOpen, setFormulaModalOpen] = useState(false);
 
   // Unit system (IP: CFM, in.wg/100ft, inches, FPM / SI: L/s, Pa/m, mm, m/s)
-  const [unitSystem, setUnitSystem] = useState<"ip" | "si">("si");
+  const [unitSystem, setUnitSystem] = useState<"ip" | "si">(() => {
+    if (typeof window !== "undefined") {
+      const pref = localStorage.getItem("mep_unit_system");
+      if (pref) return pref.toLowerCase() === "ip" ? "ip" : "si";
+    }
+    return "si";
+  });
   const isSI = unitSystem === "si";
 
   // Preset state
@@ -917,7 +922,7 @@ function DuctSizerPage() {
                 calculatorTitle="Duct Sizer"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <UnitToggle unitSystem={unitSystem} onChange={handleUnitToggle} disabled={isEffectiveReadOnly} />
             </div>
           </div>
@@ -1626,10 +1631,10 @@ function DuctSizerPage() {
                         </ContextMenuItem>
                         <ContextMenuItem
                           onClick={() => setFormulaModalOpen(true)}
-                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium"
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
                         >
-                          <Info className="size-3.5 text-muted-foreground" />
-                          <span>Formula Breakdown</span>
+                          <Info className="size-3.5 text-primary" />
+                          <span>View Formula Breakdown</span>
                         </ContextMenuItem>
                         <ContextMenuSeparator className="h-px bg-border my-1" />
                         <ContextMenuItem
@@ -2202,7 +2207,7 @@ Sized Selection: ${calcResults.sizeDisplay} (${calcResults.sizeFullText})
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-150 font-sans"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 md:p-6 overflow-y-auto animate-in fade-in duration-150 select-none font-sans"
       onClick={onClose}
     >
       <div 
@@ -2213,11 +2218,11 @@ Sized Selection: ${calcResults.sizeDisplay} (${calcResults.sizeFullText})
         <div className="flex items-center justify-between px-4 h-12 border-b border-border bg-muted/30 shrink-0">
           <div className="flex items-center gap-2 min-w-0 pr-2">
             <div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0">
-              <Calculator className="size-3.5" />
+              <BookOpen className="size-3.5" />
             </div>
             <div className="truncate">
               <h2 className="text-[13px] font-bold text-foreground truncate">
-                Duct Aerodynamics &amp; Sizing Formula Breakdown
+                Duct Sizing Formula Breakdown
               </h2>
             </div>
             <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[10px] font-mono font-semibold shrink-0">
@@ -2286,10 +2291,10 @@ Sized Selection: ${calcResults.sizeDisplay} (${calcResults.sizeFullText})
               <div className="p-2.5 bg-muted/40 rounded-xl border border-border">
                 <div className="flex items-center justify-between text-[10.5px] font-bold text-muted-foreground uppercase tracking-wider pb-1.5 mb-1.5 border-b border-border/60">
                   <span className="flex items-center gap-1 text-foreground">
-                    <Sliders className="size-3 text-primary" /> Active Sizing Parameters
+                    <SlidersHorizontal className="size-3 text-primary" /> Active Sizing Parameters
                   </span>
                   <span className="font-mono text-primary normal-case font-bold">
-                    {isSI ? `${Math.round(calcResults.qLps).toLocaleString()} L/s` : `${calcResults.qCfm.toLocaleString()} CFM`} ({qM3s.toFixed(3)} m³/s)
+                    {isSI ? `${Math.round(calcResults.qLps).toLocaleString()} L/s` : `${calcResults.qCfm.toLocaleString()} CFM`} | {isSI ? `${calcResults.targetFrPaM.toFixed(2)} Pa/m` : `${calcResults.targetFrInWg.toFixed(3)} in.wg`}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[11px]">
@@ -2452,10 +2457,13 @@ Sized Selection: ${calcResults.sizeDisplay} (${calcResults.sizeFullText})
                   </span>
                 </div>
                 <div className="bg-muted/50 rounded p-2 font-mono text-[11px] border border-border/60 space-y-1">
-                  <div className="text-muted-foreground text-[10px]">Formula: Re = (ρ · V · D_h) / μ  |  1/√f = -2·log₁₀[(ε / 3.7D_h) + (2.51 / Re√f)]</div>
-                  <div className="flex justify-between text-foreground font-semibold pt-0.5 border-t border-border/40">
-                    <span className="text-muted-foreground">Re = {Math.round(re).toLocaleString()} ({calcResults.flowRegime})</span>
-                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">= Darcy f: {fFactor.toFixed(5)}</span>
+                  <div className="flex justify-between text-foreground">
+                    <span className="text-muted-foreground">Reynolds Number (Re):</span>
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400">{Math.round(re).toLocaleString()} ({calcResults.flowRegime})</span>
+                  </div>
+                  <div className="flex justify-between text-foreground pt-1 border-t border-border/40">
+                    <span className="text-muted-foreground">Colebrook-White Darcy f (ε = 0.09mm):</span>
+                    <span className="font-bold text-foreground">f = {fFactor.toFixed(5)}</span>
                   </div>
                 </div>
               </div>

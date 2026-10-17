@@ -270,7 +270,7 @@ export function getEquipmentTierAndDimensions(
   }
 
   const dims = matchedEntry[tierType];
-  const formattedDimensions = `${dims.length} × ${dims.breadth} × ${dims.width} mm`;
+  const formattedDimensions = `${dims.breadth} (L) × ${dims.width} (W) × ${dims.length} (H) mm`;
   const displayText = `${tierName} (${formattedDimensions})`;
 
   return {
@@ -284,3 +284,82 @@ export function getEquipmentTierAndDimensions(
     displayText,
   };
 }
+
+export interface LiteralDimensions {
+  length: number;  // mm (along airflow path)
+  width: number;   // mm (cross-sectional width)
+  height: number;  // mm (vertical height)
+  formatted: string;
+  tierName?: string;
+}
+
+/**
+ * Checks and extracts literal physical dimensions for equipment.
+ * Returns null if the equipment has no literal dimensions (e.g. unassigned zones, 0 airflow, no custom dimensions).
+ */
+export function getEquipmentLiteralDimensions(equip: any): LiteralDimensions | null {
+  if (!equip) return null;
+
+  // 1. Direct explicit dimensions on equipment (if valid positive values)
+  if (equip.dimensions && typeof equip.dimensions === "object") {
+    const d = equip.dimensions;
+    let l = Number(d.length) || 0;
+    let w = Number(d.width) || 0;
+    let h = Number(d.height) || 0;
+
+    // If d came from AHU_DIMENSIONS_DATA: { length: 770, breadth: 2578, width: 670 }
+    if (d.breadth && d.length && (!d.height || d.height === d.breadth)) {
+      l = Number(d.breadth);
+      w = Number(d.width) || 800;
+      h = Number(d.length);
+    } else {
+      if (w === 0) w = Number(d.breadth) || 800;
+      if (h === 0) h = 800;
+    }
+
+    if (l > 0 && w > 0 && h > 0) {
+      return {
+        length: l,
+        width: w,
+        height: h,
+        formatted: `${l} × ${w} × ${h} mm`,
+      };
+    }
+  }
+
+  // 2. Derive dimensions from assigned zone airflows (AHU Sizing Rules)
+  const totalFA = Number(equip.totalFA) || 0;
+  const totalEA = Number(equip.totalEA) || 0;
+  if (totalFA > 0 || totalEA > 0) {
+    const sizing = getEquipmentTierAndDimensions(totalFA, totalEA);
+    if (sizing && sizing.dimensions) {
+      const d = sizing.dimensions;
+      // In manufacturer table:
+      // d.breadth: Length along airflow (2578 - 4008 mm)
+      // d.width: Width across airflow (670 - 2020 mm)
+      // d.length: Unit vertical height (770 - 1670 mm for single tier, 1440 - 2790 mm for two tier)
+      const l = Number(d.breadth) || Number(d.length) || 2000;
+      const w = Number(d.width) || 1000;
+      const h = Number(d.length) || 800;
+      if (l > 0 && w > 0 && h > 0) {
+        return {
+          length: l,
+          width: w,
+          height: h,
+          formatted: sizing.formattedDimensions || `${l} × ${w} × ${h} mm`,
+          tierName: sizing.tierName,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Returns true only if equipment has literal dimensions.
+ */
+export function hasLiteralDimensions(equip: any): boolean {
+  return getEquipmentLiteralDimensions(equip) !== null;
+}
+

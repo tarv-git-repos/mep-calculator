@@ -2,7 +2,7 @@ import { CalculationReviewBar, useCalculationLock, useCalculationEffectiveReadOn
 import { useAuth } from "@/contexts/AuthContext";
 import { addPdfSignatureBlock, addPdfHeader } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect, Navigate } from "@tanstack/react-router";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useWorkspace } from "@/lib/workspace-store";
@@ -39,13 +39,16 @@ import saveAsPkg from "file-saver";
 const saveAs = saveAsPkg.saveAs || saveAsPkg;
 
 export const Route = createFileRoute("/lighting-lux-calculation")({
+  beforeLoad: () => {
+    throw redirect({ to: "/lpd-calculation" });
+  },
   head: () => ({
     meta: [
-      { title: "Lighting LUX Calculation — MEP Calc" },
-      { name: "description", content: "Calculate Lighting LUX requirements" },
+      { title: "LPD Calculation — MEP Calc" },
+      { name: "description", content: "Lighting Power Density (LPD) Calculation" },
     ],
   }),
-  component: LightingLuxCalculationPage,
+  component: () => <Navigate to="/lpd-calculation" replace />,
 });
 
 
@@ -56,12 +59,11 @@ const DEFAULT_ROWS: LuxRow[] = [];
 // Helper to push history state
 function pushToHistory(
   current: LuxRow[], 
-  history: LuxRow[][], 
+  _history: LuxRow[][], 
   setHistory: React.Dispatch<React.SetStateAction<LuxRow[][]>>,
   setRedoStack?: React.Dispatch<React.SetStateAction<LuxRow[][]>>
 ) {
-  const next = [...history, current].slice(-50); // Keep last 50 states
-  setHistory(next);
+  setHistory(prev => [...prev.slice(-49), current]); // Keep last 50 states
   if (setRedoStack) {
     setRedoStack([]);
   }
@@ -1034,7 +1036,6 @@ function LightingLuxCalculationPage() {
             >
               <Sun className="size-3.5" />
             </button>
-            
             <input 
               value={row.location}
               onChange={(e) => updateRow(row.id, { location: e.target.value })}

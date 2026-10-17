@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight, Search, Sparkles, Save, RefreshCw, 
   Layers, Briefcase, Building2, UserCheck, UserPlus, GitFork, Crown,
   User, Check, ArrowRight, Eye, ZoomIn, ZoomOut, RotateCcw, Scan, Move, Maximize2,
-  AlertTriangle, GripVertical
+  AlertTriangle, GripVertical, ArrowLeft, Building, Lock, Globe
 } from "lucide-react";
 import { AppShell } from "@/components/workspace/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
@@ -50,6 +50,49 @@ export type HierarchyRole =
   | "ENGINEER" 
   | "USER";
 
+export interface SystemAdminSummary {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  designation: string;
+  department: string;
+  total_organizations: number;
+  total_org_admins: number;
+  total_users: number;
+}
+
+export interface OrgAdminSummary {
+  id: string;
+  name: string;
+  email: string;
+  designation: string;
+  department: string;
+  role: string;
+  status: string;
+  approvalAuthority?: string;
+}
+
+export interface OrgOverview {
+  id: string;
+  name: string;
+  subscription_plan: string;
+  max_users: number;
+  used_users: number;
+  status: string;
+  license_key: string;
+  org_admins: OrgAdminSummary[];
+  org_admin_count: number;
+  total_members_count: number;
+  has_custom_hierarchy: boolean;
+}
+
+export interface SystemOverviewData {
+  is_system_overview: boolean;
+  system_admin: SystemAdminSummary;
+  organizations: OrgOverview[];
+}
+
 export interface HierarchyUser {
   id: string;
   name: string;
@@ -62,6 +105,12 @@ export interface HierarchyUser {
   parentIds?: string[];   // Multiple manager IDs
   avatarColor?: string;
   status: "active" | "away" | "offline";
+  _isSystemAdminNode?: boolean;
+  _isOrgNode?: boolean;
+  _isOrgAdminNode?: boolean;
+  _orgData?: OrgOverview;
+  _orgId?: string;
+  _orgName?: string;
 }
 
 export function normalizeHierarchyRole(role?: string | null): HierarchyRole {
@@ -552,9 +601,30 @@ function CompanyHierarchyPage() {
   const currentUserName = userData?.name || profile?.name || "David Vance";
   const currentUserEmail = userData?.email || profile?.email || "david.vance@mep-calc.com";
   
+  const normRole = normalizeHierarchyRole(effRole);
+  const isSystemAdmin = normRole === "SUPER_ADMIN" || (userData?.email === 'admin@tarv.ai') || (profile?.email === 'admin@tarv.ai');
+  const isOrgAdmin = !isSystemAdmin && (normRole === "ORG_ADMIN" || normRole === "PROJECT_MANAGER");
+
+  const currentOrgId = getEffectiveOrgId(userData, profile) || '8343112c-110b-4c26-bce9-b5786b05f241';
+  const currentOrgName = userData?.company || profile?.company || userData?.organization || profile?.organization || 'My Organization';
+
+  // System Admin can toggle between 'system' (Multi-Org Platform Overview) and 'org' (Inspecting a specific org's team tree)
+  const [adminScope, setAdminScope] = useState<"system" | "org">(() => {
+    return isSystemAdmin ? "system" : "org";
+  });
+
+  const [selectedOrgId, setSelectedOrgId] = useState<string>(() => {
+    return currentOrgId;
+  });
+
+  const [systemOverview, setSystemOverview] = useState<SystemOverviewData | null>(null);
+  const [isLoadingOverview, setIsLoadingOverview] = useState(false);
+
+  const activeOrgId = (isSystemAdmin && adminScope === "org" && selectedOrgId) ? selectedOrgId : currentOrgId;
+
   const isAuthorized = true;
   const [members, setMembers] = useState<HierarchyUser[]>(() => {
-    const loaded = loadOrgHierarchyFromStorage(userData, profile);
+    const loaded = loadOrgHierarchyFromStorage(userData, profile, currentOrgId);
     if (loaded && loaded.length > 0) return deduplicateHierarchyByEmail(loaded);
     return deduplicateHierarchyByEmail(DEFAULT_ORG_ADMIN_HIERARCHY(currentUserName, currentUserEmail));
   });
@@ -630,18 +700,36 @@ function CompanyHierarchyPage() {
     setIsPanning(false);
   };
 
-  // Custom Card Repositioning State
+  // Custom Card Repositioning State Scoped by View / Organization
+  const posStorageKey = useMemo(() => {
+    return isSystemAdmin && adminScope === "system"
+      ? "mep_company_hierarchy_system_overview_pos"
+      : `mep_company_hierarchy_${activeOrgId}_pos`;
+  }, [isSystemAdmin, adminScope, activeOrgId]);
+
   const [customPositions, setCustomPositions] = useState<Record<string, { x: number; y: number }>>(() => {
     if (typeof window !== "undefined") {
       try {
-        const orgId = getEffectiveOrgId(userData, profile);
-        const key = getOrgHierarchyStorageKey(userData, profile) + "_pos";
+        const key = isSystemAdmin && adminScope === "system"
+          ? "mep_company_hierarchy_system_overview_pos"
+          : `mep_company_hierarchy_${activeOrgId}_pos`;
         const saved = localStorage.getItem(key);
         if (saved) return JSON.parse(saved);
       } catch (e) {}
     }
     return {};
   });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(posStorageKey);
+        setCustomPositions(saved ? JSON.parse(saved) : {});
+      } catch (e) {
+        setCustomPositions({});
+      }
+    }
+  }, [posStorageKey]);
 
   const draggingNodeRef = useRef<{
     id: string;
@@ -665,8 +753,6 @@ function CompanyHierarchyPage() {
     };
   }, [customPositions]);
 
-
-
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<HierarchyUser | null>(null);
@@ -689,6 +775,114 @@ function CompanyHierarchyPage() {
   const [showEmailSuggestions, setShowEmailSuggestions] = useState(false);
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
 
+  // 1. Fetch System Overview for System Admin
+  useEffect(() => {
+    if (!isSystemAdmin) {
+      setAdminScope("org");
+      return;
+    }
+    let isMounted = true;
+    const fetchOverview = async () => {
+      setIsLoadingOverview(true);
+      try {
+        const res = await api.getSystemHierarchyOverview();
+        if (isMounted && res && res.is_system_overview && Array.isArray(res.organizations) && res.organizations.length > 0) {
+          setSystemOverview(res);
+          return;
+        }
+
+        // Fallback: Query all organizations directly via api.getOrganizations()
+        const orgRes = await api.getOrganizations();
+        const rawOrgs = (orgRes && orgRes.organizations) || [];
+        if (isMounted && Array.isArray(rawOrgs) && rawOrgs.length > 0) {
+          const fallbackOrgs = rawOrgs.map((o: any) => {
+            const orgAdminsList = Array.isArray(o.org_admins) && o.org_admins.length > 0
+              ? o.org_admins
+              : [
+                  {
+                    id: `org-admin-${o.id}`,
+                    name: `${o.name} Admin`,
+                    email: o.email || `admin@${o.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
+                    designation: "Director of MEP Engineering",
+                    department: "Management",
+                    role: "ORG_ADMIN",
+                    status: "active",
+                    approvalAuthority: "APPROVE_REJECT",
+                  },
+                ];
+
+            return {
+              id: o.id,
+              name: o.name,
+              subscription_plan: o.subscription_plan || "ENTERPRISE",
+              max_users: o.max_users || 10,
+              used_users: o.used_users || 0,
+              status: typeof o.status === "string" ? o.status : (o.status?.state || "active"),
+              license_key: o.license_key || "MEP-LIC-PRO",
+              org_admins: orgAdminsList,
+              org_admin_count: orgAdminsList.length,
+              total_members_count: o.used_users || o.total_members_count || 1,
+              has_custom_hierarchy: true,
+            };
+          });
+
+          setSystemOverview({
+            success: true,
+            is_system_overview: true,
+            system_admin: {
+              id: "usr_admin_tarv_ai",
+              name: currentUserName || "System Administrator",
+              email: currentUserEmail || "admin@tarv.ai",
+              role: "SUPER_ADMIN",
+              designation: "MEP Platform Infrastructure & Super Admin",
+              department: "Platform Governance",
+              total_organizations: fallbackOrgs.length,
+              total_org_admins: fallbackOrgs.reduce((acc: number, cur: any) => acc + (cur.org_admins?.length || 1), 0),
+              total_users: fallbackOrgs.reduce((acc: number, cur: any) => acc + (cur.used_users || 1), 0),
+            },
+            organizations: fallbackOrgs,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load system overview:", err);
+      } finally {
+        if (isMounted) setIsLoadingOverview(false);
+      }
+    };
+    fetchOverview();
+  }, [isSystemAdmin, currentUserName, currentUserEmail]);
+
+  // 2. Load org hierarchy whenever activeOrgId changes (or when drilling into an org)
+  useEffect(() => {
+    if (isSystemAdmin && adminScope === "system") return;
+    let isMounted = true;
+    const loadOrgData = async () => {
+      // Try local storage first for fast desktop render
+      const local = loadOrgHierarchyFromStorage(userData, profile, activeOrgId);
+      if (local && local.length > 0) {
+        if (isMounted) setMembers(deduplicateHierarchyByEmail(local));
+      }
+
+      // Fetch from cloud backend
+      try {
+        const cloud = await api.getOrgHierarchy(activeOrgId);
+        if (cloud && Array.isArray(cloud) && cloud.length > 0) {
+          const dedupped = deduplicateHierarchyByEmail(cloud);
+          saveOrgHierarchyToStorage(dedupped, userData, profile, activeOrgId);
+          if (isMounted) setMembers(dedupped);
+        } else if (!local || local.length === 0) {
+          const def = deduplicateHierarchyByEmail(DEFAULT_ORG_ADMIN_HIERARCHY(currentUserName, currentUserEmail));
+          if (isMounted) setMembers(def);
+        }
+      } catch (e) {
+        console.warn("Could not fetch org hierarchy:", e);
+      }
+    };
+
+    loadOrgData();
+  }, [activeOrgId, adminScope, isSystemAdmin, currentUserName, currentUserEmail]);
+
+  // 3. Load org users strictly filtered by active organization
   useEffect(() => {
     let isMounted = true;
     const loadOrgUsers = async () => {
@@ -699,7 +893,6 @@ function CompanyHierarchyPage() {
         }
         
         const combined = new Map<string, any>();
-        
         try {
           const raw = localStorage.getItem("mep_local_users");
           if (raw) {
@@ -720,8 +913,18 @@ function CompanyHierarchyPage() {
         });
 
         let finalUsers = Array.from(combined.values());
-        if (currentRole === "ORG_ADMIN") {
-          finalUsers = finalUsers.filter((u: any) => u.role !== 'SUPER_ADMIN' && u.email !== 'admin@tarv.ai');
+        
+        // Strict multi-tenant filtering: non-super-admins only see members of their own organization!
+        if (!isSystemAdmin) {
+          finalUsers = finalUsers.filter((u: any) => {
+            if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return false;
+            const uOrg = String(u.organization_id || u.company || u.organization || u.features?.organization_id || u.features?.company || '').toLowerCase().trim();
+            const cleanCur = String(currentOrgId).toLowerCase().trim();
+            if (cleanCur && uOrg) {
+              return uOrg === cleanCur || cleanCur.includes(uOrg) || uOrg.includes(cleanCur);
+            }
+            return true;
+          });
         }
 
         if (isMounted) {
@@ -732,20 +935,7 @@ function CompanyHierarchyPage() {
       }
     };
 
-    const loadCloudHierarchy = async () => {
-      try {
-        const orgId = getEffectiveOrgId(userData, profile);
-        const cloudHierarchy = await api.getOrgHierarchy(orgId).catch(() => null);
-        if (cloudHierarchy && Array.isArray(cloudHierarchy) && cloudHierarchy.length > 0) {
-          const dedupped = deduplicateHierarchyByEmail(cloudHierarchy);
-          saveOrgHierarchyToStorage(dedupped, userData, profile);
-          if (isMounted) setMembers(dedupped);
-        }
-      } catch (e) {}
-    };
-
     loadOrgUsers();
-    loadCloudHierarchy();
 
     const handleProfileUpdated = (e: any) => {
       loadOrgUsers();
@@ -777,9 +967,8 @@ function CompanyHierarchyPage() {
             return m;
           });
           if (changed && typeof window !== 'undefined') {
-            const orgId = getEffectiveOrgId(userData, profile);
-            saveOrgHierarchyToStorage(next, userData, profile);
-            api.saveOrgHierarchy(next, orgId).catch(console.error);
+            saveOrgHierarchyToStorage(next, userData, profile, activeOrgId);
+            api.saveOrgHierarchy(next, activeOrgId).catch(console.error);
           }
           return changed ? next : prev;
         });
@@ -794,7 +983,7 @@ function CompanyHierarchyPage() {
       window.removeEventListener('mep_user_profile_updated', handleProfileUpdated);
       window.removeEventListener('storage', loadOrgUsers);
     };
-  }, [currentRole]);
+  }, [isSystemAdmin, currentOrgId, activeOrgId]);
 
   // Suggestions for Email Address input
   const emailSuggestions = useMemo(() => {
@@ -859,30 +1048,20 @@ function CompanyHierarchyPage() {
 
   const saveHierarchy = (newMembers: HierarchyUser[]) => {
     const cleanMembers = deduplicateHierarchyByEmail(newMembers);
-    const orgId = getEffectiveOrgId(userData, profile);
+    const targetOrgId = activeOrgId;
     setMembers(cleanMembers);
-    saveOrgHierarchyToStorage(cleanMembers, userData, profile);
-    api.saveOrgHierarchy(cleanMembers, orgId).catch(console.error);
+    saveOrgHierarchyToStorage(cleanMembers, userData, profile, targetOrgId);
+    api.saveOrgHierarchy(cleanMembers, targetOrgId).catch(console.error);
   };
 
   const handleCreateOrgHierarchy = () => {
-    if (currentRole === "ORG_ADMIN") {
-      saveHierarchy(DEFAULT_ORG_ADMIN_HIERARCHY(currentUserName, currentUserEmail));
-      toast.success("Organization hierarchy created successfully!");
-    } else {
-      saveHierarchy(DEFAULT_HIERARCHY);
-      toast.success("Company hierarchy created successfully!");
-    }
+    saveHierarchy(DEFAULT_ORG_ADMIN_HIERARCHY(currentUserName, currentUserEmail));
+    toast.success("Organization hierarchy created successfully!");
   };
 
   const handleResetDefault = () => {
-    if (currentRole === "ORG_ADMIN") {
-      saveHierarchy(DEFAULT_ORG_ADMIN_HIERARCHY(currentUserName, currentUserEmail));
-      toast.success("Hierarchy reset to default organization structure!");
-    } else {
-      saveHierarchy(DEFAULT_HIERARCHY);
-      toast.success("Hierarchy reset to default company structure!");
-    }
+    saveHierarchy(DEFAULT_ORG_ADMIN_HIERARCHY(currentUserName, currentUserEmail));
+    toast.success("Hierarchy reset to default organization structure!");
     setIsResetModalOpen(false);
   };
 
@@ -890,7 +1069,7 @@ function CompanyHierarchyPage() {
     saveHierarchy([]);
     setIsClearModalOpen(false);
     setDeleteConfirmText("");
-    toast.success("All hierarchy data has been deleted.");
+    toast.success("All hierarchy data for this organization has been deleted.");
   };
 
   const handleOpenAddModal = (presetParentId?: string | null) => {
@@ -1040,9 +1219,104 @@ function CompanyHierarchyPage() {
     }
   };
 
+  // Synthesized hierarchy nodes for System Admin Multi-Org Overview:
+  // Root (Level 0): System Administrator
+  // Level 1: All registered Organizations under the application
+  // Level 2: All Org Admins under each Organization
+  const systemNodes = useMemo<HierarchyUser[]>(() => {
+    if (!isSystemAdmin || adminScope !== "system") return [];
+
+    const nodes: HierarchyUser[] = [];
+    const sysAdmin = systemOverview?.system_admin;
+    const orgs = systemOverview?.organizations || [];
+
+    // Root node: System Administrator
+    const rootId = "sys-admin-root";
+    nodes.push({
+      id: rootId,
+      name: sysAdmin?.name || currentUserName || "System Administrator",
+      email: sysAdmin?.email || currentUserEmail || "admin@tarv.ai",
+      designation: "Platform Infrastructure & Super Admin",
+      department: "Management",
+      role: "SUPER_ADMIN",
+      approvalAuthority: "APPROVE_REJECT",
+      parentId: null,
+      parentIds: [],
+      avatarColor: "bg-indigo-600",
+      status: "active",
+      _isSystemAdminNode: true,
+    });
+
+    // Level 1 nodes: Organizations
+    orgs.forEach((org) => {
+      const orgNodeId = `org-node-${org.id}`;
+      nodes.push({
+        id: orgNodeId,
+        name: org.name,
+        email: `Lic: ${org.license_key || 'ACTIVE'} • ${org.subscription_plan}`,
+        designation: `${org.org_admin_count} Org Admin${org.org_admin_count === 1 ? '' : 's'} • ${org.total_members_count} Member${org.total_members_count === 1 ? '' : 's'}`,
+        department: "Management",
+        role: "ORG_ADMIN",
+        approvalAuthority: "APPROVE_REJECT",
+        parentId: rootId,
+        parentIds: [rootId],
+        avatarColor: "bg-blue-600",
+        status: org.status === "active" ? "active" : "away",
+        _isOrgNode: true,
+        _orgData: org,
+      });
+
+      // Level 2 nodes: Org Admins under each Organization
+      if (Array.isArray(org.org_admins) && org.org_admins.length > 0) {
+        org.org_admins.forEach((admin, aIdx) => {
+          const adminNodeId = `org-admin-${org.id}-${admin.id || admin.email || aIdx}`;
+          nodes.push({
+            id: adminNodeId,
+            name: admin.name || "Organization Administrator",
+            email: admin.email,
+            designation: admin.designation || "Director of MEP Engineering",
+            department: (admin.department as HierarchyUser["department"]) || "Management",
+            role: "ORG_ADMIN",
+            approvalAuthority: "APPROVE_REJECT",
+            parentId: orgNodeId,
+            parentIds: [orgNodeId],
+            avatarColor: "bg-emerald-600",
+            status: admin.status === "active" ? "active" : "away",
+            _isOrgAdminNode: true,
+            _orgId: org.id,
+            _orgName: org.name,
+          });
+        });
+      } else {
+        const placeholderId = `org-no-admin-${org.id}`;
+        nodes.push({
+          id: placeholderId,
+          name: "No Org Admin Assigned",
+          email: "Assign in Key Manager or User Management",
+          designation: "Pending Admin Assignment",
+          department: "Management",
+          role: "USER",
+          approvalAuthority: "NONE",
+          parentId: orgNodeId,
+          parentIds: [orgNodeId],
+          avatarColor: "bg-amber-600",
+          status: "away",
+          _isOrgAdminNode: true,
+          _orgId: org.id,
+          _orgName: org.name,
+        });
+      }
+    });
+
+    return nodes;
+  }, [isSystemAdmin, adminScope, systemOverview, currentUserName, currentUserEmail]);
+
   const visibleMembers = useMemo(() => {
+    if (isSystemAdmin && adminScope === "system") {
+      return systemNodes;
+    }
     return members;
-  }, [members]);
+  }, [isSystemAdmin, adminScope, systemNodes, members]);
 
   const filteredMembers = useMemo(() => {
     return visibleMembers.filter((m) => {
@@ -1207,9 +1481,8 @@ function CompanyHierarchyPage() {
       if (rafId) cancelAnimationFrame(rafId);
       updateLines();
       try {
-        const key = getOrgHierarchyStorageKey(userData, profile) + "_pos";
         setCustomPositions((latest) => {
-          localStorage.setItem(key, JSON.stringify(latest));
+          localStorage.setItem(posStorageKey, JSON.stringify(latest));
           return latest;
         });
       } catch (e) {}
@@ -1222,16 +1495,15 @@ function CompanyHierarchyPage() {
       window.removeEventListener("mousemove", handleGlobalMouseMove);
       window.removeEventListener("mouseup", handleGlobalMouseUp);
     };
-  }, [zoom, userData, profile, updateLines]);
+  }, [zoom, posStorageKey, updateLines]);
 
   const handleResetPositions = useCallback(() => {
     setCustomPositions({});
     try {
-      const key = getOrgHierarchyStorageKey(userData, profile) + "_pos";
-      localStorage.removeItem(key);
+      localStorage.removeItem(posStorageKey);
     } catch (e) {}
     toast.success("Reset custom card positions to auto layout!");
-  }, [userData, profile]);
+  }, [posStorageKey]);
 
   const handleWorkflowAction = useCallback((action: string, member: HierarchyUser, managers: HierarchyUser[]) => {
     let title = "";
@@ -1293,7 +1565,60 @@ function CompanyHierarchyPage() {
       subtitle="Organization Role & Reporting Hierarchy Connectivity Chart"
       actions={
         <div className="flex items-center gap-2.5 flex-wrap justify-end">
-          {viewMode === "table" && (
+          {/* System Admin Multi-Org Platform Switcher */}
+          {isSystemAdmin && (
+            <div className="flex items-center gap-2">
+              {adminScope === "org" && (
+                <button
+                  onClick={() => {
+                    setAdminScope("system");
+                    setSelectedOrgId(currentOrgId);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-2 hover:bg-surface-3 border border-border text-foreground text-xs font-bold transition-all cursor-pointer shadow-xs"
+                  title="Return to System Admin Multi-Org Hierarchy"
+                >
+                  <ArrowLeft className="size-3.5 text-primary" />
+                  <span className="hidden sm:inline">Platform Overview</span>
+                </button>
+              )}
+
+              <div className="relative">
+                <select
+                  value={adminScope === "system" ? "system" : selectedOrgId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "system") {
+                      setAdminScope("system");
+                    } else {
+                      setSelectedOrgId(val);
+                      setAdminScope("org");
+                    }
+                  }}
+                  className="bg-surface-2 border border-border/90 text-foreground font-bold rounded-full pl-3 pr-8 py-1.5 text-xs outline-none focus:border-primary cursor-pointer shadow-xs max-w-[240px] truncate"
+                >
+                  <option value="system">🌐 Multi-Org Platform Overview</option>
+                  {systemOverview?.organizations.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      🏢 {o.name} ({o.org_admin_count} Admins)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Org Admin Scoped Organization Badge */}
+          {!isSystemAdmin && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs font-bold shadow-xs">
+              <Building className="size-3.5" />
+              <span className="truncate max-w-[160px]">{currentOrgName}</span>
+              <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-blue-500/20 font-extrabold uppercase ml-1">
+                Scoped
+              </span>
+            </div>
+          )}
+
+          {viewMode === "table" && adminScope === "org" && (
             <>
               <div className="relative w-48 sm:w-60">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
@@ -1345,15 +1670,17 @@ function CompanyHierarchyPage() {
             </button>
           </div>
 
-          <button
-            onClick={() => handleOpenAddModal(null)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all shadow-xs cursor-pointer shrink-0"
-            title="Add Team Member"
-          >
-            <UserPlus className="size-3.5" /> <span>Add Member</span>
-          </button>
+          {adminScope === "org" && (
+            <button
+              onClick={() => handleOpenAddModal(null)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-all shadow-xs cursor-pointer shrink-0"
+              title="Add Team Member"
+            >
+              <UserPlus className="size-3.5" /> <span>Add Member</span>
+            </button>
+          )}
 
-          {visibleMembers.length > 0 && (
+          {adminScope === "org" && visibleMembers.length > 0 && (
             <button
               onClick={() => {
                 setDeleteConfirmText("");
@@ -1369,6 +1696,38 @@ function CompanyHierarchyPage() {
       }
     >
       <div className="flex flex-col flex-1 h-full min-h-0 w-full overflow-hidden p-2 sm:p-4">
+        {/* System Admin Multi-Org Banner */}
+        {isSystemAdmin && adminScope === "system" && (
+          <div className="bg-gradient-to-r from-indigo-500/10 via-blue-500/10 to-transparent border border-indigo-500/20 rounded-2xl px-4 py-2.5 mb-3 flex items-center justify-between gap-3 text-xs shrink-0 shadow-2xs">
+            <div className="flex items-center gap-2 text-foreground font-semibold">
+              <Globe className="size-4 text-indigo-500 shrink-0" />
+              <span>
+                <b>System Super Admin View:</b> Showing System Administrator root, all {systemOverview?.organizations?.length ?? 0} registered Organizations, and each Organization's assigned Org Admins.
+              </span>
+            </div>
+            <span className="text-muted-foreground text-[11px] shrink-0 hidden md:inline">
+              Click <b>Inspect Team Hierarchy</b> on any organization card to view its internal engineering tree.
+            </span>
+          </div>
+        )}
+
+        {/* System Admin Org Drilldown Active Banner */}
+        {isSystemAdmin && adminScope === "org" && (
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl px-4 py-2.5 mb-3 flex items-center justify-between gap-3 text-xs shrink-0 shadow-2xs">
+            <div className="flex items-center gap-2 text-foreground font-semibold">
+              <Building className="size-4 text-blue-500 shrink-0" />
+              <span>
+                Inspecting Organization Hierarchy for: <b>{systemOverview?.organizations.find(o => o.id === selectedOrgId)?.name || selectedOrgId}</b>
+              </span>
+            </div>
+            <button
+              onClick={() => setAdminScope("system")}
+              className="text-primary hover:underline font-bold text-xs flex items-center gap-1 cursor-pointer shrink-0"
+            >
+              <ArrowLeft className="size-3" /> Back to Platform Overview
+            </button>
+          </div>
+        )}
         {visibleMembers.length === 0 ? (
           <div className="bg-card border border-border rounded-3xl p-8 sm:p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-6 flex-1 h-full w-full min-h-0">
             <div className="size-24 rounded-3xl bg-gradient-to-tr from-blue-600/20 to-indigo-600/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-inner border border-blue-500/20">
@@ -1541,8 +1900,79 @@ function CompanyHierarchyPage() {
 
                         <div className="flex items-center justify-center gap-12 sm:gap-16 flex-wrap">
                           {group.members.map((member) => {
+                            if (isSystemAdmin && adminScope === "system") {
+                              if (member._isSystemAdminNode || member.id === "sys-admin-root") {
+                                return (
+                                  <div
+                                    key={member.id}
+                                    onMouseEnter={() => setHoveredNodeId(member.id)}
+                                    onMouseLeave={() => setHoveredNodeId(null)}
+                                    className="relative"
+                                  >
+                                    <SystemAdminNodeCard
+                                      member={member}
+                                      position={customPositions[member.id]}
+                                      stats={{
+                                        totalOrgs: systemOverview?.organizations?.length || 0,
+                                        totalOrgAdmins: systemOverview?.system_admin?.total_org_admins || 0,
+                                        totalUsers: systemOverview?.system_admin?.total_users || 0,
+                                      }}
+                                      onStartDrag={handleNodeDragStart}
+                                    />
+                                  </div>
+                                );
+                              }
+
+                              if (member._isOrgNode || member.id.startsWith("org-node-")) {
+                                const orgId = member._orgData?.id || member.id.replace("org-node-", "");
+                                const orgObj = member._orgData || systemOverview?.organizations?.find((o) => o.id === orgId);
+                                return (
+                                  <div
+                                    key={member.id}
+                                    onMouseEnter={() => setHoveredNodeId(member.id)}
+                                    onMouseLeave={() => setHoveredNodeId(null)}
+                                    className="relative"
+                                  >
+                                    <OrganizationNodeCard
+                                      member={member}
+                                      org={orgObj}
+                                      position={customPositions[member.id]}
+                                      onStartDrag={handleNodeDragStart}
+                                      onInspectOrg={(targetOrgId) => {
+                                        setSelectedOrgId(targetOrgId);
+                                        setAdminScope("org");
+                                      }}
+                                    />
+                                  </div>
+                                );
+                              }
+
+                              if (member._isOrgAdminNode || member.id.startsWith("org-admin-") || member.id.startsWith("org-no-admin-")) {
+                                return (
+                                  <div
+                                    key={member.id}
+                                    onMouseEnter={() => setHoveredNodeId(member.id)}
+                                    onMouseLeave={() => setHoveredNodeId(null)}
+                                    className="relative"
+                                  >
+                                    <OrgAdminNodeCard
+                                      member={member}
+                                      position={customPositions[member.id]}
+                                      orgName={member._orgName}
+                                      orgId={member._orgId}
+                                      onStartDrag={handleNodeDragStart}
+                                      onInspectOrg={(targetOrgId) => {
+                                        setSelectedOrgId(targetOrgId);
+                                        setAdminScope("org");
+                                      }}
+                                    />
+                                  </div>
+                                );
+                              }
+                            }
+
                             const parentIds = getMemberParentIds(member);
-                            const managers = members.filter((p) => parentIds.includes(p.id));
+                            const managers = visibleMembers.filter((p) => parentIds.includes(p.id));
                             return (
                               <div
                                 key={member.id}
@@ -1576,95 +2006,163 @@ function CompanyHierarchyPage() {
             {/* VIEW MODE 2: TABULAR GRID */}
             {viewMode === "table" && (
               <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm flex-1 h-full min-h-0 flex flex-col">
-                <div className="overflow-auto flex-1 h-full custom-scrollbar">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-surface-2 text-muted-foreground font-bold uppercase text-[10px] tracking-wider border-b border-border">
-                      <tr>
-                        <th className="py-3 px-4">Member Name & Email</th>
-                        <th className="py-3 px-4">Designation</th>
-                        <th className="py-3 px-4">Department</th>
-                        <th className="py-3 px-4">Role Tier</th>
-                        <th className="py-3 px-4">Authority</th>
-                        <th className="py-3 px-4">Reporting Managers</th>
-                        <th className="py-3 px-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60">
-                      {filteredMembers.map((m) => {
-                        const parentIds = getMemberParentIds(m);
-                        const managers = members.filter((p) => parentIds.includes(p.id));
-                        return (
-                          <tr key={m.id} className="hover:bg-surface-2/60 transition-colors">
+                {isSystemAdmin && adminScope === "system" ? (
+                  <div className="overflow-auto flex-1 h-full custom-scrollbar">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-surface-2 text-muted-foreground font-bold uppercase text-[10px] tracking-wider border-b border-border">
+                        <tr>
+                          <th className="py-3 px-4">Organization Name & ID</th>
+                          <th className="py-3 px-4">Subscription Plan</th>
+                          <th className="py-3 px-4">Org Admins Assigned</th>
+                          <th className="py-3 px-4">Active Seats</th>
+                          <th className="py-3 px-4">Status</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {(systemOverview?.organizations || []).map((org) => (
+                          <tr key={org.id} className="hover:bg-surface-2/60 transition-colors">
                             <td className="py-3 px-4">
                               <div className="flex items-center gap-3">
-                                <div className={`size-8 rounded-full ${m.avatarColor || "bg-primary"} text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs`}>
-                                  {m.name.charAt(0)}
+                                <div className="size-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                  {org.name.charAt(0)}
                                 </div>
-                                <div className="flex flex-col">
-                                  <span className="font-bold text-foreground">{m.name}</span>
-                                  <span className="text-[10px] text-muted-foreground">{m.email}</span>
+                                <div className="flex flex-col min-w-0">
+                                  <span className="font-bold text-foreground text-xs truncate">{org.name}</span>
+                                  <span className="text-[10px] font-mono text-muted-foreground truncate">ID: {org.id}</span>
                                 </div>
                               </div>
                             </td>
-                            <td className="py-3 px-4 font-medium text-foreground">{getMemberDisplayDesignation(m)}</td>
-                            <td className="py-3 px-4">
-                              <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-primary/10 text-primary border border-primary/20">
-                                {m.department}
+                            <td className="py-3 px-4 font-medium text-foreground">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 uppercase">
+                                {org.subscription_plan}
                               </span>
                             </td>
                             <td className="py-3 px-4">
-                              <RoleBadge role={m.role} />
-                            </td>
-                            <td className="py-3 px-4">
-                              <AuthorityBadge authority={m.approvalAuthority} />
-                            </td>
-                            <td className="py-3 px-4 text-muted-foreground">
-                              {managers.length === 0 ? (
-                                <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[10.5px]">Top Leader</span>
+                              {org.org_admins.length === 0 ? (
+                                <span className="text-amber-500 font-bold text-[11px]">No Admin Assigned</span>
                               ) : (
-                                <div className="flex flex-wrap items-center gap-1 font-medium text-foreground">
-                                  <User className="size-3.5 text-muted-foreground shrink-0 mr-0.5" />
-                                  {managers.map((mgr) => (
-                                    <span key={mgr.id} className="px-2 py-0.5 rounded-full text-[10.5px] bg-surface-2 border border-border/60 text-foreground font-semibold">
-                                      {mgr.name}
+                                <div className="flex flex-wrap gap-1">
+                                  {org.org_admins.map((adm) => (
+                                    <span key={adm.id || adm.email} className="px-2 py-0.5 rounded-md text-[10.5px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" title={adm.email}>
+                                      {adm.name}
                                     </span>
                                   ))}
                                 </div>
                               )}
                             </td>
+                            <td className="py-3 px-4 text-muted-foreground font-semibold">
+                              {org.total_members_count} / {org.max_users} Seats
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                <span className="size-1.5 rounded-full bg-emerald-500" />
+                                {org.status}
+                              </span>
+                            </td>
                             <td className="py-3 px-4 text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                <button
-                                  onClick={() => handleOpenAddModal(m.id)}
-                                  className="p-1.5 hover:bg-primary/10 text-primary rounded-lg transition-all cursor-pointer"
-                                  title="Add Direct Report"
-                                >
-                                  <UserPlus className="size-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => handleOpenEditModal(m)}
-                                  className="p-1.5 hover:bg-surface-3 text-muted-foreground hover:text-foreground rounded-lg transition-all cursor-pointer"
-                                  title="Edit Role & Managers"
-                                >
-                                  <Edit3 className="size-3.5" />
-                                </button>
-                                {parentIds.length > 0 && (
-                                  <button
-                                    onClick={() => handleDeleteMember(m.id, m.name)}
-                                    className="p-1.5 hover:bg-rose-500/10 text-rose-500 rounded-lg transition-all cursor-pointer"
-                                    title="Remove Member"
-                                  >
-                                    <Trash2 className="size-3.5" />
-                                  </button>
-                                )}
-                              </div>
+                              <button
+                                onClick={() => {
+                                  setSelectedOrgId(org.id);
+                                  setAdminScope("org");
+                                  setViewMode("tree");
+                                }}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/10 hover:bg-primary text-primary hover:text-primary-foreground text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                              >
+                                <span>Inspect Tree</span>
+                                <ArrowRight className="size-3.5" />
+                              </button>
                             </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="overflow-auto flex-1 h-full custom-scrollbar">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-surface-2 text-muted-foreground font-bold uppercase text-[10px] tracking-wider border-b border-border">
+                        <tr>
+                          <th className="py-3 px-4">Member Name & Email</th>
+                          <th className="py-3 px-4">Designation</th>
+                          <th className="py-3 px-4">Department</th>
+                          <th className="py-3 px-4">Reporting Managers</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {filteredMembers.map((m) => {
+                          const parentIds = getMemberParentIds(m);
+                          const managers = visibleMembers.filter((p) => parentIds.includes(p.id));
+                          return (
+                            <tr key={m.id} className="hover:bg-surface-2/60 transition-colors">
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-3">
+                                  <div className={`size-8 rounded-full ${m.avatarColor || "bg-primary"} text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs`}>
+                                    {m.name.charAt(0)}
+                                  </div>
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="font-bold text-foreground text-xs truncate">{m.name}</span>
+                                    <span className="text-[10px] text-muted-foreground truncate">{m.email}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 font-medium text-foreground">{getMemberDisplayDesignation(m)}</td>
+                              <td className="py-3 px-4">
+                                <span className="px-2.5 py-0.5 rounded-full text-[10.5px] font-bold bg-primary/10 text-primary border border-primary/20">
+                                  {m.department}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-muted-foreground">
+                                {managers.length === 0 ? (
+                                  <span className="text-amber-600 dark:text-amber-400 font-bold text-[10.5px] flex items-center gap-1">
+                                    <Crown className="size-3" /> Top Leader
+                                  </span>
+                                ) : (
+                                  <div className="flex flex-wrap items-center gap-1 font-medium text-foreground">
+                                    <User className="size-3.5 text-muted-foreground shrink-0 mr-0.5" />
+                                    {managers.map((mgr) => (
+                                      <span key={mgr.id} className="px-2 py-0.5 rounded-full text-[10.5px] bg-surface-2 border border-border/60 text-foreground font-semibold">
+                                        {mgr.name}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    onClick={() => handleOpenAddModal(m.id)}
+                                    className="p-1.5 hover:bg-primary/10 text-primary rounded-lg transition-all cursor-pointer"
+                                    title="Add Direct Report"
+                                  >
+                                    <UserPlus className="size-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenEditModal(m)}
+                                    className="p-1.5 hover:bg-surface-3 text-muted-foreground hover:text-foreground rounded-lg transition-all cursor-pointer"
+                                    title="Edit Role & Managers"
+                                  >
+                                    <Edit3 className="size-3.5" />
+                                  </button>
+                                  {parentIds.length > 0 && (
+                                    <button
+                                      onClick={() => handleDeleteMember(m.id, m.name)}
+                                      className="p-1.5 hover:bg-rose-500/10 text-rose-500 rounded-lg transition-all cursor-pointer"
+                                      title="Remove Member"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -1696,6 +2194,28 @@ function CompanyHierarchyPage() {
             </div>
 
             <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
+              {isSystemAdmin ? (
+                <div className="p-3 bg-surface-2/80 border border-border/80 rounded-2xl space-y-1">
+                  <label className="font-bold text-foreground block text-[11px]">Organization</label>
+                  <select
+                    value={selectedOrgId}
+                    onChange={(e) => setSelectedOrgId(e.target.value)}
+                    className="w-full bg-surface-1 border border-border/80 focus:border-primary rounded-xl px-3 py-1.5 outline-none font-semibold text-foreground text-xs cursor-pointer"
+                  >
+                    {systemOverview?.organizations.map((org) => (
+                      <option key={org.id} value={org.id}>
+                        🏢 {org.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-2xl text-blue-600 dark:text-blue-400 text-xs font-semibold">
+                  <Building className="size-4 shrink-0" />
+                  <span>Organization: <b>{currentOrgName}</b> (Scoped)</span>
+                </div>
+              )}
+
               <div className="relative">
                 <label className="font-bold text-foreground block mb-1">Full Name *</label>
                 <div className="relative">
@@ -1822,7 +2342,7 @@ function CompanyHierarchyPage() {
                     }}
                     className="w-full bg-surface-2 border border-border/80 focus:border-primary rounded-xl px-3.5 py-2.5 outline-none font-medium text-foreground cursor-pointer"
                   >
-                    {currentRole === "SUPER_ADMIN" && <option value="SUPER_ADMIN">Super Admin (CEO)</option>}
+                    {isSystemAdmin && <option value="SUPER_ADMIN">Super Admin (CEO)</option>}
                     <option value="ORG_ADMIN">Org Admin (Director)</option>
                     <option value="PROJECT_MANAGER">Project Manager (PM)</option>
                     <option value="TEAM_LEADER">Team Leader</option>
@@ -2000,7 +2520,284 @@ function CompanyHierarchyPage() {
   );
 }
 
+// =====================================================================
+// MULTI-TENANT SYSTEM ADMIN CARDS FOR PLATFORM HIERARCHY
+// =====================================================================
+
+function SystemAdminNodeCard({
+  member,
+  position,
+  stats,
+  onStartDrag,
+}: {
+  member: HierarchyUser;
+  position?: { x: number; y: number };
+  stats?: { totalOrgs: number; totalOrgAdmins: number; totalUsers: number };
+  onStartDrag: (e: React.MouseEvent, id: string) => void;
+}) {
+  return (
+    <div
+      data-node-id={member.id}
+      onMouseDown={(e) => onStartDrag(e, member.id)}
+      style={{
+        transform: position ? `translate3d(${position.x}px, ${position.y}px, 0px)` : undefined,
+      }}
+      className="group relative bg-card/95 hover:bg-card border-2 border-indigo-500/50 hover:border-indigo-500 rounded-3xl p-5 shadow-lg hover:shadow-2xl transition-all duration-200 w-84 flex flex-col gap-3.5 select-none cursor-grab active:cursor-grabbing backdrop-blur-md ring-4 ring-indigo-500/10"
+    >
+      {/* Top Header */}
+      <div className="flex items-center justify-between">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10.5px] font-extrabold bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 tracking-wider uppercase">
+          <Crown className="size-3.5 text-indigo-500 animate-pulse" />
+          SYSTEM ADMINISTRATOR
+        </span>
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+            Platform Root
+          </span>
+          <div className="p-1 text-muted-foreground/40 group-hover:text-muted-foreground hover:text-primary rounded-lg transition-colors cursor-grab">
+            <GripVertical className="size-3.5" />
+          </div>
+        </div>
+      </div>
+
+      {/* Middle: Avatar + Title */}
+      <div className="flex items-center gap-3.5">
+        <div className="relative shrink-0">
+          <div className="size-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-600 text-white flex items-center justify-center font-black text-lg shadow-md ring-2 ring-indigo-500/30">
+            {member.name.charAt(0).toUpperCase()}
+          </div>
+          <span className="absolute -bottom-1 -right-1 size-3 rounded-full bg-emerald-500 ring-2 ring-card" title="Online" />
+        </div>
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-black text-foreground text-sm truncate tracking-tight">{member.name}</span>
+          </div>
+          <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 truncate">
+            {member.designation}
+          </span>
+          <span className="text-[11px] text-muted-foreground truncate">{member.email}</span>
+        </div>
+      </div>
+
+      {/* Metrics Row */}
+      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/60 text-center">
+        <div className="bg-surface-2/80 rounded-xl p-2 border border-border/50">
+          <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Orgs</div>
+          <div className="text-base font-extrabold text-foreground">{stats?.totalOrgs ?? 0}</div>
+        </div>
+        <div className="bg-surface-2/80 rounded-xl p-2 border border-border/50">
+          <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Org Admins</div>
+          <div className="text-base font-extrabold text-indigo-600 dark:text-indigo-400">{stats?.totalOrgAdmins ?? 0}</div>
+        </div>
+        <div className="bg-surface-2/80 rounded-xl p-2 border border-border/50">
+          <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Users</div>
+          <div className="text-base font-extrabold text-foreground">{stats?.totalUsers ?? 0}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OrganizationNodeCard({
+  member,
+  org,
+  position,
+  onStartDrag,
+  onInspectOrg,
+}: {
+  member: HierarchyUser;
+  org?: OrgOverview;
+  position?: { x: number; y: number };
+  onStartDrag: (e: React.MouseEvent, id: string) => void;
+  onInspectOrg: (orgId: string) => void;
+}) {
+  const orgId = org?.id || member.id.replace("org-node-", "");
+  const orgName = org?.name || member.name;
+  const adminCount = org?.org_admin_count ?? 0;
+  const memberCount = org?.total_members_count ?? 0;
+  const maxSeats = org?.max_users ?? 10;
+  const plan = org?.subscription_plan || "ENTERPRISE";
+
+  return (
+    <div
+      data-node-id={member.id}
+      onMouseDown={(e) => onStartDrag(e, member.id)}
+      style={{
+        transform: position ? `translate3d(${position.x}px, ${position.y}px, 0px)` : undefined,
+      }}
+      className="group relative bg-card/95 hover:bg-card border-2 border-blue-500/40 hover:border-blue-500 rounded-3xl p-5 shadow-md hover:shadow-xl transition-all duration-200 w-80 flex flex-col gap-3 select-none cursor-grab active:cursor-grabbing backdrop-blur-md ring-2 ring-blue-500/10"
+    >
+      {/* Top Header */}
+      <div className="flex items-center justify-between gap-1.5">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 tracking-wider uppercase">
+          <Building className="size-3" />
+          ORGANIZATION
+        </span>
+        <div className="flex items-center gap-1">
+          <span className="text-[9.5px] font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 uppercase tracking-wider">
+            {plan}
+          </span>
+          <div className="p-1 text-muted-foreground/40 group-hover:text-muted-foreground hover:text-primary rounded-lg transition-colors cursor-grab">
+            <GripVertical className="size-3.5" />
+          </div>
+        </div>
+      </div>
+
+      {/* Middle Section: Org Logo + Name + ID */}
+      <div className="flex items-center gap-3">
+        <div className="size-11 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-600 text-white flex items-center justify-center font-black text-base shadow-xs shrink-0">
+          {orgName.charAt(0).toUpperCase()}
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="font-extrabold text-foreground text-sm truncate tracking-tight group-hover:text-primary transition-colors" title={orgName}>
+            {orgName}
+          </span>
+          <span className="text-[10px] font-mono text-muted-foreground truncate" title={orgId}>
+            ID: {orgId}
+          </span>
+        </div>
+      </div>
+
+      {/* Stats Summary Pill Row */}
+      <div className="flex items-center justify-between gap-2 p-2 bg-surface-2/80 rounded-xl border border-border/50 text-[11px]">
+        <div className="flex flex-col">
+          <span className="text-[9.5px] uppercase font-bold text-muted-foreground">Org Admins</span>
+          <span className="font-extrabold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+            <Shield className="size-3" /> {adminCount} Admin{adminCount === 1 ? '' : 's'}
+          </span>
+        </div>
+        <div className="h-6 w-px bg-border/60" />
+        <div className="flex flex-col text-right">
+          <span className="text-[9.5px] uppercase font-bold text-muted-foreground">Team Capacity</span>
+          <span className="font-extrabold text-foreground">
+            {memberCount} / {maxSeats} Seats
+          </span>
+        </div>
+      </div>
+
+      {/* Bottom Action: Inspect Full Team Tree */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onInspectOrg(orgId);
+        }}
+        className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-primary/10 hover:bg-primary text-primary hover:text-primary-foreground text-xs font-bold transition-all shadow-xs cursor-pointer group/btn"
+      >
+        <span>Inspect Team Hierarchy</span>
+        <ArrowRight className="size-3.5 group-hover/btn:translate-x-0.5 transition-transform" />
+      </button>
+    </div>
+  );
+}
+
+function OrgAdminNodeCard({
+  member,
+  position,
+  orgName,
+  orgId,
+  onStartDrag,
+  onInspectOrg,
+}: {
+  member: HierarchyUser;
+  position?: { x: number; y: number };
+  orgName?: string;
+  orgId?: string;
+  onStartDrag: (e: React.MouseEvent, id: string) => void;
+  onInspectOrg?: (orgId: string) => void;
+}) {
+  return (
+    <div
+      data-node-id={member.id}
+      onMouseDown={(e) => onStartDrag(e, member.id)}
+      style={{
+        transform: position ? `translate3d(${position.x}px, ${position.y}px, 0px)` : undefined,
+      }}
+      className="group relative bg-card/95 hover:bg-card border-2 border-emerald-500/40 hover:border-emerald-500 rounded-2xl p-4 shadow-sm hover:shadow-lg transition-all duration-200 w-76 flex flex-col gap-2.5 select-none cursor-grab active:cursor-grabbing backdrop-blur-md"
+    >
+      {/* Top Header */}
+      <div className="flex items-center justify-between gap-1">
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
+          <ShieldCheck className="size-3" />
+          ORG ADMIN
+        </span>
+        <div className="flex items-center gap-1">
+          <span className="text-[9.5px] font-bold text-muted-foreground truncate max-w-[120px]" title={orgName}>
+            {orgName || "Organization"}
+          </span>
+          <div className="p-1 text-muted-foreground/40 group-hover:text-muted-foreground hover:text-primary rounded-lg transition-colors cursor-grab">
+            <GripVertical className="size-3.5" />
+          </div>
+        </div>
+      </div>
+
+      {/* Middle: Avatar + Name + Title */}
+      <div className="flex items-center gap-3">
+        <div className="relative shrink-0">
+          <div className="size-11 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center font-extrabold text-sm shadow-xs">
+            {member.name.charAt(0).toUpperCase()}
+          </div>
+          <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-emerald-500 ring-2 ring-card" />
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="font-extrabold text-foreground text-sm truncate tracking-tight">{member.name}</span>
+          <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 truncate">
+            {member.designation || "Director of MEP Engineering"}
+          </span>
+          <span className="text-[10.5px] text-muted-foreground truncate">{member.email}</span>
+        </div>
+      </div>
+
+      {/* Footer Info */}
+      <div className="flex items-center justify-between pt-2 border-t border-border/50 text-[10.5px]">
+        <span className="text-muted-foreground font-medium">Approval Authority:</span>
+        <span className="font-extrabold text-emerald-600 dark:text-emerald-400">Approve / Reject</span>
+      </div>
+
+      {orgId && onInspectOrg && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onInspectOrg(orgId);
+          }}
+          className="mt-1 flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-foreground text-[11px] font-bold transition-all cursor-pointer border border-border/60"
+        >
+          <span>View Org Hierarchy</span>
+          <ArrowRight className="size-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Node Card Component for DAG Layout
+const DEPARTMENT_META: Record<string, { badge: string; dot: string }> = {
+  Management: {
+    badge: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",
+    dot: "bg-purple-500",
+  },
+  HVAC: {
+    badge: "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20",
+    dot: "bg-sky-500",
+  },
+  Electrical: {
+    badge: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+    dot: "bg-amber-500",
+  },
+  Plumbing: {
+    badge: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+    dot: "bg-blue-500",
+  },
+  "Fire Fighting": {
+    badge: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
+    dot: "bg-rose-500",
+  },
+  "BIM & IT": {
+    badge: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+    dot: "bg-emerald-500",
+  },
+};
+
+// Modern, Attractive Node Card Component for Visual Hierarchy Tree
 function NodeCard({
   member,
   managers,
@@ -2011,7 +2808,6 @@ function NodeCard({
   onAddReport,
   onEdit,
   onDelete,
-  onWorkflowAction
 }: {
   member: HierarchyUser;
   managers: HierarchyUser[];
@@ -2027,19 +2823,17 @@ function NodeCard({
   const displayTitle = getMemberDisplayDesignation(member);
   const parentIds = getMemberParentIds(member);
   const isMoved = Boolean(position && (position.x !== 0 || position.y !== 0));
-  
   const isCurrentUser = member.email.toLowerCase().trim() === (currentUserEmail || "").toLowerCase().trim();
-  const rawEffRole = normalizeHierarchyRole(member.role);
-  const rawEffDesig = normalizeHierarchyRole(member.designation);
-  // If role is generic, try to use designation to determine the specific role tier
-  const finalRole = (rawEffRole === "USER" || rawEffRole === "ENGINEER" || rawEffRole === "DESIGN_ENGINEER") && rawEffDesig !== "USER" 
-    ? rawEffDesig 
-    : rawEffRole;
+  const isRootLeader = parentIds.length === 0;
 
-  // Functionality is decoupled from tree structure / roles, purely based on approvalAuthority
-  const showSubmit = member.approvalAuthority === "SUBMIT_TASK";
-  const showApprove = member.approvalAuthority === "APPROVE_REJECT";
-  const showReview = member.approvalAuthority === "REVIEW";
+  const deptMeta = DEPARTMENT_META[member.department] || {
+    badge: "bg-primary/10 text-primary border-primary/20",
+    dot: "bg-primary",
+  };
+
+  const tooltipTitle = managers.length > 0
+    ? `${member.name} (${displayTitle}) • Department: ${member.department}`
+    : `${member.name} (${displayTitle}) • Organization Head`;
 
   return (
     <div
@@ -2048,125 +2842,130 @@ function NodeCard({
       style={{
         transform: position ? `translate3d(${position.x}px, ${position.y}px, 0px)` : undefined,
       }}
-      className={`group relative bg-card border p-4 rounded-2xl shadow-xs hover:shadow-lg transition-all w-72 flex flex-col gap-2.5 select-none cursor-grab active:cursor-grabbing ${
-        isMoved ? "border-primary/50 ring-2 ring-primary/20 shadow-md" : "border-border hover:border-primary/60"
+      title={tooltipTitle}
+      className={`group relative bg-card/95 hover:bg-card border p-4 rounded-2xl shadow-xs hover:shadow-xl transition-all duration-200 w-72 flex flex-col gap-3 select-none cursor-grab active:cursor-grabbing backdrop-blur-xs ${
+        isMoved
+          ? "border-primary/50 ring-2 ring-primary/20 shadow-md"
+          : isCurrentUser
+            ? "border-blue-500/50 ring-2 ring-blue-500/15 hover:border-blue-500/70"
+            : "border-border/80 hover:border-primary/50"
       }`}
     >
+      {/* Top Header: Department Pill + Actions (Add, Edit, Delete) & Drag Handle */}
       <div className="flex items-center justify-between gap-1.5">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <div
-            className="p-1 bg-surface-2 hover:bg-primary/10 text-muted-foreground hover:text-primary rounded-lg transition-all flex items-center justify-center shrink-0 border border-border/60"
-            title="Click and hold anywhere on card to drag position"
-          >
-            <GripVertical className="size-3.5 text-primary" />
-          </div>
-          {!isDuplicateRoleBadge(member) && <RoleBadge role={member.role} />}
-          <AuthorityBadge authority={member.approvalAuthority} />
-          {managers.length > 1 && (
-            <span
-              className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase tracking-wider flex items-center gap-1"
-              title={`Reports to ${managers.length} Managers: ${managers.map((m) => m.name).join(", ")}`}
-            >
-              <GitFork className="size-3" /> {managers.length} Managers
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button
-            onClick={() => onAddReport(member.id)}
-            className="p-1 hover:bg-primary/10 text-primary rounded-md transition-all cursor-pointer"
-            title="Add Subordinate"
-          >
-            <UserPlus className="size-3.5" />
-          </button>
-          <button
-            onClick={() => onEdit(member)}
-            className="p-1 hover:bg-surface-3 text-muted-foreground hover:text-foreground rounded-md transition-all cursor-pointer"
-            title="Edit Member"
-          >
-            <Edit3 className="size-3.5" />
-          </button>
-          {parentIds.length > 0 && (
-            <button
-              onClick={() => onDelete(member.id, member.name)}
-              className="p-1 hover:bg-rose-500/10 text-rose-500 rounded-md transition-all cursor-pointer"
-              title="Remove Member"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <div className={`size-10 rounded-2xl ${member.avatarColor || "bg-primary"} text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs`}>
-          {member.name.charAt(0)}
-        </div>
-        <div className="flex flex-col min-w-0">
-          <span className="font-extrabold text-foreground text-sm truncate">{member.name}</span>
-          <span className="text-[11px] font-medium text-muted-foreground truncate">{displayTitle}</span>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between pt-2 border-t border-border/50 text-[11px]">
-        <span className="px-2 py-0.5 rounded-full font-bold bg-primary/10 text-primary border border-primary/20 text-[10px]">
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border tracking-wider uppercase ${deptMeta.badge}`}
+        >
+          <span className={`size-1.5 rounded-full ${deptMeta.dot} shrink-0`} />
           {member.department}
         </span>
-        <span className="text-muted-foreground text-[10px] truncate max-w-[130px]" title={member.email}>
-          {member.email}
-        </span>
+
+        <div className="flex items-center gap-1">
+          {/* Quick Actions (revealed smoothly on hover) */}
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddReport(member.id);
+              }}
+              className="p-1 hover:bg-primary/10 text-primary rounded-lg transition-all cursor-pointer"
+              title="Add Direct Report"
+            >
+              <UserPlus className="size-3.5" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(member);
+              }}
+              className="p-1 hover:bg-surface-3 text-muted-foreground hover:text-foreground rounded-lg transition-all cursor-pointer"
+              title="Edit Member"
+            >
+              <Edit3 className="size-3.5" />
+            </button>
+            {!isRootLeader && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(member.id, member.name);
+                }}
+                className="p-1 hover:bg-rose-500/10 text-rose-500 rounded-lg transition-all cursor-pointer"
+                title="Remove Member"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Drag Handle */}
+          <div
+            className="p-1 text-muted-foreground/40 group-hover:text-muted-foreground hover:text-primary rounded-lg transition-colors flex items-center justify-center shrink-0 cursor-grab"
+            title="Click and hold to reposition card"
+          >
+            <GripVertical className="size-3.5" />
+          </div>
+        </div>
       </div>
 
-      {managers.length > 0 && (
-        <div className="pt-1.5 border-t border-border/40 text-[10px] text-muted-foreground flex items-center gap-1 overflow-hidden">
-          <span className="font-semibold shrink-0">Reports to:</span>
-          <span className="truncate font-medium text-foreground" title={managers.map((m) => m.name).join(", ")}>
-            {managers.map((m) => m.name).join(", ")}
+      {/* Middle Section: Avatar + Name + Designation */}
+      <div className="flex items-center gap-3">
+        <div className="relative shrink-0">
+          <div
+            className={`size-11 rounded-2xl ${
+              member.avatarColor || "bg-gradient-to-tr from-blue-600 to-indigo-600"
+            } text-white flex items-center justify-center font-extrabold text-sm shadow-xs`}
+          >
+            {member.name.charAt(0).toUpperCase()}
+          </div>
+          <span
+            className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-emerald-500 ring-2 ring-card"
+            title="Active"
+          />
+        </div>
+
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="font-extrabold text-foreground text-sm truncate tracking-tight group-hover:text-primary transition-colors">
+              {member.name}
+            </span>
+            {isCurrentUser && (
+              <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shrink-0">
+                You
+              </span>
+            )}
+          </div>
+          <span
+            className="text-[11.5px] font-medium text-muted-foreground truncate leading-tight mt-0.5"
+            title={displayTitle}
+          >
+            {displayTitle}
           </span>
         </div>
-      )}
+      </div>
 
-      {/* Dynamic Workflow Actions based on Login and Tree Hierarchy Logic */}
-      {isCurrentUser && (
-        <>
-          {showSubmit && (
-            <div className="pt-2 border-t border-border/40 mt-1">
-              <button 
-                onClick={(e) => { e.stopPropagation(); if (onWorkflowAction) onWorkflowAction("submit", member, managers); }}
-                className="w-full py-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 border border-blue-500/20 text-[11px] font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                Submit Task
-              </button>
-            </div>
-          )}
-          {showReview && (
-            <div className="pt-2 border-t border-border/40 mt-1">
-              <button 
-                onClick={(e) => { e.stopPropagation(); if (onWorkflowAction) onWorkflowAction("review", member, managers); }}
-                className="w-full py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 border border-amber-500/20 text-[11px] font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                Review & Add Comments
-              </button>
-            </div>
-          )}
-          {showApprove && (
-            <div className="pt-2 border-t border-border/40 mt-1 flex gap-2">
-              <button 
-                onClick={(e) => { e.stopPropagation(); if (onWorkflowAction) onWorkflowAction("approve", member, managers); }}
-                className="flex-1 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 border border-emerald-500/20 text-[11px] font-bold transition-colors flex items-center justify-center cursor-pointer shadow-xs"
-              >
-                Approve
-              </button>
-              <button 
-                onClick={(e) => { e.stopPropagation(); if (onWorkflowAction) onWorkflowAction("reject", member, managers); }}
-                className="flex-1 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 border border-rose-500/20 text-[11px] font-bold transition-colors flex items-center justify-center cursor-pointer shadow-xs"
-              >
-                Reject
-              </button>
-            </div>
-          )}
-        </>
-      )}
+      {/* Bottom Footer: Contact Mail & Hierarchy Status */}
+      <div className="flex items-center justify-between pt-2.5 border-t border-border/50 text-[10.5px]">
+        <div className="flex items-center gap-1.5 text-muted-foreground/80 truncate min-w-0" title={member.email}>
+          <Mail className="size-3 shrink-0 text-muted-foreground/50" />
+          <span className="truncate">{member.email}</span>
+        </div>
+
+        {isRootLeader ? (
+          <span
+            className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+            title="Organization Head / CEO"
+          >
+            <Crown className="size-2.5" /> Leader
+          </span>
+        ) : hasSubordinates ? (
+          <span
+            className="shrink-0 text-[9.5px] font-bold text-muted-foreground/70 bg-surface-2 px-1.5 py-0.5 rounded-md border border-border/40"
+            title="Direct Manager with reports"
+          >
+            Manager
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }

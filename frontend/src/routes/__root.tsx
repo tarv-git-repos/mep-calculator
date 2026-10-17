@@ -85,7 +85,20 @@ function AuthGuard({ children }: { children: ReactNode }) {
 
   // Security & Smart Routing
   if (session && profile && !isLoginPage && !isPrivacyPage) {
-    if (profile.role !== 'SUPER_ADMIN' && profile.role !== 'ORG_ADMIN' && isAdminPage) {
+    const roleUpper = String(profile?.role || (profile as any)?.features?.role || '').toUpperCase().trim();
+    const desigUpper = String(profile?.designation || (profile as any)?.features?.designation || '').toUpperCase().trim();
+    const userEmail = String(profile?.email || session?.user?.email || '').toLowerCase().trim();
+    const isSuperAdmin = roleUpper === 'SUPER_ADMIN' || userEmail === 'admin@tarv.ai';
+    const isOrgAdmin = isSuperAdmin ||
+      roleUpper === 'ORG_ADMIN' ||
+      roleUpper === 'ORGANIZATION_ADMIN' ||
+      roleUpper === 'ORGANIZATION ADMIN' ||
+      roleUpper === 'ORG ADMIN' ||
+      (roleUpper.includes('ORG') && roleUpper.includes('ADMIN')) ||
+      desigUpper.includes('ORG ADMIN') ||
+      desigUpper.includes('ORGANIZATION ADMIN');
+
+    if (!isSuperAdmin && !isOrgAdmin && isAdminPage) {
       return <Navigate to="/" replace />;
     }
   }
@@ -215,26 +228,12 @@ function RootShell({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
-  let initialDark = false;
-  if (typeof window !== "undefined") {
-    try {
-      const t = localStorage.getItem('mep_theme') || 'dark';
-      if (t === 'dark') {
-        initialDark = true;
-      } else if (t === 'light') {
-        initialDark = false;
-      } else {
-        initialDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      }
-    } catch (e) {}
-  }
-
   return (
-    <html lang="en" className={initialDark ? "dark" : ""}>
+    <html lang="en" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('mep_theme')||'dark';var d=false;if(t==='dark')d=true;else if(t==='light')d=false;else d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(d){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){}})();`,
+            __html: `(function(){try{var t=localStorage.getItem('mep_theme');if(!t){var u=localStorage.getItem('mep_calculator_user_data')||localStorage.getItem('mep_profile')||localStorage.getItem('mep_user_data');if(u){try{var p=JSON.parse(u);if(p&&p.settings&&p.settings.theme){t=p.settings.theme;localStorage.setItem('mep_theme',t);}}catch(_){}}}t=t||'dark';var d=false;if(t==='dark')d=true;else if(t==='light')d=false;else d=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;if(d){document.documentElement.classList.add('dark');}else{document.documentElement.classList.remove('dark');}}catch(e){}})();`,
           }}
         />
         <HeadContent />
@@ -248,47 +247,80 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function ThemeWatcher() {
+  const router = useRouter();
+
   useEffect(() => {
+    const getResolvedTheme = (): 'light' | 'dark' => {
+      if (typeof window === "undefined") return "dark";
+      try {
+        let t = localStorage.getItem("mep_theme");
+        if (!t) {
+          const u = localStorage.getItem("mep_calculator_user_data") || localStorage.getItem("mep_profile") || localStorage.getItem("mep_user_data");
+          if (u) {
+            const p = JSON.parse(u);
+            if (p?.settings?.theme) {
+              t = p.settings.theme;
+              localStorage.setItem("mep_theme", t);
+            }
+          }
+        }
+        t = t || "dark";
+        if (t === "dark") return "dark";
+        if (t === "light") return "light";
+        return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      } catch {
+        return "dark";
+      }
+    };
+
     const applyCurrentTheme = () => {
       if (typeof window === "undefined") return;
-      const savedTheme = localStorage.getItem("mep_theme") || "dark";
-      let isDark = false;
-      if (savedTheme === "dark") {
-        isDark = true;
-      } else if (savedTheme === "light") {
-        isDark = false;
-      } else {
-        isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      }
-      if (isDark) {
+      const target = getResolvedTheme();
+      const isDark = target === "dark";
+      const hasDark = document.documentElement.classList.contains("dark");
+      if (isDark && !hasDark) {
         document.documentElement.classList.add("dark");
-      } else {
+      } else if (!isDark && hasDark) {
         document.documentElement.classList.remove("dark");
       }
     };
 
+    // Apply immediately on mount
     applyCurrentTheme();
+
+    // Re-verify on navigation without flashing
+    const unsubRouter = router.subscribe("onResolved", () => {
+      applyCurrentTheme();
+    });
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const handleSystemChange = () => {
-      const savedTheme = localStorage.getItem("mep_theme") || "dark";
-      if (savedTheme === "system" || savedTheme === "dark") {
+      const savedTheme = localStorage.getItem("mep_theme");
+      if (!savedTheme || savedTheme === "system") {
         applyCurrentTheme();
       }
     };
 
     const handleThemeEvent = () => applyCurrentTheme();
 
+    const handleStorage = (e: StorageEvent) => {
+      // Only react if mep_theme or user data explicitly changed in another tab
+      if (e.key === "mep_theme" || e.key === "mep_calculator_user_data" || e.key === "mep_profile") {
+        applyCurrentTheme();
+      }
+    };
+
     mediaQuery.addEventListener("change", handleSystemChange);
     window.addEventListener("mep-theme-change", handleThemeEvent);
-    window.addEventListener("storage", handleThemeEvent);
+    window.addEventListener("storage", handleStorage);
 
     return () => {
       mediaQuery.removeEventListener("change", handleSystemChange);
       window.removeEventListener("mep-theme-change", handleThemeEvent);
-      window.removeEventListener("storage", handleThemeEvent);
+      window.removeEventListener("storage", handleStorage);
+      unsubRouter();
     };
-  }, []);
+  }, [router]);
 
   return null;
 }

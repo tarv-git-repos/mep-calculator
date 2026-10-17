@@ -2,6 +2,38 @@
  * Utility helpers for merging item comments with global and calculator-specific comments
  */
 
+const parsedStorageCache = new Map<string, { raw: string | null; parsed: any; ts: number }>();
+const CACHE_TTL_MS = 1500;
+
+export function invalidateCommentStorageCache(key?: string) {
+  if (key) {
+    parsedStorageCache.delete(key);
+  } else {
+    parsedStorageCache.clear();
+  }
+}
+
+function getCachedJsonFromStorage(key: string, fallbackRaw: string): any {
+  if (typeof window === 'undefined') return JSON.parse(fallbackRaw);
+  const now = Date.now();
+  const cached = parsedStorageCache.get(key);
+  if (cached && now - cached.ts < CACHE_TTL_MS) {
+    return cached.parsed;
+  }
+  try {
+    const raw = localStorage.getItem(key);
+    if (cached && cached.raw === raw) {
+      cached.ts = now;
+      return cached.parsed;
+    }
+    const parsed = JSON.parse(raw || fallbackRaw);
+    parsedStorageCache.set(key, { raw, parsed, ts: now });
+    return parsed;
+  } catch {
+    return JSON.parse(fallbackRaw);
+  }
+}
+
 export function getMergedItemComments(
   targetId: string | number | undefined,
   targetName?: string | undefined,
@@ -112,7 +144,7 @@ export function getMergedItemComments(
       for (const proj of projectIdsToCheck) {
         for (const p of pathsToCheck) {
           const calcCommentsKey = `mep_calc_comments_${proj}_${p}`;
-          const savedCalcComments = JSON.parse(localStorage.getItem(calcCommentsKey) || '[]');
+          const savedCalcComments = getCachedJsonFromStorage(calcCommentsKey, '[]');
           if (Array.isArray(savedCalcComments)) {
             savedCalcComments.forEach((c) => addCommentIfMatch(c, false));
           }
@@ -124,7 +156,7 @@ export function getMergedItemComments(
   // 3. Also check global coordination notifications queue: mep_calc_coord_notifs
   try {
     const coordKey = 'mep_calc_coord_notifs';
-    const savedCoordNotifs = JSON.parse(localStorage.getItem(coordKey) || '[]');
+    const savedCoordNotifs = getCachedJsonFromStorage(coordKey, '[]');
     if (Array.isArray(savedCoordNotifs)) {
       savedCoordNotifs.forEach((c) => addCommentIfMatch(c, false));
     }
@@ -133,7 +165,7 @@ export function getMergedItemComments(
   // 4. Also check persistent user notifications: mep_persistent_user_notifs
   try {
     const userNotifsKey = 'mep_persistent_user_notifs';
-    const savedUserNotifs = JSON.parse(localStorage.getItem(userNotifsKey) || '[]');
+    const savedUserNotifs = getCachedJsonFromStorage(userNotifsKey, '[]');
     if (Array.isArray(savedUserNotifs)) {
       savedUserNotifs.forEach((c) => addCommentIfMatch(c, false));
     }
@@ -141,11 +173,11 @@ export function getMergedItemComments(
 
   // 5. Check user-specific notification queues
   try {
-    const user = JSON.parse(localStorage.getItem('mep_user') || localStorage.getItem('mep_profile') || '{}');
-    const uName = user.name || user.email || user.id || '';
+    const userObj = getCachedJsonFromStorage('mep_user', 'null') || getCachedJsonFromStorage('mep_profile', '{}') || {};
+    const uName = userObj.name || userObj.email || userObj.id || '';
     if (uName) {
       const uKey = `mep_persistent_user_notifs_${uName}`;
-      const savedU = JSON.parse(localStorage.getItem(uKey) || '[]');
+      const savedU = getCachedJsonFromStorage(uKey, '[]');
       if (Array.isArray(savedU)) {
         savedU.forEach((c) => addCommentIfMatch(c, false));
       }

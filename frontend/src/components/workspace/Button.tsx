@@ -9,7 +9,7 @@ export const TBtn = forwardRef<
       ref={ref}
       type="button"
       {...rest}
-      className={`inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium border transition-colors cursor-pointer ${
+      className={`inline-flex items-center justify-center whitespace-nowrap shrink-0 gap-1.5 h-7 px-3 rounded-full text-[12px] font-medium border transition-colors cursor-pointer ${
         primary
           ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90"
           : "bg-background text-foreground border-border hover:bg-surface-2"
@@ -28,14 +28,15 @@ export function BulkBtn({
 }: {
   icon?: any;
   children: ReactNode;
-  onClick?: () => void;
+  onClick?: (e?: any) => void;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 h-7 px-3 rounded-md text-[11.5px] font-semibold bg-white/80 dark:bg-black/40 hover:bg-white dark:hover:bg-black/60 text-[#06456F] dark:text-[#0A7BC7] border border-[#06456F]/20 dark:border-[#0A7BC7]/30 transition-all cursor-pointer active:scale-95 shadow-xs"
+      className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[11.5px] font-semibold transition-colors text-[#06456F] hover:bg-primary/10 dark:text-[#0A7BC7] dark:hover:bg-primary/20 border border-transparent hover:border-primary/20 active:bg-primary/20 dark:active:bg-primary/30 cursor-pointer"
     >
-      {Icon && <Icon className="size-3.5" />}
+      {Icon && <Icon className="size-3 shrink-0" />}
       {children}
     </button>
   );

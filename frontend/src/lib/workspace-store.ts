@@ -192,6 +192,11 @@ export interface Project {
   createdDate?: string;
   lastModified?: string;
   status?: string;
+  is_locked?: boolean;
+  locked_at?: string | null;
+  locked_by?: string | null;
+  locked_by_name?: string | null;
+  lock_reason?: string | null;
   workspace_data?: any;
   project_type?: ProjectType | string;
   applicable_stages?: (ProjectStageName | string)[];
@@ -331,6 +336,8 @@ if (typeof window !== "undefined") {
 
 function executeWorkspaceSave() {
   if (!activeProjectId) return;
+  const isLocked = Boolean(currentProject?.is_locked || currentProject?.status === 'LOCKED' || (currentProject as any)?.frozen);
+  if (isLocked) return;
   const lsState: Record<string, string> = {};
   const knownPrefixes = ['mep', 'drainage', 'fireTank', 'gasTank', 'sewagePump', 'sumpPump', 'tankSizing', 'pcl', 'bs_', 'chw_', 'custom', 'feature_', 'customCableCatalog', 'customBusbarRatings'];
   for (let i = 0; i < localStorage.length; i++) {
@@ -371,6 +378,8 @@ function executeWorkspaceSave() {
 let saveTimeout: any = null;
 function saveState(immediate = false) {
   if (IS_SERVER) return;
+  const isLocked = Boolean(currentProject?.is_locked || currentProject?.status === 'LOCKED' || (currentProject as any)?.frozen);
+  if (isLocked) return;
   currentWorkspaceState = sanitizeWorkspaceState(currentWorkspaceState);
 
   if (typeof localStorage !== "undefined" && activeProjectId) {
@@ -481,7 +490,7 @@ export const workspaceStore = {
       zones: wdata.zones || [],
       equipment: wdata.equipment || [],
       roundOffPreset: wdata.roundOffPreset ?? 5,
-      isReadOnly: false
+      isReadOnly: Boolean(currentProject?.is_locked || currentProject?.status === 'LOCKED' || (currentProject as any)?.frozen)
     });
     setGlobalRoundOffPreset(currentWorkspaceState.roundOffPreset);
     notify();
@@ -581,7 +590,7 @@ export const workspaceStore = {
           zones: wdata.zones || [],
           equipment: wdata.equipment || [],
           roundOffPreset: wdata.roundOffPreset ?? 5,
-          isReadOnly: false
+          isReadOnly: Boolean(currentProject?.is_locked || currentProject?.status === 'LOCKED' || (currentProject as any)?.frozen)
         });
       } else {
         activeProjectId = "";
@@ -675,7 +684,7 @@ export const workspaceStore = {
       zones: wdata.zones || [],
       equipment: wdata.equipment || [],
       roundOffPreset: wdata.roundOffPreset ?? 5,
-      isReadOnly: false
+      isReadOnly: Boolean(target.is_locked || target.status === 'LOCKED' || (target as any)?.frozen)
     });
 
     setGlobalRoundOffPreset(nextState.roundOffPreset);
@@ -825,6 +834,52 @@ export const workspaceStore = {
       return res;
     } catch (e: any) {
       return { success: false, message: e.message };
+    }
+  },
+
+  async toggleProjectLock(projectId: string, is_locked: boolean, reason?: string) {
+    try {
+      const res = await api.toggleProjectLock({ project_id: projectId, is_locked, reason });
+      if (res && res.success) {
+        const meta = res.meta || {};
+        projects = projects.map((p) => {
+          if (p.id === projectId) {
+            return {
+              ...p,
+              is_locked: meta.is_locked,
+              locked_at: meta.locked_at,
+              locked_by: meta.locked_by,
+              locked_by_name: meta.locked_by_name,
+              lock_reason: meta.lock_reason,
+              status: meta.is_locked ? 'LOCKED' : (p.status === 'LOCKED' ? 'active' : p.status),
+            };
+          }
+          return p;
+        });
+
+        if (activeProjectId === projectId) {
+          if (currentProject) {
+            currentProject = {
+              ...currentProject,
+              is_locked: meta.is_locked,
+              locked_at: meta.locked_at,
+              locked_by: meta.locked_by,
+              locked_by_name: meta.locked_by_name,
+              lock_reason: meta.lock_reason,
+              status: meta.is_locked ? 'LOCKED' : (currentProject.status === 'LOCKED' ? 'active' : currentProject.status),
+            };
+          }
+          currentWorkspaceState.isReadOnly = Boolean(meta.is_locked);
+        }
+
+        saveCachedProjects(projects);
+        notify();
+        return { success: true, meta };
+      }
+      return { success: false, error: res?.error || 'Failed to toggle project lock' };
+    } catch (err: any) {
+      console.error("toggleProjectLock failed:", err);
+      return { success: false, error: err.message };
     }
   },
 
@@ -1876,6 +1931,8 @@ export function useWorkspace() {
     updateProject: (project: Project) => workspaceStore.updateProject(project),
     updateProjectStage: (projectId: string, currentStage: string, applicableStages?: string[], stageStatus?: Record<string, string>) =>
       workspaceStore.updateProjectStage(projectId, currentStage, applicableStages, stageStatus),
+    toggleProjectLock: (projectId: string, is_locked: boolean, reason?: string) =>
+      workspaceStore.toggleProjectLock(projectId, is_locked, reason),
     updateSpaces: (spaces: Space[]) => workspaceStore.updateSpaces(spaces),
     updateZones: (zones: Zone[]) => workspaceStore.updateZones(zones),
     updateEquipment: (equip: Equipment[]) => workspaceStore.updateEquipment(equip),
@@ -1922,6 +1979,8 @@ useWorkspace.getState = () => ({
   forceSaveToCloud: () => workspaceStore.forceSaveToCloud(),
   syncFromCloud: () => workspaceStore.syncFromCloud(),
   refreshProjects: () => workspaceStore.refreshProjects(),
+  toggleProjectLock: (projectId: string, is_locked: boolean, reason?: string) =>
+    workspaceStore.toggleProjectLock(projectId, is_locked, reason),
 });
 
 export const workspace = currentWorkspaceState;

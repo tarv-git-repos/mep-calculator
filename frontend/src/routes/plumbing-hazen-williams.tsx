@@ -1,5 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { getSignatureBlockDetails, addPdfSignatureBlock, formatDateStr } from "@/lib/pdfHelpers";
+import { getSignatureBlockDetails, addPdfSignatureBlock } from "@/lib/pdfHelpers";
 import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { downloadFile } from "@/lib/download";
 import { createFileRoute } from "@tanstack/react-router";
@@ -54,7 +54,6 @@ function HazenWilliamsPage() {
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-hazen-williams", activeProjectId || project?.id);
   const { userData, profile } = useAuth();
   const currentUserName = userData?.name || profile?.name || "System Admin";
-  const sigDetails = getSignatureBlockDetails(project?.id || "default", "/plumbing-hazen-williams", currentUserName, calcReviewState);
 
   const isApprovedLocked = useCalculationLock("/plumbing-hazen-williams", project?.id);
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
@@ -1057,219 +1056,62 @@ function HazenWilliamsPage() {
                 </div>
               )}
 
-              {/* Tab: Report - Canonical Standard */}
+              {/* Tab: Report */}
               {tab === "report" && (
-                <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-                  <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
-                    
-                    {/* 1. Title */}
-                    <div className="flex justify-between items-start pb-1">
-                      <div>
-                        <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground uppercase tracking-wide">
-                          Hazen-Williams Pipe Friction Loss Calculation
-                        </h2>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Hydraulic Friction Gradient, Velocity & Pressure Loss Verification per NFPA 13 & AWWA
-                        </p>
+                <div className="flex-1 min-h-0 overflow-y-auto p-6 bg-surface/30">
+                  <div className="max-w-5xl mx-auto flex flex-col gap-6">
+                    <div className="border border-border rounded-3xl bg-background p-6 flex flex-col gap-5 shadow-sm">
+                      <div className="flex justify-between items-start border-b border-border pb-4">
+                        <div>
+                          <h2 className="text-[16px] font-bold text-foreground">Hazen-Williams Piping Loss Sheet</h2>
+                          <p className="text-[12px] text-muted-foreground mt-0.5">Hydraulic calculation report conforming to NFPA 13</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <TBtn onClick={handleExportPDF}><FileText className="size-3.5" /> Export</TBtn>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5 no-print print:hidden">
-                        <TBtn onClick={handleExportPDF}><FileText className="size-3.5" /> Export</TBtn>
-                        <TBtn onClick={() => window.print()}><Printer className="size-3.5" /> Print</TBtn>
-                      </div>
-                    </div>
 
-                    {/* 2. Metadata Box (2-column x 3-row) */}
-                    <div className="border border-border rounded-xl overflow-hidden text-xs">
-                      <table className="w-full border-collapse">
-                        <tbody>
-                          <tr className="border-b border-border divide-x divide-border">
-                            <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
-                            <td className="p-2.5 font-mono text-foreground font-medium">
-                              {(project as any)?.calcNo || `TRV-CAL-HWL-${(project?.id || "0000").slice(-4).toUpperCase()}`}
-                            </td>
-                            <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
-                            <td className="p-2.5 font-mono font-medium">
-                              {formatDateStr(new Date().toISOString())}
-                            </td>
-                          </tr>
-                          <tr className="border-b border-border divide-x divide-border">
-                            <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
-                            <td className="p-2.5 font-mono">
-                              {project?.code || (project?.id ? project.id.slice(0, 8) : "MEP-HWL-2026")}
-                            </td>
-                            <td className="p-2.5 font-bold bg-muted/20">Client:</td>
-                            <td className="p-2.5">{project?.client || "-"}</td>
-                          </tr>
-                          <tr className="divide-x divide-border">
-                            <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
-                            <td className="p-2.5">{project?.name || "Piping Hydraulic Distribution"}</td>
-                            <td className="p-2.5 font-bold bg-muted/20">End User:</td>
-                            <td className="p-2.5">{(project as any)?.endUser || (project as any)?.location || "-"}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* 3. Table 1: Pipe Physical & Sizing Parameters */}
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
-                        1. Pipe Physical & Flow Parameters
-                      </h3>
-                      <div className="border border-border rounded-xl overflow-hidden text-xs">
-                        <table className="w-full text-left border-collapse">
-                          <thead>
-                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
-                              <th className="p-2.5 w-12 text-center border-r border-border">No.</th>
-                              <th className="p-2.5 text-left border-r border-border">Physical Parameter Description</th>
-                              <th className="p-2.5 text-center border-r border-border w-44">Design Value</th>
-                              <th className="p-2.5 text-center border-r border-border w-24">Unit</th>
-                              <th className="p-2.5 text-left">Engineering Reference Basis</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border">
-                            <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">1</td>
-                              <td className="p-2.5 font-medium border-r border-border">Design Flow Rate (Q)</td>
-                              <td className="p-2.5 text-center font-mono font-bold border-r border-border">{sizingParams.flowRate}</td>
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">{calc.flowUnit}</td>
-                              <td className="p-2.5 text-muted-foreground">Volumetric fluid throughput requirement</td>
-                            </tr>
-                            <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">2</td>
-                              <td className="p-2.5 font-medium border-r border-border">Pipe Internal Diameter (d)</td>
-                              <td className="p-2.5 text-center font-mono font-bold border-r border-border">{sizingParams.pipeDiameter}</td>
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">{calc.diamUnit}</td>
-                              <td className="p-2.5 text-muted-foreground">Nominal bore internal hydraulic dimension</td>
-                            </tr>
-                            <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">3</td>
-                              <td className="p-2.5 font-medium border-r border-border">Continuous Pipe Run Length (L)</td>
-                              <td className="p-2.5 text-center font-mono font-bold border-r border-border">{sizingParams.pipeLength}</td>
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">{calc.lenUnit}</td>
-                              <td className="p-2.5 text-muted-foreground">Linear measured pipeline route length</td>
-                            </tr>
-                            <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">4</td>
-                              <td className="p-2.5 font-medium border-r border-border">Hazen-Williams Roughness Coefficient (C)</td>
-                              <td className="p-2.5 text-center font-mono font-bold border-r border-border">C-{sizingParams.cFactor}</td>
-                              <td className="p-2.5 text-center text-muted-foreground border-r border-border">-</td>
-                              <td className="p-2.5 text-muted-foreground">NFPA 13 Table 27.2.4.8.1 standard material roughness</td>
-                            </tr>
-                            <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">5</td>
-                              <td className="p-2.5 font-medium border-r border-border">Fittings & Valves Equivalent Allowance</td>
-                              <td className="p-2.5 text-center font-mono font-bold border-r border-border">{sizingParams.fittingsPct}%</td>
-                              <td className="p-2.5 text-center text-muted-foreground border-r border-border">%</td>
-                              <td className="p-2.5 text-muted-foreground">Equivalent length addition for elbows, tees, valves</td>
-                            </tr>
-                          </tbody>
-                        </table>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-[13px] border-b border-border pb-5">
+                        <div className="flex justify-between py-1.5 border-b border-border/50">
+                          <span className="text-muted-foreground">Project Name</span>
+                          <span className="font-semibold text-foreground">{project?.name || "Default Project"}</span>
+                        </div>
+                        <div className="flex justify-between py-1.5 border-b border-border/50">
+                          <span className="text-muted-foreground">Project Code</span>
+                          <span className="font-semibold font-mono text-foreground">{project?.code || "PROJ"}</span>
+                        </div>
+                        <div className="flex justify-between py-1.5 border-b border-border/50">
+                          <span className="text-muted-foreground">Design Flow Rate (Q)</span>
+                          <span className="font-semibold text-foreground">
+                            {sizingParams.flowRate} {calc.flowUnit}
+                          </span>
+                        </div>
+                        <div className="flex justify-between py-1.5 border-b border-border/50">
+                          <span className="text-muted-foreground">Pipe Diameter & Length</span>
+                          <span className="font-semibold text-foreground">
+                            {sizingParams.pipeDiameter} {calc.diamUnit} × {sizingParams.pipeLength} {calc.lenUnit}
+                          </span>
+                        </div>
+                        <div className="flex justify-between py-1.5 border-b border-border/50">
+                          <span className="text-muted-foreground">Total Friction Loss</span>
+                          <span className="font-semibold text-primary">
+                            {calc.totalFrictionLoss} {calc.pressUnit} ({calc.totalFrictionLossPsi} psi)
+                          </span>
+                        </div>
+                        <div className="flex justify-between py-1.5 border-b border-border/50">
+                          <span className="text-muted-foreground">Flow Velocity</span>
+                          <span className="font-semibold text-foreground">{calc.velocity} {calc.velUnit}</span>
+                        </div>
+                        <div className="flex justify-between py-1.5 border-b border-border/50">
+                          <span className="text-muted-foreground">Total System Dynamic Head</span>
+                          <span className="font-semibold text-foreground">{calc.totalSystemHead} {calc.pressUnit}</span>
+                        </div>
+                        <div className="flex justify-between py-1.5 border-b border-border/50">
+                          <span className="text-muted-foreground">C-Factor Rating</span>
+                          <span className="font-semibold text-foreground">C-{sizingParams.cFactor}</span>
+                        </div>
                       </div>
                     </div>
-
-                    {/* 4. Table 2: Hydraulic Performance & Head Loss Results */}
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">
-                        2. Hydraulic Friction Loss & Dynamic Head Results
-                      </h3>
-                      <div className="border border-border rounded-xl overflow-hidden text-xs">
-                        <table className="w-full text-left border-collapse">
-                          <thead>
-                            <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
-                              <th className="p-2.5 w-12 text-center border-r border-border">No.</th>
-                              <th className="p-2.5 text-left border-r border-border">Hydraulic Sizing Output</th>
-                              <th className="p-2.5 text-center border-r border-border w-44">Calculated Value</th>
-                              <th className="p-2.5 text-center border-r border-border w-24">Unit</th>
-                              <th className="p-2.5 text-left">Governing Standard & Hydraulic Status</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border">
-                            {/* Highlight 1: Friction Loss */}
-                            <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">1</td>
-                              <td className="p-2.5 font-bold text-foreground border-r border-border">Total Pipeline Friction Loss (ΔP)</td>
-                              <td className="p-2.5 text-center font-mono text-primary font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
-                                {calc.totalFrictionLoss} {calc.pressUnit} ({calc.totalFrictionLossPsi} psi)
-                              </td>
-                              <td className="p-2.5 text-center font-mono border-r border-border">{calc.pressUnit}</td>
-                              <td className="p-2.5 text-muted-foreground">Including {sizingParams.fittingsPct}% equivalent length allowance</td>
-                            </tr>
-                            {/* Highlight 2: Flow Velocity */}
-                            <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">2</td>
-                              <td className="p-2.5 font-bold text-foreground border-r border-border">Mean Flow Velocity (v)</td>
-                              <td className="p-2.5 text-center font-mono text-primary font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
-                                {calc.velocity} {calc.velUnit}
-                              </td>
-                              <td className="p-2.5 text-center font-mono border-r border-border">{calc.velUnit}</td>
-                              <td className="p-2.5 text-muted-foreground">CIBSE Guide W recommended velocity range (1.0 - 2.5 m/s)</td>
-                            </tr>
-                            {/* Highlight 3: Total Dynamic System Head */}
-                            <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">3</td>
-                              <td className="p-2.5 font-bold text-foreground border-r border-border">Total Equivalent System Head</td>
-                              <td className="p-2.5 text-center font-mono text-primary font-bold border-r border-border bg-[#DAE9F8] dark:bg-[#0c2e47]">
-                                {calc.totalSystemHead} {calc.pressUnit}
-                              </td>
-                              <td className="p-2.5 text-center font-mono border-r border-border">{calc.pressUnit}</td>
-                              <td className="p-2.5 text-muted-foreground">Pipeline resistance head load for pump sizing</td>
-                            </tr>
-                            <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">4</td>
-                              <td className="p-2.5 font-medium border-r border-border">Hydraulic Gradient (h_f / 100m)</td>
-                              <td className="p-2.5 text-center font-mono font-bold border-r border-border">
-                                {calc.headLoss100} {calc.pressUnit}/100{calc.lenUnit}
-                              </td>
-                              <td className="p-2.5 text-center font-mono text-muted-foreground border-r border-border">{calc.pressUnit}</td>
-                              <td className="p-2.5 text-muted-foreground">Linear unit friction drop gradient</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    {/* 5. 3-Tier Signature Sign-Off Block (Peach #FFE6CC Header) */}
-                    <div className="pt-2">
-                      <div className="border border-border rounded-xl overflow-hidden text-xs">
-                        <table className="w-full border-collapse">
-                          <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
-                            <tr className="divide-x divide-border">
-                              <th className="p-2.5 w-28 text-center"></th>
-                              <th className="p-2.5 text-center w-1/3">Originator</th>
-                              <th className="p-2.5 text-center w-1/3">Reviewer</th>
-                              <th className="p-2.5 text-center w-1/3">Approver</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border">
-                            <tr className="divide-x divide-border">
-                              <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
-                              <td className="p-2.5 text-center font-medium">
-                                {sigDetails?.originatedName || currentUserName || "MEP Engineer"}
-                              </td>
-                              <td className="p-2.5 text-center font-medium">
-                                {sigDetails?.reviewerName || ""}
-                              </td>
-                              <td className="p-2.5 text-center font-medium">
-                                {sigDetails?.approverName || ""}
-                              </td>
-                            </tr>
-                            <tr className="divide-x divide-border">
-                              <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
-                              <td className="p-2.5 text-center font-mono">
-                                {sigDetails?.originatedDate || formatDateStr(new Date().toISOString())}
-                              </td>
-                              <td className="p-2.5 text-center font-mono">
-                                {sigDetails?.reviewerDate || ""}
-                              </td>
-                              <td className="p-2.5 text-center font-mono">
-                                {sigDetails?.approverDate || ""}
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
                   </div>
                 </div>
               )}
@@ -1362,182 +1204,7 @@ function HazenWilliamsPage() {
           )}
 
         </div>
-
-        {/* Intelligence Drawer (Collapsible Right Side Panel) */}
-        <div
-          className={`shrink-0 transition-[width,margin] duration-300 ease-out overflow-hidden ${
-            intelOpen ? "w-[360px] my-2 ml-4 mr-0.5 border border-border rounded-2xl bg-background shadow-lg" : "w-0"
-          }`}
-        >
-          {intelOpen && (
-            <HazenWilliamsIntelligenceDrawer
-              onClose={() => setIntelOpen(false)}
-              calc={calc}
-              sizingParams={sizingParams}
-              onSelectCFactor={(c) => {
-                const updated = { ...sizingParams, cFactor: c };
-                setSizingParams(updated);
-                saveState(updated, unitSystem);
-                toast.success(`Applied Hazen-Williams C-Factor: ${c}`);
-              }}
-            />
-          )}
-        </div>
       </div>
     </AppShell>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Intelligence Drawer Component for Hazen-Williams Calculator
-// ─────────────────────────────────────────────────────────────────────────────
-function HazenWilliamsIntelligenceDrawer({
-  onClose,
-  calc,
-  sizingParams,
-  onSelectCFactor,
-}: {
-  onClose: () => void;
-  calc: any;
-  sizingParams: HazenSizingParams;
-  onSelectCFactor: (c: number) => void;
-}) {
-  const isHigh = calc.isVelHigh;
-  const isMod = calc.isVelModerate;
-
-  return (
-    <div className="h-full w-[360px] flex flex-col animate-fade-in font-sans">
-      <header className="h-11 px-3 flex items-center justify-between border-b border-border shrink-0">
-        <div className="flex items-center gap-2">
-          <Sparkles className="size-3.5 text-primary" />
-          <span className="text-[13px] font-semibold tracking-tight">Intelligence</span>
-        </div>
-        <button
-          onClick={onClose}
-          className="size-7 grid place-items-center rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
-          title="Close Intelligence"
-        >
-          <X className="size-3.5" />
-        </button>
-      </header>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-        {/* Velocity Status Audit */}
-        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2 shadow-xs">
-          <div className="flex items-center gap-2">
-            {isHigh ? (
-              <AlertTriangle className="size-4 text-red-500" />
-            ) : isMod ? (
-              <AlertTriangle className="size-4 text-amber-500" />
-            ) : (
-              <CheckCircle2 className="size-4 text-emerald-500" />
-            )}
-            <span className="text-xs font-bold text-foreground">Hydraulic Velocity Compliance</span>
-          </div>
-          <div className="text-[11.5px] text-muted-foreground">
-            Current velocity: <span className="font-mono font-bold text-foreground">{calc.velocity} {calc.velUnit}</span> (Max Rec: {calc.maxRecVel} {calc.velUnit})
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  isHigh ? "bg-red-500" : isMod ? "bg-amber-500" : "bg-emerald-500"
-                }`}
-                style={{ width: `${Math.min(100, Math.round((calc.velocity / calc.maxRecVel) * 100))}%` }}
-              />
-            </div>
-            <span
-              className={`font-mono text-[11px] font-bold ${
-                isHigh ? "text-red-500" : isMod ? "text-amber-500" : "text-emerald-500"
-              }`}
-            >
-              {isHigh ? "EXCESSIVE" : isMod ? "ELEVATED" : "OPTIMAL"}
-            </span>
-          </div>
-        </div>
-
-        {/* Dynamic Head & Friction Summary KPI */}
-        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2.5 shadow-xs">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Gauge className="size-4 text-primary" />
-              <span className="text-xs font-bold text-foreground">Hydraulic Summary</span>
-            </div>
-          </div>
-          <div className="space-y-1.5 text-xs">
-            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
-              <span className="text-muted-foreground">Total Friction Loss:</span>
-              <span className="font-mono font-bold text-primary text-xs">
-                {calc.totalFrictionLoss} {calc.pressUnit}
-              </span>
-            </div>
-            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
-              <span className="text-muted-foreground">Friction Gradient:</span>
-              <span className="font-mono font-bold text-foreground">
-                {calc.lossPer100} {calc.pressPer100Unit}
-              </span>
-            </div>
-            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
-              <span className="text-muted-foreground">Total Dynamic Head:</span>
-              <span className="font-mono font-bold text-red-600 dark:text-red-400">
-                {calc.totalSystemHead} {calc.pressUnit}
-              </span>
-            </div>
-            <div className="flex justify-between items-center py-0.5 border-b border-border/40">
-              <span className="text-muted-foreground">Equivalent Length:</span>
-              <span className="font-mono font-bold text-foreground">
-                {calc.isIp ? `${calc.L_eq_ft} ft` : `${calc.L_eq_m} m`}
-              </span>
-            </div>
-            <div className="flex justify-between items-center pt-1 font-bold">
-              <span className="text-foreground">C-Factor Coefficient:</span>
-              <span className="font-mono text-primary text-xs font-extrabold">C-{sizingParams.cFactor}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick C-Factor Roughness Presets */}
-        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2.5 shadow-xs">
-          <div className="flex items-center gap-2">
-            <Layers className="size-4 text-primary" />
-            <span className="text-xs font-bold text-foreground">C-Factor Standard Presets (NFPA 13)</span>
-          </div>
-          <div className="grid grid-cols-1 gap-1.5 text-xs">
-            {C_FACTOR_PRESETS.map((p) => {
-              const isSelected = sizingParams.cFactor === p.c;
-              return (
-                <button
-                  key={p.c}
-                  type="button"
-                  onClick={() => onSelectCFactor(p.c)}
-                  className={`flex items-center justify-between p-2 rounded-lg border text-left transition-colors cursor-pointer ${
-                    isSelected
-                      ? "border-primary bg-primary/10 text-primary font-bold"
-                      : "border-border/60 hover:bg-muted/50 text-foreground"
-                  }`}
-                >
-                  <span className="text-[11.5px] truncate mr-2">{p.label}</span>
-                  <span className="font-mono text-xs font-bold shrink-0">C={p.c}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Hazen-Williams Formula Reference */}
-        <div className="p-3.5 bg-card border border-border rounded-xl space-y-2 shadow-xs text-xs">
-          <div className="flex items-center gap-2">
-            <Info className="size-4 text-blue-500" />
-            <span className="font-bold text-foreground">NFPA 13 Hazen-Williams Formula</span>
-          </div>
-          <p className="text-[11.5px] text-muted-foreground leading-relaxed font-mono">
-            p = 4.52 · Q^1.85 / (C^1.85 · d^4.87)
-          </p>
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Where <em>p</em> is friction loss (psi/ft), <em>Q</em> is flow (gpm), <em>C</em> is roughness factor, and <em>d</em> is inside diameter (inches).
-          </p>
-        </div>
-      </div>
-    </div>
   );
 }

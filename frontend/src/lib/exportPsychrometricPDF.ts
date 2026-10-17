@@ -4,7 +4,7 @@ import { downloadFile } from "./download";
 import { workspaceStore } from "./workspace-store";
 import { toast } from "sonner";
 import { cToF } from "@/utils/conversions";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 
 export interface PsychrometricPDFData {
   dbt: number; // deg C
@@ -61,54 +61,17 @@ export const exportPsychrometricPDF = async (
     const clientName = meta.client || activeProj?.client || "-";
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "-";
 
-    // 1. Header Title
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.setTextColor(20, 20, 20);
-    doc.text("Psychrometric Calculation", 14, 13);
-
-    // Title underline
-    doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.3);
-    doc.line(14, 15.5, 196, 15.5);
-
-    // 2. Metadata Table (2 columns x 3 rows enclosed box)
-    const metaBody = [
-      [
-        { content: "Calculation No.:", styles: { fontStyle: "bold" as const, cellWidth: 30 } },
-        { content: calcNo, styles: { cellWidth: 62 } },
-        { content: "Date:", styles: { fontStyle: "bold" as const, cellWidth: 24 } },
-        { content: today, styles: { cellWidth: 66 } },
-      ],
-      [
-        { content: "Project No.:", styles: { fontStyle: "bold" as const } },
-        { content: projectNo },
-        { content: "Client:", styles: { fontStyle: "bold" as const } },
-        { content: clientName },
-      ],
-      [
-        { content: "Project Name:", styles: { fontStyle: "bold" as const } },
-        { content: projectName },
-        { content: "End User:", styles: { fontStyle: "bold" as const } },
-        { content: endUser },
-      ],
-    ];
-
-    callAutoTable(doc, {
-      startY: 18,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      styles: {
-        fontSize: 7.2,
-        textColor: [30, 30, 30],
-        cellPadding: 1.1,
-        lineColor: [210, 210, 210],
-        lineWidth: 0.2,
-      },
-      body: metaBody,
+    // 1. Header & Standard Metadata Box (Central Org Branding)
+    const startY = addPdfHeader(doc, "Psychrometric State Calculation Report", {
+      calcNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser
     });
 
-    let currentY = (doc as any).lastAutoTable?.finalY + 3 || 38;
+    let currentY = startY + 2;
 
     // 3. Input Ambient State Parameters
     const pAtmKpa = meta.atmPressure !== "" && meta.atmPressure !== undefined ? Number(meta.atmPressure) : 101.325;
@@ -163,7 +126,7 @@ export const exportPsychrometricPDF = async (
         minCellHeight: 4.2,
       },
       headStyles: {
-        fillColor: [229, 231, 235], // Standard #E5E7EB
+        fillColor: [217, 217, 217], // Standard #D9D9D9
         textColor: [0, 0, 0],
         fontStyle: "bold",
         halign: "center",
@@ -228,7 +191,7 @@ export const exportPsychrometricPDF = async (
         minCellHeight: 4.1,
       },
       headStyles: {
-        fillColor: [229, 231, 235], // Standard #E5E7EB
+        fillColor: [217, 217, 217], // Standard #D9D9D9
         textColor: [0, 0, 0],
         fontStyle: "bold",
         halign: "center",
@@ -291,7 +254,7 @@ export const exportPsychrometricPDF = async (
         minCellHeight: 4.1,
       },
       headStyles: {
-        fillColor: [229, 231, 235], // Standard #E5E7EB
+        fillColor: [217, 217, 217], // Standard #D9D9D9
         textColor: [0, 0, 0],
         fontStyle: "bold",
         halign: "center",
@@ -312,71 +275,23 @@ export const exportPsychrometricPDF = async (
 
     currentY = (doc as any).lastAutoTable?.finalY + 3 || currentY + 28;
 
-    // 6. Table 4: 4-Column Dynamic Signature Block (Designation, Originator, Reviewer, Approver)
+    // 6. Table 4: Professional Review & Sign-Off Block & Branding
     const sigDetails = getSignatureBlockDetails(activeProjectId, "/psychrometric");
+    addPdfSignatureBlock(doc, currentY, sigDetails, activeProjectId, "/psychrometric");
 
-    const sigBody = [
-      [
-        { content: "Name:", styles: { fontStyle: "bold" as const } },
-        { content: sigDetails?.originator?.name || sigDetails?.originatedName || "-" },
-        { content: sigDetails?.reviewer?.name || sigDetails?.reviewerName || "-" },
-        { content: sigDetails?.approver?.name || sigDetails?.approverName || "-" },
-      ],
-      [
-        { content: "Date:", styles: { fontStyle: "bold" as const } },
-        { content: sigDetails?.originator?.date || sigDetails?.originatedDate || "-" },
-        { content: sigDetails?.reviewer?.date || sigDetails?.reviewerDate || "-" },
-        { content: sigDetails?.approver?.date || sigDetails?.approverDate || "-" },
-      ],
-      [
-        { content: "Signature:", styles: { fontStyle: "bold" as const } },
-        { content: sigDetails?.originator?.status || (sigDetails?.originatedName ? "Signed" : "-") },
-        { content: sigDetails?.reviewer?.status || (sigDetails?.reviewerName ? "Reviewed" : "-") },
-        { content: sigDetails?.approver?.status || (sigDetails?.approverName ? "Approved" : "-") },
-      ],
-    ];
-
-    callAutoTable(doc, {
-      startY: currentY,
-      margin: { left: 14, right: 14 },
-      head: [
-        [
-          { content: "Designation", styles: { halign: "center" as const } },
-          { content: "Originator", styles: { halign: "center" as const } },
-          { content: "Reviewer", styles: { halign: "center" as const } },
-          { content: "Approver", styles: { halign: "center" as const } },
-        ],
-      ],
-      body: sigBody,
-      theme: "grid",
-      styles: {
-        fontSize: 7.2,
-        textColor: [30, 30, 30],
-        cellPadding: 1.1,
-        lineColor: [210, 210, 210],
-        lineWidth: 0.2,
-        halign: "center",
-        minCellHeight: 4.2,
-      },
-      headStyles: {
-        fillColor: [255, 230, 204], // Standard #FFE6CC
-        textColor: [0, 0, 0],
-        fontStyle: "bold",
-      },
-      columnStyles: {
-        0: { cellWidth: 32, fontStyle: "bold", halign: "left" },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 50 },
-      },
-    });
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
 
     // 7. Download PDF with standardized filename
     const pdfBlob = doc.output("blob");
     const projCode = projectNo || activeProj?.code || "P000";
-    const fileName = `Psychrometric_Calculation_${projCode}.pdf`;
+    const fileName = `Psychrometric_Report_${projCode}.pdf`;
     downloadFile(pdfBlob, fileName, "application/pdf");
-    toast.success("Psychrometric calculation PDF exported successfully!");
+    toast.success("Psychrometric calculation PDF report exported successfully!");
   } catch (error) {
     console.error("Failed to export Psychrometric PDF:", error);
     toast.error("Failed to generate calculation PDF report.");

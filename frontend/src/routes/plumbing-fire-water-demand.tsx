@@ -90,7 +90,7 @@ export function FireWaterDemandPage() {
   const isLocked = isEffectiveReadOnly || isApprovedLocked;
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
 
-  const { getLockOwner, mySessionId, setActiveModule } = useCollaboration();
+  const { getLockOwner, mySessionId, setActiveModule, releaseActiveModule } = useCollaboration();
   const lockOwnerObj = getLockOwner("/plumbing-fire-water-demand");
   const isLockedByOther = Boolean(lockOwnerObj && lockOwnerObj.sessionId !== mySessionId);
   const lockOwnerName = lockOwnerObj ? (lockOwnerObj.name || lockOwnerObj.email) : "Unknown";
@@ -99,9 +99,9 @@ export function FireWaterDemandPage() {
   useEffect(() => {
     setActiveModule("/plumbing-fire-water-demand");
     return () => {
-      setActiveModule(null);
+      releaseActiveModule();
     };
-  }, [setActiveModule]);
+  }, [setActiveModule, releaseActiveModule]);
 
   const confirm = useConfirm();
 

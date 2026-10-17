@@ -7,12 +7,13 @@ export interface RowCommentCornerBadgeProps {
   onClick: (e: React.MouseEvent) => void;
   title?: string;
   className?: string;
-  position?: "top-left" | "top-right";
+  position?: "left" | "right";
 }
 
 /**
  * Modern curved purple corner comment indicator matching Ventilation and Preliminary Cooling Load.
  * Designed to be placed inside a relative container (e.g., table row number cell or card corner).
+ * By default positioned on the top-left corner ("left").
  */
 export function RowCommentCornerBadge({
   comments,
@@ -21,13 +22,13 @@ export function RowCommentCornerBadge({
   onClick,
   title,
   className = "",
-  position = "top-left",
+  position = "left",
 }: RowCommentCornerBadgeProps) {
   const commentCount = count !== undefined ? count : (Array.isArray(comments) ? comments.length : 0);
   if (commentCount <= 0) return null;
 
   const cleanId = String(id).replace(/[^a-zA-Z0-9_-]/g, "_");
-  const isTopLeft = position === "top-left";
+  const isLeft = position === "left";
 
   return (
     <button
@@ -39,7 +40,7 @@ export function RowCommentCornerBadge({
         onClick(e);
       }}
       title={title || `${commentCount} comment(s)/task(s) assigned. Click to view.`}
-      className={`absolute top-0 ${isTopLeft ? "left-0 justify-start" : "right-0 justify-end"} w-5 h-5 flex items-start p-0 cursor-pointer z-20 hover:scale-125 active:scale-95 transition-all duration-150 focus:outline-none group/comment-mark pointer-events-auto ${className}`}
+      className={`absolute top-0 ${isLeft ? "left-0 justify-start" : "right-0 justify-end"} w-5 h-5 flex items-start p-0 cursor-pointer z-20 hover:scale-125 active:scale-95 transition-all duration-150 focus:outline-none group/comment-mark pointer-events-auto ${className}`}
     >
       <svg width="13" height="13" viewBox="0 0 10 10" className="overflow-visible drop-shadow-[0_1px_2px_rgba(99,102,241,0.35)]">
         <defs>
@@ -50,7 +51,7 @@ export function RowCommentCornerBadge({
           </linearGradient>
         </defs>
         <path
-          d={isTopLeft ? "M 10 0 H 0 V 10 C 0 5.5 4.5 0 10 0 Z" : "M 0 0 H 10 V 10 C 10 5.5 5.5 0 0 0 Z"}
+          d={isLeft ? "M 10 0 H 0 V 10 C 0 5.5 4.5 0 10 0 Z" : "M 0 0 H 10 V 10 C 10 5.5 5.5 0 0 0 Z"}
           fill={`url(#commentCornerGrad-${cleanId})`}
           className="group-hover/comment-mark:opacity-90 transition-opacity"
         />

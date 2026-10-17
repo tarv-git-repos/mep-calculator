@@ -32,7 +32,7 @@ export function formatCategoryName(name: string): string {
   return name.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-export function LpdCategorySelect({
+function LpdCategorySelectComponent({
   value,
   onChange,
   onAddCustom,
@@ -50,8 +50,9 @@ export function LpdCategorySelect({
   const isEffectiveDisabled = Boolean(disabled || isReadOnly);
   const [open, setOpen] = useState(false);
 
-  // Compile unique, sorted categories
+  // Compile unique, sorted categories ONLY when popover is open
   const categories = useMemo(() => {
+    if (!open) return [];
     const map = new Map<string, string>(); // lowercase -> display string
 
     if (authorityMapping) {
@@ -80,7 +81,7 @@ export function LpdCategorySelect({
         sensitivity: "base",
       })
     );
-  }, [authorityMapping, value]);
+  }, [authorityMapping, value, open]);
 
   const displayVal = value ? formatCategoryName(value) : "";
   const triggerText = displayVal || "Select Category...";
@@ -102,7 +103,7 @@ export function LpdCategorySelect({
             type="button"
             disabled={isEffectiveDisabled}
             className={cn(
-              "flex items-center justify-between w-full h-8 px-2 bg-surface-2/40 hover:bg-surface-2 border border-border/70 hover:border-muted-foreground/30 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none rounded-md text-foreground text-[12.5px] font-medium min-w-0 transition-all text-left",
+              "flex items-center justify-between w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-foreground text-[13px] min-w-0 transition-all text-left",
               !value && "text-muted-foreground/60 italic font-normal",
               isEffectiveDisabled
                 ? "cursor-not-allowed opacity-75 pointer-events-none hover:bg-transparent"
@@ -125,95 +126,99 @@ export function LpdCategorySelect({
             )}
           </button>
         </PopoverTrigger>
-        <PopoverContent
-          className="w-[330px] p-0 font-mori z-50 bg-popover border border-border rounded-lg shadow-xl"
-          align="start"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Command
-            filter={(itemVal, search) => {
-              const display = itemVal.toLowerCase();
-              const searchLower = search.toLowerCase().trim();
-              if (display.includes(searchLower)) return 1;
-              const words = searchLower.split(/\s+/).filter(Boolean);
-              if (words.length > 1 && words.every((word) => display.includes(word))) return 1;
-              return 0;
-            }}
+        {open && (
+          <PopoverContent
+            className="w-[330px] p-0 font-mori z-50 bg-popover border border-border rounded-lg shadow-xl"
+            align="start"
+            onClick={(e) => e.stopPropagation()}
           >
-            <CommandInput placeholder="Search category..." className="h-9 text-[13px]" />
-            <CommandEmpty className="py-2.5 text-center text-xs text-muted-foreground">
-              No category found.
-            </CommandEmpty>
-            <CommandList className="max-h-[260px] overflow-y-auto custom-scrollbar">
-              <CommandGroup>
-                {/* 1. Clear / Select Category... */}
-                <CommandItem
-                  value="__select_category_clear__"
-                  onSelect={() => {
-                    onChange("");
-                    setOpen(false);
-                  }}
-                  className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10 rounded"
-                >
-                  <span className="italic text-muted-foreground">Select Category...</span>
-                  {(!value || value === "") && <Check className="size-3.5 text-primary" />}
-                </CommandItem>
+            <Command
+              filter={(itemVal, search) => {
+                const display = itemVal.toLowerCase();
+                const searchLower = search.toLowerCase().trim();
+                if (display.includes(searchLower)) return 1;
+                const words = searchLower.split(/\s+/).filter(Boolean);
+                if (words.length > 1 && words.every((word) => display.includes(word))) return 1;
+                return 0;
+              }}
+            >
+              <CommandInput placeholder="Search category..." className="h-9 text-[13px]" />
+              <CommandEmpty className="py-2.5 text-center text-xs text-muted-foreground">
+                No category found.
+              </CommandEmpty>
+              <CommandList className="max-h-[260px] overflow-y-auto custom-scrollbar">
+                <CommandGroup>
+                  {/* 1. Clear / Select Category... */}
+                  <CommandItem
+                    value="__select_category_clear__"
+                    onSelect={() => {
+                      onChange("");
+                      setOpen(false);
+                    }}
+                    className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10 rounded"
+                  >
+                    <span className="italic text-muted-foreground">Select Category...</span>
+                    {(!value || value === "") && <Check className="size-3.5 text-primary" />}
+                  </CommandItem>
 
-                {/* 2. Other / Add Custom Area Type */}
-                <CommandItem
-                  value="Other Custom Area Type"
-                  onSelect={() => {
-                    setOpen(false);
-                    if (onAddCustom) {
-                      onAddCustom();
-                    } else {
-                      onChange("Other");
-                    }
-                  }}
-                  className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between text-primary font-medium hover:bg-primary/10 focus:bg-primary/10 rounded"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Plus className="size-3.5" />
-                    Other
-                  </span>
-                  {(value === "Other" || (value && value.includes("(Custom)"))) && (
-                    <Check className="size-3.5 text-primary" />
-                  )}
-                </CommandItem>
+                  {/* 2. Other / Add Custom Area Type */}
+                  <CommandItem
+                    value="Other Custom Area Type"
+                    onSelect={() => {
+                      setOpen(false);
+                      if (onAddCustom) {
+                        onAddCustom();
+                      } else {
+                        onChange("Other");
+                      }
+                    }}
+                    className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between text-primary font-medium hover:bg-primary/10 focus:bg-primary/10 rounded"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Plus className="size-3.5" />
+                      Other
+                    </span>
+                    {(value === "Other" || (value && value.includes("(Custom)"))) && (
+                      <Check className="size-3.5 text-primary" />
+                    )}
+                  </CommandItem>
 
-                {/* 3. Category Items */}
-                {categories.map((c) => {
-                  const isSelected = value.toLowerCase().trim() === c.toLowerCase().trim();
-                  const lpdVal = getBaselineLpd ? getBaselineLpd(c) : undefined;
-                  const disp = formatCategoryName(c);
+                  {/* 3. Category Items */}
+                  {categories.map((c) => {
+                    const isSelected = value.toLowerCase().trim() === c.toLowerCase().trim();
+                    const lpdVal = getBaselineLpd ? getBaselineLpd(c) : undefined;
+                    const disp = formatCategoryName(c);
 
-                  return (
-                    <CommandItem
-                      key={c}
-                      value={`${disp} ${c}`}
-                      onSelect={() => {
-                        onChange(c);
-                        setOpen(false);
-                      }}
-                      className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10 rounded"
-                    >
-                      <span className="truncate mr-2">{disp}</span>
-                      <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                        {lpdVal !== undefined && (
-                          <span className="text-[10px] text-muted-foreground/80 font-mono">
-                            ({lpdVal.toFixed(2)} {unitSuffix})
-                          </span>
-                        )}
-                        {isSelected && <Check className="size-3.5 text-primary shrink-0" />}
-                      </div>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
+                    return (
+                      <CommandItem
+                        key={c}
+                        value={`${disp} ${c}`}
+                        onSelect={() => {
+                          onChange(c);
+                          setOpen(false);
+                        }}
+                        className="text-[12px] py-1.5 px-2 cursor-pointer flex items-center justify-between hover:bg-primary/10 focus:bg-primary/10 rounded"
+                      >
+                        <span className="truncate mr-2">{disp}</span>
+                        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                          {lpdVal !== undefined && (
+                            <span className="text-[10px] text-muted-foreground/80 font-mono">
+                              ({lpdVal.toFixed(2)} {unitSuffix})
+                            </span>
+                          )}
+                          {isSelected && <Check className="size-3.5 text-primary shrink-0" />}
+                        </div>
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        )}
       </Popover>
     </div>
   );
 }
+
+export const LpdCategorySelect = React.memo(LpdCategorySelectComponent);

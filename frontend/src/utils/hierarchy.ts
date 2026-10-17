@@ -46,31 +46,28 @@ export function getEffectiveOrgId(userData?: any, profile?: any): string {
   return clean;
 }
 
-export function getOrgHierarchyStorageKey(userData?: any, profile?: any): string {
-  const orgId = getEffectiveOrgId(userData, profile);
+export function getOrgHierarchyStorageKey(userData?: any, profile?: any, overrideOrgId?: string): string {
+  const orgId = overrideOrgId ? String(overrideOrgId).toLowerCase().trim().replace(/[^a-z0-9_-]/g, "_") : getEffectiveOrgId(userData, profile);
   return `mep_company_hierarchy_${orgId}`;
 }
 
-export function loadOrgHierarchyFromStorage(userData?: any, profile?: any): any[] | null {
+export function loadOrgHierarchyFromStorage(userData?: any, profile?: any, overrideOrgId?: string): any[] | null {
   if (typeof window === "undefined" || typeof localStorage === "undefined") return null;
-  const key = getOrgHierarchyStorageKey(userData, profile);
+  const key = getOrgHierarchyStorageKey(userData, profile, overrideOrgId);
   try {
     const saved = localStorage.getItem(key);
     if (saved) return deduplicateHierarchyByEmail(JSON.parse(saved));
-    const fallback = localStorage.getItem("mep_company_hierarchy");
-    if (fallback) return deduplicateHierarchyByEmail(JSON.parse(fallback));
   } catch (e) {}
   return null;
 }
 
-export function saveOrgHierarchyToStorage(members: any[], userData?: any, profile?: any) {
+export function saveOrgHierarchyToStorage(members: any[], userData?: any, profile?: any, overrideOrgId?: string) {
   if (typeof window === "undefined" || typeof localStorage === "undefined") return;
-  const key = getOrgHierarchyStorageKey(userData, profile);
+  const key = getOrgHierarchyStorageKey(userData, profile, overrideOrgId);
   try {
     const cleanMembers = deduplicateHierarchyByEmail(members);
     const json = JSON.stringify(cleanMembers);
     localStorage.setItem(key, json);
-    localStorage.setItem("mep_company_hierarchy", json);
   } catch (e) {}
 }
 
