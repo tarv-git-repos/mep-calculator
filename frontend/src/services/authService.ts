@@ -131,6 +131,32 @@ export const authService = {
     }
   },
 
+  async magicLogin(magicToken: string, email: string): Promise<AuthResponse> {
+    try {
+      clearAllAuthStorage();
+      const hwid = getHardwareFingerprint();
+      const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/magic-login`, {
+        magicToken,
+        email,
+        hwid,
+      }, { timeout: 25000 });
+      if (data.success && data.token) {
+        localStorage.setItem('auth_token', data.token);
+        if (data.userData) {
+          localStorage.setItem('mep_user_data', JSON.stringify(data.userData));
+          localStorage.setItem('mep_profile', JSON.stringify(data.userData));
+        }
+      }
+      return data;
+    } catch (error: any) {
+      const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
+      return {
+        success: false,
+        message: isTimeout ? 'Server connection timed out.' : (error.response?.data?.message || error.message || 'One-time link login failed.'),
+      };
+    }
+  },
+
   async logout(): Promise<AuthResponse> {
     try {
       const { data } = await axios.post<AuthResponse>(`${getBackendUrl()}/api/auth/logout`);

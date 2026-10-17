@@ -22,6 +22,8 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Scissors,
+  ClipboardPaste,
   MessageSquare,
   Flag,
   Sparkles,
@@ -281,6 +283,10 @@ function LPDCalculationPage() {
   );
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
+  const [copiedSpaces, setCopiedSpaces] = useState<LpdSpace[]>([]);
+  const [undoStack, setUndoStack] = useState<LpdGroup[][]>([]);
+  const [redoStack, setRedoStack] = useState<LpdGroup[][]>([]);
   const DEFAULT_LPD_COL_WIDTHS: Record<string, number> = useMemo(() => ({
     select: 38,
     name: 210,
@@ -681,8 +687,25 @@ function LPDCalculationPage() {
     toast.success(`Floor group "${nextName}" added`);
   };
 
-  const removeGroup = (gid: string) => {
+  const removeGroup = async (gid: string) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    const target = activeGroups.find((g) => g.id === gid);
+    const gName = target?.name ? ` "${target.name}"` : "";
+    const count = target?.spaces?.length || 0;
+    const ok = await confirm(`Are you sure you want to delete floor${gName}${count > 0 ? ` with ${count} spaces` : ""}?`, {
+      title: "Delete Floor Group",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
+
+    pushToUndo(activeGroups);
     updateActiveGroups((groups) => groups.filter((g) => g.id !== gid));
+    dirtyStore.set(true);
     toast.success("Floor group removed");
   };
 
@@ -856,7 +879,23 @@ function LPDCalculationPage() {
     toast.success(`New Space "${newCreatedSpace.name}" added to ${targetFloorName}!`);
   };
 
-  const removeSpace = (gid: string, sid: string) => {
+  const removeSpace = async (gid: string, sid: string) => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    const group = activeGroups.find((g) => g.id === gid);
+    const space = group?.spaces?.find((s) => s.id === sid);
+    const spaceName = space?.name ? ` "${space.name}"` : "";
+    const ok = await confirm(`Are you sure you want to delete space${spaceName}?`, {
+      title: "Delete Space",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
+
+    pushToUndo(activeGroups);
     updateActiveGroups((groups) =>
       groups.map((g) =>
         g.id === gid ? { ...g, spaces: g.spaces.filter((s) => s.id !== sid) } : g
@@ -867,6 +906,8 @@ function LPDCalculationPage() {
       next.delete(sid);
       return next;
     });
+    setLastClickedIndex(null);
+    dirtyStore.set(true);
     toast.success("Space removed");
   };
 
@@ -1050,21 +1091,78 @@ function LPDCalculationPage() {
 
   const allSelected = allActiveSpaceIds.length > 0 && allActiveSpaceIds.every((id) => selected.has(id));
 
+  // Undo / Redo history engine
+  const pushToUndo = (currentGroups: LpdGroup[]) => {
+    setUndoStack((prev) => [...prev.slice(-30), JSON.parse(JSON.stringify(currentGroups))]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (isEffectiveReadOnly || undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setRedoStack((prev) => [...prev.slice(-30), JSON.parse(JSON.stringify(activeGroups))]);
+    updateActiveGroups(() => previous);
+    setUndoStack((prev) => prev.slice(0, -1));
+    dirtyStore.set(true);
+    toast.info("Undo");
+  };
+
+  const handleRedo = () => {
+    if (isEffectiveReadOnly || redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((prev) => [...prev.slice(-30), JSON.parse(JSON.stringify(activeGroups))]);
+    updateActiveGroups(() => next);
+    setRedoStack((prev) => prev.slice(0, -1));
+    dirtyStore.set(true);
+    toast.info("Redo");
+  };
+
   const toggleSelectAll = () => {
     if (allSelected) {
       setSelected(new Set());
+      setLastClickedIndex(null);
     } else {
       setSelected(new Set(allActiveSpaceIds));
+      setLastClickedIndex(null);
     }
   };
 
-  const toggleSelectRow = (id: string) => {
+  const toggleSelectRow = (id: string, isShift?: boolean, isCtrl?: boolean) => {
     setSelected((prev) => {
+      const clickedIndex = allActiveSpaceIds.findIndex((spaceId) => spaceId === id);
+      if (clickedIndex === -1) return prev;
+
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+
+      if (isShift) {
+        const pivotIndex = lastClickedIndex !== null ? lastClickedIndex : 0;
+        const start = Math.min(pivotIndex, clickedIndex);
+        const end = Math.max(pivotIndex, clickedIndex);
+
+        if (!isCtrl) {
+          next.clear();
+        }
+
+        for (let i = start; i <= end; i++) {
+          const rId = allActiveSpaceIds[i];
+          if (rId) next.add(rId);
+        }
+      } else if (isCtrl) {
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        setLastClickedIndex(clickedIndex);
       } else {
-        next.add(id);
+        if (prev.has(id) && prev.size === 1) {
+          next.delete(id);
+          setLastClickedIndex(null);
+        } else {
+          next.clear();
+          next.add(id);
+          setLastClickedIndex(clickedIndex);
+        }
       }
       return next;
     });
@@ -1083,10 +1181,12 @@ function LPDCalculationPage() {
       }
       return next;
     });
+    setLastClickedIndex(null);
   };
 
   const toggleFlagSelected = () => {
     if (selected.size === 0) return;
+    pushToUndo(activeGroups);
     updateActiveGroups((groups) =>
       groups.map((g) => ({
         ...g,
@@ -1095,11 +1195,17 @@ function LPDCalculationPage() {
         ),
       }))
     );
+    dirtyStore.set(true);
     toast.success(`Toggled flag for ${selected.size} space(s)`);
   };
 
   const duplicateSelectedSpaces = () => {
     if (selected.size === 0) return;
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    pushToUndo(activeGroups);
     const newSelected = new Set<string>();
     updateActiveGroups((groups) =>
       groups.map((g) => {
@@ -1112,8 +1218,8 @@ function LPDCalculationPage() {
             nextSpaces.push({
               ...s,
               id: cloneId,
-              name: s.name ? `${s.name} (Copy)` : "Space (Copy)",
-              fixtures: s.fixtures.map((f) => ({ ...f, id: generateId() })),
+              name: s.name ? `${s.name.replace(/ \(Copy(-\d+)?\)$/, "")} (Copy)` : "Space (Copy)",
+              fixtures: (s.fixtures || []).map((f) => ({ ...f, id: generateId() })),
               comments: [],
             });
           }
@@ -1122,46 +1228,249 @@ function LPDCalculationPage() {
       })
     );
     setSelected(newSelected);
+    setLastClickedIndex(null);
+    dirtyStore.set(true);
     toast.success(`Duplicated ${selected.size} space(s)`);
+  };
+
+  const copySelectedSpaces = () => {
+    if (selected.size === 0) return;
+    const spacesToCopy: LpdSpace[] = [];
+    activeGroups.forEach((g) => {
+      (g.spaces || []).forEach((s) => {
+        if (selected.has(s.id)) {
+          spacesToCopy.push(JSON.parse(JSON.stringify(s)));
+        }
+      });
+    });
+    if (spacesToCopy.length === 0) return;
+    setCopiedSpaces(spacesToCopy);
+    toast.info(`${spacesToCopy.length} space(s) copied to clipboard`);
+  };
+
+  const cutSelectedSpaces = () => {
+    if (selected.size === 0) return;
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    const spacesToCut: LpdSpace[] = [];
+    activeGroups.forEach((g) => {
+      (g.spaces || []).forEach((s) => {
+        if (selected.has(s.id)) {
+          spacesToCut.push(JSON.parse(JSON.stringify(s)));
+        }
+      });
+    });
+    if (spacesToCut.length === 0) return;
+    setCopiedSpaces(spacesToCut);
+    pushToUndo(activeGroups);
+    updateActiveGroups((groups) =>
+      groups.map((g) => ({
+        ...g,
+        spaces: (g.spaces || []).filter((s) => !selected.has(s.id)),
+      }))
+    );
+    setSelected(new Set());
+    setLastClickedIndex(null);
+    dirtyStore.set(true);
+    toast.info(`${spacesToCut.length} space(s) cut to clipboard`);
+  };
+
+  const pasteSpaces = () => {
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
+    }
+    if (copiedSpaces.length === 0) {
+      toast.info("Clipboard is empty. Copy or cut spaces first (Ctrl+C).");
+      return;
+    }
+    pushToUndo(activeGroups);
+    const newSelected = new Set<string>();
+    const clonedSpaces: LpdSpace[] = copiedSpaces.map((s) => {
+      const cloneId = generateId();
+      newSelected.add(cloneId);
+      return {
+        ...s,
+        id: cloneId,
+        name: s.name ? `${s.name.replace(/ \(Copy(-\d+)?\)$/, "")} (Copy)` : "Space (Copy)",
+        fixtures: (s.fixtures || []).map((f) => ({ ...f, id: generateId() })),
+        comments: [],
+      };
+    });
+
+    updateActiveGroups((groups) => {
+      if (groups.length === 0) {
+        return [
+          {
+            id: generateId(),
+            name: isInt ? "FLOOR 1" : "EXTERNAL AREA 1",
+            isExpanded: true,
+            spaces: clonedSpaces,
+          },
+        ];
+      }
+      const targetIdx = groups.findIndex((g) => g.isExpanded);
+      const insertIdx = targetIdx !== -1 ? targetIdx : 0;
+      return groups.map((g, idx) =>
+        idx === insertIdx ? { ...g, spaces: [...(g.spaces || []), ...clonedSpaces] } : g
+      );
+    });
+    setSelected(newSelected);
+    setLastClickedIndex(null);
+    dirtyStore.set(true);
+    toast.success(`${clonedSpaces.length} space(s) pasted`);
   };
 
   const deleteSelectedSpaces = async () => {
     if (selected.size === 0) return;
-    const count = selected.size;
-    if (
-      await confirm(`Are you sure you want to delete the ${count} selected space(s)?`, {
-        title: "Delete Spaces",
-        confirmText: "Delete",
-        danger: true,
-      })
-    ) {
-      updateActiveGroups((groups) =>
-        groups.map((g) => ({
-          ...g,
-          spaces: (g.spaces || []).filter((s) => !selected.has(s.id)),
-        }))
-      );
-      setSelected(new Set());
-      toast.success(`Deleted ${count} space(s)`);
+    if (isEffectiveReadOnly) {
+      toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+      return;
     }
+    const count = selected.size;
+    let spaceName = "";
+    if (count === 1) {
+      const firstId = Array.from(selected)[0];
+      for (const g of activeGroups) {
+        const found = (g.spaces || []).find((s) => s.id === firstId);
+        if (found) {
+          spaceName = found.name ? ` "${found.name}"` : "";
+          break;
+        }
+      }
+    }
+    const msg = count === 1
+      ? `Are you sure you want to delete space${spaceName}?`
+      : `Are you sure you want to delete the ${count} selected spaces?`;
+
+    const ok = await confirm(msg, {
+      title: count === 1 ? "Delete Space" : "Delete Spaces",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+
+    if (!ok) return;
+
+    pushToUndo(activeGroups);
+    updateActiveGroups((groups) =>
+      groups.map((g) => ({
+        ...g,
+        spaces: (g.spaces || []).filter((s) => !selected.has(s.id)),
+      }))
+    );
+    setSelected(new Set());
+    setLastClickedIndex(null);
+    dirtyStore.set(true);
+    toast.info(`Deleted ${count} space(s)`);
   };
 
-  // Keyboard shortcut for delete
+  // Global Keyboard Shortcuts (Ventilation Parity)
   useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      if (e.key === "Delete" || e.key === "Backspace") {
-        const activeTag = document.activeElement?.tagName?.toLowerCase();
-        if (activeTag === "input" || activeTag === "textarea" || activeTag === "select") return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: Deselect all selected spaces/rows
+      if (e.key === "Escape") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          setSelected(new Set());
+          setLastClickedIndex(null);
+        }
+        return;
+      }
 
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (
+        (activeEl.tagName === "INPUT" && (activeEl as HTMLInputElement).type !== "checkbox" && (activeEl as HTMLInputElement).type !== "radio") ||
+        activeEl.tagName === "TEXTAREA" ||
+        (activeEl as HTMLElement).isContentEditable ||
+        activeEl.tagName === "SELECT"
+      );
+      if (isInput) return;
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // 1. Ctrl+A (Select All)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        if (allActiveSpaceIds.length > 0) {
+          setSelected(new Set(allActiveSpaceIds));
+          setLastClickedIndex(null);
+          toast.info(`Selected all ${allActiveSpaceIds.length} space(s)`);
+        }
+        return;
+      }
+
+      // 2. Delete / Backspace (Delete selected spaces)
+      if (e.key === "Delete" || e.key === "Backspace") {
         if (selected.size > 0) {
           e.preventDefault();
           deleteSelectedSpaces();
         }
+        return;
+      }
+
+      // 3. Ctrl+C (Copy)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "c") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          copySelectedSpaces();
+        }
+        return;
+      }
+
+      // 4. Ctrl+X (Cut)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "x") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          cutSelectedSpaces();
+        }
+        return;
+      }
+
+      // 5. Ctrl+V (Paste)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        pasteSpaces();
+        return;
+      }
+
+      // 6. Ctrl+D (Duplicate)
+      if (isCmdOrCtrl && e.key.toLowerCase() === "d") {
+        if (selected.size > 0) {
+          e.preventDefault();
+          duplicateSelectedSpaces();
+        }
+        return;
+      }
+
+      // 7. Undo/Redo: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
+      if (isCmdOrCtrl && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      if ((isCmdOrCtrl && e.key.toLowerCase() === "y") || (isCmdOrCtrl && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        handleRedo();
+        return;
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selected]);
+  }, [
+    selected,
+    allActiveSpaceIds,
+    activeGroups,
+    copiedSpaces,
+    undoStack,
+    redoStack,
+    isEffectiveReadOnly,
+    lastClickedIndex,
+  ]);
 
   // Project management
   const createNewProject = () => {
@@ -2384,10 +2693,21 @@ function LPDCalculationPage() {
                   <BulkBtn icon={Flag} onClick={toggleFlagSelected}>
                     Toggle Flag
                   </BulkBtn>
-                  <BulkBtn icon={Copy} onClick={duplicateSelectedSpaces}>
+                  <BulkBtn icon={Copy} onClick={copySelectedSpaces} title="Copy selected space(s) (Ctrl+C)">
+                    Copy
+                  </BulkBtn>
+                  <BulkBtn icon={Scissors} onClick={cutSelectedSpaces} title="Cut selected space(s) (Ctrl+X)">
+                    Cut
+                  </BulkBtn>
+                  {copiedSpaces.length > 0 && (
+                    <BulkBtn icon={ClipboardPaste} onClick={pasteSpaces} title="Paste space(s) (Ctrl+V)">
+                      Paste ({copiedSpaces.length})
+                    </BulkBtn>
+                  )}
+                  <BulkBtn icon={CopyPlus} onClick={duplicateSelectedSpaces} title="Duplicate selected space(s) (Ctrl+D)">
                     Duplicate
                   </BulkBtn>
-                  <BulkBtn icon={Trash2} onClick={deleteSelectedSpaces}>
+                  <BulkBtn icon={Trash2} onClick={deleteSelectedSpaces} title="Delete selected space(s) (Delete)">
                     Delete
                   </BulkBtn>
                   <button
@@ -2620,17 +2940,10 @@ function LPDCalculationPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={async (e) => {
+                                  onClick={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    if (
-                                      await confirm(
-                                        `Are you sure you want to delete floor "${group.name}" and all its spaces?`,
-                                        { title: "Delete Floor Group", danger: true }
-                                      )
-                                    ) {
-                                      removeGroup(group.id);
-                                    }
+                                    removeGroup(group.id);
                                   }}
                                   className="p-1 text-muted-foreground/60 hover:text-red-500 rounded transition-colors cursor-pointer"
                                   title="Delete floor group"
@@ -2684,13 +2997,15 @@ function LPDCalculationPage() {
                                        if (
                                          target.closest('button[title*="comment"]') ||
                                          target.closest('.mep-comment-badge') ||
-                                         target.closest('button')
+                                         target.closest('button') ||
+                                         target.closest('input') ||
+                                         target.closest('select')
                                        ) {
                                          return;
                                        }
-                                       if (!isSelected) {
-                                         toggleSelectRow(space.id);
-                                       }
+                                       const isShift = e.shiftKey;
+                                       const isCtrl = e.ctrlKey || e.metaKey;
+                                       toggleSelectRow(space.id, isShift, isCtrl);
                                      }}
                                     onDoubleClick={(e) => {
                                       const target = e.target as HTMLElement;
@@ -2743,7 +3058,9 @@ function LPDCalculationPage() {
                                           rowSpan={space.fixtures.length}
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            toggleSelectRow(space.id);
+                                            const isShift = e.shiftKey;
+                                            const isCtrl = e.ctrlKey || e.metaKey;
+                                            toggleSelectRow(space.id, isShift, isCtrl);
                                           }}
                                           title={isSelected ? `Row ${srNo} selected. Click to deselect.` : `Click to select row ${srNo}.`}
                                         >
@@ -3410,6 +3727,78 @@ function LPDCalculationPage() {
 
           <div className="h-px bg-border my-1" />
 
+          {/* Copy Space */}
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
+            onClick={() => {
+              if (selected.has(activeContextSpace.id) && selected.size > 1) {
+                copySelectedSpaces();
+              } else {
+                setCopiedSpaces([JSON.parse(JSON.stringify(activeContextSpace))]);
+                toast.info("1 space copied to clipboard");
+              }
+              setSpaceContextMenu(null);
+            }}
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            <span>Copy Space</span>
+            <span className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+C</span>
+          </button>
+
+          {/* Cut Space */}
+          <button
+            type="button"
+            className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
+            onClick={() => {
+              if (isEffectiveReadOnly) {
+                toast.info("Calculation is Approved and locked in Read-Only mode.", { id: "readonly-notice" });
+                return;
+              }
+              if (selected.has(activeContextSpace.id) && selected.size > 1) {
+                cutSelectedSpaces();
+              } else {
+                setCopiedSpaces([JSON.parse(JSON.stringify(activeContextSpace))]);
+                pushToUndo(activeGroups);
+                updateActiveGroups((groups) =>
+                  groups.map((g) =>
+                    g.id === spaceContextMenu.groupId
+                      ? { ...g, spaces: g.spaces.filter((s) => s.id !== activeContextSpace.id) }
+                      : g
+                  )
+                );
+                setSelected((prev) => {
+                  const next = new Set(prev);
+                  next.delete(activeContextSpace.id);
+                  return next;
+                });
+                dirtyStore.set(true);
+                toast.info("1 space cut to clipboard");
+              }
+              setSpaceContextMenu(null);
+            }}
+          >
+            <Scissors className="size-3.5 text-muted-foreground" />
+            <span>Cut Space</span>
+            <span className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+X</span>
+          </button>
+
+          {/* Paste Spaces */}
+          {copiedSpaces.length > 0 && (
+            <button
+              type="button"
+              className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium transition-colors"
+              onClick={() => {
+                pasteSpaces();
+                setSpaceContextMenu(null);
+              }}
+            >
+              <ClipboardPaste className="size-3.5 text-muted-foreground" />
+              <span>Paste Space(s) ({copiedSpaces.length})</span>
+              <span className="text-[10px] text-muted-foreground font-mono ml-auto">Ctrl+V</span>
+            </button>
+          )}
+
           {/* Duplicate Space */}
           <button
             type="button"
@@ -3538,19 +3927,10 @@ function LPDCalculationPage() {
           <button
             type="button"
             className="w-full text-left flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer font-medium transition-colors"
-            onClick={async () => {
+            onClick={() => {
               const gid = activeContextGroup.id;
-              const gName = activeContextGroup.name;
-              const count = activeContextGroup.spaces.length;
               setGroupContextMenu(null);
-              if (
-                await confirm(`Are you sure you want to delete floor "${gName}" with ${count} spaces?`, {
-                  title: "Delete Floor",
-                  danger: true,
-                })
-              ) {
-                removeGroup(gid);
-              }
+              removeGroup(gid);
             }}
           >
             <Trash2 className="size-3.5" />

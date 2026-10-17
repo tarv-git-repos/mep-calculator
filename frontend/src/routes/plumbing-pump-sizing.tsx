@@ -1811,7 +1811,7 @@ interface PumpSizingReportViewProps {
   project: any;
   calcReviewState: any;
   currentUserName: string;
-  onExportPdf: () => void;
+  onExportPdf?: () => void;
 }
 
 function PumpSizingReportView({
@@ -1824,12 +1824,12 @@ function PumpSizingReportView({
   onExportPdf,
 }: PumpSizingReportViewProps) {
   const isSI = unitSystem === "si";
-  const today = new Date().toLocaleDateString("en-GB");
+  const today = formatDateStr(new Date().toISOString()) || new Date().toISOString().split("T")[0];
   const calcNo = project?.calcNo || "TRV-CAL-PMP-R01";
   const projectNo = project?.code || project?.projectNo || "P000";
-  const projectName = project?.name || project?.projectName || "Domestic Water Pump Sizing";
-  const clientName = project?.client || "Design Client";
-  const endUser = project?.endUser || project?.location || "Site Development";
+  const projectName = project?.name || project?.projectName || "Pump Sizing Calculation";
+  const clientName = project?.client || "-";
+  const endUser = project?.endUser || project?.location || "-";
 
   const pumpTypeLabel =
     inputs.pumpType === "booster"
@@ -1858,376 +1858,348 @@ function PumpSizingReportView({
   );
 
   return (
-    <div className="flex flex-col h-full select-none">
-      {/* Top Action Bar matching Ventilation standard */}
-      <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50">
-        <span className="text-[12px] text-muted-foreground font-semibold">
-          Generated: <span className="text-foreground font-mono">{formatDateStr(new Date())}</span>
-        </span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <TBtn onClick={() => window.print()}>
-            <Printer className="size-3.5" /> Print
-          </TBtn>
-          <TBtn primary onClick={onExportPdf}>
-            <FileText className="size-3.5" /> Export PDF
-          </TBtn>
-        </div>
-      </div>
-
-      {/* Main Report Page Layout matching Ventilation styling */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-        <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6 font-sans">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40 select-none">
+      <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
           
-          {/* Header Title and Meta */}
-          <div className="flex justify-between items-start pb-4 border-b border-border">
-            <div>
-              <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-                Pump Sizing Calculation Report
-              </h2>
-              <p className="text-[12px] text-muted-foreground mt-0.5">
-                Domestic Water Booster &amp; Transfer Station Hydraulic Analysis &amp; Motor Sizing (IPC Table 604.3 / BS EN 806 / CIBSE Guide W)
-              </p>
-            </div>
-            <div className="text-right">
-              <span className="text-[11px] text-muted-foreground block mt-0.5 font-mono">Date: {today}</span>
-            </div>
-          </div>
+        {/* 1. Header Title (Matching Preliminary Standard) */}
+        <div className="pb-1">
+          <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+            Pump Sizing Calculation
+          </h2>
+        </div>
 
-          {/* Project Metadata Table 3x2 (Enclosed Corporate Header matching Ventilation) */}
+        {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format matching Preliminary) */}
+        <div className="border border-border rounded-xl overflow-hidden text-xs">
+          <table className="w-full border-collapse">
+            <tbody>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                <td className="p-2.5 font-mono text-foreground font-medium">{calcNo}</td>
+                <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                <td className="p-2.5 font-mono font-medium">{today}</td>
+              </tr>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                <td className="p-2.5 font-mono">{projectNo}</td>
+                <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                <td className="p-2.5">{clientName}</td>
+              </tr>
+              <tr className="divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                <td className="p-2.5">{projectName}</td>
+                <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                <td className="p-2.5">{endUser}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table 1: Executive Design Parameters & Pump Duty Summary */}
+        <div className="border border-border rounded-xl overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                <th colSpan={5} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
+                  1. Executive Design Parameters &amp; Pump Duty Summary
+                </th>
+              </tr>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                <th className="p-2.5 border-r border-border">Executive Parameter</th>
+                <th className="p-2.5 border-r border-border text-center w-32">Value</th>
+                <th className="p-2.5 border-r border-border text-center w-20">Unit</th>
+                <th className="p-2.5">Basis / Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                <td className="p-2.5 border-r border-border font-medium">Pump Application Type</td>
+                <td className="p-2.5 border-r border-border text-center font-bold text-foreground">{pumpTypeLabel}</td>
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground">-</td>
+                <td className="p-2.5 text-muted-foreground">Domestic Water Distribution</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                <td className="p-2.5 border-r border-border font-medium">Station Configuration</td>
+                <td className="p-2.5 border-r border-border text-center font-bold text-foreground">{inputs.workingPumps}W + {inputs.standbyPumps}S</td>
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground">units</td>
+                <td className="p-2.5 text-muted-foreground">N+1 Duty &amp; Standby arrangement</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                <td className="p-2.5 border-r border-border font-medium">
+                  {inputs.pumpType === "transfer" ? "Storage Tank Volume & Fill Time" : "Water Supply Fixture Units (WSFU)"}
+                </td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">
+                  {inputs.pumpType === "transfer" ? `${inputs.reqVolume} L (${inputs.fillTime} hrs)` : (inputs.wsfuVal || "-")}
+                </td>
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground">
+                  {inputs.pumpType === "transfer" ? "L" : "WSFU"}
+                </td>
+                <td className="p-2.5 text-muted-foreground">
+                  {inputs.pumpType === "transfer" ? "Storage tank refill cycle" : "IPC Table 604.3 / Hunter's Curve"}
+                </td>
+              </tr>
+              <tr className="bg-primary/5 hover:bg-primary/10 font-bold border-t border-b border-border">
+                <td className="p-2.5 border-r border-border text-center font-mono">4</td>
+                <td className="p-2.5 border-r border-border font-bold text-foreground">Design Flow Rate per Pump (Q)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-primary">{flowDisp}</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold">{flowUnit}</td>
+                <td className="p-2.5 text-foreground">Peak simultaneous demand requirement</td>
+              </tr>
+              <tr className="bg-primary/5 hover:bg-primary/10 font-bold border-t border-b border-border">
+                <td className="p-2.5 border-r border-border text-center font-mono">5</td>
+                <td className="p-2.5 border-r border-border font-bold text-foreground">Total Dynamic Head (TDH)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-primary">{headDisp}</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold">{headUnit}</td>
+                <td className="p-2.5 text-foreground">Static head + friction + residual + {inputs.sfHead}% margin</td>
+              </tr>
+              <tr className="bg-primary/5 hover:bg-primary/10 font-bold border-t border-b border-border">
+                <td className="p-2.5 border-r border-border text-center font-mono">6</td>
+                <td className="p-2.5 border-r border-border font-bold text-foreground">Estimated Motor Rating Demand</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-primary">{results.motorPower.toFixed(2)}</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold">kW</td>
+                <td className="p-2.5 text-foreground">Equivalent: {results.hp.toFixed(2)} HP (Pump η: {inputs.effPump}%, Motor η: {inputs.effMotor}%)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table 2: Detailed Hydraulic Piping & Friction Loss Schedule */}
+        <div className="border border-border rounded-xl overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                <th colSpan={5} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
+                  2. Hydraulic Piping &amp; Friction Loss Schedule
+                </th>
+              </tr>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                <th className="p-2.5 border-r border-border">Piping Loss Parameter</th>
+                <th className="p-2.5 border-r border-border text-center w-32">Value</th>
+                <th className="p-2.5 border-r border-border text-center w-20">Unit</th>
+                <th className="p-2.5">Basis / Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y border-border">
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                <td className="p-2.5 border-r border-border font-medium">Vertical Pipe Height (Riser Lift)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.pipeVert}</td>
+                <td className="p-2.5 border-r border-border text-center">{lenUnit}</td>
+                <td className="p-2.5 text-muted-foreground">Geometric vertical lift to highest outlet</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                <td className="p-2.5 border-r border-border font-medium">Horizontal Distribution Run</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.pipeHoriz}</td>
+                <td className="p-2.5 border-r border-border text-center">{lenUnit}</td>
+                <td className="p-2.5 text-muted-foreground">Horizontal distribution run length</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                <td className="p-2.5 border-r border-border font-medium">Fittings &amp; Valves Allowance</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{(results.elbows + results.valves).toFixed(1)}</td>
+                <td className="p-2.5 border-r border-border text-center">{lenUnit}</td>
+                <td className="p-2.5 text-muted-foreground">30% elbows + 30% valves allowance</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                <td className="p-2.5 border-r border-border font-medium">Total Equivalent Length (L_equiv)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{results.equivLen.toFixed(1)}</td>
+                <td className="p-2.5 border-r border-border text-center">{lenUnit}</td>
+                <td className="p-2.5 text-muted-foreground">Developed run length with safety margin</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">5</td>
+                <td className="p-2.5 border-r border-border font-medium">Unit Friction Factor (Loss / 100)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.fricFactor}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar/100m" : "psi/100ft"}</td>
+                <td className="p-2.5 text-muted-foreground">Hazen-Williams friction loss rate</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">6</td>
+                <td className="p-2.5 border-r border-border font-medium">Calculated Pipe Friction Loss</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{isSI ? results.frictionLoss.toFixed(3) : (results.frictionLoss * 14.5038).toFixed(3)}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar" : "psi"}</td>
+                <td className="p-2.5 text-muted-foreground">L_equiv * (Friction Factor / 100)</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">7</td>
+                <td className="p-2.5 border-r border-border font-medium">Filtration &amp; Treatment Loss</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{isSI ? results.filterLoss.toFixed(2) : (results.filterLoss * 14.5038).toFixed(2)}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar" : "psi"}</td>
+                <td className="p-2.5 text-muted-foreground">In-line filtration &amp; softener head loss</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table 3: Pressure Head Components & Total Dynamic Head (TDH) Breakdown */}
+        <div className="border border-border rounded-xl overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                <th colSpan={5} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
+                  3. Pressure Head Components &amp; Total Dynamic Head Breakdown
+                </th>
+              </tr>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                <th className="p-2.5 border-r border-border">Head Component</th>
+                <th className="p-2.5 border-r border-border text-center w-32">Value</th>
+                <th className="p-2.5 border-r border-border text-center w-20">Unit</th>
+                <th className="p-2.5">Basis / Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                <td className="p-2.5 border-r border-border font-medium">Static Elevation Head (H_static)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.staticHead}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar" : "psi"}</td>
+                <td className="p-2.5 text-muted-foreground">Building vertical elevation differential</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                <td className="p-2.5 border-r border-border font-medium">Residual Terminal Pressure (P_res)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.presidHead}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar" : "psi"}</td>
+                <td className="p-2.5 text-muted-foreground">Required pressure at furthest outlet</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                <td className="p-2.5 border-r border-border font-medium">Suction Supply Head Credit (H_suct)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.suctionHead}</td>
+                <td className="p-2.5 border-r border-border text-center">{isSI ? "bar" : "psi"}</td>
+                <td className="p-2.5 text-muted-foreground">Positive supply head credit</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                <td className="p-2.5 border-r border-border font-medium">Contingency Safety Margin</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.sfHead}</td>
+                <td className="p-2.5 border-r border-border text-center">%</td>
+                <td className="p-2.5 text-muted-foreground">Safety factor allowance</td>
+              </tr>
+              <tr className="bg-primary/5 hover:bg-primary/10 font-bold border-t border-b border-border">
+                <td className="p-2.5 border-r border-border text-center font-mono">5</td>
+                <td className="p-2.5 border-r border-border font-bold text-foreground">Total Dynamic Head (TDH)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-primary">{headDisp}</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold">{headUnit}</td>
+                <td className="p-2.5 text-foreground">((H_fric + H_static + P_res) - H_suct + H_filt) * (1 + Margin)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table 4: Motor & Energy Power Demand Analysis */}
+        <div className="border border-border rounded-xl overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border text-center">
+                <th colSpan={5} className="p-2.5 text-center uppercase tracking-wider text-[11px]">
+                  4. Motor &amp; Energy Demand Analysis
+                </th>
+              </tr>
+              <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <th className="p-2.5 border-r border-border text-center w-12">No.</th>
+                <th className="p-2.5 border-r border-border">Power &amp; Efficiency Parameter</th>
+                <th className="p-2.5 border-r border-border text-center w-32">Value</th>
+                <th className="p-2.5 border-r border-border text-center w-20">Unit</th>
+                <th className="p-2.5">Basis / Remarks</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                <td className="p-2.5 border-r border-border font-medium">Hydraulic Differential Pressure (ΔP)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{results.liftKpa.toFixed(1)}</td>
+                <td className="p-2.5 border-r border-border text-center">kPa</td>
+                <td className="p-2.5 text-muted-foreground">TDH converted to differential pressure</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center font-mono">2</td>
+                <td className="p-2.5 border-r border-border font-medium">Pump Hydraulic Efficiency (η_pump)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.effPump}</td>
+                <td className="p-2.5 border-r border-border text-center">%</td>
+                <td className="p-2.5 text-muted-foreground">Pump operating point efficiency</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                <td className="p-2.5 border-r border-border font-medium">Calculated Shaft Power (P_shaft)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{results.shaftPower.toFixed(2)}</td>
+                <td className="p-2.5 border-r border-border text-center">kW</td>
+                <td className="p-2.5 text-muted-foreground">(Q * ΔP) / (1000 * η_pump)</td>
+              </tr>
+              <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                <td className="p-2.5 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                <td className="p-2.5 border-r border-border font-medium">Electric Motor Efficiency (η_motor)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-foreground">{inputs.effMotor}</td>
+                <td className="p-2.5 border-r border-border text-center">%</td>
+                <td className="p-2.5 text-muted-foreground">IEC Premium Efficiency (IE3/IE4)</td>
+              </tr>
+              <tr className="bg-primary/5 hover:bg-primary/10 font-bold border-t border-b border-border">
+                <td className="p-2.5 border-r border-border text-center font-mono">5</td>
+                <td className="p-2.5 border-r border-border font-bold text-foreground">Required Motor Power (P_motor)</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold text-primary">{results.motorPower.toFixed(2)}</td>
+                <td className="p-2.5 border-r border-border text-center font-mono font-bold">kW</td>
+                <td className="p-2.5 text-foreground">{results.hp.toFixed(2)} HP recommended motor size</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Professional Review & Sign-Off Block (Exact Preliminary #FFE6CC Header) */}
+        <div className="pt-2">
           <div className="border border-border rounded-xl overflow-hidden text-xs">
-            <div className="grid grid-cols-4 divide-x divide-y divide-border">
-              <div className="p-2.5 font-bold bg-muted/20">Calculation No.:</div>
-              <div className="p-2.5 font-mono">{calcNo}</div>
-              <div className="p-2.5 font-bold bg-muted/20">Date:</div>
-              <div className="p-2.5 font-mono">{today}</div>
-
-              <div className="p-2.5 font-bold bg-muted/20">Project No.:</div>
-              <div className="p-2.5 font-mono">{projectNo}</div>
-              <div className="p-2.5 font-bold bg-muted/20">Client:</div>
-              <div className="p-2.5">{clientName}</div>
-
-              <div className="p-2.5 font-bold bg-muted/20">Project Name:</div>
-              <div className="p-2.5">{projectName}</div>
-              <div className="p-2.5 font-bold bg-muted/20">End User:</div>
-              <div className="p-2.5">{endUser}</div>
-            </div>
+            <table className="w-full border-collapse">
+              <thead className="bg-[#FFE6CC] dark:bg-amber-950/40 text-foreground font-bold border-b border-border">
+                <tr className="divide-x divide-border">
+                  <th className="p-2.5 w-28 text-center"></th>
+                  <th className="p-2.5 text-center w-1/3">Originator</th>
+                  <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                  <th className="p-2.5 text-center w-1/3">Approver</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.originatedName || currentUserName || "Design Engineer"}
+                  </td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.reviewerName || "-"}
+                  </td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.approverName || "-"}
+                  </td>
+                </tr>
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Role:</td>
+                  <td className="p-2.5 text-center text-muted-foreground">MEP Design Engineer</td>
+                  <td className="p-2.5 text-center text-muted-foreground">Senior Plumbing Lead</td>
+                  <td className="p-2.5 text-center text-muted-foreground">Principal / Director</td>
+                </tr>
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.originatedDate || today}
+                  </td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.reviewerDate || "-"}
+                  </td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.approverDate || "-"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-
-          {/* Table 1: Executive Design Parameters & Pump Duty Summary */}
-          <div className="space-y-2">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              1. Executive Design Parameters &amp; Pump Duty Summary
-            </h3>
-            <div className="border border-border rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                    <th className="p-2.5 w-12 text-center">No.</th>
-                    <th className="p-2.5">Executive Design Parameter Summary</th>
-                    <th className="p-2.5 text-center w-28">Value</th>
-                    <th className="p-2.5 text-center w-20">Unit</th>
-                    <th className="p-2.5">Engineering Design Basis / Code</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
-                    <td className="p-2.5 font-bold">Pump Application Type</td>
-                    <td className="p-2.5 text-center font-bold text-foreground">{pumpTypeLabel}</td>
-                    <td className="p-2.5 text-center text-muted-foreground">-</td>
-                    <td className="p-2.5 text-muted-foreground">Domestic Water Distribution System</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
-                    <td className="p-2.5 font-bold">Pump Station Configuration</td>
-                    <td className="p-2.5 text-center font-bold text-foreground">{inputs.workingPumps}W + {inputs.standbyPumps}S</td>
-                    <td className="p-2.5 text-center text-muted-foreground">units</td>
-                    <td className="p-2.5 text-muted-foreground">Standard N+1 duty and standby arrangement</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
-                    <td className="p-2.5 font-bold">
-                      {inputs.pumpType === "transfer" ? "Storage Tank Volume & Fill Time" : "Water Supply Fixture Units (WSFU)"}
-                    </td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">
-                      {inputs.pumpType === "transfer" ? `${inputs.reqVolume} L in ${inputs.fillTime} hrs` : (inputs.wsfuVal || "-")}
-                    </td>
-                    <td className="p-2.5 text-center text-muted-foreground">
-                      {inputs.pumpType === "transfer" ? "L / hr" : "WSFU"}
-                    </td>
-                    <td className="p-2.5 text-muted-foreground">
-                      {inputs.pumpType === "transfer" ? "Storage refill duty cycle" : "IPC Table 604.3 / Hunter's Curve demand"}
-                    </td>
-                  </tr>
-                  {/* Highlighted Duty Parameter: Design Flow Rate (Matching Ventilation standard #DAE9F8) */}
-                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
-                    <td className="p-2.5 text-center font-mono">4</td>
-                    <td className="p-2.5 font-bold">Design Flow Rate per Pump (Q)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-primary">{flowDisp}</td>
-                    <td className="p-2.5 text-center font-mono font-bold">{flowUnit}</td>
-                    <td className="p-2.5">Peak simultaneous demand flow requirement</td>
-                  </tr>
-                  {/* Highlighted Duty Parameter: Total Dynamic Head (Matching Ventilation standard #DAE9F8) */}
-                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
-                    <td className="p-2.5 text-center font-mono">5</td>
-                    <td className="p-2.5 font-bold">Calculated Total Dynamic Head (TDH)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-primary">{headDisp}</td>
-                    <td className="p-2.5 text-center font-mono font-bold">{headUnit}</td>
-                    <td className="p-2.5">Static head + friction + residual pressure + {inputs.sfHead}% margin</td>
-                  </tr>
-                  {/* Highlighted Duty Parameter: Motor Power (Matching Ventilation standard #DAE9F8) */}
-                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
-                    <td className="p-2.5 text-center font-mono">6</td>
-                    <td className="p-2.5 font-bold">Estimated Motor Rating Demand</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-primary">{results.motorPower.toFixed(2)}</td>
-                    <td className="p-2.5 text-center font-mono font-bold">kW</td>
-                    <td className="p-2.5">Equivalent: {results.hp.toFixed(2)} HP (Pump η: {inputs.effPump}%, Motor η: {inputs.effMotor}%)</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Table 2: Detailed Hydraulic Piping & Friction Loss Schedule */}
-          <div className="space-y-2 mt-6">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              2. Hydraulic Piping &amp; Friction Loss Schedule
-            </h3>
-            <div className="border border-border rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                    <th className="p-2.5 w-12 text-center">No.</th>
-                    <th className="p-2.5">Piping &amp; Hydraulic Loss Parameter</th>
-                    <th className="p-2.5 text-center w-28">Value</th>
-                    <th className="p-2.5 text-center w-20">Unit</th>
-                    <th className="p-2.5">Engineering Calculation Basis</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
-                    <td className="p-2.5 font-bold">Vertical Pipe Height (Riser Lift)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.pipeVert}</td>
-                    <td className="p-2.5 text-center">{lenUnit}</td>
-                    <td className="p-2.5 text-muted-foreground">Geometric vertical lift to highest fixture / roof tank</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
-                    <td className="p-2.5 font-bold">Horizontal Pipe Distribution Run</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.pipeHoriz}</td>
-                    <td className="p-2.5 text-center">{lenUnit}</td>
-                    <td className="p-2.5 text-muted-foreground">Horizontal distribution header and branch length</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
-                    <td className="p-2.5 font-bold">Fittings &amp; Valves Equivalent Allowance</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{(results.elbows + results.valves).toFixed(1)}</td>
-                    <td className="p-2.5 text-center">{lenUnit}</td>
-                    <td className="p-2.5 text-muted-foreground">30% elbows + 30% valves standard empirical allowance</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
-                    <td className="p-2.5 font-bold">Total Equivalent Pipe Length (L_equiv)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{results.equivLen.toFixed(1)}</td>
-                    <td className="p-2.5 text-center">{lenUnit}</td>
-                    <td className="p-2.5 text-muted-foreground">Developed length with 5% safety margin rounded to 10m</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">5</td>
-                    <td className="p-2.5 font-bold">Unit Friction Factor (Loss / 100m)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.fricFactor}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar/100m" : "psi/100ft"}</td>
-                    <td className="p-2.5 text-muted-foreground">Hazen-Williams / Darcy-Weisbach standard friction loss rate</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">6</td>
-                    <td className="p-2.5 font-bold">Calculated Pipe Friction Loss</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{isSI ? results.frictionLoss.toFixed(3) : (results.frictionLoss * 14.5038).toFixed(3)}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
-                    <td className="p-2.5 text-muted-foreground">L_equiv * (Friction Factor / 100)</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">7</td>
-                    <td className="p-2.5 font-bold">Water Filtration &amp; Treatment Loss</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{isSI ? results.filterLoss.toFixed(2) : (results.filterLoss * 14.5038).toFixed(2)}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
-                    <td className="p-2.5 text-muted-foreground">Active carbon / sand / softener / Cu-Ag ionization filter head loss</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Table 3: Pressure Head Components & Total Dynamic Head (TDH) */}
-          <div className="space-y-2 mt-6">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              3. Pressure Head Components &amp; Total Dynamic Head Breakdown
-            </h3>
-            <div className="border border-border rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                    <th className="p-2.5 w-12 text-center">No.</th>
-                    <th className="p-2.5">Head &amp; Pressure Component</th>
-                    <th className="p-2.5 text-center w-28">Value</th>
-                    <th className="p-2.5 text-center w-20">Unit</th>
-                    <th className="p-2.5">System Pressure Basis</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
-                    <td className="p-2.5 font-bold">Static Elevation Head (H_static)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.staticHead}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
-                    <td className="p-2.5 text-muted-foreground">Building elevation height differential</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
-                    <td className="p-2.5 font-bold">Residual Terminal Pressure (P_res)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.presidHead}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
-                    <td className="p-2.5 text-muted-foreground">Minimum required pressure at remotest outlet fixture</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
-                    <td className="p-2.5 font-bold">Suction Tank Inflow / Head Credit (H_suct)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.suctionHead}</td>
-                    <td className="p-2.5 text-center">{isSI ? "bar" : "psi"}</td>
-                    <td className="p-2.5 text-muted-foreground">Positive suction head from elevated supply reservoir</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
-                    <td className="p-2.5 font-bold">Aging &amp; Fouling Safety Margin</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.sfHead}</td>
-                    <td className="p-2.5 text-center">%</td>
-                    <td className="p-2.5 text-muted-foreground">Engineering contingency margin</td>
-                  </tr>
-                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
-                    <td className="p-2.5 text-center font-mono">5</td>
-                    <td className="p-2.5 font-bold">Total Dynamic Calculation Head (TDH)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-primary">{headDisp}</td>
-                    <td className="p-2.5 text-center font-mono font-bold">{headUnit}</td>
-                    <td className="p-2.5">((H_fric + H_static + P_res) - H_suct + H_filt) * (1 + Safety Margin)</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Table 4: Motor & Energy Power Analysis */}
-          <div className="space-y-2 mt-6">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              4. Motor &amp; Energy Demand Analysis
-            </h3>
-            <div className="border border-border rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                    <th className="p-2.5 w-12 text-center">No.</th>
-                    <th className="p-2.5">Power &amp; Efficiency Parameter</th>
-                    <th className="p-2.5 text-center w-28">Value</th>
-                    <th className="p-2.5 text-center w-20">Unit</th>
-                    <th className="p-2.5">Efficiency &amp; Mechanical Rating</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">1</td>
-                    <td className="p-2.5 font-bold">Hydraulic Lift Pressure Differential</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{results.liftKpa.toFixed(1)}</td>
-                    <td className="p-2.5 text-center">kPa</td>
-                    <td className="p-2.5 text-muted-foreground">Calculated pressure differential = TDH * 100</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">2</td>
-                    <td className="p-2.5 font-bold">Pump Hydraulic Efficiency (η_pump)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.effPump}</td>
-                    <td className="p-2.5 text-center">%</td>
-                    <td className="p-2.5 text-muted-foreground">Centrifugal pump hydraulic efficiency curve</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">3</td>
-                    <td className="p-2.5 font-bold">Calculated Shaft Power (P_shaft)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{results.shaftPower.toFixed(2)}</td>
-                    <td className="p-2.5 text-center">kW</td>
-                    <td className="p-2.5 text-muted-foreground">P_shaft = (Q * ΔP) / (1000 * η_pump)</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">4</td>
-                    <td className="p-2.5 font-bold">Electric Motor Efficiency (η_motor)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-foreground">{inputs.effMotor}</td>
-                    <td className="p-2.5 text-center">%</td>
-                    <td className="p-2.5 text-muted-foreground">IEC Premium Efficiency (IE3 / IE4) induction motor</td>
-                  </tr>
-                  <tr className="bg-[#DAE9F8] dark:bg-[#0c2e47] text-slate-900 dark:text-slate-100 font-bold border-y border-border">
-                    <td className="p-2.5 text-center font-mono">5</td>
-                    <td className="p-2.5 font-bold">Required Motor Power (P_motor)</td>
-                    <td className="p-2.5 text-center font-mono font-bold text-primary">{results.motorPower.toFixed(2)}</td>
-                    <td className="p-2.5 text-center font-mono font-bold">kW</td>
-                    <td className="p-2.5">P_motor = P_shaft / η_motor ({results.hp.toFixed(2)} HP duty)</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Compliance Verification Banner */}
-          <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-start gap-3">
-            <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-            <div className="text-xs space-y-1">
-              <span className="font-bold text-emerald-800 dark:text-emerald-300">
-                Hydraulic Duty &amp; Motor Power Compliance Verification
-              </span>
-              <p className="text-muted-foreground leading-relaxed">
-                This pump sizing calculation complies with IPC Table 604.3, CIBSE Guide W, and IEC electric motor standards for domestic water booster/transfer pump systems. Total Dynamic Head includes static elevation, equivalent pipe friction, active filtration losses, and a {inputs.sfHead}% contingency margin.
-              </p>
-            </div>
-          </div>
-
-          {/* Table 5: 4-Column Professional Review & Sign-Off Block */}
-          <div className="space-y-2 mt-6">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              5. Professional Review &amp; Sign-Off Block
-            </h3>
-            <div className="border border-border rounded-xl overflow-hidden text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
-                    <th className="p-2.5 text-left w-1/4">Approval Role</th>
-                    <th className="p-2.5 text-center w-1/4">Originated By</th>
-                    <th className="p-2.5 text-center w-1/4">Reviewed By</th>
-                    <th className="p-2.5 text-center w-1/4">Approved By</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr>
-                    <td className="p-2.5 font-bold text-muted-foreground">Name:</td>
-                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.originatedName}</td>
-                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
-                    <td className="p-2.5 text-center font-bold text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 dark:bg-zinc-900/50">
-                    <td className="p-2.5 font-bold text-muted-foreground">Role / Status:</td>
-                    <td className="p-2.5 text-center text-muted-foreground">MEP Design Engineer</td>
-                    <td className="p-2.5 text-center text-muted-foreground">Senior Plumbing Lead</td>
-                    <td className="p-2.5 text-center text-muted-foreground">Principal / MEP Director</td>
-                  </tr>
-                  <tr>
-                    <td className="p-2.5 font-bold text-muted-foreground">Date:</td>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.originatedDate || today}</td>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
-                    <td className="p-2.5 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
+        </div>
         </div>
       </div>
-    </div>
   );
 }
 

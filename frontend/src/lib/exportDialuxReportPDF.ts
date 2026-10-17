@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { DialuxSimulationResult, LuminairePhotometricProfile, RenderedRaytraceImage } from "./dialux-photometrics-engine";
+import { getCompanyBranding } from "./pdfHelpers";
 
 // =========================================================================
 // DIALUX EVO DOCUMENTATION OUTPUT TYPES (TUTORIAL #8)
@@ -142,9 +143,12 @@ export function exportDialuxReportPDF(options: DialuxReportExportOptions) {
   const headerColor: [number, number, number] = [24, 24, 27]; // Dark Slate
   const accentEmerald: [number, number, number] = [22, 163, 74];
   const textColor: [number, number, number] = [30, 41, 59];
+  const branding = getCompanyBranding();
   const dateStr = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-  const companyName = headerConfig?.companyName || "DIALux evo Engineering Partner";
+  const companyName = headerConfig?.companyName || branding.companyName || "DIALux evo Engineering Partner";
   const designerName = headerConfig?.designerName || userName;
+  const companyLogo = headerConfig?.companyLogo || branding.logoUrl || null;
+  const disclaimerText = headerConfig?.disclaimer || branding.disclaimerText || "Calculated in accordance with EN 12464-1 and CIBSE Code for Lighting.";
 
   // Compute total active pages count
   const pageEntries: Array<{ key: keyof DocumentationPageSelection; title: string }> = [
@@ -170,9 +174,15 @@ export function exportDialuxReportPDF(options: DialuxReportExportOptions) {
 
     // Optional company logo on top left
     let textLeftMargin = 14;
-    if (headerConfig?.companyLogo) {
+    if (companyLogo) {
       try {
-        doc.addImage(headerConfig.companyLogo, "PNG", 14, 4, 16, 16);
+        let fmt = "PNG";
+        if (companyLogo.startsWith("data:image/jpeg") || companyLogo.startsWith("data:image/jpg")) {
+          fmt = "JPEG";
+        } else if (companyLogo.startsWith("data:image/webp")) {
+          fmt = "WEBP";
+        }
+        doc.addImage(companyLogo, fmt, 14, 4, 16, 16);
         textLeftMargin = 33;
       } catch (e) {
         // Fallback silently if invalid image format
@@ -204,7 +214,7 @@ export function exportDialuxReportPDF(options: DialuxReportExportOptions) {
     doc.setFontSize(7.5);
     doc.setTextColor(100, 116, 139);
 
-    const disclaimer = headerConfig?.disclaimer || "Calculated in accordance with EN 12464-1 and CIBSE Code for Lighting.";
+    const disclaimer = disclaimerText;
     doc.text(disclaimer, 14, footerY + 5);
 
     const pageStr = headerConfig?.pageNumberFormat === "simple" 
@@ -235,9 +245,15 @@ export function exportDialuxReportPDF(options: DialuxReportExportOptions) {
 
     // Logo if present
     let coverHeaderOffset = 16;
-    if (headerConfig?.companyLogo) {
+    if (companyLogo) {
       try {
-        doc.addImage(headerConfig.companyLogo, "PNG", 16, 12, 28, 28);
+        let fmt = "PNG";
+        if (companyLogo.startsWith("data:image/jpeg") || companyLogo.startsWith("data:image/jpg")) {
+          fmt = "JPEG";
+        } else if (companyLogo.startsWith("data:image/webp")) {
+          fmt = "WEBP";
+        }
+        doc.addImage(companyLogo, fmt, 16, 12, 28, 28);
         coverHeaderOffset = 50;
       } catch (e) {
         // Fallback silently

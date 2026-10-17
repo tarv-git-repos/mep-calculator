@@ -66,6 +66,15 @@ function saveOrgHierarchies(data) {
 const LICENSES_FILE = path.join(DATA_DIR, 'licenses.json');
 try { if (!fs.existsSync(LICENSES_FILE)) fs.writeFileSync(LICENSES_FILE, JSON.stringify([]), 'utf8'); } catch (e) { }
 
+const LICENSE_REQUESTS_FILE = path.join(DATA_DIR, 'license_requests.json');
+try { if (!fs.existsSync(LICENSE_REQUESTS_FILE)) fs.writeFileSync(LICENSE_REQUESTS_FILE, JSON.stringify([]), 'utf8'); } catch (e) { }
+function readLicenseRequests() {
+  try { return JSON.parse(fs.readFileSync(LICENSE_REQUESTS_FILE, 'utf8') || '[]'); } catch (e) { return []; }
+}
+function writeLicenseRequests(data) {
+  try { fs.writeFileSync(LICENSE_REQUESTS_FILE, JSON.stringify(data, null, 2), 'utf8'); } catch (e) { }
+}
+
 const TRIALS_FILE = path.join(DATA_DIR, 'hardware_trials.json');
 try { if (!fs.existsSync(TRIALS_FILE)) fs.writeFileSync(TRIALS_FILE, JSON.stringify([]), 'utf8'); } catch (e) { }
 
@@ -345,7 +354,19 @@ function logActivity(user, action_type, details) {
     formattedDetails = details.message || details.summary || JSON.stringify(details);
   }
 
-  const orgId = user.organization_id || (typeof details === 'object' ? (details.organization_id || details.org_id) : '');
+  let orgId = user.organization_id || (user.features && user.features.organization_id);
+  if (!orgId && typeof details === 'object' && details !== null) {
+    orgId = details.organization_id || details.org_id || details.targetOrgId || details.orgId || '';
+  }
+  if (!orgId && user.email && user.email.toLowerCase().trim() !== 'admin@tarv.ai') {
+    try {
+      const localUsers = readLocalUsers();
+      const matched = localUsers.find(u => (u.id && u.id === user.id) || (u.email && u.email.toLowerCase() === user.email.toLowerCase()));
+      if (matched) {
+        orgId = matched.organization_id || (matched.features && matched.features.organization_id) || '';
+      }
+    } catch (_) {}
+  }
 
   logs.unshift({
     id: `log_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -353,8 +374,8 @@ function logActivity(user, action_type, details) {
     user_id: user.id || 'system',
     email: user.email || 'system',
     name: user.name || user.email || 'User',
-    organization_id: orgId,
-    org_id: orgId,
+    organization_id: orgId || '',
+    org_id: orgId || '',
     action_type,
     details: formattedDetails
   });
@@ -619,7 +640,8 @@ const VALID_CUSTOM_USER_COLUMNS = new Set([
   'subscription_expires',
   'features',
   'organization_id',
-  'status'
+  'status',
+  'active_hwid'
 ]);
 
 function toSupabaseUserPayload(u) {
@@ -634,6 +656,10 @@ function toSupabaseUserPayload(u) {
   if (u.organization_id !== undefined) feat.organization_id = u.organization_id;
   if (u.approvalAuthority) feat.approvalAuthority = u.approvalAuthority;
   if (u.profile_photo !== undefined) feat.profile_photo = u.profile_photo;
+  if (u.status !== undefined) feat.status = u.status;
+  if (u.active_hwid !== undefined) feat.active_hwid = u.active_hwid;
+  if (u.last_login !== undefined) feat.last_login = u.last_login;
+  if (u.last_active !== undefined) feat.last_active = u.last_active;
   const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (u.organization_id ? 'ENTERPRISE' : 'PRO');
   feat.plan = userPlan;
   feat.subscription_status = userPlan;
@@ -670,6 +696,11 @@ async function writeUsers(users) {
       const effRole = u.role || u.features?.role || 'Jr. Design Engineer';
       const effDesignation = designation || u.designation || u.features?.designation || effRole;
       const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
+      const effStatus = u.status || u.features?.status || 'active';
+      const userLastLogin = u.last_login !== undefined ? u.last_login : (u.features?.last_login || null);
+      const userLastActive = u.last_active !== undefined ? u.last_active : (u.features?.last_active || null);
+      const effHwid = u.active_hwid !== undefined ? u.active_hwid : (u.features?.active_hwid || null);
+
       const features = {
         ...(u.features || {}),
         plan: userPlan,
@@ -681,11 +712,13 @@ async function writeUsers(users) {
         designation: effDesignation,
         profile_photo: profile_photo !== undefined ? profile_photo : (u.features?.profile_photo || ''),
         settings: settings || u.features?.settings || {},
-        subscription_expires: expDate
+        subscription_expires: expDate,
+        status: effStatus,
+        active_hwid: effHwid,
+        last_login: userLastLogin,
+        last_active: userLastActive
       };
-      if (u.active_hwid !== undefined) {
-        features.active_hwid = u.active_hwid;
-      }
+
       return {
         ...u,
         role: effRole,
@@ -695,8 +728,11 @@ async function writeUsers(users) {
         organization_id: orgId,
         company: comp,
         organization: comp,
-        active_hwid: u.active_hwid || null,
+        active_hwid: effHwid,
         subscription_expires: expDate,
+        status: effStatus,
+        last_login: userLastLogin,
+        last_active: userLastActive,
         features
       };
     });
@@ -733,8 +769,14 @@ async function formatUser(user, allUsers = null) {
   let pioneer_number = null;
 
   let effectiveRole = user.role;
-  if (!effectiveRole || effectiveRole === 'USER' || effectiveRole === 'UNASSIGNED') {
-    effectiveRole = (user.email && user.email.toLowerCase() === 'admin@tarv.ai') ? 'SUPER_ADMIN' : 'Jr. Design Engineer';
+  const roleUpper = String(user.role || (user.features && user.features.role) || '').toUpperCase().trim();
+  const desUpper = String(user.designation || (user.features && user.features.designation) || '').toUpperCase().trim();
+  if (roleUpper === 'ORG_ADMIN' || roleUpper === 'ORGANIZATION_ADMIN' || roleUpper === 'ORGANIZATION ADMIN' || roleUpper === 'ORG ADMIN' || desUpper === 'ORGANIZATION ADMIN' || desUpper === 'ORG ADMIN') {
+    effectiveRole = 'ORG_ADMIN';
+  } else if (roleUpper === 'SUPER_ADMIN' || (user.email && user.email.toLowerCase() === 'admin@tarv.ai')) {
+    effectiveRole = 'SUPER_ADMIN';
+  } else if (!effectiveRole || effectiveRole === 'USER' || effectiveRole === 'UNASSIGNED') {
+    effectiveRole = 'Jr. Design Engineer';
   }
 
   try {
@@ -783,7 +825,10 @@ async function formatUser(user, allUsers = null) {
     designation: user.designation || user.features?.designation || effectiveRole || '',
     profile_photo: user.profile_photo || '',
     settings: user.settings || user.features?.settings || {},
-    status: user.status,
+    status: user.status || user.features?.status || 'active',
+    active_hwid: user.active_hwid || user.features?.active_hwid || null,
+    last_login: user.last_login || user.features?.last_login || null,
+    last_active: user.last_active || user.features?.last_active || null,
     is_founding_pioneer,
     pioneer_number: is_founding_pioneer ? (pioneer_number || 1) : null
   };
@@ -836,6 +881,14 @@ async function getUserFromReq(req) {
     }
     if (userIndex === -1) return null;
     let user = { ...users[userIndex] };
+
+    const rUpper = String(user.role || (user.features && user.features.role) || '').toUpperCase().trim();
+    const desUpper = String(user.designation || (user.features && user.features.designation) || '').toUpperCase().trim();
+    if (rUpper === 'ORGANIZATION ADMIN' || rUpper === 'ORG ADMIN' || rUpper === 'ORGANIZATION_ADMIN' || rUpper === 'ORG_ADMIN' || desUpper === 'ORGANIZATION ADMIN' || desUpper === 'ORG ADMIN') {
+      user.role = 'ORG_ADMIN';
+    } else if (rUpper === 'SUPER_ADMIN' || (user.email && user.email.toLowerCase() === 'admin@tarv.ai')) {
+      user.role = 'SUPER_ADMIN';
+    }
 
     const reqHwid = req.headers['x-hwid'] || req.headers['hwid'];
     const isLocalHost = req.headers.host && (req.headers.host.includes('localhost') || req.headers.host.includes('127.0.0.1'));
@@ -1070,6 +1123,20 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { success: false, message: 'Invalid password' });
     }
 
+    // Check if account is suspended or deactivated
+    if (user.status === 'suspended') {
+      return sendJSON(res, 200, {
+        success: false,
+        message: 'Your account has been suspended by the System Administrator. Please contact support or your administrator.'
+      });
+    }
+    if (user.status === 'deactivated' || user.status === 'inactive') {
+      return sendJSON(res, 200, {
+        success: false,
+        message: 'Your account seat has been temporarily deactivated by your Organization Administrator. Please contact your administrator.'
+      });
+    }
+
     // Enforce Organization User Limit (seat limit) check
     const userOrgId = user.organization_id || user.features?.organization_id;
     if (userOrgId && user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') {
@@ -1077,7 +1144,10 @@ const server = http.createServer(async (req, res) => {
       const orgObj = localOrgs.find(o => o.id === userOrgId);
       if (orgObj) {
         const maxUsers = orgObj.max_users || 10;
-        const orgMembers = users.filter(u => u.organization_id === userOrgId || u.features?.organization_id === userOrgId);
+        const orgMembers = users.filter(u => 
+          (u.organization_id === userOrgId || u.features?.organization_id === userOrgId) &&
+          u.status !== 'deactivated' && u.status !== 'inactive' && u.status !== 'suspended'
+        );
         const memberRank = orgMembers.findIndex(u => u.id === user.id || (u.email && u.email.toLowerCase() === cleanEmail));
         if (memberRank >= maxUsers) {
           return sendJSON(res, 200, {
@@ -1136,19 +1206,26 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    const nowIso = new Date().toISOString();
+    user.last_login = nowIso;
+    user.last_active = nowIso;
+    if (!user.features) user.features = {};
+    user.features.last_login = nowIso;
+    user.features.last_active = nowIso;
+
     if (hwid) {
       user.active_hwid = hwid;
-      if (!user.features) user.features = {};
       user.features.active_hwid = hwid;
-      users[userIndex] = user;
-      await writeUsers(users);
-      try {
-        await supabase.from('custom_users').update({
-          active_hwid: hwid,
-          features: { ...(user.features || {}), active_hwid: hwid }
-        }).or(`id.eq.${user.id},email.eq.${user.email}`);
-      } catch (e) { }
     }
+
+    users[userIndex] = user;
+    await writeUsers(users);
+    try {
+      await supabase.from('custom_users').update({
+        active_hwid: hwid || user.active_hwid || null,
+        features: user.features
+      }).or(`id.eq.${user.id},email.eq.${user.email}`);
+    } catch (e) { }
 
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
     const cookieStr = `token=${token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`;
@@ -1161,6 +1238,80 @@ const server = http.createServer(async (req, res) => {
         success: true,
         token,
         message: 'Logged In Successfully',
+        userData: await formatUser(user),
+      },
+      cookieStr
+    );
+  }
+
+  // 2.5 MAGIC ONE-TIME LOGIN LINK
+  if (req.method === 'POST' && url === '/api/auth/magic-login') {
+    const { magicToken, email, hwid } = await getRequestBody(req);
+    if (!magicToken || !email) {
+      return sendJSON(res, 200, { success: false, message: 'One-time link token and email are required.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const users = await readUsers();
+    const targetIdx = users.findIndex(u => u.email && u.email.toLowerCase() === cleanEmail);
+    if (targetIdx === -1) {
+      return sendJSON(res, 200, { success: false, message: 'User not found with this email.' });
+    }
+
+    const user = users[targetIdx];
+    const storedToken = user.magic_login_token || user.features?.magic_login_token;
+    const expiresAt = user.magic_login_expires || user.features?.magic_login_expires || 0;
+
+    if (!storedToken || storedToken !== magicToken || Date.now() > expiresAt) {
+      return sendJSON(res, 200, { success: false, message: 'This one-time login link is invalid or has expired. Please request a new link from your administrator.' });
+    }
+
+    if (user.status === 'suspended') {
+      return sendJSON(res, 200, {
+        success: false,
+        message: 'Your account has been suspended by the System Administrator. Please contact your administrator.'
+      });
+    }
+    if (user.status === 'deactivated' || user.status === 'inactive') {
+      return sendJSON(res, 200, {
+        success: false,
+        message: 'Your account seat has been temporarily deactivated by your Organization Administrator.'
+      });
+    }
+
+    // Clear single-use token upon successful consumption
+    user.magic_login_token = null;
+    user.magic_login_expires = 0;
+    if (user.features) {
+      user.features.magic_login_token = null;
+      user.features.magic_login_expires = 0;
+    }
+    user.isAccountVerified = true;
+    const nowIso = new Date().toISOString();
+    user.last_login = nowIso;
+    user.last_active = nowIso;
+    if (!user.features) user.features = {};
+    user.features.last_login = nowIso;
+    user.features.last_active = nowIso;
+    if (hwid) {
+      user.active_hwid = hwid;
+      user.features.active_hwid = hwid;
+    }
+
+    users[targetIdx] = user;
+    await writeUsers(users);
+
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    const cookieStr = `token=${token}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`;
+    logActivity(user, 'LOGIN_MAGIC_LINK', 'User logged in via Admin one-time access link');
+
+    return sendJSON(
+      res,
+      200,
+      {
+        success: true,
+        token,
+        message: 'Logged in successfully via one-time access link!',
         userData: await formatUser(user),
       },
       cookieStr
@@ -1603,6 +1754,8 @@ const server = http.createServer(async (req, res) => {
     const users = await readUsers();
     const fileSettings = readOrgSettings();
     const localOrgs = readLocalOrgs();
+    const allActivityLogs = readActivityLogs();
+    const allTrials = readTrials();
     let safeUsers = (users || []).map(u => {
       const orgId = u.organization_id || u.features?.organization_id || null;
       let resolvedCompany = u.company || u.organization_name || u.organization || u.features?.company || u.features?.organization || '';
@@ -1613,6 +1766,29 @@ const server = http.createServer(async (req, res) => {
       const effRole = (u.role && u.role !== 'USER') ? u.role : (u.features?.role || 'Jr. Design Engineer');
       const effDesignation = u.designation || u.features?.designation || effRole || '';
       const userPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (orgId ? 'ENTERPRISE' : 'PRO');
+      const effStatus = u.status || u.features?.status || 'active';
+      let effHwid = u.active_hwid !== undefined ? u.active_hwid : (u.features?.active_hwid !== undefined ? u.features.active_hwid : null);
+      if (!effHwid && u.active_hwid !== null) {
+        const uEmail = (u.email || '').toLowerCase().trim();
+        const matchedTrial = allTrials.find(t => t.email && t.email.toLowerCase().trim() === uEmail);
+        if (matchedTrial && matchedTrial.hwid) {
+          effHwid = matchedTrial.hwid;
+        }
+      }
+      const userLastLogin = u.last_login || u.features?.last_login || null;
+      let userLastActive = u.last_active || u.features?.last_active || userLastLogin || null;
+
+      if (!userLastActive) {
+        const uEmail = (u.email || '').toLowerCase().trim();
+        const uId = String(u.id || '').toLowerCase().trim();
+        const recentLog = allActivityLogs.find(l => (l.email && l.email.toLowerCase().trim() === uEmail) || (l.user_id && String(l.user_id).toLowerCase().trim() === uId));
+        if (recentLog && recentLog.created_at) {
+          userLastActive = recentLog.created_at;
+        } else if (u.createdAt || u.created_at) {
+          userLastActive = u.createdAt || u.created_at;
+        }
+      }
+
       return {
         id: u.id,
         name: u.name,
@@ -1627,7 +1803,12 @@ const server = http.createServer(async (req, res) => {
         organization_id: orgId,
         company: resolvedCompany,
         organization_name: resolvedCompany,
-        organization: resolvedCompany
+        organization: resolvedCompany,
+        status: effStatus,
+        active_hwid: effHwid,
+        last_login: userLastLogin,
+        last_active: userLastActive,
+        created_at: u.createdAt || u.created_at || null
       };
     });
 
@@ -2104,6 +2285,11 @@ const server = http.createServer(async (req, res) => {
         applicable_stages: meta.applicable_stages || [...VALID_STAGES],
         current_stage: meta.current_stage || "Concept Design",
         stage_status: meta.stage_status || {},
+        is_locked: Boolean(meta.is_locked || p.status === 'LOCKED'),
+        locked_at: meta.locked_at || null,
+        locked_by: meta.locked_by || null,
+        locked_by_name: meta.locked_by_name || null,
+        lock_reason: meta.lock_reason || null,
         project_users: populatedUsers
       };
     });
@@ -2141,7 +2327,8 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    const meta = getProjectMetaOrDefault(proj.id, proj.name, proj.description);
+    const allMeta = readProjectsMeta();
+    const meta = allMeta[proj.id] || getProjectMetaOrDefault(proj.id, proj.name, proj.description);
     return sendJSON(res, 200, {
       success: true,
       project: {
@@ -2149,7 +2336,12 @@ const server = http.createServer(async (req, res) => {
         project_type: meta.project_type,
         applicable_stages: meta.applicable_stages,
         current_stage: meta.current_stage,
-        stage_status: meta.stage_status
+        stage_status: meta.stage_status,
+        is_locked: Boolean(meta.is_locked || proj.status === 'LOCKED'),
+        locked_at: meta.locked_at || null,
+        locked_by: meta.locked_by || null,
+        locked_by_name: meta.locked_by_name || null,
+        lock_reason: meta.lock_reason || null
       }
     });
   }
@@ -2176,6 +2368,16 @@ const server = http.createServer(async (req, res) => {
           return sendJSON(res, 403, { success: false, message: 'Forbidden: Cannot modify project belonging to another user.' });
         }
       }
+    }
+
+    // Strict Lock Check: Protect approved calculations from being modified after client submission
+    const allMeta = readProjectsMeta();
+    const projMeta = allMeta[project_id];
+    if (projMeta && projMeta.is_locked) {
+      return sendJSON(res, 423, {
+        success: false,
+        message: 'This project is locked and frozen. Approved calculations cannot be modified after client submission. Please contact your Organization Admin to unlock.'
+      });
     }
 
     const nowIso = new Date().toISOString();
@@ -2206,11 +2408,10 @@ const server = http.createServer(async (req, res) => {
     // Auto-log activity on server whenever ANY team member saves workspace
     try {
       let projName = 'Project';
-      const { data: proj } = await supabase.from('projects').select('name').eq('id', project_id).single();
+      const { data: proj } = await supabase.from('projects').select('name, organization_id').eq('id', project_id).single();
       if (proj && proj.name) projName = proj.name;
 
-      const defaultOrg = '8343112c-110b-4c26-bce9-b5786b05f241';
-      const userOrg = user.organization_id || defaultOrg;
+      const userOrg = user.organization_id || (user.features && user.features.organization_id) || proj?.organization_id || '';
 
       logActivity(user, 'UPDATED', {
         message: `Calculation was updated and saved in project ${projName}`,
@@ -2399,12 +2600,12 @@ const server = http.createServer(async (req, res) => {
     // Auto-log activity on server for audit trail
     try {
       const projName = proj?.name || 'Project';
-      const defaultOrg = '8343112c-110b-4c26-bce9-b5786b05f241';
+      const userOrg = user.organization_id || (user.features && user.features.organization_id) || proj?.organization_id || '';
       logActivity(user, 'UPDATED', {
         message: `Project stage changed to "${current_stage}" in project ${projName}`,
         project_name: projName,
         project_id: project_id,
-        organization_id: user.organization_id || defaultOrg
+        organization_id: userOrg
       });
     } catch (e) { }
 
@@ -2412,6 +2613,165 @@ const server = http.createServer(async (req, res) => {
       success: true,
       message: 'Project stage updated successfully',
       meta: currentMeta
+    });
+  }
+
+  // G1.5. TOGGLE PROJECT LOCK / FREEZE (Approved Calculation Protection)
+  if (req.method === 'POST' && (url === '/api/projects/toggle-lock' || url.startsWith('/api/projects/toggle-lock'))) {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+
+    const body = await getRequestBody(req);
+    const project_id = body.project_id || body.projectId || body.id;
+    const is_locked = Boolean(body.is_locked);
+    const reason = body.reason || (is_locked ? 'Approved calculations frozen after client submission' : 'Project unlocked for revision');
+
+    if (!project_id) return sendJSON(res, 400, { success: false, message: 'Project ID required' });
+
+    // Flexible role checking
+    const roleLower = String(user.role || user.features?.role || '').toLowerCase();
+    const desigLower = String(user.designation || user.features?.designation || '').toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin' || user.email === 'admin@tarv.ai' || (roleLower.includes('admin') && !roleLower.includes('org'));
+    const isOrgAdmin = isSuperAdmin || roleLower === 'org_admin' || desigLower.includes('org admin') || roleLower.includes('org') || desigLower.includes('admin');
+    const isTeamLead = roleLower.includes('lead') || roleLower.includes('leader') || desigLower.includes('team lead') || desigLower.includes('team leader') || desigLower.includes('project manager') || roleLower.includes('project_manager');
+    const isCoordinator = roleLower.includes('coordinator') || desigLower.includes('coordinator');
+    const hasAuthority = user.approvalAuthority === 'APPROVE_REJECT' || user.features?.approvalAuthority === 'APPROVE_REJECT';
+
+    const canLock = isSuperAdmin || isOrgAdmin || isTeamLead || isCoordinator || hasAuthority;
+    if (!canLock) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Only Organization Admins, Discipline Coordinators, or Team Leaders can lock or unlock projects.' });
+    }
+
+    let proj = null;
+    try {
+      const { data } = await supabase.from('projects').select('id, name, created_by, organization_id, status').eq('id', project_id).single();
+      proj = data;
+    } catch (e) {}
+
+    // Multi-tenant check (if proj exists and user is not superadmin)
+    const userOrgId = user.organization_id || user.features?.organization_id;
+    if (!isSuperAdmin && proj && proj.organization_id && userOrgId) {
+      if (String(proj.organization_id) !== String(userOrgId)) {
+        return sendJSON(res, 403, { success: false, message: 'Forbidden: Cannot access projects of another organization.' });
+      }
+    }
+
+    const allMeta = readProjectsMeta();
+    const currentMeta = allMeta[project_id] || getProjectMetaOrDefault(project_id, proj?.name || 'Project');
+
+    currentMeta.is_locked = is_locked;
+    currentMeta.locked_at = is_locked ? new Date().toISOString() : null;
+    currentMeta.locked_by = is_locked ? (user.email || user.id) : null;
+    currentMeta.locked_by_name = is_locked ? (user.name || user.email) : null;
+    currentMeta.lock_reason = is_locked ? reason : null;
+    currentMeta.updated_at = new Date().toISOString();
+    currentMeta.updated_by = user.email || user.id;
+
+    allMeta[project_id] = currentMeta;
+    writeProjectsMeta(allMeta);
+
+    // Update status in projects table
+    try {
+      const newStatus = is_locked ? 'LOCKED' : (proj?.status === 'LOCKED' ? 'active' : (proj?.status || 'active'));
+      await supabase.from('projects').update({ status: newStatus, last_modified: new Date().toISOString() }).eq('id', project_id);
+    } catch (e) {
+      console.warn('Supabase status update warning in toggle-lock:', e.message);
+    }
+
+    // Audit log
+    try {
+      const projName = proj?.name || currentMeta?.name || 'Project';
+      const userOrg = user.organization_id || (user.features && user.features.organization_id) || proj?.organization_id || '';
+      logActivity(user, is_locked ? 'LOCK_PROJECT' : 'UNLOCK_PROJECT', {
+        message: is_locked
+          ? `Project "${projName}" was FROZEN and locked by ${user.name || user.email}. Reason: ${reason}`
+          : `Project "${projName}" was UNLOCKED by ${user.name || user.email}.`,
+        project_name: projName,
+        project_id: project_id,
+        is_locked,
+        reason,
+        organization_id: userOrg
+      });
+    } catch (e) { }
+
+    return sendJSON(res, 200, {
+      success: true,
+      message: is_locked ? 'Project locked & calculations frozen successfully' : 'Project unlocked successfully',
+      is_locked,
+      meta: currentMeta
+    });
+  }
+
+  // G1.6. BULK PROJECT BACKUP (Organization-wide full export)
+  if (req.method === 'GET' && url.startsWith('/api/projects/bulk-export')) {
+    const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+
+    const roleLower = String(user.role || user.features?.role || '').toLowerCase();
+    const desigLower = String(user.designation || user.features?.designation || '').toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin' || user.email === 'admin@tarv.ai' || (roleLower.includes('admin') && !roleLower.includes('org'));
+    const isOrgAdmin = isSuperAdmin || roleLower === 'org_admin' || desigLower.includes('org admin') || roleLower.includes('org') || desigLower.includes('admin');
+
+    if (!isOrgAdmin) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Only Organization Admins can perform bulk backups.' });
+    }
+
+    const userOrgId = user.organization_id || user.features?.organization_id;
+    let allProjs = [];
+    try {
+      let query = supabase.from('projects').select('*');
+      if (!isSuperAdmin && userOrgId) {
+        query = query.eq('organization_id', userOrgId);
+      }
+      const { data, error } = await query;
+      if (!error && Array.isArray(data) && data.length > 0) {
+        allProjs = data;
+      }
+    } catch (e) {}
+
+    // Fallback: If query returned 0, fetch all and filter gracefully (handles legacy null organization_id)
+    if (allProjs.length === 0) {
+      try {
+        const { data } = await supabase.from('projects').select('*');
+        if (Array.isArray(data)) {
+          allProjs = !isSuperAdmin && userOrgId
+            ? data.filter(p => !p.organization_id || String(p.organization_id) === String(userOrgId) || p.created_by === user.id)
+            : data;
+        }
+      } catch (e) {}
+    }
+
+    const allMeta = readProjectsMeta();
+    const enrichedProjects = (allProjs || []).map(p => {
+      const meta = allMeta[p.id] || {};
+      return {
+        ...p,
+        is_locked: Boolean(meta.is_locked || p.status === 'LOCKED'),
+        locked_at: meta.locked_at || null,
+        locked_by: meta.locked_by || null,
+        locked_by_name: meta.locked_by_name || null,
+        lock_reason: meta.lock_reason || null,
+        project_type: meta.project_type || 'Buildings / Apartment',
+        current_stage: meta.current_stage || 'Concept Design',
+        stage_status: meta.stage_status || {},
+        applicable_stages: meta.applicable_stages || VALID_STAGES
+      };
+    });
+
+    try {
+      logActivity(user, 'BULK_PROJECT_BACKUP', {
+        count: enrichedProjects.length,
+        organization_id: userOrgId,
+        message: `Organization bulk project backup generated (${enrichedProjects.length} projects exported)`
+      });
+    } catch (e) { }
+
+    return sendJSON(res, 200, {
+      success: true,
+      count: enrichedProjects.length,
+      exported_at: new Date().toISOString(),
+      organization_id: userOrgId,
+      projects: enrichedProjects
     });
   }
 
@@ -2856,6 +3216,21 @@ const server = http.createServer(async (req, res) => {
     if (targetUserIndex !== -1) {
       const existing = users[targetUserIndex];
 
+      // Strict multi-tenant isolation for Org Admin:
+      if (adminUser.role === 'ORG_ADMIN') {
+        const adminOrg = adminUser.organization_id || adminUser.features?.organization_id || adminUser.company;
+        const targetOrg = existing.organization_id || existing.features?.organization_id || existing.company;
+        if (adminOrg && targetOrg && String(adminOrg) !== String(targetOrg)) {
+          return sendJSON(res, 403, { success: false, message: 'Forbidden: Cannot edit users outside your organization' });
+        }
+        if (updates.role && String(updates.role).toUpperCase() === 'SUPER_ADMIN') {
+          return sendJSON(res, 403, { success: false, message: 'Forbidden: Org Admins cannot grant System Admin privileges' });
+        }
+        if (updates.organization_id && adminOrg && String(updates.organization_id) !== String(adminOrg)) {
+          return sendJSON(res, 403, { success: false, message: 'Forbidden: Org Admins cannot move users to another organization' });
+        }
+      }
+
       if (updates.organization_id && updates.organization_id !== existing.organization_id && updates.organization_id !== 'No Organization' && updates.organization_id !== 'UNASSIGNED') {
         const localOrgs = readLocalOrgs();
         let targetOrg = localOrgs.find(o => o.id === updates.organization_id);
@@ -2995,6 +3370,214 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { success: true, message: 'Profile updated successfully' });
   }
 
+  // 7.2 ADMIN DIRECT RESET / SET TEMPORARY PASSWORD
+  if (req.method === 'POST' && url === '/api/admin/reset-password') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || !isAuthorizedAdmin(adminUser)) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
+    }
+    const { userId, newPassword } = await getRequestBody(req);
+    if (!userId || !newPassword) {
+      return sendJSON(res, 400, { success: false, message: 'User ID and new password are required' });
+    }
+    if (newPassword.length < 6) {
+      return sendJSON(res, 400, { success: false, message: 'Password must be at least 6 characters long' });
+    }
+
+    const users = await readUsers(true);
+    const targetIdx = users.findIndex(u => u.id === userId || (u.email && u.email.toLowerCase() === String(userId).toLowerCase()));
+    if (targetIdx === -1) {
+      return sendJSON(res, 404, { success: false, message: 'User not found' });
+    }
+
+    const targetUser = users[targetIdx];
+    // Strict multi-tenant isolation: Org Admin can only reset passwords for members of their own organization
+    if (adminUser.role === 'ORG_ADMIN') {
+      const adminOrg = adminUser.organization_id || adminUser.features?.organization_id;
+      const userOrg = targetUser.organization_id || targetUser.features?.organization_id;
+      if (!adminOrg || adminOrg !== userOrg) {
+        return sendJSON(res, 403, { success: false, message: 'Org Admins can only reset passwords for their own organization members.' });
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    targetUser.password = hashedPassword;
+    targetUser.isAccountVerified = true;
+    users[targetIdx] = targetUser;
+    await writeUsers(users);
+
+    try {
+      await supabase.from('custom_users').update({
+        password: hashedPassword,
+        isAccountVerified: true
+      }).or(`id.eq.${targetUser.id},email.eq.${targetUser.email}`);
+    } catch (e) {
+      console.warn('Supabase password reset warning:', e.message);
+    }
+
+    invalidateUserCache();
+    logActivity(adminUser, 'ADMIN_RESET_PASSWORD', { targetUser: targetUser.id, email: targetUser.email });
+    return sendJSON(res, 200, { success: true, message: `Password for ${targetUser.email} has been updated successfully.` });
+  }
+
+  // 7.3 ADMIN GENERATE ONE-TIME LOGIN LINK
+  if (req.method === 'POST' && url === '/api/admin/generate-login-link') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || !isAuthorizedAdmin(adminUser)) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
+    }
+    const { userId } = await getRequestBody(req);
+    if (!userId) return sendJSON(res, 400, { success: false, message: 'User ID is required' });
+
+    const users = await readUsers(true);
+    const targetIdx = users.findIndex(u => u.id === userId || (u.email && u.email.toLowerCase() === String(userId).toLowerCase()));
+    if (targetIdx === -1) return sendJSON(res, 404, { success: false, message: 'User not found' });
+
+    const targetUser = users[targetIdx];
+    // Strict multi-tenant isolation
+    if (adminUser.role === 'ORG_ADMIN') {
+      const adminOrg = adminUser.organization_id || adminUser.features?.organization_id;
+      const userOrg = targetUser.organization_id || targetUser.features?.organization_id;
+      if (!adminOrg || adminOrg !== userOrg) {
+        return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+      }
+    }
+
+    const magicToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+
+    targetUser.magic_login_token = magicToken;
+    targetUser.magic_login_expires = expiresAt;
+    if (!targetUser.features) targetUser.features = {};
+    targetUser.features.magic_login_token = magicToken;
+    targetUser.features.magic_login_expires = expiresAt;
+    users[targetIdx] = targetUser;
+    await writeUsers(users);
+
+    try {
+      await supabase.from('custom_users').update({
+        features: targetUser.features
+      }).or(`id.eq.${targetUser.id},email.eq.${targetUser.email}`);
+    } catch (e) {}
+
+    invalidateUserCache();
+    logActivity(adminUser, 'ADMIN_GENERATE_MAGIC_LINK', { targetUser: targetUser.id, email: targetUser.email });
+
+    const origin = req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : 'http://localhost:5173');
+    const loginUrl = `${origin}/login?magicToken=${magicToken}&email=${encodeURIComponent(targetUser.email)}`;
+
+    return sendJSON(res, 200, {
+      success: true,
+      loginUrl,
+      magicToken,
+      expiresAt,
+      message: 'One-time login link generated successfully.'
+    });
+  }
+
+  // 7.4 ADMIN TOGGLE USER ACCOUNT STATUS (Active <-> Suspended)
+  if (req.method === 'POST' && url === '/api/admin/toggle-user-status') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || !isAuthorizedAdmin(adminUser)) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
+    }
+    const { userId, status } = await getRequestBody(req);
+    if (!userId || !status) {
+      return sendJSON(res, 400, { success: false, message: 'User ID and status are required' });
+    }
+    if (status !== 'active' && status !== 'suspended') {
+      return sendJSON(res, 400, { success: false, message: 'Status must be "active" or "suspended"' });
+    }
+
+    const users = await readUsers(true);
+    const targetIdx = users.findIndex(u => u.id === userId || (u.email && u.email.toLowerCase() === String(userId).toLowerCase()));
+    if (targetIdx === -1) return sendJSON(res, 404, { success: false, message: 'User not found' });
+
+    const targetUser = users[targetIdx];
+    if (targetUser.role === 'SUPER_ADMIN' || (targetUser.email && targetUser.email.toLowerCase() === 'admin@tarv.ai')) {
+      return sendJSON(res, 400, { success: false, message: 'Cannot suspend Super Administrator account' });
+    }
+
+    // Strict multi-tenant isolation
+    if (adminUser.role === 'ORG_ADMIN') {
+      const adminOrg = adminUser.organization_id || adminUser.features?.organization_id;
+      const userOrg = targetUser.organization_id || targetUser.features?.organization_id;
+      if (!adminOrg || adminOrg !== userOrg) {
+        return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+      }
+    }
+
+    targetUser.status = status;
+    if (!targetUser.features) targetUser.features = {};
+    targetUser.features.status = status;
+    if (status === 'suspended') {
+      targetUser.suspended_at = new Date().toISOString();
+      targetUser.suspended_by = adminUser.email;
+      targetUser.features.suspended_at = targetUser.suspended_at;
+    } else {
+      delete targetUser.suspended_at;
+      delete targetUser.suspended_by;
+      delete targetUser.features.suspended_at;
+    }
+
+    users[targetIdx] = targetUser;
+    await writeUsers(users);
+
+    try {
+      await supabase.from('custom_users').update({
+        status,
+        features: targetUser.features
+      }).or(`id.eq.${targetUser.id},email.eq.${targetUser.email}`);
+    } catch (e) {}
+
+    invalidateUserCache();
+    logActivity(adminUser, 'ADMIN_TOGGLE_STATUS', { targetUser: targetUser.id, email: targetUser.email, status });
+
+    return sendJSON(res, 200, {
+      success: true,
+      status,
+      message: `User account has been ${status === 'suspended' ? 'suspended' : 'activated'} successfully.`
+    });
+  }
+
+  // 7.5 ADMIN RESET HARDWARE DEVICE BINDING
+  if (req.method === 'POST' && url === '/api/admin/reset-hwid') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || !isAuthorizedAdmin(adminUser)) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admins only' });
+    }
+    const { userId } = await getRequestBody(req);
+    if (!userId) return sendJSON(res, 400, { success: false, message: 'User ID is required' });
+
+    const users = await readUsers(true);
+    const targetIdx = users.findIndex(u => u.id === userId || (u.email && u.email.toLowerCase() === String(userId).toLowerCase()));
+    if (targetIdx === -1) return sendJSON(res, 404, { success: false, message: 'User not found' });
+
+    const targetUser = users[targetIdx];
+    const prevHwid = targetUser.active_hwid || targetUser.features?.active_hwid || 'None';
+    targetUser.active_hwid = null;
+    if (!targetUser.features) targetUser.features = {};
+    targetUser.features.active_hwid = null;
+
+    users[targetIdx] = targetUser;
+    await writeUsers(users);
+
+    try {
+      await supabase.from('custom_users').update({
+        active_hwid: null,
+        features: targetUser.features
+      }).or(`id.eq.${targetUser.id},email.eq.${targetUser.email}`);
+    } catch (e) {}
+
+    invalidateUserCache();
+    logActivity(adminUser, 'ADMIN_RESET_HWID', { targetUser: targetUser.id, email: targetUser.email, previousHwid: prevHwid });
+
+    return sendJSON(res, 200, {
+      success: true,
+      message: `Hardware binding cleared for ${targetUser.email}. The user can now bind their account to a new PC/laptop.`
+    });
+  }
+
   // ==========================================
   // HARDWARE FINGERPRINTED TRIAL & UNIQUE LICENSING
   // ==========================================
@@ -3016,8 +3599,7 @@ const server = http.createServer(async (req, res) => {
       (targetEmail && u.email && String(u.email).toLowerCase().trim() === targetEmail)
     );
 
-    const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
-    const orgId = dbUser?.organization_id || user?.organization_id || dObj.organization_id || dObj.org_id || defaultOrgId;
+    const orgId = dbUser?.organization_id || (dbUser?.features && dbUser.features.organization_id) || user?.organization_id || (user?.features && user.features.organization_id) || dObj.organization_id || dObj.org_id || '';
     const userId = dbUser?.id || targetUserId || `usr_${Date.now()}`;
     const userEmail = dbUser?.email || targetEmail || 'user@mep.app';
     const userName = dbUser?.name || dObj.user_name || dObj.name || (userEmail ? userEmail.split('@')[0] : 'Team Member');
@@ -3068,30 +3650,111 @@ const server = http.createServer(async (req, res) => {
   // GET org activity logs
   if (req.method === 'GET' && (url === '/api/org/activity-logs' || req.url.startsWith('/api/org/activity-logs'))) {
     const user = await getUserFromReq(req);
-    if (!user || (user.role !== 'ORG_ADMIN' && user.role !== 'SUPER_ADMIN')) {
+    const roleUpper = String(user?.role || user?.features?.role || '').toUpperCase().trim();
+    const isSuperAdmin = roleUpper === 'SUPER_ADMIN' || String(user?.email || '').toLowerCase().trim() === 'admin@tarv.ai';
+    const isOrgAdmin = isSuperAdmin || roleUpper === 'ORG_ADMIN' || roleUpper === 'ORGANIZATION_ADMIN' || roleUpper === 'ORGANIZATION ADMIN' || roleUpper === 'ORG ADMIN';
+    if (!user || !isOrgAdmin) {
       return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     }
 
-    const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
-    let targetOrgId = user.organization_id || defaultOrgId;
-    if (user.role === 'SUPER_ADMIN') {
-      const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
-      if (qOrgId) targetOrgId = qOrgId;
+    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const qOrgId = (parsedUrl.searchParams.get('org_id') || parsedUrl.searchParams.get('orgId') || '').trim();
+
+    let targetOrgId = '';
+    const isSuperAdmin = user.role === 'SUPER_ADMIN' || String(user.email || '').toLowerCase().trim() === 'admin@tarv.ai';
+    if (isSuperAdmin) {
+      targetOrgId = qOrgId || user.organization_id || (user.features && user.features.organization_id) || '';
+    } else {
+      targetOrgId = user.organization_id || (user.features && user.features.organization_id) || '';
+      if (!targetOrgId) {
+        const localUsers = readLocalUsers();
+        const found = localUsers.find(u => (u.id && u.id === user.id) || (u.email && u.email.toLowerCase() === (user.email || '').toLowerCase()));
+        if (found) targetOrgId = found.organization_id || (found.features && found.features.organization_id) || '';
+      }
+      if (!targetOrgId && qOrgId) {
+        targetOrgId = qOrgId;
+      }
     }
 
-    const allUsers = await readUsers();
+    if (!targetOrgId) {
+      return sendJSON(res, 200, { success: true, logs: [] });
+    }
+
+    const normTargetOrgId = String(targetOrgId).toLowerCase().trim();
+    const allUsers = await readUsers(true);
+    const orgMemberEmails = new Set();
+    const orgMemberIds = new Set();
     const userMap = new Map();
+    const userOrgMap = new Map();
+
     allUsers.forEach(u => {
-      if (u.id) userMap.set(String(u.id).toLowerCase(), u.name || u.email);
-      if (u.email) userMap.set(String(u.email).toLowerCase().trim(), u.name || u.email);
+      const uOrg = u.organization_id || (u.features && u.features.organization_id);
+      const uEmail = u.email ? String(u.email).toLowerCase().trim() : '';
+      const uId = u.id ? String(u.id).toLowerCase().trim() : '';
+      if (uOrg) {
+        const normUOrg = String(uOrg).toLowerCase().trim();
+        if (uEmail) userOrgMap.set(uEmail, normUOrg);
+        if (uId) userOrgMap.set(uId, normUOrg);
+        if (normUOrg === normTargetOrgId) {
+          if (uEmail) orgMemberEmails.add(uEmail);
+          if (uId) orgMemberIds.add(uId);
+        }
+      }
+      if (uId) userMap.set(uId, u.name || u.email);
+      if (uEmail) userMap.set(uEmail, u.name || u.email);
     });
 
     const logs = readActivityLogs();
     const filteredLogs = logs.filter(log => {
-      if (!targetOrgId) return true;
-      if (!log.organization_id || log.organization_id === targetOrgId || log.org_id === targetOrgId) return true;
-      if (log.details && typeof log.details === 'object' && (log.details.organization_id === targetOrgId || log.details.org_id === targetOrgId)) return true;
-      return true;
+      if (!log) return false;
+
+      // 1. Strictly exclude global super admin and system admin logs from org team audit
+      const logEmail = String(log.email || '').toLowerCase().trim();
+      const logUid = String(log.user_id || '').toLowerCase().trim();
+      const logAction = String(log.action_type || '');
+      if (logEmail === 'admin@tarv.ai') return false;
+      if (logAction.startsWith('ADMIN_')) return false;
+
+      // 2. Prevent cross-tenant leakage: If user currently belongs to another organization, omit
+      const currentOrgOfUser = userOrgMap.get(logEmail) || userOrgMap.get(logUid);
+      if (currentOrgOfUser && currentOrgOfUser !== normTargetOrgId) {
+        return false;
+      }
+
+      // 3. If log explicitly belongs to another organization, strictly exclude
+      const logOrg = String(log.organization_id || log.org_id || '').toLowerCase().trim();
+      if (logOrg && logOrg !== normTargetOrgId) {
+        return false;
+      }
+
+      // 3. Direct match: log has matching organization ID
+      if (logOrg && logOrg === normTargetOrgId) {
+        return true;
+      }
+
+      // 4. Member match: acting user is a known member of this organization
+      if (logEmail && orgMemberEmails.has(logEmail)) return true;
+      if (logUid && orgMemberIds.has(logUid)) return true;
+
+      // 5. Details match: check if payload details target this organization or a member
+      if (log.details) {
+        if (typeof log.details === 'object' && log.details !== null) {
+          const dOrg = String(log.details.organization_id || log.details.org_id || log.details.orgId || '').toLowerCase().trim();
+          if (dOrg && dOrg === normTargetOrgId) return true;
+          const dEmail = String(log.details.email || log.details.user_email || log.details.invitedEmail || '').toLowerCase().trim();
+          if (dEmail && orgMemberEmails.has(dEmail)) return true;
+        } else if (typeof log.details === 'string') {
+          try {
+            const parsed = JSON.parse(log.details);
+            const dOrg = String(parsed.organization_id || parsed.org_id || parsed.orgId || '').toLowerCase().trim();
+            if (dOrg && dOrg === normTargetOrgId) return true;
+            const dEmail = String(parsed.email || parsed.user_email || parsed.invitedEmail || '').toLowerCase().trim();
+            if (dEmail && orgMemberEmails.has(dEmail)) return true;
+          } catch (_) {}
+        }
+      }
+
+      return false;
     }).map(log => {
       const logEmail = (log.email || '').toLowerCase().trim();
       const logUid = String(log.user_id || '').toLowerCase().trim();
@@ -3105,13 +3768,180 @@ const server = http.createServer(async (req, res) => {
   // GET /api/org/hierarchy
   if (req.method === 'GET' && (url === '/api/org/hierarchy' || req.url.startsWith('/api/org/hierarchy'))) {
     const user = await getUserFromReq(req);
-    const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
 
     const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const scope = parsedUrl.searchParams.get('scope') || '';
     const qOrgId = parsedUrl.searchParams.get('org_id') || parsedUrl.searchParams.get('orgId') || '';
-    const targetOrgId = qOrgId || user?.organization_id || user?.features?.organization_id || user?.company || defaultOrgId;
-    const cleanOrgKey = String(targetOrgId).toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
 
+    const isSuperAdmin = 
+      user.role === 'SUPER_ADMIN' || 
+      String(user.role || '').toUpperCase() === 'SUPER_ADMIN' ||
+      String(user.email || '').toLowerCase().trim() === 'admin@tarv.ai' ||
+      Boolean(user.isSuperAdmin);
+
+    // CASE 1: SYSTEM ADMIN - MULTI-ORG PLATFORM OVERVIEW
+    // When System Admin queries scope=system OR has no specific org_id, return the full system overview:
+    // System Admin -> All Organizations -> Each Org's Admins and stats
+    if (isSuperAdmin && (scope === 'system' || qOrgId === 'all' || qOrgId === 'system' || (!qOrgId && !scope))) {
+      const localOrgs = readLocalOrgs();
+      let supabaseOrgs = [];
+      try {
+        const { data } = await supabase.from('organizations').select('*');
+        if (data && data.length > 0) supabaseOrgs = data;
+      } catch (e) { }
+
+      const orgMap = new Map();
+      localOrgs.forEach(o => orgMap.set(String(o.id), { ...o }));
+      supabaseOrgs.forEach(o => {
+        const oId = String(o.id);
+        const exist = orgMap.get(oId) || {};
+        const parsedStatus = parseOrgStatus(o.status);
+        orgMap.set(oId, {
+          ...exist,
+          ...o,
+          status: parsedStatus.state || o.status || 'active',
+          license_key: exist.license_key || parsedStatus.license_key || o.license_key || 'MEP-LIC-ORG-PRO',
+          max_concurrent_users: exist.max_concurrent_users || parsedStatus.max_concurrent_users || o.max_concurrent_users || 5
+        });
+      });
+      const allOrgs = Array.from(orgMap.values());
+      const allOrgIds = new Set(allOrgs.map(o => String(o.id)));
+
+      const allUsers = await readUsers(true);
+      const hierarchies = readOrgHierarchies();
+
+      let totalOrgAdminsCount = 0;
+
+      const orgOverviews = allOrgs.map(org => {
+        const orgIdStr = String(org.id);
+        const orgNameStr = String(org.name || '').toLowerCase().trim();
+        const cleanOrgKey = orgIdStr.toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
+        const cleanOrgName = orgNameStr.replace(/[^a-z0-9_-]/g, '_');
+        const savedHier = hierarchies[cleanOrgKey] || hierarchies[cleanOrgName] || hierarchies[orgIdStr] || [];
+
+        // Find users in this org with strict multi-tenant boundary
+        const orgMembers = allUsers.filter(u => {
+          if (u.role === 'SUPER_ADMIN' || u.email === 'admin@tarv.ai') return false;
+          const uOrgId = String(u.organization_id || u.features?.organization_id || '');
+          const uComp = String(u.company || u.organization || u.features?.company || u.features?.organization || '').toLowerCase().trim();
+          
+          if (uOrgId && uOrgId === orgIdStr) return true;
+          if (uOrgId && allOrgIds.has(uOrgId)) return false;
+          if (uComp && uComp === orgNameStr) return true;
+
+          if (orgNameStr.includes('dubai')) {
+            return uComp.includes('dubai');
+          } else {
+            if (uComp.includes('dubai')) return false;
+            return uComp === orgNameStr;
+          }
+        });
+
+        // Filter Org Admins for this org
+        const orgAdmins = orgMembers.filter(u => {
+          const r = String(u.role || u.features?.role || '').toUpperCase();
+          const d = String(u.designation || u.features?.designation || '').toLowerCase();
+          return r === 'ORG_ADMIN' || d.includes('org admin') || d.includes('director of mep');
+        }).map(u => ({
+          id: u.id,
+          name: u.name || (u.email ? u.email.split('@')[0] : 'Organization Admin'),
+          email: u.email,
+          designation: u.designation || 'Director of MEP Engineering',
+          department: 'Management',
+          role: 'ORG_ADMIN',
+          status: u.status || 'active',
+          approvalAuthority: u.approvalAuthority || 'APPROVE_REJECT'
+        }));
+
+        // If no orgAdmins found from members list, also check saved hierarchy tree for ORG_ADMIN or root node
+        if (orgAdmins.length === 0 && Array.isArray(savedHier) && savedHier.length > 0) {
+          const hierAdmins = savedHier.filter(node => {
+            const r = String(node.role || '').toUpperCase();
+            const d = String(node.designation || '').toLowerCase();
+            return r === 'ORG_ADMIN' || d.includes('director') || d.includes('admin') || !node.parentId;
+          });
+          hierAdmins.forEach(ha => {
+            if (!orgAdmins.some(a => a.email === ha.email || a.id === ha.id)) {
+              orgAdmins.push({
+                id: ha.id,
+                name: ha.name || 'Organization Administrator',
+                email: ha.email || `${cleanOrgName}@mepcalc.com`,
+                designation: ha.designation || 'Director of MEP Engineering',
+                department: ha.department || 'Management',
+                role: 'ORG_ADMIN',
+                status: ha.status || 'active',
+                approvalAuthority: ha.approvalAuthority || 'APPROVE_REJECT'
+              });
+            }
+          });
+        }
+
+        // If still 0 org admins (e.g. newly provisioned tenant), designate the primary org admin
+        if (orgAdmins.length === 0) {
+          const primaryEmail = org.contact_email || org.email || `admin@${cleanOrgName || 'mep'}.com`;
+          orgAdmins.push({
+            id: `org-admin-root-${org.id}`,
+            name: `${org.name} Admin`,
+            email: primaryEmail,
+            designation: 'Director of MEP Engineering',
+            department: 'Management',
+            role: 'ORG_ADMIN',
+            status: 'active',
+            approvalAuthority: 'APPROVE_REJECT'
+          });
+        }
+
+        totalOrgAdminsCount += orgAdmins.length;
+
+        return {
+          id: org.id,
+          name: org.name,
+          subscription_plan: org.subscription_plan || 'ENTERPRISE',
+          max_users: org.max_users || 10,
+          used_users: orgMembers.length,
+          status: typeof org.status === 'string' ? org.status : (org.status?.state || 'active'),
+          license_key: org.license_key || 'MEP-LIC-ORG-PRO',
+          org_admins: orgAdmins,
+          org_admin_count: orgAdmins.length,
+          total_members_count: orgMembers.length,
+          has_custom_hierarchy: Array.isArray(savedHier) && savedHier.length > 0
+        };
+      });
+
+      return sendJSON(res, 200, {
+        success: true,
+        is_system_overview: true,
+        system_admin: {
+          id: user.id || 'usr_admin_tarv_ai',
+          name: user.name || 'System Admin',
+          email: user.email || 'admin@tarv.ai',
+          role: 'SUPER_ADMIN',
+          designation: 'MEP Platform Infrastructure & Super Admin',
+          department: 'Platform Governance',
+          total_organizations: allOrgs.length,
+          total_org_admins: totalOrgAdminsCount,
+          total_users: allUsers.filter(u => u.role !== 'SUPER_ADMIN' && u.email !== 'admin@tarv.ai').length
+        },
+        organizations: orgOverviews
+      });
+    }
+
+    // CASE 2: SPECIFIC ORG HIERARCHY
+    let targetOrgId = '';
+    if (isSuperAdmin) {
+      targetOrgId = qOrgId || user?.organization_id || '8343112c-110b-4c26-bce9-b5786b05f241';
+    } else {
+      // NON-SUPER ADMIN (Org Admin, PM, Engineer):
+      // STRICT TENANT ENFORCEMENT:
+      const myOrgId = user.organization_id || user.features?.organization_id || user.company || user.organization || '8343112c-110b-4c26-bce9-b5786b05f241';
+      if (qOrgId && String(qOrgId).toLowerCase().trim() !== String(myOrgId).toLowerCase().trim()) {
+        return sendJSON(res, 403, { success: false, message: 'Forbidden: You can only view your own organization hierarchy.' });
+      }
+      targetOrgId = myOrgId;
+    }
+
+    const cleanOrgKey = String(targetOrgId).toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
     const hierarchies = readOrgHierarchies();
     const hierarchy = hierarchies[cleanOrgKey] || hierarchies[targetOrgId] || hierarchies['default_org'] || [];
     return sendJSON(res, 200, { success: true, organization_id: targetOrgId, hierarchy });
@@ -3120,16 +3950,30 @@ const server = http.createServer(async (req, res) => {
   // POST /api/org/hierarchy
   if (req.method === 'POST' && url === '/api/org/hierarchy') {
     const user = await getUserFromReq(req);
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+
+    const isSuperAdmin = user.role === 'SUPER_ADMIN' || user.email === 'admin@tarv.ai';
+    const isOrgAdmin = isSuperAdmin || user.role === 'ORG_ADMIN' || String(user.features?.role).toUpperCase() === 'ORG_ADMIN';
+
+    if (!isOrgAdmin) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Only Organization Admins or Super Admins can update hierarchy.' });
+    }
+
     const body = await getRequestBody(req);
-    const hierarchy = body.hierarchy || body;
+    const hierarchy = body.hierarchy || (Array.isArray(body) ? body : []);
     if (!Array.isArray(hierarchy)) {
       return sendJSON(res, 400, { success: false, message: 'hierarchy array required' });
     }
 
-    const defaultOrgId = '8343112c-110b-4c26-bce9-b5786b05f241';
-    const targetOrgId = body.org_id || body.orgId || user?.organization_id || user?.features?.organization_id || user?.company || defaultOrgId;
-    const cleanOrgKey = String(targetOrgId).toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
+    let targetOrgId = '';
+    if (isSuperAdmin) {
+      targetOrgId = body.org_id || body.orgId || user?.organization_id || '8343112c-110b-4c26-bce9-b5786b05f241';
+    } else {
+      // STRICT TENANT ENFORCEMENT FOR ORG ADMIN:
+      targetOrgId = user.organization_id || user.features?.organization_id || user.company || user.organization || '8343112c-110b-4c26-bce9-b5786b05f241';
+    }
 
+    const cleanOrgKey = String(targetOrgId).toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
     const hierarchies = readOrgHierarchies();
     hierarchies[cleanOrgKey] = hierarchy;
     if (targetOrgId !== cleanOrgKey) {
@@ -3137,7 +3981,48 @@ const server = http.createServer(async (req, res) => {
     }
     saveOrgHierarchies(hierarchies);
 
-    logActivity(user, 'SAVE_ORG_HIERARCHY', { organization_id: targetOrgId, member_count: hierarchy.length });
+    // Sync member updates to users strictly within this org
+    try {
+      const users = await readUsers(true);
+      let changed = false;
+      const targetOrgLower = String(targetOrgId).toLowerCase().trim();
+
+      hierarchy.forEach(m => {
+        if (!m || !m.email) return;
+        const mEmail = String(m.email).toLowerCase().trim();
+        const uIdx = users.findIndex(u => String(u.email || '').toLowerCase().trim() === mEmail);
+        if (uIdx !== -1) {
+          const uOrg = String(users[uIdx].organization_id || users[uIdx].features?.organization_id || users[uIdx].company || '').toLowerCase().trim();
+          // Verify tenant ownership unless superadmin
+          if (isSuperAdmin || !uOrg || uOrg === targetOrgLower || uOrg === cleanOrgKey) {
+            if (m.role && m.role !== 'SUPER_ADMIN') {
+              users[uIdx].role = m.role;
+              if (!users[uIdx].features) users[uIdx].features = {};
+              users[uIdx].features.role = m.role;
+            }
+            if (m.designation) {
+              users[uIdx].designation = m.designation;
+              if (!users[uIdx].features) users[uIdx].features = {};
+              users[uIdx].features.designation = m.designation;
+            }
+            if (m.approvalAuthority) {
+              users[uIdx].approvalAuthority = m.approvalAuthority;
+              if (!users[uIdx].features) users[uIdx].features = {};
+              users[uIdx].features.approvalAuthority = m.approvalAuthority;
+            }
+            changed = true;
+          }
+        }
+      });
+      if (changed) {
+        await writeUsers(users);
+        invalidateUserCache();
+      }
+    } catch (e) {
+      console.warn('Hierarchy user sync warning:', e);
+    }
+
+    logActivity(user, 'UPDATE_ORG_HIERARCHY', { organization_id: targetOrgId, member_count: hierarchy.length });
     return sendJSON(res, 200, { success: true, message: 'Organization hierarchy saved successfully', organization_id: targetOrgId, member_count: hierarchy.length });
   }
 
@@ -3694,19 +4579,83 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  // 5. ADMIN: LIST ALL LICENSES
-  if (req.method === 'GET' && url === '/api/admin/licenses/list') {
+  // 5. ADMIN: LIST ALL LICENSES & USAGE
+  if (req.method === 'GET' && (url === '/api/admin/licenses/list' || url === '/api/admin/licenses/usage')) {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    if (!user || (user.role !== 'SUPER_ADMIN' && user.role !== 'ORG_ADMIN')) return sendJSON(res, 403, { success: false, message: 'Forbidden' });
 
     let licenses = readLicenses();
     let trials = readTrials();
+    const localOrgs = readLocalOrgs();
+    const allUsers = await readUsers(true);
+
+    // Ensure all organizations with license keys are included in licenses list
+    localOrgs.forEach(org => {
+      const key = org.license_key;
+      if (key && key !== 'TRIAL-FREE' && !licenses.some(l => l.key === key)) {
+        licenses.push({
+          key: key,
+          tier: (org.subscription_plan || 'ENTERPRISE').toUpperCase(),
+          boundEmail: '',
+          boundHwid: '',
+          createdAt: new Date(org.created_at || Date.now()).getTime(),
+          expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+          status: 'ACTIVE',
+          paymentStatus: 'ASSIGNED',
+          organization_id: org.id,
+          organization_name: org.name,
+          company: org.name
+        });
+      }
+    });
+
     if (user.role !== 'SUPER_ADMIN') {
       const myOrgId = user.organization_id || user.features?.organization_id;
       licenses = licenses.filter(l => l.organization_id && String(l.organization_id) === String(myOrgId));
       trials = trials.filter(t => t.organization_id && String(t.organization_id) === String(myOrgId));
     }
-    return sendJSON(res, 200, { success: true, licenses, trials });
+
+    // Build consolidated License Usage table (Step 6 in flow)
+    const usage = [];
+    localOrgs.forEach(org => {
+      const orgLicKey = org.license_key || 'MEP-LIC-ORG-PRO';
+      const orgMembers = allUsers.filter(u => u.organization_id === org.id || u.features?.organization_id === org.id);
+      orgMembers.forEach(u => {
+        usage.push({
+          id: `${org.id}-${u.id || u.email}`,
+          licenseKey: orgLicKey,
+          userName: u.name || u.email?.split('@')[0] || 'Member',
+          userEmail: u.email,
+          organizationName: org.name,
+          organizationId: org.id,
+          role: u.role || 'Design Engineer',
+          status: (u.status === 'deactivated' || u.status === 'inactive') ? 'Inactive' : 'Active',
+          plan: org.subscription_plan || 'ENTERPRISE',
+          createdAt: u.created_at || org.created_at
+        });
+      });
+    });
+
+    licenses.forEach(lic => {
+      if (lic.boundEmail) {
+        const matched = allUsers.find(u => u.email && u.email.toLowerCase() === lic.boundEmail.toLowerCase());
+        if (!usage.some(item => item.userEmail && item.userEmail.toLowerCase() === lic.boundEmail.toLowerCase())) {
+          usage.push({
+            id: lic.key,
+            licenseKey: lic.key,
+            userName: matched?.name || lic.boundEmail.split('@')[0] || 'User',
+            userEmail: lic.boundEmail,
+            organizationName: lic.organization_name || lic.company || matched?.company || 'Individual Pro',
+            role: matched?.role || 'User',
+            status: lic.status === 'ACTIVE' ? 'Active' : (lic.status || 'Active'),
+            plan: lic.tier || 'PRO',
+            createdAt: lic.createdAt
+          });
+        }
+      }
+    });
+
+    return sendJSON(res, 200, { success: true, licenses, trials, usage });
   }
 
   // 6. ADMIN: GENERATE CUSTOM UNIQUE KEY
@@ -3764,7 +4713,11 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url === '/api/admin/organizations') {
     const user = await getUserFromReq(req);
-    if (!user || user.role !== 'SUPER_ADMIN') return sendJSON(res, 403, { success: false, message: 'Forbidden' });
+    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+    const isSuperAdmin = user.role === 'SUPER_ADMIN' || user.email === 'admin@tarv.ai';
+    const roleUpper = String(user.role || user.features?.role || '').toUpperCase().trim();
+    const isOrgAdmin = roleUpper === 'ORG_ADMIN' || roleUpper === 'ORGANIZATION_ADMIN' || roleUpper === 'ORGANIZATION ADMIN' || roleUpper === 'ORG ADMIN';
+    if (!isSuperAdmin && !isOrgAdmin) return sendJSON(res, 403, { success: false, message: 'Forbidden' });
     let orgs = [];
     try {
       const { data } = await supabase.from('organizations').select('*');
@@ -3803,7 +4756,14 @@ const server = http.createServer(async (req, res) => {
       });
     });
 
-    return sendJSON(res, 200, { success: true, organizations: Array.from(map.values()) });
+    let allOrgs = Array.from(map.values());
+    if (isOrgAdmin && !isSuperAdmin) {
+      const myOrgId = user.organization_id || user.features?.organization_id;
+      const myOrgName = user.company || user.organization || user.features?.organization_name;
+      allOrgs = allOrgs.filter(o => (myOrgId && String(o.id) === String(myOrgId)) || (myOrgName && o.name && o.name.toLowerCase() === myOrgName.toLowerCase()));
+    }
+
+    return sendJSON(res, 200, { success: true, organizations: allOrgs });
   }
 
   if (req.method === 'POST' && url === '/api/admin/organizations') {
@@ -3813,7 +4773,17 @@ const server = http.createServer(async (req, res) => {
 
     const newOrgId = crypto.randomUUID();
     const concurrentLimit = max_concurrent_users !== undefined ? parseInt(max_concurrent_users) : 1;
-    const licKey = license_key || `MEP-LIC-${Math.floor(1000 + Math.random() * 9000)}-PRO`;
+    
+    let licKey = license_key;
+    if (!licKey || licKey.trim() === '') {
+      if (subscription_plan === 'FREE_TRIAL') {
+        licKey = 'TRIAL-FREE';
+      } else {
+        const clean = (name || 'ORG').replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase().padEnd(4, 'X');
+        const rand = (len) => Array.from({ length: len }, () => '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 36)]).join('');
+        licKey = `MEP-${clean}-${rand(4)}-${rand(4)}-${rand(4)}-${rand(4)}`;
+      }
+    }
 
     const newOrg = {
       id: newOrgId,
@@ -3836,6 +4806,35 @@ const server = http.createServer(async (req, res) => {
       updated_at: new Date().toISOString()
     };
     writeOrgSettings(fileSettings);
+
+    // Automatically register organization license key in licenses store
+    if (licKey && licKey !== 'TRIAL-FREE') {
+      try {
+        const licenses = readLicenses();
+        const existingLicIndex = licenses.findIndex(l => l.key === licKey);
+        const licEntry = {
+          key: licKey,
+          tier: (subscription_plan || 'ENTERPRISE').toUpperCase(),
+          boundEmail: '',
+          boundHwid: '',
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+          status: 'ACTIVE',
+          paymentStatus: 'ASSIGNED',
+          organization_id: newOrg.id,
+          organization_name: newOrg.name,
+          company: newOrg.name
+        };
+        if (existingLicIndex >= 0) {
+          licenses[existingLicIndex] = { ...licenses[existingLicIndex], ...licEntry };
+        } else {
+          licenses.push(licEntry);
+        }
+        writeLicenses(licenses);
+      } catch (err) {
+        console.warn('License registration warning:', err);
+      }
+    }
 
     const encodedStatus = encodeOrgStatus('active', concurrentLimit, licKey);
 
@@ -3917,6 +4916,37 @@ const server = http.createServer(async (req, res) => {
       updated_at: new Date().toISOString()
     };
     writeOrgSettings(fileSettings);
+
+    if (localOrgs[orgIndex].license_key && localOrgs[orgIndex].license_key !== 'TRIAL-FREE') {
+      try {
+        const currentKey = localOrgs[orgIndex].license_key;
+        const licenses = readLicenses();
+        const existingLicIndex = licenses.findIndex(l => l.key === currentKey);
+        const licEntry = {
+          key: currentKey,
+          tier: (localOrgs[orgIndex].subscription_plan || 'ENTERPRISE').toUpperCase(),
+          status: 'ACTIVE',
+          paymentStatus: 'ASSIGNED',
+          organization_id: orgId,
+          organization_name: localOrgs[orgIndex].name,
+          company: localOrgs[orgIndex].name
+        };
+        if (existingLicIndex >= 0) {
+          licenses[existingLicIndex] = { ...licenses[existingLicIndex], ...licEntry };
+        } else {
+          licenses.push({
+            ...licEntry,
+            boundEmail: '',
+            boundHwid: '',
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+          });
+        }
+        writeLicenses(licenses);
+      } catch (err) {
+        console.warn('License update sync warning:', err);
+      }
+    }
 
     const currentStatusStr = existingSupabaseOrg?.status || localOrgs[orgIndex].status || 'active';
     const updatedEncodedStatus = encodeOrgStatus(currentStatusStr, localOrgs[orgIndex].max_concurrent_users, localOrgs[orgIndex].license_key);
@@ -4152,63 +5182,6 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { success: true });
   }
 
-  if (req.method === 'GET' && url.startsWith('/api/org/hierarchy')) {
-    const user = await getUserFromReq(req);
-    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
-
-    let orgId = user.organization_id || user.company || user.organization;
-    if (user.role === 'SUPER_ADMIN') {
-      const qOrgId = req.url.split('?org_id=')[1]?.split('&')[0];
-      if (qOrgId) orgId = qOrgId;
-    }
-    const cleanOrgKey = String(orgId || 'default_org').toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
-
-    const hierarchies = readOrgHierarchies();
-    const orgHierarchy = hierarchies[cleanOrgKey] || [];
-    return sendJSON(res, 200, { success: true, hierarchy: orgHierarchy, organization_id: orgId });
-  }
-
-  if (req.method === 'POST' && url === '/api/org/hierarchy') {
-    const user = await getUserFromReq(req);
-    if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
-
-    const { hierarchy, org_id: reqOrgId } = await getRequestBody(req);
-    let orgId = reqOrgId || user.organization_id || user.company || user.organization;
-    if (!orgId) orgId = 'default_org';
-
-    const cleanOrgKey = String(orgId).toLowerCase().trim().replace(/[^a-z0-9_-]/g, '_');
-    const hierarchies = readOrgHierarchies();
-    hierarchies[cleanOrgKey] = Array.isArray(hierarchy) ? hierarchy : [];
-    saveOrgHierarchies(hierarchies);
-
-    // Sync member updates to users
-    if (Array.isArray(hierarchy)) {
-      try {
-        const users = await readUsers();
-        let changed = false;
-        hierarchy.forEach(m => {
-          if (!m || !m.email) return;
-          const mEmail = String(m.email).toLowerCase().trim();
-          const uIdx = users.findIndex(u => String(u.email || '').toLowerCase().trim() === mEmail);
-          if (uIdx !== -1) {
-            if (m.role) users[uIdx].role = m.role;
-            if (m.designation) users[uIdx].designation = m.designation;
-            if (m.approvalAuthority) users[uIdx].approvalAuthority = m.approvalAuthority;
-            if (!users[uIdx].features) users[uIdx].features = {};
-            if (m.role) users[uIdx].features.role = m.role;
-            if (m.designation) users[uIdx].features.designation = m.designation;
-            if (m.approvalAuthority) users[uIdx].features.approvalAuthority = m.approvalAuthority;
-            changed = true;
-          }
-        });
-        if (changed) await writeUsers(users);
-      } catch (e) { }
-    }
-
-    logActivity(user, 'UPDATE_ORG_HIERARCHY', { orgId: cleanOrgKey, memberCount: (hierarchy || []).length });
-    return sendJSON(res, 200, { success: true, message: 'Organization hierarchy saved successfully' });
-  }
-
   if (req.method === 'GET' && url === '/api/org/users') {
     const user = await getUserFromReq(req);
     if (!user) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
@@ -4256,12 +5229,15 @@ const server = http.createServer(async (req, res) => {
     if (!targetOrg) return sendJSON(res, 404, { success: false, message: 'Organization not found' });
 
     const allUsers = await readUsers(true);
-    const currentMembers = allUsers.filter(u => u.organization_id === user.organization_id || u.features?.organization_id === user.organization_id);
+    const activeMembers = allUsers.filter(u => 
+      (u.organization_id === user.organization_id || u.features?.organization_id === user.organization_id) &&
+      u.status !== 'deactivated' && u.status !== 'inactive'
+    );
     const maxSeats = targetOrg.max_users || 5;
-    if (currentMembers.length >= maxSeats) {
+    if (activeMembers.length >= maxSeats) {
       return sendJSON(res, 400, {
         success: false,
-        message: `Maximum seat limit reached for organization (${currentMembers.length}/${maxSeats} Used). Please contact Super Admin to upgrade seats.`
+        message: `Maximum active seat limit reached for organization (${activeMembers.length}/${maxSeats} Active Seats). You can temporarily deactivate former employees to free seats, or request additional seats from Super Admin.`
       });
     }
 
@@ -4307,6 +5283,459 @@ const server = http.createServer(async (req, res) => {
 
     logActivity(user, 'INVITE_USER', { invitedEmail: cleanEmail, role });
     return sendJSON(res, 200, { success: true, message: 'User invited successfully', user: await formatUser(newUser) });
+  }
+
+  // 1. DEACTIVATE USER SEAT (Frees seat for new hire while preserving all project calculations and history)
+  if (req.method === 'POST' && url === '/api/org/users/deactivate') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || (adminUser.role !== 'ORG_ADMIN' && adminUser.role !== 'SUPER_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admin access required' });
+    }
+
+    const { userId, reason } = await getRequestBody(req);
+    if (!userId) return sendJSON(res, 400, { success: false, message: 'userId is required' });
+
+    if (userId === adminUser.id || (adminUser.email && String(userId).toLowerCase() === adminUser.email.toLowerCase())) {
+      return sendJSON(res, 400, { success: false, message: 'You cannot deactivate your own admin seat' });
+    }
+
+    const users = await readUsers(true);
+    const targetIdx = users.findIndex(u => u.id === userId || (u.email && u.email.toLowerCase() === String(userId).toLowerCase()));
+    if (targetIdx === -1) {
+      return sendJSON(res, 404, { success: false, message: 'User not found' });
+    }
+
+    const targetUser = users[targetIdx];
+    if (adminUser.role !== 'SUPER_ADMIN' && targetUser.organization_id && adminUser.organization_id && targetUser.organization_id !== adminUser.organization_id) {
+      return sendJSON(res, 403, { success: false, message: 'Unauthorized for this organization' });
+    }
+
+    targetUser.status = 'deactivated';
+    targetUser.deactivated_at = new Date().toISOString();
+    targetUser.deactivated_by = adminUser.email;
+    targetUser.deactivation_reason = reason || 'Temporarily deactivated by Org Admin';
+    if (!targetUser.features) targetUser.features = {};
+    targetUser.features.status = 'deactivated';
+    targetUser.features.deactivated_at = targetUser.deactivated_at;
+
+    users[targetIdx] = targetUser;
+    await writeUsers(users);
+
+    logActivity(adminUser, 'DEACTIVATE_USER_SEAT', {
+      target_user: targetUser.email,
+      target_name: targetUser.name,
+      reason: targetUser.deactivation_reason,
+      organization_id: targetUser.organization_id || adminUser.organization_id
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      message: `Seat for ${targetUser.name || targetUser.email} has been deactivated. 1 seat has been freed for a new hire while preserving all project calculations and history.`,
+      user: await formatUser(targetUser)
+    });
+  }
+
+  // 2. REACTIVATE USER SEAT
+  if (req.method === 'POST' && url === '/api/org/users/reactivate') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || (adminUser.role !== 'ORG_ADMIN' && adminUser.role !== 'SUPER_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admin access required' });
+    }
+
+    const { userId } = await getRequestBody(req);
+    if (!userId) return sendJSON(res, 400, { success: false, message: 'userId is required' });
+
+    const users = await readUsers(true);
+    const targetIdx = users.findIndex(u => u.id === userId || (u.email && u.email.toLowerCase() === String(userId).toLowerCase()));
+    if (targetIdx === -1) {
+      return sendJSON(res, 404, { success: false, message: 'User not found' });
+    }
+
+    const targetUser = users[targetIdx];
+    const targetOrgId = targetUser.organization_id || adminUser.organization_id;
+
+    // Check capacity before reactivating
+    const localOrgs = readLocalOrgs();
+    const orgObj = localOrgs.find(o => o.id === targetOrgId);
+    const maxSeats = orgObj?.max_users || 5;
+    const activeMembers = users.filter(u => 
+      (u.organization_id === targetOrgId || u.features?.organization_id === targetOrgId) &&
+      u.status !== 'deactivated' && u.status !== 'inactive'
+    );
+
+    if (activeMembers.length >= maxSeats) {
+      return sendJSON(res, 400, {
+        success: false,
+        message: `Cannot reactivate: all ${maxSeats} seats are occupied (${activeMembers.length}/${maxSeats} Active Seats). Please request additional seats or deactivate another member first.`
+      });
+    }
+
+    targetUser.status = 'active';
+    delete targetUser.deactivated_at;
+    delete targetUser.deactivation_reason;
+    if (targetUser.features) {
+      targetUser.features.status = 'active';
+      delete targetUser.features.deactivated_at;
+    }
+
+    users[targetIdx] = targetUser;
+    await writeUsers(users);
+
+    logActivity(adminUser, 'REACTIVATE_USER_SEAT', {
+      target_user: targetUser.email,
+      target_name: targetUser.name,
+      organization_id: targetOrgId
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      message: `User ${targetUser.name || targetUser.email} has been reactivated successfully.`,
+      user: await formatUser(targetUser)
+    });
+  }
+
+  // 3. REASSIGN USER SEAT (Deactivates former employee and invites new hire in 1 step)
+  if (req.method === 'POST' && url === '/api/org/users/reassign') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || (adminUser.role !== 'ORG_ADMIN' && adminUser.role !== 'SUPER_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admin access required' });
+    }
+
+    const { formerUserId, newHireName, newHireEmail, newHireRole, newHireAuthority } = await getRequestBody(req);
+    if (!formerUserId || !newHireName || !newHireEmail) {
+      return sendJSON(res, 400, { success: false, message: 'formerUserId, newHireName, and newHireEmail are required' });
+    }
+
+    const cleanNewEmail = newHireEmail.trim().toLowerCase();
+    const users = await readUsers(true);
+
+    if (users.find(u => u.email === cleanNewEmail)) {
+      return sendJSON(res, 400, { success: false, message: 'New hire email already exists in system' });
+    }
+
+    const formerIdx = users.findIndex(u => u.id === formerUserId || (u.email && u.email.toLowerCase() === String(formerUserId).toLowerCase()));
+    let formerUser = null;
+    if (formerIdx !== -1) {
+      formerUser = users[formerIdx];
+      formerUser.status = 'deactivated';
+      formerUser.deactivated_at = new Date().toISOString();
+      formerUser.deactivation_reason = `Seat reassigned to ${newHireName} (${cleanNewEmail})`;
+      if (!formerUser.features) formerUser.features = {};
+      formerUser.features.status = 'deactivated';
+      formerUser.features.deactivated_at = formerUser.deactivated_at;
+      users[formerIdx] = formerUser;
+    }
+
+    const orgId = adminUser.organization_id || formerUser?.organization_id;
+    const tempPassword = Math.random().toString(36).slice(-8);
+    const hashedPassword = bcrypt.hashSync(tempPassword, 10);
+    const newUserId = 'usr_' + Date.now();
+
+    const newUser = {
+      id: newUserId,
+      name: newHireName.trim(),
+      email: cleanNewEmail,
+      password: hashedPassword,
+      isAccountVerified: false,
+      role: newHireRole || formerUser?.role || 'Design Engineer',
+      approvalAuthority: newHireAuthority || formerUser?.approvalAuthority || 'NONE',
+      organization_id: orgId,
+      status: 'invited',
+      verifyOtp: String(Math.floor(100000 + Math.random() * 900000)),
+      verifyOtpExpireAt: Date.now() + 24 * 60 * 60 * 1000,
+      createdAt: new Date().toISOString(),
+      features: {
+        reassigned_from: formerUser ? formerUser.email : undefined,
+        role: newHireRole || formerUser?.role || 'Design Engineer',
+        approvalAuthority: newHireAuthority || formerUser?.approvalAuthority || 'NONE'
+      }
+    };
+
+    users.push(newUser);
+    await writeUsers(users);
+
+    const inviteMailOptions = {
+      from: `"MEP Calculator" <${SENDER_EMAIL}>`,
+      to: cleanNewEmail,
+      subject: 'You have been invited to MEP Calculator (Seat Reassigned)',
+      html: WELCOME_EMAIL_TEMPLATE.replace('{{name}}', newUser.name).replace('{{otp}}', newUser.verifyOtp) + `<p>Your temporary password is: <b>${tempPassword}</b></p>`
+    };
+    transporter.sendMail(inviteMailOptions).catch(console.error);
+
+    logActivity(adminUser, 'REASSIGN_SEAT', {
+      former_user: formerUser ? formerUser.email : 'Unknown',
+      new_hire: cleanNewEmail,
+      organization_id: orgId
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      message: `Seat successfully reassigned from ${formerUser?.name || 'former employee'} to ${newHireName}!`,
+      new_user: await formatUser(newUser),
+      former_user: formerUser ? await formatUser(formerUser) : null
+    });
+  }
+
+  // 4. REQUEST ADDITIONAL SEATS (Direct request to Super Admin)
+  if (req.method === 'POST' && url === '/api/org/license-upgrade-request') {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || (adminUser.role !== 'ORG_ADMIN' && adminUser.role !== 'SUPER_ADMIN')) {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Admin access required' });
+    }
+
+    const { requestedSeats, reason, urgency, contactPhone } = await getRequestBody(req);
+    const seatsToAdd = Number(requestedSeats);
+    if (!seatsToAdd || seatsToAdd <= 0) {
+      return sendJSON(res, 400, { success: false, message: 'Valid number of requested seats is required' });
+    }
+
+    let orgId = adminUser.organization_id || (adminUser.features && adminUser.features.organization_id) || '';
+    if (!orgId && adminUser.email) {
+      try {
+        const localUsers = readLocalUsers();
+        const matched = localUsers.find(u => (u.id && u.id === adminUser.id) || (u.email && u.email.toLowerCase() === adminUser.email.toLowerCase()));
+        if (matched) orgId = matched.organization_id || (matched.features && matched.features.organization_id) || '';
+      } catch (_) {}
+    }
+    const localOrgs = readLocalOrgs();
+    const orgObj = localOrgs.find(o => o.id === orgId) || { name: adminUser.company || 'My Organization', max_users: 5 };
+    const currentMax = orgObj.max_users || 5;
+
+    const requests = readLicenseRequests();
+    const newReq = {
+      id: `lic_req_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      org_id: orgId,
+      org_name: orgObj.name,
+      current_seats: currentMax,
+      requested_seats: seatsToAdd,
+      target_seats: currentMax + seatsToAdd,
+      reason: reason || 'Capacity expansion for engineering workload',
+      urgency: urgency || 'Standard',
+      contact_phone: contactPhone || '',
+      requested_by_id: adminUser.id,
+      requested_by_name: adminUser.name || adminUser.email,
+      requested_by_email: adminUser.email,
+      status: 'PENDING',
+      created_at: new Date().toISOString()
+    };
+
+    requests.unshift(newReq);
+    writeLicenseRequests(requests);
+
+    // Send high-priority notification to Super Admin
+    try {
+      const notifs = readNotificationsData();
+      notifs.unshift({
+        id: `notif_${Date.now()}`,
+        user_id: 'SUPER_ADMIN',
+        recipientId: 'SUPER_ADMIN',
+        title: `⚡ Seat Upgrade Request: ${orgObj.name} (+${seatsToAdd} Seats)`,
+        message: `${adminUser.name || adminUser.email} has requested +${seatsToAdd} additional seats for ${orgObj.name} (from ${currentMax} to ${currentMax + seatsToAdd} seats). Reason: "${reason || 'Capacity expansion'}".`,
+        type: 'SEAT_UPGRADE_REQUEST',
+        status: 'unread',
+        metadata: {
+          requestId: newReq.id,
+          orgId,
+          requestedSeats: seatsToAdd,
+          contactPhone: contactPhone || '',
+          urgency: newReq.urgency
+        },
+        created_at: new Date().toISOString()
+      });
+      writeNotificationsData(notifs);
+    } catch (e) {
+      console.error('Failed to create super admin notification:', e);
+    }
+
+    // Send email alert to Super Admin / Support team
+    try {
+      const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'admin@tarv.ai';
+      const mailOptions = {
+        from: `"MEP License Manager" <${SENDER_EMAIL}>`,
+        to: superAdminEmail,
+        subject: `⚡ [${newReq.urgency.toUpperCase()}] Seat Upgrade Request: ${orgObj.name} (+${seatsToAdd} Seats)`,
+        html: `
+          <div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b;">
+            <h2 style="color: #2563eb; margin-bottom: 8px;">Organization Seat Upgrade Request</h2>
+            <p>An Organization Admin has requested additional user seat licenses on the MEP Calculator platform:</p>
+            <table style="border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 13px;">
+              <tr style="background: #f8fafc;"><td style="padding: 8px; font-weight: bold; width: 160px; border: 1px solid #e2e8f0;">Organization</td><td style="padding: 8px; border: 1px solid #e2e8f0;">${orgObj.name}</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold; border: 1px solid #e2e8f0;">Requested By</td><td style="padding: 8px; border: 1px solid #e2e8f0;">${adminUser.name || 'Admin'} (${adminUser.email})</td></tr>
+              <tr style="background: #f8fafc;"><td style="padding: 8px; font-weight: bold; border: 1px solid #e2e8f0;">Contact Phone</td><td style="padding: 8px; border: 1px solid #e2e8f0;">${contactPhone || 'Not provided'}</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold; border: 1px solid #e2e8f0;">Current Seats</td><td style="padding: 8px; border: 1px solid #e2e8f0;">${currentMax} Seats</td></tr>
+              <tr style="background: #f8fafc;"><td style="padding: 8px; font-weight: bold; border: 1px solid #e2e8f0;">Additional Seats Requested</td><td style="padding: 8px; font-weight: bold; color: #2563eb; border: 1px solid #e2e8f0;">+${seatsToAdd} Seats (New Total: ${currentMax + seatsToAdd})</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold; border: 1px solid #e2e8f0;">Urgency</td><td style="padding: 8px; font-weight: bold; color: ${newReq.urgency === 'Urgent' ? '#dc2626' : '#2563eb'}; border: 1px solid #e2e8f0;">${newReq.urgency}</td></tr>
+              <tr style="background: #f8fafc;"><td style="padding: 8px; font-weight: bold; border: 1px solid #e2e8f0;">Reason / Scope</td><td style="padding: 8px; border: 1px solid #e2e8f0;">${reason || 'Team expansion'}</td></tr>
+            </table>
+            <p style="font-size: 12px; color: #64748b;">You can approve or adjust this seat limit directly in the Super Admin Dashboard under <b>Key Manager & Licensing</b> or <b>Organizations</b>.</p>
+          </div>
+        `
+      };
+      transporter.sendMail(mailOptions).catch(err => console.error('Failed to send super admin seat email:', err?.message || err));
+
+      // Also send confirmation email to the requesting Org Admin
+      if (adminUser.email) {
+        const confirmMailOptions = {
+          from: `"MEP Platform Support" <${SENDER_EMAIL}>`,
+          to: adminUser.email,
+          subject: `Request Received: +${seatsToAdd} Additional Seats for ${orgObj.name}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b;">
+              <h2 style="color: #2563eb;">Seat Upgrade Request Received</h2>
+              <p>Hello ${adminUser.name || 'Admin'},</p>
+              <p>We have received your request for <b>+${seatsToAdd} additional seats</b> for <b>${orgObj.name}</b> (Target capacity: ${currentMax + seatsToAdd} seats).</p>
+              <p>Our Super Admin and enterprise support team are reviewing your request and will provision the additional seats shortly.</p>
+              <div style="padding: 12px; background: #f1f5f9; border-radius: 8px; margin: 16px 0; font-size: 13px;">
+                <b>Request ID:</b> ${newReq.id}<br/>
+                <b>Urgency:</b> ${newReq.urgency}<br/>
+                <b>Reason:</b> ${reason || 'Capacity expansion'}
+              </div>
+              <p style="font-size: 12px; color: #64748b;">Thank you for using Vikram MEP Engineering Calculator.</p>
+            </div>
+          `
+        };
+        transporter.sendMail(confirmMailOptions).catch(err => console.error('Failed to send org admin confirmation email:', err?.message || err));
+      }
+    } catch (e) {
+      console.error('Email dispatch error:', e);
+    }
+
+    logActivity(adminUser, 'SEAT_UPGRADE_REQUESTED', {
+      requested_seats: seatsToAdd,
+      current_seats: currentMax,
+      new_target: currentMax + seatsToAdd,
+      reason,
+      organization_id: orgId
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      message: `Seat upgrade request for +${seatsToAdd} seats submitted to Super Admin! Support team has been notified.`,
+      request: newReq
+    });
+  }
+
+  // 5. GET SEAT UPGRADE REQUESTS
+  if (req.method === 'GET' && (url === '/api/org/license-upgrade-request' || url.startsWith('/api/org/license-upgrade-request'))) {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser) return sendJSON(res, 401, { success: false, message: 'Unauthorized' });
+
+    const requests = readLicenseRequests();
+    const orgId = adminUser.organization_id;
+
+    const filtered = adminUser.role === 'SUPER_ADMIN' 
+      ? requests 
+      : requests.filter(r => r.org_id === orgId);
+
+    return sendJSON(res, 200, { success: true, requests: filtered });
+  }
+
+  // 6. APPROVE / REJECT SEAT UPGRADE REQUEST (Super Admin action)
+  if (req.method === 'POST' && (url === '/api/org/license-upgrade-request/action' || url === '/api/org/license-upgrade-request/action/')) {
+    const adminUser = await getUserFromReq(req);
+    if (!adminUser || adminUser.role !== 'SUPER_ADMIN') {
+      return sendJSON(res, 403, { success: false, message: 'Forbidden: Super Admin access required' });
+    }
+
+    const { requestId, action, note } = await getRequestBody(req);
+    if (!requestId || !action) {
+      return sendJSON(res, 400, { success: false, message: 'requestId and action (APPROVE or REJECT) are required' });
+    }
+
+    const requests = readLicenseRequests();
+    const reqIndex = requests.findIndex(r => r.id === requestId);
+    if (reqIndex === -1) {
+      return sendJSON(res, 404, { success: false, message: 'Seat upgrade request not found' });
+    }
+
+    const targetReq = requests[reqIndex];
+    if (action === 'APPROVE') {
+      // 1. Update organization max_users
+      const localOrgs = readLocalOrgs();
+      const orgIdx = localOrgs.findIndex(o => o.id === targetReq.org_id);
+      let updatedMax = targetReq.target_seats;
+      if (orgIdx !== -1) {
+        localOrgs[orgIdx].max_users = updatedMax;
+        localOrgs[orgIdx].max_concurrent_users = updatedMax;
+        writeLocalOrgs(localOrgs);
+      }
+      try {
+        await supabase.from('organizations').update({ max_users: updatedMax, max_concurrent_users: updatedMax }).eq('id', targetReq.org_id);
+      } catch (e) { }
+
+      targetReq.status = 'APPROVED';
+      targetReq.approved_at = new Date().toISOString();
+      targetReq.approved_by = adminUser.email;
+      targetReq.review_note = note || '';
+      requests[reqIndex] = targetReq;
+      writeLicenseRequests(requests);
+
+      // 2. Notify Org Admin
+      try {
+        const notifs = readNotificationsData();
+        notifs.unshift({
+          id: `notif_${Date.now()}`,
+          recipientId: targetReq.requested_by_id || targetReq.requested_by_email,
+          user_id: targetReq.requested_by_id,
+          title: `🎉 Seat Upgrade Approved (+${targetReq.requested_seats} Seats)!`,
+          message: `Your request for +${targetReq.requested_seats} additional seats for ${targetReq.org_name} has been approved by Super Admin. Your new capacity is ${updatedMax} seats!`,
+          type: 'SEAT_UPGRADE_APPROVED',
+          status: 'unread',
+          metadata: { requestId: targetReq.id, newMax: updatedMax },
+          created_at: new Date().toISOString()
+        });
+        writeNotificationsData(notifs);
+      } catch (e) { }
+
+      logActivity(adminUser, 'SEAT_UPGRADE_APPROVED', {
+        request_id: targetReq.id,
+        org_id: targetReq.org_id,
+        new_max: updatedMax,
+        granted_seats: targetReq.requested_seats
+      });
+
+      return sendJSON(res, 200, {
+        success: true,
+        message: `Approved! ${targetReq.org_name} seat capacity increased to ${updatedMax} seats.`,
+        request: targetReq
+      });
+    } else {
+      // REJECT
+      targetReq.status = 'REJECTED';
+      targetReq.rejected_at = new Date().toISOString();
+      targetReq.rejected_by = adminUser.email;
+      targetReq.review_note = note || '';
+      requests[reqIndex] = targetReq;
+      writeLicenseRequests(requests);
+
+      try {
+        const notifs = readNotificationsData();
+        notifs.unshift({
+          id: `notif_${Date.now()}`,
+          recipientId: targetReq.requested_by_id || targetReq.requested_by_email,
+          user_id: targetReq.requested_by_id,
+          title: `Update on Seat Upgrade Request (${targetReq.org_name})`,
+          message: `Your seat upgrade request for ${targetReq.org_name} was not approved at this time. Note: ${note || 'Please contact enterprise support for details.'}`,
+          type: 'SEAT_UPGRADE_REJECTED',
+          status: 'unread',
+          metadata: { requestId: targetReq.id },
+          created_at: new Date().toISOString()
+        });
+        writeNotificationsData(notifs);
+      } catch (e) { }
+
+      logActivity(adminUser, 'SEAT_UPGRADE_REJECTED', {
+        request_id: targetReq.id,
+        org_id: targetReq.org_id,
+        note
+      });
+
+      return sendJSON(res, 200, {
+        success: true,
+        message: `Request for ${targetReq.org_name} has been rejected.`,
+        request: targetReq
+      });
+    }
   }
 
   // --- ORGANIZATION BACKUP SETTINGS ROUTES ---
@@ -4889,6 +6318,11 @@ const server = http.createServer(async (req, res) => {
           // 6. Global / unassigned notification (e.g. rec === 'all' or empty)
           if (!rec || rec === 'all') {
             return !isAuthor;
+          }
+
+          // 7. Super Admin system notifications
+          if (user.role === 'SUPER_ADMIN' && (rec === 'super_admin' || String(n.user_id || '').toLowerCase() === 'super_admin' || n.type === 'SEAT_UPGRADE_REQUEST')) {
+            return true;
           }
 
           return false;

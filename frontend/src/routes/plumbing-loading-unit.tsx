@@ -9,7 +9,7 @@ import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBa
 import { notifyCommentAssigned } from "@/utils/notificationHelpers";
 import { EditLoadingUnitRowModal } from "@/components/workspace/EditLoadingUnitRowModal";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
-import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, Combine, Sliders, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown, ChevronUp, ChevronRight, FileText, Calculator, CheckCircle2, AlertTriangle, Printer, Layers, Globe, Gauge, Check, ChevronsUpDown, Wrench, Scissors, ClipboardPaste, CopyPlus } from "lucide-react";
+import { Trash2, Save, Info, Sparkles, Plus, Building2, Copy, Edit3, Combine, Sliders, CheckSquare, Square, X, MessageSquare, Flag, Filter, SlidersHorizontal, Search, Download, ChevronDown, ChevronUp, ChevronRight, FileText, Calculator, CheckCircle2, AlertTriangle, Printer, Layers, Globe, Gauge, Check, ChevronsUpDown, Wrench, Scissors, ClipboardPaste, CopyPlus, RefreshCw } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, ContextMenuShortcut } from "@/components/ui/context-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -21,6 +21,7 @@ import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
 import { exportLoadingUnitPDF } from "@/lib/exportLoadingUnitPDF";
 import { UnitToggle } from "@/components/workspace/UnitToggle";
+import { useConfirm } from "@/hooks/use-confirm";
 
 export const Route = createFileRoute("/plumbing-loading-unit")({
   head: () => ({
@@ -93,7 +94,7 @@ export function getLUSpaceValidation(s?: Partial<LUSpace>) {
   }
 
   const isMissing = warnings.length > 0;
-  const isFlagged = Boolean(s.flagged);
+  const isFlagged = s.flagged !== undefined ? Boolean(s.flagged) : isMissing;
   const reason = warnings.join(" • ");
 
   return { isFlagged, isManualFlagged: s.flagged !== undefined, isAutoFlagged: isMissing, isMissing, warnings, reason };
@@ -845,6 +846,7 @@ function LoadingUnitPage() {
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-loading-unit", project?.id || activeProjectId);
   const isLocked = isEffectiveReadOnly || isApprovedLocked;
   const isViewerRole = profile?.role === "VIEWER" || userData?.role === "VIEWER";
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState<"spaces" | "report">("spaces");
   const [unitSystem, setUnitSystem] = useState<"si" | "ip">("si");
 
@@ -914,64 +916,86 @@ function LoadingUnitPage() {
 
   // Column Distribution State & Handlers (Matching Ventilation / DataGrid UI)
   const DEFAULT_LU_COL_WIDTHS: Record<string, number> = useMemo(() => ({
-    select: 44,
-    desc: 220,
-    wc: 58,
-    handspray: 68,
-    basin: 65,
-    sink: 62,
-    shower: 58,
-    washer: 75,
-    servicesink: 68,
-    hose_bibb: 62,
-    dishwasher: 68,
-    hose_bibb_1: 58,
-    unitLu: 75,
-    spaceQty: 70,
-    floorsQty: 75,
-    totalLu: 95,
+    select: 36,
+    desc: 280,
+    wc: 44,
+    handspray: 44,
+    basin: 44,
+    sink: 44,
+    shower: 44,
+    washer: 44,
+    servicesink: 44,
+    hose_bibb: 44,
+    dishwasher: 44,
+    hose_bibb_1: 44,
+    unitLu: 58,
+    spaceQty: 54,
+    floorsQty: 58,
+    totalLu: 68,
     actions: 36,
   }), []);
 
   const [luColWidths, setLuColWidths] = useState<Record<string, number>>(() => {
     if (typeof window !== "undefined") {
       try {
-        const saved = localStorage.getItem("mep_grid_lu_spaces");
-        if (saved) return JSON.parse(saved);
+        const saved = localStorage.getItem("mep_grid_lu_spaces_v4");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === "object") {
+            const parsedDesc = Number(parsed.desc);
+            return {
+              ...parsed,
+              desc: Math.max(280, isNaN(parsedDesc) || parsedDesc < 260 ? 280 : parsedDesc),
+            };
+          }
+        }
       } catch (e) {}
     }
     return {
-      select: 44,
-      desc: 220,
-      wc: 58,
-      handspray: 68,
-      basin: 65,
-      sink: 62,
-      shower: 58,
-      washer: 75,
-      servicesink: 68,
-      hose_bibb: 62,
-      dishwasher: 68,
-      hose_bibb_1: 58,
-      unitLu: 75,
-      spaceQty: 70,
-      floorsQty: 75,
-      totalLu: 95,
+      select: 36,
+      desc: 280,
+      wc: 44,
+      handspray: 44,
+      basin: 44,
+      sink: 44,
+      shower: 44,
+      washer: 44,
+      servicesink: 44,
+      hose_bibb: 44,
+      dishwasher: 44,
+      hose_bibb_1: 44,
+      unitLu: 58,
+      spaceQty: 54,
+      floorsQty: 58,
+      totalLu: 68,
       actions: 36,
     };
   });
 
-  const totalLuTableWidth = useMemo(() => {
-    return Object.values(luColWidths).reduce((a, b) => a + b, 0);
-  }, [luColWidths]);
-
   const getLuColStyle = (key: string): React.CSSProperties => {
-    const val = luColWidths[key] ?? DEFAULT_LU_COL_WIDTHS[key] ?? 60;
-    const pct = ((val / totalLuTableWidth) * 100).toFixed(2);
-    const minW = key === "select" || key === "actions" ? 34 : 45;
+    if (key === "select" || key === "actions") {
+      return { width: "36px", minWidth: "36px", maxWidth: "36px" };
+    }
+    const rawVal = luColWidths[key] ?? DEFAULT_LU_COL_WIDTHS[key] ?? 50;
+    const numVal = Number(rawVal);
+    const val = key === "desc"
+      ? Math.max(280, isNaN(numVal) || numVal < 260 ? 280 : numVal)
+      : (isNaN(numVal) ? (DEFAULT_LU_COL_WIDTHS[key] ?? 50) : numVal);
+
+    const dataKeys = Object.keys(DEFAULT_LU_COL_WIDTHS).filter(k => k !== "select" && k !== "actions");
+    const totalDataWidth = dataKeys.reduce((sum, k) => {
+      const rawW = luColWidths[k] ?? DEFAULT_LU_COL_WIDTHS[k] ?? 50;
+      const nw = Number(rawW);
+      const w = isNaN(nw) ? (DEFAULT_LU_COL_WIDTHS[k] ?? 50) : nw;
+      return sum + (k === "desc" ? Math.max(280, w < 260 ? 280 : w) : w);
+    }, 0);
+
+    const calculatedPct = totalDataWidth > 0 ? (val / totalDataWidth) * 100 : 10;
+    const safePct = isNaN(calculatedPct) || calculatedPct <= 0 ? (key === "desc" ? 30 : 5) : calculatedPct.toFixed(2);
+
     return {
-      width: `${pct}%`,
-      minWidth: `${Math.min(val, minW)}px`,
+      width: `calc((100% - 72px) * ${safePct} / 100)`,
+      minWidth: key === "desc" ? "280px" : `${val}px`,
     };
   };
 
@@ -984,12 +1008,12 @@ function LoadingUnitPage() {
     const handleMouseMove = (moveEvent: MouseEvent) => {
       moveEvent.preventDefault();
       const deltaX = moveEvent.clientX - startX;
-      const minW = colKey === "select" || colKey === "actions" ? 34 : 45;
+      const minW = colKey === "select" || colKey === "actions" ? 34 : (colKey === "desc" ? 180 : 38);
       const newWidth = Math.max(minW, startWidth + deltaX);
       setLuColWidths((prev) => {
         const next = { ...prev, [colKey]: newWidth };
         try {
-          localStorage.setItem("mep_grid_lu_spaces", JSON.stringify(next));
+          localStorage.setItem("mep_grid_lu_spaces_v4", JSON.stringify(next));
         } catch (err) {}
         return next;
       });
@@ -1206,11 +1230,13 @@ function LoadingUnitPage() {
   const activeFiltersCount = useMemo(() => {
     let count = 0;
     if (filterFloor !== "all") count++;
+    if (showFlaggedOnly) count++;
     return count;
-  }, [filterFloor]);
+  }, [filterFloor, showFlaggedOnly]);
 
   const handleResetFilters = () => {
     setFilterFloor("all");
+    setShowFlaggedOnly(false);
   };
 
   // Form states
@@ -1236,7 +1262,12 @@ function LoadingUnitPage() {
           }
           if (data.weightOverrides) setWeightOverrides(data.weightOverrides);
           if (data.calcMeta) setCalcMeta(data.calcMeta);
-          if (data.luColWidths) setLuColWidths(data.luColWidths);
+          if (data.luColWidths) {
+            setLuColWidths({
+              ...data.luColWidths,
+              desc: Math.max(260, Number(data.luColWidths.desc) || 260),
+            });
+          }
           if (Array.isArray(data.floorSections)) setFloorSections(data.floorSections);
           if (Array.isArray(data.iopSpaces) && data.iopSpaces.length > 0) {
             setIopSpaces(data.iopSpaces);
@@ -1414,7 +1445,12 @@ function LoadingUnitPage() {
         if (data.weightOverrides) setWeightOverrides(data.weightOverrides);
         if (data.iopSpaces) setIopSpaces(data.iopSpaces);
         if (data.floorSections) setFloorSections(data.floorSections);
-        if (data.luColWidths) setLuColWidths(data.luColWidths);
+        if (data.luColWidths) {
+          setLuColWidths({
+            ...data.luColWidths,
+            desc: Math.max(260, Number(data.luColWidths.desc) || 260),
+          });
+        }
       }
       setTimeout(() => dirtyStore.set(false), 50);
     } catch (e) {
@@ -1754,7 +1790,23 @@ function LoadingUnitPage() {
     toast.success(`Duplicated ${duplicates.length} space(s).`);
   };
 
-  const handleBulkDelete = (ids?: number[]) => {
+  const handleBulkFlag = (ids?: number[]) => {
+    if (isApprovedLocked) {
+      toast.info("Calculation is Approved and locked in Read-Only mode. Flagging is locked.", { id: "readonly-notice" });
+      return;
+    }
+    const targetIds = ids && ids.length > 0 ? ids : selectedIds;
+    if (targetIds.length === 0) return;
+    pushToUndo(iopSpaces);
+    const targets = iopSpaces.filter(s => targetIds.includes(s.id));
+    const hasUnflagged = targets.some(s => !s.flagged && !getLUSpaceValidation(s).isFlagged);
+    const newFlagged = hasUnflagged;
+    setIopSpaces(prev => prev.map(item => targetIds.includes(item.id) ? { ...item, flagged: newFlagged } : item));
+    dirtyStore.set(true);
+    toast.info(newFlagged ? `Flagged ${targetIds.length > 1 ? `${targetIds.length} spaces` : `"${targets[0]?.desc || "Space"}"`}` : `Unflagged ${targetIds.length > 1 ? `${targetIds.length} spaces` : `"${targets[0]?.desc || "Space"}"`}`);
+  };
+
+  const handleBulkDelete = async (ids?: number[]) => {
     if (isApprovedLocked) {
       toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete spaces.", { id: "readonly-notice" });
       return;
@@ -1765,8 +1817,24 @@ function LoadingUnitPage() {
       toast.error("Cannot delete all spaces. Keep at least one space in schedule.");
       return;
     }
-    pushToUndo(iopSpaces);
+
     const count = targetIds.length;
+    const firstSpace = iopSpaces.find(s => s.id === targetIds[0]);
+    const spaceName = firstSpace?.desc ? ` "${firstSpace.desc}"` : "";
+    const msg = count === 1
+      ? `Are you sure you want to delete space${spaceName}?`
+      : `Are you sure you want to delete the ${count} selected spaces?`;
+
+    const ok = await confirm(msg, {
+      title: count === 1 ? "Delete Space" : "Delete Spaces",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+
+    if (!ok) return;
+
+    pushToUndo(iopSpaces);
     setIopSpaces(prev => prev.filter(s => !targetIds.includes(s.id)));
     setSelectedIds([]);
     dirtyStore.set(true);
@@ -2075,12 +2143,7 @@ function LoadingUnitPage() {
       if (!isCmdOrCtrl && (e.key.toLowerCase() === "f" || e.code === "KeyF")) {
         if (selectedIds.length > 0) {
           e.preventDefault();
-          const targets = iopSpaces.filter(s => selectedIds.includes(s.id));
-          const hasUnflagged = targets.some(s => !s.flagged);
-          const newFlagged = hasUnflagged;
-          setIopSpaces(prev => prev.map(item => selectedIds.includes(item.id) ? { ...item, flagged: newFlagged } : item));
-          dirtyStore.set(true);
-          toast.info(newFlagged ? `Flagged ${targets.length > 1 ? `${targets.length} spaces` : `"${targets[0].desc}"`}` : `Unflagged ${targets.length > 1 ? `${targets.length} spaces` : `"${targets[0].desc}"`}`);
+          handleBulkFlag();
         }
         return;
       }
@@ -2231,14 +2294,21 @@ function LoadingUnitPage() {
     }
   };
 
-  const handleDeleteFloorGroup = (floorToDelete: string) => {
+  const handleDeleteFloorGroup = async (floorToDelete: string) => {
     if (isApprovedLocked) {
       toast.info("Calculation is Approved and Locked. Discipline Coordinator must unlock to delete floors.", { id: "readonly-notice" });
       return;
     }
-    if (confirm(`Delete floor section ${floorToDelete} and all its spaces?`)) {
+    const ok = await confirm(`Are you sure you want to delete floor section "${floorToDelete}" and all its spaces?`, {
+      title: "Delete Floor Section",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (ok) {
       setFloorSections(floorSections.filter(f => f !== floorToDelete));
       setIopSpaces(iopSpaces.filter(s => s.floor !== floorToDelete));
+      dirtyStore.set(true);
       toast.info(`Deleted ${floorToDelete} section`);
     }
   };
@@ -2586,8 +2656,43 @@ function LoadingUnitPage() {
                         <ChevronDown className="size-3 absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none shrink-0 opacity-55 group-hover:opacity-100 transition-opacity" />
                       </div>
                     </div>
+
+                    <div className="flex flex-col gap-1 pt-1.5 border-t border-border/60">
+                      <label className="flex items-center gap-2 text-[11.5px] font-semibold text-foreground cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={showFlaggedOnly}
+                          onChange={(e) => setShowFlaggedOnly(e.target.checked)}
+                          className="rounded border-gray-300 text-red-600 size-3.5 focus:ring-red-500"
+                        />
+                        <span className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+                          <Flag className="size-3 fill-red-500 text-red-500" />
+                          Flagged / Warnings Only
+                        </span>
+                      </label>
+                    </div>
                   </PopoverContent>
                 </Popover>
+
+                {/* Flagged filter toggle badge */}
+                {flagStats.flaggedCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowFlaggedOnly(prev => !prev)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all cursor-pointer select-none ${
+                      showFlaggedOnly
+                        ? "bg-red-500 text-white border-red-600 shadow-xs"
+                        : "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/25 hover:bg-red-500/15"
+                    }`}
+                    title={showFlaggedOnly ? "Show all spaces" : "Show flagged spaces only"}
+                  >
+                    <Flag className={`size-3 ${showFlaggedOnly ? "fill-white" : "fill-red-500 text-red-500"}`} />
+                    <span>Flagged</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${showFlaggedOnly ? "bg-white/20 text-white" : "bg-red-500/20 text-red-600 dark:text-red-400"}`}>
+                      {flagStats.flaggedCount}
+                    </span>
+                  </button>
+                )}
 
                 {/* View Options & Column Distribution Popover (Matching Ventilation) */}
                 <Popover>
@@ -2621,6 +2726,7 @@ function LoadingUnitPage() {
                       type="button"
                       onClick={() => {
                         try {
+                          localStorage.removeItem("mep_grid_lu_spaces_v3");
                           localStorage.removeItem("mep_grid_lu_spaces");
                           setLuColWidths(DEFAULT_LU_COL_WIDTHS);
                           window.dispatchEvent(new Event("resize"));
@@ -2697,10 +2803,6 @@ function LoadingUnitPage() {
                     <Download className="size-3.5" /> Import
                   </TBtn>
 
-                  <TBtn onClick={handleExportPDF}>
-                    <FileText className="size-3.5" /> Export
-                  </TBtn>
-
                   <TBtn
                     primary
                     disabled={isLocked}
@@ -2755,6 +2857,7 @@ function LoadingUnitPage() {
                     >
                       Merge spaces
                     </BulkBtn>
+                    <BulkBtn icon={Flag} onClick={() => handleBulkFlag()}>Flag</BulkBtn>
                     <BulkBtn icon={Copy} onClick={() => handleBulkDuplicate()}>Duplicate</BulkBtn>
                     <BulkBtn icon={Trash2} onClick={() => handleBulkDelete()}>Delete</BulkBtn>
                     <button
@@ -2776,76 +2879,56 @@ function LoadingUnitPage() {
 
                   {/* Main Spaces Schedule Table with Floor Section Grouping */}
                   <div className="overflow-y-auto overflow-x-auto w-full flex-1 min-h-0 custom-scrollbar">
-                    <table className="w-full table-fixed border-collapse text-[13.5px] font-sans text-left select-none min-w-[1240px]">
-                      <colgroup>
-                        <col style={getLuColStyle("select")} />
-                        <col style={getLuColStyle("desc")} />
-                        {LU_FIXTURES_META.map(f => (
-                          <col key={f.key} style={getLuColStyle(f.key)} />
-                        ))}
-                        <col style={getLuColStyle("unitLu")} />
-                        <col style={getLuColStyle("spaceQty")} />
-                        <col style={getLuColStyle("floorsQty")} />
-                        <col style={getLuColStyle("totalLu")} />
-                        <col style={getLuColStyle("actions")} />
-                      </colgroup>
+                    <table className="w-full min-w-[1180px] table-fixed border-collapse text-[13.5px] font-sans text-left select-none">
                       <thead className={`transition-all duration-300 ${editingSpace !== null ? "blur-[1px] opacity-35 pointer-events-none" : ""}`}>
                         {/* Table Column Headers (Matching Ventilation Format) */}
                         <tr className="bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong text-muted-foreground uppercase text-[11.5px] font-semibold tracking-wider select-none sticky top-0 z-20 backdrop-blur-sm h-10">
-                          <th style={getLuColStyle("select")} className="px-1 text-center border-r border-border/60 relative group select-none">
-                            <div className="flex items-center justify-center gap-1">
-                              <input
-                                type="checkbox"
-                                disabled={isLocked}
-                                checked={allSelected && !isLocked}
-                                ref={(el) => {
-                                  if (el) {
-                                    el.indeterminate = selectedIds.length > 0 && !allSelected && !isLocked;
-                                  }
-                                }}
-                                onChange={(e) => handleToggleSelectAll(e.target.checked)}
-                                className="size-3.5 accent-primary cursor-pointer rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                                title={isLocked ? "Calculation is locked" : "Select All Spaces (Ctrl+A)"}
-                              />
-                              <span className="text-[11px] font-mono font-bold text-muted-foreground/80">#</span>
-                            </div>
-                            <div onMouseDown={(e) => handleResizeMouseDown("select", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                          <th style={getLuColStyle("select")} className="py-0 px-0 text-center relative group w-9 min-w-[36px] border-r border-border/60">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isApprovedLocked) {
+                                  toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                                  return;
+                                }
+                                handleToggleSelectAll(!allSelected);
+                              }}
+                              disabled={isApprovedLocked}
+                              title={iopSpaces.length > 0 && selectedIds.length === iopSpaces.length ? "Deselect all rows" : "Select all rows"}
+                              className="h-full w-full flex items-center justify-center text-[11px] font-mono font-bold text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none disabled:opacity-40 disabled:cursor-not-allowed group/head-idx"
+                            >
+                              <span className={iopSpaces.length > 0 && selectedIds.length === iopSpaces.length ? "text-primary font-bold" : ""}>#</span>
+                            </button>
                           </th>
-                          <th style={getLuColStyle("desc")} className="px-2 text-left text-[11.5px] font-semibold tracking-wider truncate border-r border-border/60 relative group">
+                          <th style={getLuColStyle("desc")} className="px-2.5 text-left text-[11.5px] font-semibold tracking-wider whitespace-nowrap relative group border-r border-border/60">
                             SPACE NAME
-                            <div onMouseDown={(e) => handleResizeMouseDown("desc", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                           </th>
                           {LU_FIXTURES_META.map(f => (
-                            <th key={f.key} style={getLuColStyle(f.key)} className="px-1 text-center font-mono text-[10.5px] font-semibold uppercase tracking-wider border-r border-border/60 leading-tight relative group" title={f.label}>
+                            <th key={f.key} style={getLuColStyle(f.key)} className="px-1 text-center font-mono text-[10.5px] font-semibold uppercase tracking-wider leading-tight relative group border-r border-border/60" title={f.label}>
                               <span className="block truncate">{f.label}</span>
-                              <div onMouseDown={(e) => handleResizeMouseDown(f.key, e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                             </th>
                           ))}
-                          <th style={getLuColStyle("unitLu")} className="px-1 text-center text-primary text-[11.5px] font-semibold tracking-wider border-r border-border/60 relative group">
+                          <th style={getLuColStyle("unitLu")} className="px-1 text-center text-primary text-[11.5px] font-semibold tracking-wider relative group border-r border-border/60">
                             UNIT (LU)
-                            <div onMouseDown={(e) => handleResizeMouseDown("unitLu", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                           </th>
-                          <th style={getLuColStyle("spaceQty")} className="px-1 text-center leading-tight text-[10.5px] font-semibold tracking-wider border-r border-border/60 relative group">
+                          <th style={getLuColStyle("spaceQty")} className="px-1 text-center leading-tight text-[10.5px] font-semibold tracking-wider relative group border-r border-border/60">
                             SPACE QTY
-                            <div onMouseDown={(e) => handleResizeMouseDown("spaceQty", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                           </th>
-                          <th style={getLuColStyle("floorsQty")} className="px-1 text-center leading-tight text-[10.5px] font-semibold tracking-wider border-r border-border/60 relative group">
+                          <th style={getLuColStyle("floorsQty")} className="px-1 text-center leading-tight text-[10.5px] font-semibold tracking-wider relative group border-r border-border/60">
                             NO. OF FLOORS
-                            <div onMouseDown={(e) => handleResizeMouseDown("floorsQty", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                           </th>
-                          <th style={getLuColStyle("totalLu")} className="px-2 text-center text-primary font-bold leading-tight text-[11.5px] tracking-wider border-r border-border/60 relative group">
+                          <th style={getLuColStyle("totalLu")} className="px-2 text-center text-primary font-bold leading-tight text-[11.5px] tracking-wider relative group border-r border-border/60">
                             TOTAL LU (LU)
-                            <div onMouseDown={(e) => handleResizeMouseDown("totalLu", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                           </th>
                           <th style={getLuColStyle("actions")} className="px-1 text-center font-semibold tracking-wider relative group" title="Flag space for review">
-                            <div onMouseDown={(e) => handleResizeMouseDown("actions", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                            <Flag className="size-3.5 mx-auto text-muted-foreground/60" />
                           </th>
                         </tr>
 
                         {/* Fixture Standard Rates Override Row */}
                         <tr className={`bg-slate-100/70 dark:bg-slate-900/40 border-b border-border/60 text-[10.5px] text-muted-foreground select-none h-[28px] transition-all duration-300 ${editingSpace !== null ? "blur-[1px] opacity-35 pointer-events-none" : ""}`}>
                           <td style={getLuColStyle("select")} className="px-1 text-center border-r border-border/40 font-mono text-[10px] text-muted-foreground/70">Rate (LU)</td>
-                          <td style={getLuColStyle("desc")} className="px-2 text-left font-semibold text-muted-foreground italic text-[11px] truncate border-r border-border/40">Standard Rate Override</td>
+                          <td style={getLuColStyle("desc")} className="px-2.5 text-left font-semibold text-muted-foreground italic text-[11px] truncate border-r border-border/40" title="Standard Rate Override">Standard Rate Override</td>
                           {LU_FIXTURES_META.map(f => {
                             const val = currentWeights[f.key] ?? 0;
                             const isOverridden = weightOverrides[f.key] !== undefined;
@@ -3052,11 +3135,33 @@ function LoadingUnitPage() {
                                     data-row-id={s.id}
                                     data-space-id={s.id}
                                     data-item-id={s.id}
-                                    title="Click to select, Ctrl+Click to multi-select, Double-click to edit, Ctrl+A to select all"
+                                    onMouseDownCapture={(e) => {
+                                      if (isLocked) return;
+                                      const target = e.target as HTMLElement;
+                                      if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                      const isInputTarget = target.tagName === "INPUT" || target.tagName === "SELECT" || Boolean(target.closest("input, select"));
+                                      if (!isSelected) {
+                                        if (isInputTarget) {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                        }
+                                        handleToggleSelectSpace(s.id, e);
+                                      }
+                                    }}
+                                    onClickCapture={(e) => {
+                                      if (isLocked) return;
+                                      const target = e.target as HTMLElement;
+                                      if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                      const isInputTarget = target.tagName === "INPUT" || target.tagName === "SELECT" || Boolean(target.closest("input, select"));
+                                      if (!isSelected && isInputTarget) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                      }
+                                    }}
                                     onClick={(e) => {
                                       if (isLocked) return;
                                       const target = e.target as HTMLElement;
-                                      if (target.closest("button") || (target as HTMLInputElement).type === "checkbox") return;
+                                      if (target.closest('.group\\/row-cell') || target.closest("button")) return;
 
                                       const now = Date.now();
                                       const isDoubleTap = lastTapRef.current.id === s.id && (now - lastTapRef.current.time) < 350;
@@ -3077,31 +3182,50 @@ function LoadingUnitPage() {
                                         return;
                                       }
                                       const target = e.target as HTMLElement;
-                                      if ((target as HTMLInputElement).type === "checkbox") return;
+                                      if (target.closest('.group\\/row-cell') || target.closest("button")) return;
                                       setSelectedIds([s.id]);
                                       setEditingSpace({ space: s, floor, isNew: false, rowIndex: spaceIdx + 1 });
                                     }}
-                                    className={`group transition-colors duration-150 cursor-default select-none h-[30px] border-b border-border/60 ${isEditing
+                                    title={isLocked ? undefined : "Click to select, click again to edit, Shift+Click for range. Double-click to configure space."}
+                                    className={`group h-[30px] border-b border-border/40 text-[13.5px] transition-colors ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${isEditing
                                       ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                                       : isSelected
-                                        ? "bg-primary/15 dark:bg-primary/25 border-l-2 border-l-primary font-semibold"
-                                        : spaceIdx % 2 === 0
-                                          ? "bg-background hover:bg-slate-100/60 dark:hover:bg-slate-900/50"
-                                          : "bg-slate-50/30 dark:bg-slate-900/20 hover:bg-slate-100/60 dark:hover:bg-slate-900/50"
+                                        ? "bg-row-selected bg-primary/15 text-primary font-medium border-l-2 border-l-primary"
+                                        : isEffectivelyFlagged || s.flagged
+                                          ? "bg-red-500/[0.05] dark:bg-red-500/[0.09] hover:bg-red-500/[0.08] dark:hover:bg-red-500/[0.13]"
+                                          : "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80"
                                       } ${isModalOpen && !isEditing ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200" : ""}`}
                                   >
-                                    {/* Col 1: Index / Checkbox / Comment badge */}
-                                    <td style={getLuColStyle("select")} className="px-1 text-center border-r border-border/40 relative group/row-cell select-none cursor-pointer h-[30px] py-0">
-                                      <RowCommentCornerBadge count={Array.isArray(s.comments) ? s.comments.length : 0} onClick={() => { setCommentTarget({ id: String(s.id), name: s.desc, type: 'space' }); setAssignCommentOpen(true); }} />
-                                      <div className="flex items-center justify-center gap-1.5 h-full">
-                                        <input
-                                          type="checkbox"
-                                          disabled={isLocked}
-                                          checked={isSelected && !isLocked}
-                                          onChange={(e) => handleToggleSelectSpace(s.id, undefined, e.target.checked)}
-                                          className="size-3.5 accent-primary cursor-pointer rounded shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                                        />
-                                        <span className="text-[11px] font-mono leading-none tracking-tight text-muted-foreground/70 font-medium select-none">
+                                    {/* Col 1: Index / Comment badge */}
+                                    <td
+                                      style={getLuColStyle("select")}
+                                      className={`px-1 h-[30px] text-center border-r border-border/40 relative group/row-cell select-none cursor-pointer transition-colors duration-150 py-0 ${
+                                        isSelected
+                                          ? "bg-primary/15 text-primary font-bold shadow-inner"
+                                          : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
+                                      }`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (isLocked) return;
+                                        handleToggleSelectSpace(s.id, e);
+                                      }}
+                                      title={isSelected ? `Space ${spaceIdx + 1} selected. Click to deselect.` : `Click to select space ${spaceIdx + 1}.`}
+                                      onDoubleClick={(e) => {
+                                        e.stopPropagation();
+                                        if (isLocked) return;
+                                        setSelectedIds([s.id]);
+                                        setEditingSpace({ space: s, floor, isNew: false, rowIndex: spaceIdx + 1 });
+                                      }}
+                                    >
+                                      <RowCommentCornerBadge
+                                        count={Array.isArray(s.comments) ? s.comments.length : 0}
+                                        onClick={() => {
+                                          setCommentTarget({ id: String(s.id), name: s.desc, type: 'space' });
+                                          setAssignCommentOpen(true);
+                                        }}
+                                      />
+                                      <div className="flex items-center justify-center h-full w-full">
+                                        <span className="text-[11px] font-mono leading-none tracking-tight font-medium select-none">
                                           {spaceIdx + 1}
                                         </span>
                                       </div>
@@ -3110,7 +3234,7 @@ function LoadingUnitPage() {
                                     {/* Col 2: Space Name / Description + Category Select */}
                                     <td
                                       style={getLuColStyle("desc")}
-                                      className={`px-2 truncate min-w-0 border-r border-border/40 h-[30px] py-0 ${
+                                      className={`px-2 min-w-0 h-[30px] py-0 border-r border-border/40 ${
                                         !isSelected && !isApprovedLocked
                                           ? "cursor-pointer hover:bg-primary/5 transition-colors"
                                           : "cursor-text"
@@ -3122,7 +3246,7 @@ function LoadingUnitPage() {
                                         }
                                       }}
                                     >
-                                      <div className={`flex items-center gap-1.5 w-full h-full min-w-0 ${!isSelected ? "pointer-events-none select-none" : ""}`}>
+                                      <div className={`flex items-center gap-1.5 w-full h-full min-w-0 ${!isSelected ? "pointer-events-none select-none" : "pointer-events-auto cursor-text"}`}>
                                         <input
                                           type="text"
                                           disabled={isApprovedLocked}
@@ -3138,7 +3262,7 @@ function LoadingUnitPage() {
                                               return item;
                                             }));
                                           }}
-                                          className="flex-1 min-w-0 h-[26px] bg-transparent hover:bg-surface-2/40 hover:border-muted-foreground/20 focus:bg-background focus:border-primary focus:outline-none focus:ring-0 border border-transparent rounded py-0.5 px-1.5 text-[13.5px] font-medium text-foreground outline-none transition-colors truncate cursor-text"
+                                          className="flex-1 min-w-[140px] h-[26px] bg-transparent hover:bg-surface-2/40 hover:border-muted-foreground/20 focus:bg-background focus:border-primary focus:outline-none focus:ring-0 border border-transparent rounded py-0.5 px-1.5 text-[13px] font-medium text-foreground outline-none transition-colors truncate cursor-text"
                                           title={s.desc || "Untitled Space"}
                                         />
                                         <LUSpaceCategorySelect
@@ -3183,7 +3307,7 @@ function LoadingUnitPage() {
                                         <td
                                           key={f.key}
                                           style={getLuColStyle(f.key)}
-                                          className={`px-1 text-center font-mono border-r border-border/40 h-[30px] py-0 ${
+                                          className={`px-1 text-center font-mono h-[30px] py-0 border-r border-border/40 ${
                                             !isSelected && !isApprovedLocked
                                               ? "cursor-pointer hover:bg-primary/5 transition-colors"
                                               : "cursor-text"
@@ -3195,7 +3319,7 @@ function LoadingUnitPage() {
                                             }
                                           }}
                                         >
-                                          <div className={`w-full h-full flex items-center justify-center min-w-0 ${!isSelected ? "pointer-events-none select-none" : ""}`}>
+                                          <div className={`w-full h-full flex items-center justify-center min-w-0 ${!isSelected ? "pointer-events-none select-none" : "pointer-events-auto cursor-text"}`}>
                                             <input
                                               type="number"
                                               min="0"
@@ -3234,7 +3358,7 @@ function LoadingUnitPage() {
                                     {/* Col 13: Unit LU (Centered, Pure Number, No Row Units) */}
                                     <td
                                       style={getLuColStyle("unitLu")}
-                                      className="px-2 text-center justify-center font-mono tabular font-semibold text-primary text-[13.5px] border-r border-border/40 h-[30px] py-0 select-none cursor-pointer hover:bg-primary/5 transition-colors"
+                                      className="px-2 text-center justify-center font-mono tabular font-semibold text-primary text-[13.5px] h-[30px] py-0 select-none cursor-pointer hover:bg-primary/5 transition-colors border-r border-border/40"
                                       onClick={(e) => {
                                         if (!isSelected) {
                                           handleToggleSelectSpace(s.id, e);
@@ -3248,7 +3372,7 @@ function LoadingUnitPage() {
                                     {/* Col 14: Space Qty (Centered, Input Box Format) */}
                                     <td
                                       style={getLuColStyle("spaceQty")}
-                                      className={`px-1 text-center font-mono border-r border-border/40 h-[30px] py-0 ${
+                                      className={`px-1 text-center font-mono h-[30px] py-0 border-r border-border/40 ${
                                         !isSelected && !isApprovedLocked
                                           ? "cursor-pointer hover:bg-primary/5 transition-colors"
                                           : "cursor-text"
@@ -3260,7 +3384,7 @@ function LoadingUnitPage() {
                                         }
                                       }}
                                     >
-                                      <div className={`w-full h-full flex items-center justify-center min-w-0 ${!isSelected ? "pointer-events-none select-none" : ""}`}>
+                                      <div className={`w-full h-full flex items-center justify-center min-w-0 ${!isSelected ? "pointer-events-none select-none" : "pointer-events-auto cursor-text"}`}>
                                         <input
                                           type="number"
                                           min="1"
@@ -3282,7 +3406,7 @@ function LoadingUnitPage() {
                                     {/* Col 15: No. of Floors (Centered, Input Box Format) */}
                                     <td
                                       style={getLuColStyle("floorsQty")}
-                                      className={`px-1 text-center font-mono border-r border-border/40 h-[30px] py-0 ${
+                                      className={`px-1 text-center font-mono h-[30px] py-0 border-r border-border/40 ${
                                         !isSelected && !isApprovedLocked
                                           ? "cursor-pointer hover:bg-primary/5 transition-colors"
                                           : "cursor-text"
@@ -3294,7 +3418,7 @@ function LoadingUnitPage() {
                                         }
                                       }}
                                     >
-                                      <div className={`w-full h-full flex items-center justify-center min-w-0 ${!isSelected ? "pointer-events-none select-none" : ""}`}>
+                                      <div className={`w-full h-full flex items-center justify-center min-w-0 ${!isSelected ? "pointer-events-none select-none" : "pointer-events-auto cursor-text"}`}>
                                         <input
                                           type="number"
                                           min="1"
@@ -3316,7 +3440,7 @@ function LoadingUnitPage() {
                                     {/* Col 16: Total LU (Centered, Pure Number, No Row Units) */}
                                     <td
                                       style={getLuColStyle("totalLu")}
-                                      className="px-2 text-center justify-center font-mono tabular font-bold text-primary text-[13.5px] border-r border-border/40 h-[30px] py-0 select-none cursor-pointer hover:bg-primary/5 transition-colors"
+                                      className="px-2 text-center justify-center font-mono tabular font-bold text-primary text-[13.5px] h-[30px] py-0 select-none cursor-pointer hover:bg-primary/5 transition-colors border-r border-border/40"
                                       onClick={(e) => {
                                         if (!isSelected) {
                                           handleToggleSelectSpace(s.id, e);
@@ -3328,39 +3452,26 @@ function LoadingUnitPage() {
                                     </td>
 
                                     {/* Col 17: Flag */}
-                                    <td style={getLuColStyle("actions")} className="px-1 text-center h-[30px] py-0">
+                                    <td style={getLuColStyle("actions")} className="px-1 text-center h-[30px] py-0 relative group/row-cell select-none">
                                       <div className="flex items-center justify-center gap-0.5 h-full">
                                         <button
                                           type="button"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            const targets = selectedIds.includes(s.id) && selectedIds.length > 1 ? selectedIds : [s.id];
-                                            const newFlagged = !s.flagged;
-                                            setIopSpaces(prev => prev.map(item => targets.includes(item.id) ? { ...item, flagged: newFlagged } : item));
-                                            dirtyStore.set(true);
-                                            toast.info(newFlagged ? `Flagged ${targets.length > 1 ? `${targets.length} spaces` : `"${s.desc}"`}` : `Unflagged ${targets.length > 1 ? `${targets.length} spaces` : `"${s.desc}"`}`);
+                                            handleBulkFlag(targetIds);
                                           }}
                                           className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
                                           title={(() => {
-                                            const isNoName = !s.desc || s.desc.trim() === "" || isLUPlaceholderName(s.desc);
-                                            const totalFixtures = Object.values(s.fixtures || {}).reduce((sum, v) => sum + (Number(v) || 0), 0);
-                                            const isNoFixtures = totalFixtures === 0;
-                                            if (isNoName && isNoFixtures) {
-                                              return "Missing space description and fixtures";
+                                            if (validation.warnings.length > 0) {
+                                              return `Flagged: ${validation.reason}`;
                                             }
-                                            if (isNoName) {
-                                              return "Missing space description";
-                                            }
-                                            if (isNoFixtures) {
-                                              return "Missing fixtures (No sanitary appliances assigned)";
-                                            }
-                                            return s.flagged ? "Unflag space" : "Flag space";
+                                            return isEffectivelyFlagged || s.flagged ? "Unflag space" : "Flag space for review";
                                           })()}
                                         >
                                           <Flag
                                             className={`size-3.5 transition-all duration-200 ${
-                                              s.flagged
-                                                ? "fill-red-500 text-red-500 scale-110"
+                                              isEffectivelyFlagged || s.flagged
+                                                ? "fill-red-500 text-red-500 scale-110 drop-shadow-xs"
                                                 : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
                                             }`}
                                           />
@@ -3446,15 +3557,12 @@ function LoadingUnitPage() {
                                   {/* Flag Space / Unflag Space */}
                                   <ContextMenuItem
                                     onClick={() => {
-                                      const newFlagged = !s.flagged;
-                                      setIopSpaces(prev => prev.map(item => targetIds.includes(item.id) ? { ...item, flagged: newFlagged } : item));
-                                      dirtyStore.set(true);
-                                      toast.info(newFlagged ? `Flagged ${targetIds.length > 1 ? `${targetIds.length} spaces` : `"${s.desc || "Space"}"`}` : `Unflagged ${targetIds.length > 1 ? `${targetIds.length} spaces` : `"${s.desc || "Space"}"`}`);
+                                      handleBulkFlag(targetIds);
                                     }}
                                     className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
                                   >
-                                    <Flag className={`size-3.5 ${s.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
-                                    <span>{s.flagged ? "Unflag Space" : "Flag Space"}</span>
+                                    <Flag className={`size-3.5 ${isEffectivelyFlagged || s.flagged ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
+                                    <span>{isEffectivelyFlagged || s.flagged ? "Unflag Space" : "Flag Space"}</span>
                                     <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">F</ContextMenuShortcut>
                                   </ContextMenuItem>
                                   <ContextMenuSeparator className="h-px bg-border my-1" />

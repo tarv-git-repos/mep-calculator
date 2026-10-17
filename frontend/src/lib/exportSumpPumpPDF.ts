@@ -3,7 +3,7 @@ import autoTable from "jspdf-autotable";
 import { workspaceStore } from "@/lib/workspace-store";
 import { toast } from "sonner";
 import { downloadFile } from "@/lib/download";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import {
   GPM_TO_LPS,
   FT_TO_M,
@@ -50,10 +50,13 @@ export interface SumpPumpExportData {
     client?: string;
     projectNo?: string;
     calcNo?: string;
+    revNo?: string;
     date?: string;
     endUser?: string;
     userName?: string;
     reviewState?: any;
+    includeStamp?: boolean;
+    returnBuffer?: boolean;
   };
 }
 
@@ -111,59 +114,23 @@ export const exportSumpPumpPDF = async (data: SumpPumpExportData) => {
     };
 
     const calcNo = meta.calcNo || activeProj?.calcNo || `TRV-CAL-SMP-${activeProj?.code || "001"}`;
-    const today = meta.date || formatDateStr(new Date().toISOString()) || new Date().toLocaleDateString("en-GB");
+    const revNo = meta.revNo || activeProj?.revNo || "0";
+    const today = meta.date || formatDateStr(new Date().toISOString());
     const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || "P001";
     const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "Sump Pit Drainage Sizing Station";
     const clientName = meta.client || activeProj?.client || "Design Client";
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "Building Facilities / MEP Department";
 
-    // 1. Header Title (Matching Ventilation & Preliminary Standard - no "Report" in title)
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(0, 0, 0);
-    doc.text("Sump Pump Sizing Preliminary Calculation", 14, 14);
-
-    // 2. Metadata Block (Exact 2-column format matching Ventilation & Preliminary Cooling Load)
-    doc.setFontSize(9);
-    doc.setLineWidth(0.3);
-    doc.rect(14, 18, 182, 18); // Outer box (182mm width)
-
-    // Vertical line
-    doc.line(105, 18, 105, 36);
-
-    // Horizontal lines
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 120, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 120, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName, 42, 34);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, 125, 34);
+    // 1. Standard Header & Metadata Block
+    const startY = addPdfHeader(doc, "Sump Pump Sizing Preliminary Calculation", {
+      calcNo,
+      revNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser,
+    });
 
     const primaryFill = [217, 217, 217] as [number, number, number]; // Clean uniform gray for all table column headings
     const blueFill = [218, 233, 248] as [number, number, number];    // Soft blue for key summary rows
@@ -193,7 +160,7 @@ export const exportSumpPumpPDF = async (data: SumpPumpExportData) => {
     ];
 
     callAutoTable(doc, {
-      startY: 40,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       head: [["Sr.", "Parameter Description", "Design Value", "Equivalent", "Standard / Code Reference"]],
       body: paramTableBody,
@@ -287,50 +254,49 @@ export const exportSumpPumpPDF = async (data: SumpPumpExportData) => {
 
     currentY += 17;
 
-    // 6. Signature Block
-    const sigDetails = getSignatureBlockDetails(projectNo || "default", "/plumbing-sump-pump", currentUserName, meta.reviewState);
+    // Check page break for signature block (needs ~35mm)
+    if (currentY + 35 > 280) {
+      doc.addPage("a4", "portrait");
+      currentY = 14;
+    }
 
-    callAutoTable(doc, {
-      startY: currentY,
-      margin: { left: 14, right: 14 },
-      head: [["Approval Role", "Engineers Name", "Status / Role Title", "Signature / Date"]],
-      body: [
-        ["Originator / Prepared By", sigDetails.originatedName, "MEP Design Engineer", sigDetails.originatedDate],
-        ["Reviewer / Checked By", sigDetails.reviewerName || "Pending Review", "Senior Plumbing Lead", sigDetails.reviewerDate || "—"],
-        ["Approver / Verified By", sigDetails.approverName || "Pending Approval", "Principal / MEP Director", sigDetails.approverDate || "—"],
-      ],
-      theme: "grid",
-      headStyles: {
-        fillColor: primaryFill,
-        textColor: [0, 0, 0],
-        fontStyle: "bold",
-        fontSize: 8,
-        halign: "center",
-      },
-      bodyStyles: { fontSize: 7.5, textColor: [40, 40, 40], cellPadding: 2 },
-      columnStyles: {
-        0: { cellWidth: 44, fontStyle: "bold" },
-        1: { cellWidth: 50, halign: "center" },
-        2: { cellWidth: 46, halign: "center" },
-        3: { cellWidth: 42, halign: "center" },
-      },
-    });
+    // 6. Professional Engineering Review & Sign-Off Block & Branding
+    if (meta.includeStamp !== false) {
+      const sigDetails = getSignatureBlockDetails(
+        activeProj?.id || activeProjectId || "default",
+        "/plumbing-sump-pump",
+        meta.userName || currentUserName,
+        meta.reviewState
+      );
+      addPdfSignatureBlock(
+        doc,
+        currentY,
+        sigDetails,
+        activeProj?.id || activeProjectId || "default",
+        "/plumbing-sump-pump"
+      );
+    }
 
-    // 7. Footer on each page
-    const totalPages = doc.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-      doc.setPage(i);
-      doc.setFontSize(7.5);
-      doc.setTextColor(120, 120, 120);
-      doc.text("MEP Calculation Platform — Sump Pump Sizing Calculation", 14, 290);
-      doc.text(`Page ${i} of ${totalPages}`, 196, 290, { align: "right" });
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
     }
 
     const pdfBuffer = doc.output("arraybuffer");
-    downloadFile(new Uint8Array(pdfBuffer), `Sump_Pump_Sizing_${projectNo || "CALC"}.pdf`, "PDF Document", ["pdf"]);
+    if (meta.returnBuffer) {
+      return new Uint8Array(pdfBuffer);
+    }
+
+    await downloadFile(new Uint8Array(pdfBuffer), `Sump_Pump_Sizing_${projectNo || "CALC"}.pdf`, "PDF Document", ["pdf"]);
     toast.success("Sump Pump Sizing PDF exported successfully!");
+    return true;
   } catch (err: any) {
     console.error("exportSumpPumpPDF error:", err);
-    toast.error(`Export PDF failed: ${err?.message || String(err)}`);
+    if (!meta.returnBuffer) {
+      toast.error(`Export PDF failed: ${err?.message || String(err)}`);
+    }
+    return false;
   }
 };

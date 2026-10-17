@@ -3,7 +3,7 @@ import autoTable from "jspdf-autotable";
 import { workspaceStore } from "@/lib/workspace-store";
 import { toast } from "sonner";
 import { downloadFile } from "@/lib/download";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 
 export interface WaterDemandExportData {
   calculations: any;
@@ -111,61 +111,16 @@ export const exportWaterDemandPDF = async (data: WaterDemandExportData): Promise
     const clientName = meta.client || activeProj?.client || "Design Client";
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "Site Development";
 
-    // 1. Header Title (Matching Ventilation & Preliminary Standard)
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Water Demand & Storage Tank Sizing Calculation", 14, 14);
-
-    // 2. Metadata Block (Exact 2-column format matching Ventilation & Preliminary Cooling Load)
-    doc.setFontSize(8.5);
-    doc.setLineWidth(0.3);
-    doc.rect(14, 18, 182, 18); // Outer box (182mm width)
-
-    // Vertical lines
-    doc.line(105, 18, 105, 36);
-    doc.line(155, 18, 155, 24);
-
-    // Horizontal lines
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    // Row 1
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Rev No.:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(revNo, 122, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 157, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 167, 22);
-
-    // Row 2
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 120, 28);
-
-    // Row 3
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName, 42, 34);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, 125, 34);
+    // 1. Header & Standard Metadata Box (Central Org Branding)
+    const startY = addPdfHeader(doc, "Water Demand & Storage Tank Sizing Calculation", {
+      calcNo,
+      revNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser
+    });
 
     const primaryFill = [217, 217, 217] as [number, number, number]; // Clean uniform gray for all table column headings
     const blueFill = [218, 233, 248] as [number, number, number];    // Soft blue for total & summary rows
@@ -255,7 +210,7 @@ export const exportWaterDemandPDF = async (data: WaterDemandExportData): Promise
     );
 
     callAutoTable(doc, {
-      startY: 42,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
@@ -613,59 +568,17 @@ export const exportWaterDemandPDF = async (data: WaterDemandExportData): Promise
       currentY = (doc as any).lastAutoTable?.finalY ?? 250;
     }
 
-    // 8. Signature Block (Exact warm peach header from Ventilation & Preliminary Cooling Load)
-    const {
-      originatedName,
-      originatedDate,
-      reviewerName,
-      reviewerDate,
-      approverName,
-      approverDate,
-    } = getSignatureBlockDetails(activeProj?.id || "default", "/plumbing-water-demand", meta.userName || "");
-
+    // 8. Signature Block & Branding
     if (meta.includeStamp !== false) {
-      callAutoTable(doc, {
-        startY: currentY + 8,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          fontSize: 8,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 2, bottom: 2, left: 1, right: 1 },
-        },
-        headStyles: { fillColor: [255, 230, 204], textColor: 0, fontStyle: "bold" },
-        head: [
-          [
-            { content: "" },
-            { content: "Originator" },
-            { content: "Reviewer" },
-            { content: "Approver" },
-          ],
-        ],
-        body: [
-          [
-            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedName, styles: { halign: "center" } },
-            { content: reviewerName, styles: { halign: "center" } },
-            { content: approverName, styles: { halign: "center" } },
-          ],
-          [
-            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedDate, styles: { halign: "center" } },
-            { content: reviewerDate, styles: { halign: "center" } },
-            { content: approverDate, styles: { halign: "center" } },
-          ],
-        ],
-        columnStyles: {
-          0: { cellWidth: 32 },
-          1: { cellWidth: 50 },
-          2: { cellWidth: 50 },
-          3: { cellWidth: 50 },
-        },
-      });
+      const sigDetails = getSignatureBlockDetails(activeProj?.id || "default", "/plumbing-water-demand", meta.userName || "");
+      addPdfSignatureBlock(doc, currentY, sigDetails, activeProj?.id || "default", "/plumbing-water-demand");
+    }
+
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
     }
 
     const pdfBuffer = doc.output("arraybuffer");

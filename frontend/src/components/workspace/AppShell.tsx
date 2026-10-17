@@ -20,6 +20,7 @@ import { useCollaboration } from "@/lib/collaboration-store";
 import { supabase } from "@/lib/supabase";
 import { Megaphone, X as XIcon } from "lucide-react";
 import { PricingModal } from "./PricingModal";
+import { EnterLicenseModal } from "@/components/modals/EnterLicenseModal";
 import { fetchLicenseStatus, type LicenseStatusInfo } from "@/lib/license";
 import { getHardwareFingerprint, getOrCreateDeviceId } from "@/lib/hardwareFingerprint";
 import { authService } from "@/services/authService";
@@ -464,6 +465,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
   const activeUsers = useCollaboration(s => s.activeUsers);
   const [myEmail, setMyEmail] = useState<string>("unknown");
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [enterLicenseOpen, setEnterLicenseOpen] = useState(false);
   const [licenseInfo, setLicenseInfo] = useState<LicenseStatusInfo | null>(globalLicenseCache);
   const [showPioneerModal, setShowPioneerModal] = useState(false);
   const [defaultIntelOpen, setDefaultIntelOpen] = useState(false);
@@ -2888,9 +2890,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       } catch (e) {}
     }
     const roleUpper = String(effRole || '').toUpperCase().trim();
-    const userEmail = String(profile?.email || userData?.email || '').toLowerCase().trim();
+    const desigUpper = String(profile?.designation || userData?.designation || (userData?.features as any)?.designation || '').toUpperCase().trim();
     const isSuperAdmin = roleUpper === 'SUPER_ADMIN' || userEmail === 'admin@tarv.ai';
-    const isOrgAdmin = roleUpper === 'ORG_ADMIN' || roleUpper === 'ORGANIZATION_ADMIN' || roleUpper === 'ORGANIZATION ADMIN' || userEmail.includes('kirtan');
+    const isOrgAdmin = roleUpper === 'ORG_ADMIN' ||
+      roleUpper === 'ORGANIZATION_ADMIN' ||
+      roleUpper === 'ORGANIZATION ADMIN' ||
+      roleUpper === 'ORG ADMIN' ||
+      (roleUpper.includes('ORG') && roleUpper.includes('ADMIN')) ||
+      desigUpper.includes('ORG ADMIN') ||
+      desigUpper.includes('ORGANIZATION ADMIN') ||
+      userEmail.includes('kirtan');
     const isAdmin = isSuperAdmin || isOrgAdmin;
 
     const rawNav = import.meta.env.VITE_APP_MODE === 'kfactor'
@@ -2958,6 +2967,13 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
       }
     }
   }
+
+  // Step 2 in License Flow: After the trial period (14 days), a license popup appears automatically
+  useEffect(() => {
+    if (!isPaidPlan && profile?.role !== 'SUPER_ADMIN' && computedStatus === 'EXPIRED_TRIAL') {
+      setEnterLicenseOpen(true);
+    }
+  }, [computedStatus, isPaidPlan, profile?.role]);
 
   return (
     <div className="grid h-screen grid-cols-[auto_1fr] grid-rows-[80px_1fr] bg-surface dark:bg-[#121212] text-foreground text-[14px] print:block print:h-auto">
@@ -3271,7 +3287,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
 
               <button
                 type="button"
-                onClick={() => setPricingModalOpen(true)}
+                onClick={() => setEnterLicenseOpen(true)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold transition-all shadow-sm cursor-pointer border ${
                   isPaidPlan
                     ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20"
@@ -3444,6 +3460,16 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                     )}
                     <div className="flex flex-col min-w-0 flex-1">
                       <div className="text-sm font-semibold text-foreground truncate">{userData?.name || profile?.name || 'MEP User'}</div>
+                      {(() => {
+                        const orgDisplay = userData?.company || profile?.company || userData?.organization || profile?.organization || userData?.organization_name || (profile as any)?.organization_name || (userData?.features as any)?.organization_name || (profile?.features as any)?.organization_name || (typeof window !== 'undefined' && userData?.id ? localStorage.getItem(`mep_user_company_${userData.id}`) : null);
+                        if (!orgDisplay) return null;
+                        return (
+                          <div className="flex items-center gap-1.5 mt-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 truncate" title={orgDisplay}>
+                            <Building2 className="size-3.5 shrink-0" />
+                            <span className="truncate">{orgDisplay}</span>
+                          </div>
+                        );
+                      })()}
                       <div className="text-xs text-muted-foreground truncate">{userData?.email || myEmail}</div>
                       {(() => {
                         // Priority 1: Check hierarchy storage
@@ -3645,7 +3671,7 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
                   </span>
                 </div>
                 <button
-                  onClick={() => setPricingModalOpen(true)}
+                  onClick={() => setEnterLicenseOpen(true)}
                   className="px-2.5 py-1 bg-white text-amber-800 rounded font-bold hover:bg-amber-100 transition-colors shrink-0"
                 >
                   Renew Now
@@ -3881,6 +3907,19 @@ export function AppShell({ children, title, subtitle, actions, onIntelClick, int
         </div>
       )}
 
+
+      <EnterLicenseModal
+        isOpen={enterLicenseOpen}
+        onClose={() => setEnterLicenseOpen(false)}
+        isExpired={computedStatus === 'EXPIRED_TRIAL'}
+        onSuccess={() => {
+          refreshLicenseStatus();
+          if (getUserData) getUserData();
+        }}
+        onOpenPricing={() => {
+          setPricingModalOpen(true);
+        }}
+      />
 
       <PricingModal
         isOpen={pricingModalOpen}

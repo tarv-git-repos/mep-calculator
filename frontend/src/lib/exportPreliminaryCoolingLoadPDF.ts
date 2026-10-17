@@ -1,4 +1,4 @@
-import { getSignatureBlockDetails } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
@@ -82,61 +82,16 @@ export const exportPreliminaryCoolingLoadPDF = async (
     const clientName = meta.client || activeProj?.client || "";
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "";
 
-    // 1. Header Title (Matching Ventilation)
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Preliminary Cooling Load Calculation", 14, 14);
-
-    // 2. Metadata Block (Exact Ventilation 2-column format)
-    doc.setFontSize(8.5);
-    doc.setLineWidth(0.3);
-    doc.rect(14, 18, 182, 18); // Outer box (182mm width)
-
-    // Vertical lines
-    doc.line(105, 18, 105, 36);
-    doc.line(155, 18, 155, 24);
-
-    // Horizontal lines
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    // Row 1
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Rev No.:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(revNo, 122, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 157, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 167, 22);
-
-    // Row 2
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 120, 28);
-
-    // Row 3
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName, 42, 34);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, 125, 34);
+    // 1. Header & Standard Metadata Box (Central Org Branding)
+    const startY = addPdfHeader(doc, "Preliminary Cooling Load Calculation", {
+      calcNo,
+      revNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser
+    });
 
     // 3. Group spaces by floor
     const sortedRows = [...rows].sort((a, b) => {
@@ -256,7 +211,7 @@ export const exportPreliminaryCoolingLoadPDF = async (
     const primaryFill = [217, 217, 217] as [number, number, number]; // Clean neutral corporate gray matching Ventilation
 
     callAutoTable(doc, {
-      startY: 42,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
@@ -330,59 +285,17 @@ export const exportPreliminaryCoolingLoadPDF = async (
 
     const finalY = (doc as any).lastAutoTable?.finalY ?? 150;
 
-    const {
-      originatedName,
-      originatedDate,
-      reviewerName,
-      reviewerDate,
-      approverName,
-      approverDate
-    } = getSignatureBlockDetails(activeProj?.id || "default", "/preliminary-cooling-load", meta.userName || "");
-
-    // 4. Signature Block (Clean neutral header - no orange/peach highlight)
+    // 4. Professional Engineering Review & Sign-Off Block & Branding
     if (meta.includeStamp !== false) {
-      callAutoTable(doc, {
-        startY: finalY + 8,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          fontSize: 8,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 2, bottom: 2, left: 1, right: 1 }
-        },
-        headStyles: { fillColor: primaryFill, textColor: 0, fontStyle: "bold" },
-        head: [
-          [
-            { content: "", styles: { fillColor: [255, 255, 255] } },
-            { content: "Originator", styles: { fillColor: primaryFill } },
-            { content: "Reviewer", styles: { fillColor: primaryFill } },
-            { content: "Approver", styles: { fillColor: primaryFill } }
-          ]
-        ],
-        body: [
-          [
-            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedName, styles: { halign: "center" } },
-            { content: reviewerName, styles: { halign: "center" } },
-            { content: approverName, styles: { halign: "center" } }
-          ],
-          [
-            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedDate, styles: { halign: "center" } },
-            { content: reviewerDate, styles: { halign: "center" } },
-            { content: approverDate, styles: { halign: "center" } }
-          ]
-        ],
-        columnStyles: {
-          0: { cellWidth: 32 },
-          1: { cellWidth: 50 },
-          2: { cellWidth: 50 },
-          3: { cellWidth: 50 }
-        }
-      });
+      const sigDetails = getSignatureBlockDetails(activeProj?.id || "default", "/preliminary-cooling-load", meta.userName || "");
+      addPdfSignatureBlock(doc, finalY, sigDetails, activeProj?.id || "default", "/preliminary-cooling-load");
+    }
+
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
     }
 
     const pdfBuffer = doc.output("arraybuffer");

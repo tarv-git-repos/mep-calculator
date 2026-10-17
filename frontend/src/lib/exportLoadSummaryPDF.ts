@@ -1,6 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { downloadFile } from "./download";
 import { workspaceStore } from "./workspace-store";
 import {
@@ -20,6 +20,7 @@ export interface LoadSummaryPDFMeta {
   endUser?: string;
   date?: string;
   userName?: string;
+  reviewState?: any;
   includeStamp?: boolean;
   returnBuffer?: boolean;
 }
@@ -78,10 +79,10 @@ export async function exportLoadSummaryPDF(
     const currentDate = meta.date || formatDateStr(new Date().toISOString());
     const currentUserName = meta.userName || (typeof window !== "undefined" ? JSON.parse(localStorage.getItem("mep_user") || "{}")?.name : "") || "System Admin";
 
-    // Column styles for 190mm printable width
+    // Column styles for 182mm printable width
     const columnStyles = {
-      0: { cellWidth: 10, halign: "center" as const },
-      1: { cellWidth: 42, halign: "left" as const },
+      0: { cellWidth: 8, halign: "center" as const },
+      1: { cellWidth: 38, halign: "left" as const },
       2: { cellWidth: 14, halign: "center" as const },
       3: { cellWidth: 16, halign: "center" as const },
       4: { cellWidth: 16, halign: "center" as const },
@@ -89,48 +90,19 @@ export async function exportLoadSummaryPDF(
       6: { cellWidth: 16, halign: "center" as const },
       7: { cellWidth: 18, halign: "center" as const },
       8: { cellWidth: 18, halign: "center" as const },
-      9: { cellWidth: 24, halign: "left" as const }
+      9: { cellWidth: 22, halign: "left" as const }
     };
 
-    // 1. Header Title & Top Header Box
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Electrical Load Summary Calculation", 10, 12);
-
-    callAutoTable(doc, {
-      startY: 16,
-      margin: { left: 10, right: 10 },
-      theme: "grid",
-      styles: {
-        font: "helvetica",
-        fontSize: 8.5,
-        fontStyle: "bold",
-        textColor: [0, 0, 0],
-        lineColor: [0, 0, 0],
-        lineWidth: 0.2,
-        cellPadding: 2,
-        valign: "middle"
-      },
-      body: [
-        [
-          { content: `Calculation No: ${calcNo}`, colSpan: 5, styles: { halign: "left" } },
-          { content: `Rev No.: ${revNo}`, colSpan: 2, styles: { halign: "left" } },
-          { content: `Date : ${currentDate}`, colSpan: 3, styles: { halign: "left" } }
-        ],
-        [
-          { content: `Project No : ${projectNo}`, colSpan: 7, styles: { halign: "left" } },
-          { content: `Client : ${clientName}`, colSpan: 3, styles: { halign: "left" } }
-        ],
-        [
-          { content: `Project Name : ${projectName}`, colSpan: 7, styles: { halign: "left" } },
-          { content: `End User : ${endUser}`, colSpan: 3, styles: { halign: "left" } }
-        ]
-      ],
-      columnStyles,
-      tableWidth: 190
+    // 1. Standard Header & Metadata Block
+    const startY = addPdfHeader(doc, "Electrical Load Summary Calculation", {
+      calcNo,
+      revNo,
+      date: currentDate,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser,
     });
-
-    const headerEndY = (doc as any).lastAutoTable.finalY;
 
     // 2. Main Data Rows grouped floor-wise
     const dataRows: any[] = [];
@@ -210,8 +182,8 @@ export async function exportLoadSummaryPDF(
     });
 
     callAutoTable(doc, {
-      startY: headerEndY,
-      margin: { left: 10, right: 10, top: 10, bottom: 10 },
+      startY: startY + 2,
+      margin: { left: 14, right: 14, top: 14, bottom: 14 },
       theme: "grid",
       styles: {
         font: "helvetica",
@@ -246,7 +218,7 @@ export async function exportLoadSummaryPDF(
       },
       body: dataRows,
       columnStyles,
-      tableWidth: 190
+      tableWidth: 182
     });
 
     const calculatedTotalPower = data.totalPower !== undefined 
@@ -261,13 +233,13 @@ export async function exportLoadSummaryPDF(
     let currentY = (doc as any).lastAutoTable.finalY + 2;
     if (doc.internal.pageSize.getHeight() - currentY < neededSpace) {
       doc.addPage();
-      currentY = 10;
+      currentY = 14;
     }
 
     // 3. Summary Rows Table
     callAutoTable(doc, {
       startY: currentY,
-      margin: { left: 10, right: 10 },
+      margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
         font: "helvetica",
@@ -295,13 +267,13 @@ export async function exportLoadSummaryPDF(
         ]
       ],
       columnStyles,
-      tableWidth: 190
+      tableWidth: 182
     });
 
     // 4. References Table
     callAutoTable(doc, {
       startY: (doc as any).lastAutoTable.finalY + 2,
-      margin: { left: 10, right: 10 },
+      margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
         font: "helvetica",
@@ -319,65 +291,39 @@ export async function exportLoadSummaryPDF(
         [{ content: "                    3. Summary of Cooling Load", colSpan: 10, styles: { halign: "left" } }],
         [{ content: "                    4. Selection from Manufacturer", colSpan: 10, styles: { halign: "left" } }]
       ],
-      tableWidth: 190
+      tableWidth: 182
     });
 
-    // 5. Sign-off Block Table
+    currentY = (doc as any).lastAutoTable?.finalY || 140;
+
+    // Check page break for signature block (needs ~35mm)
+    if (currentY + 35 > 280) {
+      doc.addPage("a4", "portrait");
+      currentY = 14;
+    }
+
+    // 5. Professional Engineering Review & Sign-Off Block & Branding
     if (meta.includeStamp !== false) {
-      const sigColWidth1 = 10 + 42 + 14; // 66mm
-      const sigColWidth2 = 16 + 16 + 16; // 48mm
-      const sigColWidth3 = 16 + 18 + 18 + 24; // 76mm
+      const sigDetails = getSignatureBlockDetails(
+        activeProj?.id || "default",
+        "/load-summary",
+        meta.userName || currentUserName,
+        meta.reviewState
+      );
+      addPdfSignatureBlock(
+        doc,
+        currentY,
+        sigDetails,
+        activeProj?.id || "default",
+        "/load-summary"
+      );
+    }
 
-      const sigDetails = getSignatureBlockDetails(activeProj?.id || "default", "/load-summary", currentUserName);
-      const origName = sigDetails.originatedName || currentUserName || "";
-      const origDate = sigDetails.originatedDate || currentDate;
-      const revName = sigDetails.reviewerName || "";
-      const revDate = sigDetails.reviewerDate || "";
-      const appName = sigDetails.approverName || "";
-      const appDate = sigDetails.approverDate || "";
-
-      callAutoTable(doc, {
-        startY: (doc as any).lastAutoTable.finalY + 2,
-        margin: { left: 10, right: 10 },
-        theme: "grid",
-        styles: {
-          font: "helvetica",
-          fontSize: 8,
-          textColor: [0, 0, 0],
-          lineColor: [0, 0, 0],
-          lineWidth: 0.2,
-          cellPadding: 1.5,
-          valign: "middle"
-        },
-        body: [
-          [
-            { content: "Originator", styles: { halign: "center", fontStyle: "bold", fillColor: [252, 213, 180] } },
-            { content: "Reviewer", styles: { halign: "center", fontStyle: "bold", fillColor: [252, 213, 180] } },
-            { content: "Approver", styles: { halign: "center", fontStyle: "bold", fillColor: [252, 213, 180] } }
-          ],
-          [
-            { content: `  Name:   ${origName}`, styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
-            { content: revName ? `  Name:   ${revName}` : "  Name:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
-            { content: appName ? `  Name:   ${appName}` : "  Name:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } }
-          ],
-          [
-            { content: "  Signature:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
-            { content: "  Signature:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
-            { content: "  Signature:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } }
-          ],
-          [
-            { content: `  Date:   ${origDate}`, styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
-            { content: revDate ? `  Date:   ${revDate}` : "  Date:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } },
-            { content: appDate ? `  Date:   ${appDate}` : "  Date:", styles: { halign: "left", fontStyle: "bold", minCellHeight: 6.5 } }
-          ]
-        ],
-        columnStyles: {
-          0: { cellWidth: sigColWidth1 },
-          1: { cellWidth: sigColWidth2 },
-          2: { cellWidth: sigColWidth3 }
-        },
-        tableWidth: 190
-      });
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
     }
 
     const pdfBuffer = doc.output("arraybuffer");

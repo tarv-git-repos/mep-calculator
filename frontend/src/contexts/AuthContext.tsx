@@ -3,6 +3,7 @@ import { authService, clearAllAuthStorage, AuthUserData } from '@/services/authS
 import { api } from '@/services/api';
 import { toast } from 'sonner';
 import { loadOrgHierarchyFromStorage } from '@/utils/hierarchy';
+import { saveCompanyBranding } from '@/utils/branding';
 
 export type Role = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'PROJECT_MANAGER' | 'ENGINEER' | 'VIEWER' | 'USER';
 
@@ -151,6 +152,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem('mep_user_data', jsonStr);
         localStorage.setItem('mep_profile', jsonStr);
         setIsLoggedin(true);
+
+        if (data.organization_id) {
+          api.getOrgBranding(data.organization_id).then(res => {
+            if (res && res.success && res.branding) {
+              saveCompanyBranding(res.branding);
+            }
+          }).catch(() => {});
+        }
       } else {
         localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
         localStorage.removeItem('mep_user_data');
@@ -488,20 +497,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       USER: "Jr. Design Engineer"
     };
 
+    const userRoleUpper = String(userData.role || (userData.features as any)?.role || '').toUpperCase().trim();
+    const userDesigUpper = String(userData.designation || (userData.features as any)?.designation || '').toUpperCase().trim();
+    const userEmailLower = String(userData.email || '').toLowerCase().trim();
+
     const isSuperAdmin =
-      String(userData.email || '').toLowerCase().trim() === 'admin@tarv.ai' ||
+      userEmailLower === 'admin@tarv.ai' ||
       String(userData.id || '').toLowerCase().trim() === 'usr_admin_tarv_ai' ||
       String(userData.name || '').toLowerCase().trim() === 'system admin' ||
-      userData.role === 'SUPER_ADMIN' ||
-      (userData.features as any)?.role === 'SUPER_ADMIN';
+      userRoleUpper === 'SUPER_ADMIN';
 
     const isOrgAdmin =
       !isSuperAdmin && (
-        userData.role === 'ORG_ADMIN' ||
-        (userData.features as any)?.role === 'ORG_ADMIN' ||
-        userData.role === 'ORGANIZATION ADMIN' ||
-        (userData.features as any)?.role === 'ORGANIZATION ADMIN' ||
-        hierarchyRole === 'ORG_ADMIN'
+        userRoleUpper === 'ORG_ADMIN' ||
+        userRoleUpper === 'ORGANIZATION_ADMIN' ||
+        userRoleUpper === 'ORGANIZATION ADMIN' ||
+        userRoleUpper === 'ORG ADMIN' ||
+        (userRoleUpper.includes('ORG') && userRoleUpper.includes('ADMIN')) ||
+        userDesigUpper === 'ORGANIZATION ADMIN' ||
+        userDesigUpper === 'ORG ADMIN' ||
+        userDesigUpper === 'ORG_ADMIN' ||
+        hierarchyRole === 'ORG_ADMIN' ||
+        Boolean(userData.is_org_admin) ||
+        Boolean((userData.features as any)?.is_org_admin)
       );
 
     const effectiveRole = isSuperAdmin

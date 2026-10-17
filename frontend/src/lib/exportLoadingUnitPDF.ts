@@ -1,6 +1,6 @@
 import { workspaceStore } from "@/lib/workspace-store";
 import { toast } from "sonner";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { downloadFile } from "@/lib/download";
 import {
   type LUSpace,
@@ -106,66 +106,20 @@ export const exportLoadingUnitPDF = async (data: LoadingUnitExportData): Promise
     const primaryFill: [number, number, number] = [217, 217, 217]; // Uniform Gray #D9D9D9 (Matching Ventilation)
     const blueFill: [number, number, number] = [218, 233, 248];    // Soft Blue Highlight #DAE9F8 (Matching Ventilation)
 
-    // 1. Header Title (Matching Preliminary: Calculation instead of Report)
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Loading Unit Calculation", 14, 12);
-
-    // 2. Metadata Block (Landscape 2-column format: width 269mm from 14mm to 283mm)
-    doc.setFontSize(8.5);
-    doc.setLineWidth(0.25);
-    doc.rect(14, 15, 269, 17); // Outer box (269mm width, 17mm height)
-
-    // Vertical line dividing left and right metadata
-    doc.line(148, 15, 148, 32);
-    // Vertical line for Rev No / Date on row 1
-    doc.line(215, 15, 215, 20.7);
-
-    // Horizontal lines
-    doc.line(14, 20.7, 283, 20.7);
-    doc.line(14, 26.4, 283, 26.4);
-
-    // Row 1
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 19);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 48, 19);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Rev No.:", 150, 19);
-    doc.setFont("helvetica", "normal");
-    doc.text(revNo, 168, 19);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 217, 19);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 230, 19);
-
-    // Row 2
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 24.5);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 48, 24.5);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 150, 24.5);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 168, 24.5);
-
-    // Row 3
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 30.2);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName, 48, 30.2);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 150, 30.2);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, 168, 30.2);
+    // 1. Header Title & Metadata Block (Using standard branded format)
+    const startY = addPdfHeader(doc, "Loading Unit & Water Supply Fixture Sizing", {
+      calcNo,
+      revNo,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser,
+      date: today
+    });
 
     const appTitle = getStandardDemandHeaderTitle(standardPreset);
 
-    // 3. Table 1: Executive Design Parameter & Demand Sizing Summary
+    // 2. Table 1: Executive Design Parameter & Demand Sizing Summary
     const summaryTableRows = [
       [
         { content: "No.", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } },
@@ -189,7 +143,7 @@ export const exportLoadingUnitPDF = async (data: LoadingUnitExportData): Promise
     ];
 
     callAutoTable(doc, {
-      startY: 35,
+      startY: startY + 2,
       body: summaryTableRows,
       theme: "grid",
       pageBreak: "avoid",
@@ -419,65 +373,22 @@ export const exportLoadingUnitPDF = async (data: LoadingUnitExportData): Promise
       currentY = 14;
     }
 
-    // 6. Professional Engineering Review & Sign-Off Block (Exact Preliminary 3-tier format)
-    const {
-      originatedName,
-      originatedDate,
-      reviewerName,
-      reviewerDate,
-      approverName,
-      approverDate
-    } = getSignatureBlockDetails(
-      activeProj?.id || "default",
-      "/plumbing-loading-unit",
-      meta.userName || currentUserName,
-      meta.reviewState
-    );
-
+    // 6. Professional Engineering Review & Sign-Off Block & Branding
     if (meta.includeStamp !== false) {
-      callAutoTable(doc, {
-        startY: currentY + 6,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        pageBreak: "avoid",
-        styles: {
-          fontSize: 8,
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 2, bottom: 2, left: 1, right: 1 }
-        },
-        headStyles: { fillColor: primaryFill, textColor: 0, fontStyle: "bold" },
-        head: [
-          [
-            { content: "", styles: { fillColor: [255, 255, 255] } },
-            { content: "Originator", styles: { fillColor: primaryFill } },
-            { content: "Reviewer", styles: { fillColor: primaryFill } },
-            { content: "Approver", styles: { fillColor: primaryFill } }
-          ]
-        ],
-        body: [
-          [
-            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedName || currentUserName || "Lead Engineer", styles: { halign: "center" } },
-            { content: reviewerName || "", styles: { halign: "center" } },
-            { content: approverName || "", styles: { halign: "center" } }
-          ],
-          [
-            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedDate || today, styles: { halign: "center" } },
-            { content: reviewerDate || "", styles: { halign: "center" } },
-            { content: approverDate || "", styles: { halign: "center" } }
-          ]
-        ],
-        columnStyles: {
-          0: { cellWidth: 32 },
-          1: { cellWidth: 79 },
-          2: { cellWidth: 79 },
-          3: { cellWidth: 79 }
-        }
-      });
+      const sigDetails = getSignatureBlockDetails(
+        activeProj?.id || "default",
+        "/plumbing-loading-unit",
+        meta.userName || currentUserName,
+        meta.reviewState
+      );
+      addPdfSignatureBlock(doc, currentY, sigDetails, activeProj?.id || "default", "/plumbing-loading-unit");
+    }
+
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
     }
 
     const pdfBuffer = doc.output("arraybuffer");

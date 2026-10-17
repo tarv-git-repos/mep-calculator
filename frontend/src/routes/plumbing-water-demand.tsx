@@ -5,10 +5,11 @@ import { addExcelSignatureBlock } from "@/lib/excelHelpers";
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { AppShell } from "@/components/workspace/AppShell";
-import { Trash2, Plus, Download, Upload, Save, Info, Droplet, Building2, Layers, Globe, Sparkles, FileSpreadsheet, MessageSquare, Copy, Calculator, X, FileText, Printer, SlidersHorizontal, Check, Filter, ArrowUpDown, Search, Flag, Gauge, Activity, BookOpen, Sliders, RefreshCw, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { Trash2, Plus, Download, Upload, Save, Info, Droplet, Building2, Layers, Globe, Sparkles, FileSpreadsheet, MessageSquare, Copy, Calculator, X, FileText, Printer, SlidersHorizontal, Check, Filter, ArrowUpDown, Search, Flag, Gauge, Activity, BookOpen, Sliders, RefreshCw, RotateCcw, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger, ContextMenuShortcut } from "@/components/ui/context-menu";
 import { TBtn, BulkBtn } from "@/components/workspace/Button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -17,6 +18,7 @@ import { downloadFile } from "@/lib/download";
 import { useWorkspace } from "@/lib/workspace-store";
 import { dirtyStore } from "@/lib/dirty-store";
 import { toast } from "sonner";
+import { useConfirm } from "@/hooks/use-confirm";
 import { AssignCommentModal } from "@/components/workspace/AssignCommentModal";
 import { RowCommentCornerBadge } from "@/components/workspace/RowCommentCornerBadge";
 import { dispatchGlobalCommentNotification } from "@/utils/notificationHelpers";
@@ -35,6 +37,41 @@ import {
   computeWaterDemandCalculations
 } from "@/lib/calc-plumbing-water-demand";
 
+export function getWdRowValidation(r: WDRow) {
+  const isNoName = !r.name || r.name.trim() === "";
+  const isNoPeople = !r.ppl || Number(r.ppl) <= 0 || isNaN(Number(r.ppl));
+  const isNoCategory = !r.cat || r.cat.trim() === "" || r.cat.toLowerCase().includes("select category");
+  const isNoRate = !r.lpd || Number(r.lpd) <= 0 || isNaN(Number(r.lpd));
+  const dailyDemand = (Number(r.ppl) || 0) * (Number(r.lpd) || 0) * (Number(r.multiplier) || 1);
+  const isZeroDemand = dailyDemand <= 0;
+  const isFlagged = Boolean(r.flagged || isNoName || isNoPeople || isNoCategory || isNoRate || isZeroDemand);
+  return {
+    isFlagged,
+    isNoName,
+    isNoPeople,
+    isNoCategory,
+    isNoRate,
+    isZeroDemand,
+    isManual: Boolean(r.flagged),
+  };
+}
+
+export function getIrrRowValidation(r: IrrRow) {
+  const isNoArea = !r.area || Number(r.area) <= 0 || isNaN(Number(r.area));
+  const isNoVegType = !r.vegType || r.vegType.trim() === "" || r.vegType.toLowerCase().includes("select");
+  const isNoRate = !r.lpd || Number(r.lpd) <= 0 || isNaN(Number(r.lpd));
+  const dailyDemand = (Number(r.area) || 0) * (Number(r.lpd) || 0);
+  const isZeroDemand = dailyDemand <= 0;
+  const isFlagged = Boolean(r.flagged || isNoArea || isNoVegType || isNoRate || isZeroDemand);
+  return {
+    isFlagged,
+    isNoArea,
+    isNoVegType,
+    isNoRate,
+    isZeroDemand,
+    isManual: Boolean(r.flagged),
+  };
+}
 
 export const Route = createFileRoute("/plumbing-water-demand")({
   head: () => ({
@@ -47,6 +84,7 @@ export const Route = createFileRoute("/plumbing-water-demand")({
 });
 
 function WaterDemandPage() {
+  const confirm = useConfirm();
   const { project, activeProjectId, isReadOnly, forceSaveToCloud } = useWorkspace();
   const calcReviewState = useCalculationReviewState("/plumbing-water-demand", activeProjectId || project?.id);
   const isEffectiveReadOnly = useCalculationEffectiveReadOnly("/plumbing-water-demand", activeProjectId || project?.id);
@@ -199,6 +237,7 @@ function WaterDemandPage() {
   // Search, Filter, Sort state for toolbar
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCatFilter, setSelectedCatFilter] = useState<string>("");
+  const [filterFlaggedOnly, setFilterFlaggedOnly] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<"name" | "ppl" | "lpd" | "load" | "none">("none");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -229,20 +268,20 @@ function WaterDemandPage() {
   }, [previewModalOpen]);
 
   const DEFAULT_WD_COL_WIDTHS: Record<string, number> = useMemo(() => ({
-    select: 48,
+    select: 36,
     name: 240,
     ppl: 110,
     multiplier: 120,
-    cat: 220,
-    lpd: 140,
-    load: 130,
-    actions: 90,
-    irr_select: 48,
+    cat: 240,
+    lpd: 150,
+    load: 140,
+    actions: 36,
+    irr_select: 36,
     irr_vegType: 240,
     irr_area: 130,
     irr_rate: 130,
-    irr_load: 130,
-    irr_actions: 90,
+    irr_load: 140,
+    irr_actions: 36,
   }), []);
 
   // Dynamic Column Width Adjusting State
@@ -250,66 +289,81 @@ function WaterDemandPage() {
     if (typeof window !== "undefined") {
       try {
         const saved = localStorage.getItem("mep_grid_water_demand");
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === "object") {
+            const sanitized = { ...DEFAULT_WD_COL_WIDTHS, ...parsed };
+            // Auto-heal any squashed column widths from localStorage
+            Object.keys(DEFAULT_WD_COL_WIDTHS).forEach((k) => {
+              if (k !== "select" && k !== "actions" && k !== "irr_select" && k !== "irr_actions") {
+                if (!sanitized[k] || sanitized[k] < 80) {
+                  sanitized[k] = DEFAULT_WD_COL_WIDTHS[k];
+                }
+              }
+            });
+            return sanitized;
+          }
+        }
       } catch (e) {}
     }
-    return {
-      select: 48,
-      name: 240,
-      ppl: 110,
-      multiplier: 120,
-      cat: 220,
-      lpd: 140,
-      load: 130,
-      actions: 90,
-      irr_select: 48,
-      irr_vegType: 240,
-      irr_area: 130,
-      irr_rate: 130,
-      irr_load: 130,
-      irr_actions: 90,
-    };
+    return DEFAULT_WD_COL_WIDTHS;
   });
 
   const totalWdTableWidth = useMemo(() => {
     return (
-      (colWidths.select || 48) +
+      (colWidths.select || 36) +
       (colWidths.name || 240) +
       (colWidths.ppl || 110) +
       (colWidths.multiplier || 120) +
-      (colWidths.cat || 220) +
-      (colWidths.lpd || 140) +
-      (colWidths.load || 130) +
-      (colWidths.actions || 90)
+      (colWidths.cat || 240) +
+      (colWidths.lpd || 150) +
+      (colWidths.load || 140) +
+      (colWidths.actions || 36)
     );
   }, [colWidths]);
 
   const totalIrrTableWidth = useMemo(() => {
     return (
-      (colWidths.irr_select || 48) +
+      (colWidths.irr_select || 36) +
       (colWidths.irr_vegType || 240) +
       (colWidths.irr_area || 130) +
       (colWidths.irr_rate || 130) +
-      (colWidths.irr_load || 130) +
-      (colWidths.irr_actions || 90)
+      (colWidths.irr_load || 140) +
+      (colWidths.irr_actions || 36)
     );
   }, [colWidths]);
 
-  const getWdColStyle = (key: string) => {
+  const getWdColStyle = (key: string): React.CSSProperties => {
+    if (key === "select" || key === "actions") {
+      return { width: "36px", minWidth: "36px", maxWidth: "36px" };
+    }
     const val = colWidths[key] ?? DEFAULT_WD_COL_WIDTHS[key] ?? 120;
-    const pct = ((val / totalWdTableWidth) * 100).toFixed(2);
+    const totalDataWidth =
+      (colWidths.name || 240) +
+      (colWidths.ppl || 110) +
+      (colWidths.multiplier || 120) +
+      (colWidths.cat || 240) +
+      (colWidths.lpd || 150) +
+      (colWidths.load || 140);
+    const pct = ((val / totalDataWidth) * 100).toFixed(2);
     return {
-      width: `${pct}%`,
-      minWidth: `${Math.min(val, 40)}px`,
+      width: `calc((100% - 72px) * ${pct} / 100)`,
     };
   };
 
-  const getIrrColStyle = (key: string) => {
+  const getIrrColStyle = (key: string): React.CSSProperties => {
+    if (key === "irr_select" || key === "irr_actions") {
+      return { width: "36px", minWidth: "36px", maxWidth: "36px" };
+    }
     const val = colWidths[key] ?? DEFAULT_WD_COL_WIDTHS[key] ?? 120;
-    const pct = ((val / totalIrrTableWidth) * 100).toFixed(2);
+    const totalDataWidth =
+      (colWidths.irr_vegType || 240) +
+      (colWidths.irr_area || 130) +
+      (colWidths.irr_rate || 130) +
+      (colWidths.irr_load || 140);
+    const pct = ((val / totalDataWidth) * 100).toFixed(2);
     return {
-      width: `${pct}%`,
-      minWidth: `${Math.min(val, 40)}px`,
+      width: `calc((100% - 72px) * ${pct} / 100)`,
     };
   };
 
@@ -320,7 +374,7 @@ function WaterDemandPage() {
     const startWidth = colWidths[colKey] || 120;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const minW = colKey.includes("select") ? 36 : colKey.includes("actions") ? 70 : 80;
+      const minW = colKey.includes("select") ? 36 : colKey.includes("actions") ? 36 : 80;
       const newWidth = Math.max(minW, startWidth + (moveEvent.clientX - startX));
       setColWidths((prev) => {
         const next = { ...prev, [colKey]: newWidth };
@@ -338,10 +392,11 @@ function WaterDemandPage() {
     window.addEventListener("mouseup", handleMouseUp);
   };
 
-  const activeFiltersCount = (selectedCatFilter ? 1 : 0) + (searchQuery.trim() ? 1 : 0);
+  const activeFiltersCount = (selectedCatFilter ? 1 : 0) + (filterFlaggedOnly ? 1 : 0) + (searchQuery.trim() ? 1 : 0);
 
   const handleResetFilters = () => {
     setSelectedCatFilter("");
+    setFilterFlaggedOnly(false);
     setSearchQuery("");
   };
 
@@ -462,6 +517,9 @@ function WaterDemandPage() {
     if (selectedCatFilter) {
       list = list.filter((r) => r.cat === selectedCatFilter);
     }
+    if (filterFlaggedOnly) {
+      list = list.filter((r) => getWdRowValidation(r).isFlagged);
+    }
     if (sortBy !== "none") {
       list.sort((a, b) => {
         let valA: any = a.name;
@@ -485,7 +543,19 @@ function WaterDemandPage() {
       });
     }
     return list;
-  }, [wdRows, searchQuery, selectedCatFilter, sortBy, sortOrder]);
+  }, [wdRows, searchQuery, selectedCatFilter, filterFlaggedOnly, sortBy, sortOrder]);
+
+  const filteredAndSortedIrrRows = useMemo(() => {
+    let list = [...irrRows];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter((r) => r.vegType.toLowerCase().includes(q));
+    }
+    if (filterFlaggedOnly) {
+      list = list.filter((r) => getIrrRowValidation(r).isFlagged);
+    }
+    return list;
+  }, [irrRows, searchQuery, filterFlaggedOnly]);
 
   // Domestic selection handlers
   const toggleWdRowSelection = (id: number, isShift?: boolean, isCtrl?: boolean) => {
@@ -659,22 +729,50 @@ function WaterDemandPage() {
         return;
       }
 
-      // 3. Delete / Backspace: Delete selected rows
+      // 3. Delete / Backspace: Delete selected rows (with ventilation-style confirmation)
       if (e.key === "Delete" || e.key === "Backspace") {
         if (tab === "demand" && demandSection === "domestic" && selectedWdRows.size > 0) {
           e.preventDefault();
           const count = selectedWdRows.size;
-          setWdRows((prev) => prev.filter((r) => !selectedWdRows.has(r.id)));
-          setSelectedWdRows(new Set());
-          setLastClickedWdIndex(null);
-          toast.info(`Deleted ${count} selected domestic entry(s)`);
+          const firstRow = wdRows.find((r) => selectedWdRows.has(r.id));
+          const msg = count === 1 && firstRow
+            ? `Are you sure you want to delete space "${firstRow.name}"?`
+            : `Are you sure you want to delete the ${count} selected spaces?`;
+
+          confirm(msg, {
+            title: count === 1 ? "Delete Space" : "Delete Spaces",
+            confirmText: "Delete",
+            cancelText: "Cancel",
+            variant: "destructive",
+          }).then((ok: any) => {
+            if (ok) {
+              setWdRows((prev) => prev.filter((r) => !selectedWdRows.has(r.id)));
+              setSelectedWdRows(new Set());
+              setLastClickedWdIndex(null);
+              toast.info(`Deleted ${count} space(s)`);
+            }
+          });
         } else if (tab === "demand" && demandSection === "irrigation" && selectedIrrRows.size > 0) {
           e.preventDefault();
           const count = selectedIrrRows.size;
-          setIrrRows((prev) => prev.filter((r) => !selectedIrrRows.has(r.id)));
-          setSelectedIrrRows(new Set());
-          setLastClickedIrrIndex(null);
-          toast.info(`Deleted ${count} selected irrigation entry(s)`);
+          const firstRow = irrRows.find((r) => selectedIrrRows.has(r.id));
+          const msg = count === 1 && firstRow
+            ? `Are you sure you want to delete zone "${firstRow.vegType}"?`
+            : `Are you sure you want to delete the ${count} selected zones?`;
+
+          confirm(msg, {
+            title: count === 1 ? "Delete Zone" : "Delete Zones",
+            confirmText: "Delete",
+            cancelText: "Cancel",
+            variant: "destructive",
+          }).then((ok: any) => {
+            if (ok) {
+              setIrrRows((prev) => prev.filter((r) => !selectedIrrRows.has(r.id)));
+              setSelectedIrrRows(new Set());
+              setLastClickedIrrIndex(null);
+              toast.info(`Deleted ${count} zone(s)`);
+            }
+          });
         }
         return;
       }
@@ -1120,45 +1218,55 @@ function WaterDemandPage() {
             : "bg-card border border-border shadow-[0_1px_3px_rgba(0,0,0,0.05)]"}`}>
             {/* Row 1: Header / Main Tabs on Left + Standard Selector on Right */}
             <div className="flex items-center justify-between px-4 py-2 bg-card shrink-0 select-none no-print border-b border-border/50 gap-4 flex-wrap">
-              <div className="flex bg-slate-100 dark:bg-slate-900/70 p-1 rounded-full gap-1 border border-border/80">
-                <button
-                  type="button"
-                  onClick={() => setTab("demand")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "demand"
-                      ? "bg-background text-foreground shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Demand Sizing
-                </button>
+              <div className="flex items-center gap-2 select-none shrink-0 flex-wrap">
+                <div className="flex bg-slate-100 dark:bg-slate-900/70 p-1 rounded-full gap-1 border border-border/80">
+                  <button
+                    type="button"
+                    onClick={() => setTab("demand")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "demand"
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Demand Sizing
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setTab("tanks")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "tanks"
-                      ? "bg-background text-foreground shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Storage &amp; Pumps
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setTab("tanks")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "tanks"
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Storage &amp; Pumps
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setTab("report")}
-                  className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
-                    tab === "report"
-                      ? "bg-background text-foreground shadow-xs font-bold"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+                  <button
+                    type="button"
+                    onClick={() => setTab("report")}
+                    className={`px-4 py-1.5 text-xs font-semibold rounded-full transition-all duration-150 cursor-pointer ${
+                      tab === "report"
+                        ? "bg-background text-foreground shadow-xs font-bold"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Report
+                  </button>
+                </div>
+
+                {/* Formula Breakdown button placed on left side right after tabs */}
+                <TBtn
+                  onClick={() => setShowFormulaModal(true)}
+                  title="View Step-by-Step Formula Breakdown"
                 >
-                  Report
-                </button>
+                  <Info className="size-3.5 text-primary" /> Formula Breakdown
+                </TBtn>
               </div>
 
-              {/* Right Side Header Controls: Standard Dropdown and Print */}
+              {/* Right Side Header Controls: Standard Dropdown and Export */}
               <div className="flex items-center gap-2 select-none shrink-0 flex-wrap">
                 <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900/60 p-1 px-3 rounded-full border border-border/80 text-xs font-semibold select-none">
                   <Globe className="size-3.5 text-primary shrink-0" />
@@ -1176,20 +1284,14 @@ function WaterDemandPage() {
                     ))}
                   </select>
                 </div>
-                <TBtn
-                  onClick={() => setShowFormulaModal(true)}
-                  title="View Step-by-Step Formula Breakdown"
-                >
-                  <Info className="size-3.5 text-primary" /> Formula Breakdown
-                </TBtn>
                 <TBtn onClick={handleExportPDF} title="Export PDF Calculation">
-                  <FileText className="size-3.5" /> Export PDF
+                  <FileText className="size-3.5" /> Export
                 </TBtn>
               </div>
             </div>
 
             {/* Row 2: Action Toolbar (Search, Filter, Sort, View Options, Auto-Calculate, Import, Export, + New Entry Matching Ventilation) */}
-            {tab !== "report" && (
+            {tab === "demand" && (
               <div className="relative flex items-center gap-1.5 px-3 h-10 bg-background border-b border-border/60 shrink-0 flex-wrap no-print modal-blur-bg select-none">
                 <input
                   value={searchQuery}
@@ -1241,6 +1343,15 @@ function WaterDemandPage() {
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
+                    </div>
+                    <div className="flex items-center justify-between pt-1 border-t border-border/60">
+                      <span className="text-[11.5px] font-medium text-foreground">Flagged spaces only</span>
+                      <input
+                        type="checkbox"
+                        checked={filterFlaggedOnly}
+                        onChange={(e) => setFilterFlaggedOnly(e.target.checked)}
+                        className="size-4 rounded accent-primary cursor-pointer"
+                      />
                     </div>
                   </PopoverContent>
                 </Popover>
@@ -1375,9 +1486,6 @@ function WaterDemandPage() {
                   >
                     <Upload className="size-3.5" /> Import
                   </TBtn>
-                  <TBtn onClick={handleExportPDF} title="Generate and Export PDF Report">
-                    <Download className="size-3.5" /> Export
-                  </TBtn>
                   <TBtn
                     primary
                     disabled={isEffectiveReadOnly}
@@ -1393,7 +1501,6 @@ function WaterDemandPage() {
                         const lpd = IRR_TYPE_MAP[vegType] || 10;
                         const newRow = { id: newId, area: areaVal, vegType, lpd, comments: [] };
                         setIrrRows((prev) => [...prev, newRow]);
-                        setSelectedIrrRows(new Set([newId]));
                         setPreviewTarget({ type: "irrigation", rowId: newId });
                         setPreviewModalOpen(true);
                         toast.success("New Irrigation Zone added! Edit details in popup.");
@@ -1415,7 +1522,6 @@ function WaterDemandPage() {
                           comments: [],
                         };
                         setWdRows((prev) => [...prev, newRow]);
-                        setSelectedWdRows(new Set([newId]));
                         setPreviewTarget({ type: "domestic", rowId: newId });
                         setPreviewModalOpen(true);
                         toast.success("New Domestic Space added! Edit details in popup.");
@@ -1477,10 +1583,24 @@ function WaterDemandPage() {
                       icon={Trash2}
                       onClick={() => {
                         const count = selectedWdRows.size;
-                        setWdRows((prev) => prev.filter((r) => !selectedWdRows.has(r.id)));
-                        setSelectedWdRows(new Set());
-                        setLastClickedWdIndex(null);
-                        toast.info(`Deleted ${count} selected entry(s)`);
+                        const firstRow = wdRows.find((r) => selectedWdRows.has(r.id));
+                        const msg = count === 1 && firstRow
+                          ? `Are you sure you want to delete space "${firstRow.name}"?`
+                          : `Are you sure you want to delete the ${count} selected spaces?`;
+
+                        confirm(msg, {
+                          title: count === 1 ? "Delete Space" : "Delete Spaces",
+                          confirmText: "Delete",
+                          cancelText: "Cancel",
+                          variant: "destructive",
+                        }).then((ok: any) => {
+                          if (ok) {
+                            setWdRows((prev) => prev.filter((r) => !selectedWdRows.has(r.id)));
+                            setSelectedWdRows(new Set());
+                            setLastClickedWdIndex(null);
+                            toast.info(`Deleted ${count} space(s)`);
+                          }
+                        });
                       }}
                     >
                       Delete
@@ -1548,10 +1668,24 @@ function WaterDemandPage() {
                       icon={Trash2}
                       onClick={() => {
                         const count = selectedIrrRows.size;
-                        setIrrRows((prev) => prev.filter((r) => !selectedIrrRows.has(r.id)));
-                        setSelectedIrrRows(new Set());
-                        setLastClickedIrrIndex(null);
-                        toast.info(`Deleted ${count} selected irrigation entry(s)`);
+                        const firstRow = irrRows.find((r) => selectedIrrRows.has(r.id));
+                        const msg = count === 1 && firstRow
+                          ? `Are you sure you want to delete zone "${firstRow.vegType}"?`
+                          : `Are you sure you want to delete the ${count} selected zones?`;
+
+                        confirm(msg, {
+                          title: count === 1 ? "Delete Zone" : "Delete Zones",
+                          confirmText: "Delete",
+                          cancelText: "Cancel",
+                          variant: "destructive",
+                        }).then((ok: any) => {
+                          if (ok) {
+                            setIrrRows((prev) => prev.filter((r) => !selectedIrrRows.has(r.id)));
+                            setSelectedIrrRows(new Set());
+                            setLastClickedIrrIndex(null);
+                            toast.info(`Deleted ${count} zone(s)`);
+                          }
+                        });
                       }}
                     >
                       Delete
@@ -1656,48 +1790,47 @@ function WaterDemandPage() {
                   {demandSection === "domestic" && (
                     <div className="flex flex-col gap-0 flex-1 min-h-0 relative">
                     {/* Domestic Table */}
-                    <div className="overflow-x-auto overflow-y-auto w-full flex-1 min-h-0">
+                    <div className="overflow-x-hidden overflow-y-auto w-full flex-1 min-h-0 custom-scrollbar">
                       <table className="w-full table-fixed border-collapse text-[13.5px] font-sans text-left">
                         <thead>
                           <tr className="bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong text-muted-foreground uppercase text-[11.5px] tracking-wider font-semibold select-none h-10">
-                            <th style={getWdColStyle("select")} className="py-2 px-2 text-center relative group">
-                              <input
-                                type="checkbox"
+                            <th style={getWdColStyle("select")} className="py-0 px-0 text-center relative group w-9 min-w-[36px] border-r border-border/60">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isLocked) {
+                                    toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                                    return;
+                                  }
+                                  toggleSelectAllWd();
+                                }}
                                 disabled={isLocked}
-                                checked={filteredAndSortedWdRows.length > 0 && selectedWdRows.size === filteredAndSortedWdRows.length && !isLocked}
-                                onChange={toggleSelectAllWd}
-                                className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                                title="Select All / Deselect All (Ctrl+A)"
-                              />
-                              <div onMouseDown={(e) => startResizing("select", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                                title={filteredAndSortedWdRows.length > 0 && selectedWdRows.size === filteredAndSortedWdRows.length ? "Deselect all rows" : "Select all rows"}
+                                className="h-full w-full flex items-center justify-center text-[11px] font-mono font-bold text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none disabled:opacity-40 disabled:cursor-not-allowed group/head-idx"
+                              >
+                                <span className={filteredAndSortedWdRows.length > 0 && selectedWdRows.size === filteredAndSortedWdRows.length ? "text-primary font-bold" : ""}>#</span>
+                              </button>
                             </th>
-                            <th style={getWdColStyle("name")} className="py-2 px-3 text-left relative group">
+                            <th style={getWdColStyle("name")} className="py-2 px-3 text-left relative group border-r border-border/60">
                               DESCRIPTION
-                              <div onMouseDown={(e) => startResizing("name", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                             </th>
-                            <th style={getWdColStyle("ppl")} className="py-2 px-3 text-center relative group">
+                            <th style={getWdColStyle("ppl")} className="py-2 px-3 text-center relative group border-r border-border/60">
                               PEOPLE / UNIT
-                              <div onMouseDown={(e) => startResizing("ppl", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                             </th>
-                            <th style={getWdColStyle("multiplier")} className="py-2 px-3 text-center relative group">
+                            <th style={getWdColStyle("multiplier")} className="py-2 px-3 text-center relative group border-r border-border/60">
                               SPACE MULTIPLIER
-                              <div onMouseDown={(e) => startResizing("multiplier", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                             </th>
-                            <th style={getWdColStyle("cat")} className="py-2 px-3 text-left relative group">
+                            <th style={getWdColStyle("cat")} className="py-2 px-3 text-left relative group border-r border-border/60">
                               CATEGORY
-                              <div onMouseDown={(e) => startResizing("cat", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                             </th>
-                            <th style={getWdColStyle("lpd")} className="py-2 px-3 text-center relative group">
+                            <th style={getWdColStyle("lpd")} className="py-2 px-3 text-center relative group border-r border-border/60">
                               PER CAPITA RATE ({ip ? "GPD" : "LPD"})
-                              <div onMouseDown={(e) => startResizing("lpd", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                             </th>
-                            <th style={getWdColStyle("load")} className="py-2 px-3 text-center relative group">
+                            <th style={getWdColStyle("load")} className="py-2 px-3 text-center relative group border-r border-border/60">
                               DAILY LOAD ({ip ? "GAL/DAY" : "L/DAY"})
-                              <div onMouseDown={(e) => startResizing("load", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                             </th>
-                            <th style={getWdColStyle("actions")} className="py-2 px-2 text-center relative group">
-                              ACTIONS
-                              <div onMouseDown={(e) => startResizing("actions", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                            <th style={getWdColStyle("actions")} className="py-0 px-0 text-center relative group w-9 min-w-[36px]">
+                              <span className="sr-only">Actions</span>
                             </th>
                           </tr>
                         </thead>
@@ -1717,39 +1850,67 @@ function WaterDemandPage() {
                                   <tr
                                     id={`row-${r.id}`}
                                     data-row-id={r.id}
+                                    onMouseDownCapture={(e) => {
+                                      if (isLocked) return;
+                                      const target = e.target as HTMLElement;
+                                      if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                      const isInputTarget = target.tagName === "INPUT" || target.tagName === "SELECT" || Boolean(target.closest("input, select"));
+                                      if (!selectedWdRows.has(r.id)) {
+                                        if (isInputTarget) {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                        }
+                                        toggleWdRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                      }
+                                    }}
+                                    onClickCapture={(e) => {
+                                      if (isLocked) return;
+                                      const target = e.target as HTMLElement;
+                                      if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                      const isInputTarget = target.tagName === "INPUT" || target.tagName === "SELECT" || Boolean(target.closest("input, select"));
+                                      if (!selectedWdRows.has(r.id) && isInputTarget) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                      }
+                                    }}
                                     onClick={(e) => {
-                                       if (isLocked) return;
-                                       const target = e.target as HTMLElement;
-                                       if (target.closest("button") || (target as HTMLInputElement).type === "checkbox") return;
-                                       if (!selectedWdRows.has(r.id)) {
-                                         toggleWdRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                                       }
-                                     }}
+                                      if (isLocked) return;
+                                      const target = e.target as HTMLElement;
+                                      if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                      if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                                        toggleWdRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                      }
+                                    }}
                                     onDoubleClick={(e) => {
                                       if (isLocked) return;
                                       setSelectedWdRows(new Set([r.id]));
                                       setPreviewTarget({ type: "domestic", rowId: r.id });
                                       setPreviewModalOpen(true);
                                     }}
-                                    title={isLocked ? undefined : "Click to select, Shift+Click for range, Ctrl+Click for multi-select. Double-click to open parameters & calculation breakdown."}
-                                    className={`h-[30px] border-b border-border/60 hover:bg-row-hover text-[13.5px] transition-all ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${
+                                    title={isLocked ? undefined : "Click to select, click again to edit, Shift+Click for range. Double-click for calculation breakdown."}
+                                    className={`group h-[30px] border-b border-border/40 hover:bg-muted/30 dark:hover:bg-white/[0.03] text-[13.5px] transition-colors ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${
                                       previewModalOpen && previewTarget?.type === "domestic" && previewTarget?.rowId === r.id
                                         ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                                         : previewModalOpen
                                         ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
                                         : selectedWdRows.has(r.id)
-                                        ? "bg-row-selected bg-primary/15 font-medium border-l-2 border-l-primary"
-                                        : r.flagged
-                                        ? "bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100/50"
-                                        : idx % 2 === 0
-                                        ? "bg-white dark:bg-slate-950 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
-                                        : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                                        ? "bg-row-selected bg-primary/15 text-primary font-medium border-l-2 border-l-primary"
+                                        : "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80"
                                     }`}
                                   >
                                     <td 
                                       style={getWdColStyle("select")} 
-                                      className="py-0 px-2 h-[30px] text-center relative border-r border-border/40" 
-                                      onClick={(e) => e.stopPropagation()}
+                                      className={`px-1 h-[30px] flex items-center justify-center border-r border-border/40 relative group/row-cell select-none cursor-pointer transition-colors duration-150 ${
+                                        selectedWdRows.has(r.id)
+                                          ? "bg-primary/15 text-primary font-bold shadow-inner"
+                                          : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
+                                      }`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (isLocked) return;
+                                        toggleWdRowSelection(r.id, e.shiftKey, true);
+                                      }}
+                                      title={selectedWdRows.has(r.id) ? `Row ${idx + 1} selected. Click to deselect.` : `Click to select row ${idx + 1}.`}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1772,28 +1933,18 @@ function WaterDemandPage() {
                                           })
                                         }
                                       />
-                                      <div className="flex items-center justify-center gap-1.5">
-                                        <input
-                                          type="checkbox"
-                                          disabled={isLocked}
-                                          checked={selectedWdRows.has(r.id) && !isLocked}
-                                          onChange={() => {
-                                            if (isLocked) return;
-                                            toggleWdRowSelection(r.id, false, true);
-                                          }}
-                                          className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                                        />
-                                        <span className="text-muted-foreground/70 font-mono text-[11px]">{idx + 1}</span>
-                                        {r.flagged && (
-                                          <span title="Flagged for review" className="inline-flex">
-                                            <Flag className="size-3 text-red-500 fill-red-500" />
-                                          </span>
-                                        )}
-                                      </div>
+                                      <span className="text-[11px] font-mono leading-none tracking-tight">
+                                        {idx + 1}
+                                      </span>
                                     </td>
                                     <td 
-                                       style={getWdColStyle("name")} 
-                                       className={`py-0 px-2 h-[30px] border-r border-border/40 cursor-pointer `}
+                                      style={getWdColStyle("name")} 
+                                      className={`py-0 px-2 h-[30px] border-r border-border/40 ${
+                                        !selectedWdRows.has(r.id)
+                                          ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                          : "group/cell cursor-text"
+                                      }`}
+                                      title={!selectedWdRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1802,33 +1953,25 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      <div className="flex items-center gap-2 w-full">
-                                        {r.autoDetected && (
-                                          <span
-                                            className="size-1.5 rounded-full bg-[#0A7BC7] shrink-0 inline-block"
-                                            title="Auto-detected according to ASHRAE / DEWA standard"
-                                          />
-                                        )}
+                                      <div className={`flex items-center gap-2 w-full h-full min-w-0 ${!selectedWdRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
                                         <input
                                           type="text"
                                           value={r.name}
                                           disabled={isLocked}
-                                          onClick={(e) => e.stopPropagation()}
-                                          onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            if (isLocked) return;
-                                            setSelectedWdRows(new Set([r.id]));
-                                            setPreviewTarget({ type: "domestic", rowId: r.id });
-                                            setPreviewModalOpen(true);
-                                          }}
                                           onChange={(e) => handleWdRowChange(r.id, "name", e.target.value)}
-                                          className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded font-medium text-[13.5px] text-foreground transition-colors cursor-text"
+                                          onDoubleClick={(e) => e.stopPropagation()}
+                                          className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded font-medium text-[13.5px] text-foreground transition-colors"
                                         />
                                       </div>
                                     </td>
                                     <td 
-                                       style={getWdColStyle("ppl")} 
-                                       className={`py-0 px-2 h-[30px] border-r border-border/40 text-center font-mono tabular text-[13.5px] font-medium cursor-pointer `}
+                                      style={getWdColStyle("ppl")} 
+                                      className={`py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] border-r border-border/40 ${
+                                        !selectedWdRows.has(r.id)
+                                          ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                          : "group/cell cursor-text"
+                                      }`}
+                                      title={!selectedWdRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1837,25 +1980,31 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      <input
-                                        type="number"
-                                        value={r.ppl}
-                                        disabled={isLocked}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (isLocked) return;
-                                          setSelectedWdRows(new Set([r.id]));
-                                          setPreviewTarget({ type: "domestic", rowId: r.id });
-                                          setPreviewModalOpen(true);
-                                        }}
-                                        onChange={(e) => handleWdRowChange(r.id, "ppl", Number(e.target.value))}
-                                        className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
-                                      />
+                                      <div className={`w-full h-full flex items-center justify-center gap-1.5 min-w-0 ${!selectedWdRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
+                                        {r.autoDetected && (
+                                          <span
+                                            className="size-1.5 rounded-full bg-blue-500 shrink-0 inline-block"
+                                            title="Auto-detected occupancy benchmark according to ASHRAE / DEWA standard"
+                                          />
+                                        )}
+                                        <input
+                                          type="number"
+                                          value={r.ppl}
+                                          disabled={isLocked}
+                                          onChange={(e) => handleWdRowChange(r.id, "ppl", Number(e.target.value))}
+                                          onDoubleClick={(e) => e.stopPropagation()}
+                                          className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        />
+                                      </div>
                                     </td>
                                     <td 
-                                       style={getWdColStyle("multiplier")} 
-                                       className={`py-0 px-2 h-[30px] border-r border-border/40 text-center font-mono tabular text-[13.5px] font-medium cursor-pointer `}
+                                      style={getWdColStyle("multiplier")} 
+                                      className={`py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] border-r border-border/40 ${
+                                        !selectedWdRows.has(r.id)
+                                          ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                          : "group/cell cursor-text"
+                                      }`}
+                                      title={!selectedWdRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1864,27 +2013,27 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      <input
-                                        type="number"
-                                        min={1}
-                                        value={r.multiplier || 1}
-                                        disabled={isLocked}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (isLocked) return;
-                                          setSelectedWdRows(new Set([r.id]));
-                                          setPreviewTarget({ type: "domestic", rowId: r.id });
-                                          setPreviewModalOpen(true);
-                                        }}
-                                        onChange={(e) => handleWdRowChange(r.id, "multiplier", Math.max(1, Number(e.target.value)))}
-                                        className="w-14 bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] font-bold text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
-                                        title="Space multiplier / quantity of identical spaces"
-                                      />
+                                      <div className={`w-full h-full flex items-center justify-center min-w-0 ${!selectedWdRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          value={r.multiplier || 1}
+                                          disabled={isLocked}
+                                          onChange={(e) => handleWdRowChange(r.id, "multiplier", Math.max(1, Number(e.target.value)))}
+                                          onDoubleClick={(e) => e.stopPropagation()}
+                                          className="w-14 bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] font-bold text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          title="Space multiplier / quantity of identical spaces"
+                                        />
+                                      </div>
                                     </td>
                                     <td 
-                                       style={getWdColStyle("cat")} 
-                                       className={`py-0 px-2 h-[30px] border-r border-border/40 cursor-pointer `}
+                                      style={getWdColStyle("cat")} 
+                                      className={`py-0 px-2 h-[30px] border-r border-border/40 ${
+                                        !selectedWdRows.has(r.id)
+                                          ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                          : "group/cell cursor-pointer"
+                                      }`}
+                                      title={!selectedWdRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1893,29 +2042,34 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      <select
-                                        value={r.cat}
-                                        disabled={isLocked}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onDoubleClick={(e) => {
-                                          e.stopPropagation();
-                                          if (isLocked) return;
-                                          setSelectedWdRows(new Set([r.id]));
-                                          setPreviewTarget({ type: "domestic", rowId: r.id });
-                                          setPreviewModalOpen(true);
-                                        }}
-                                        onChange={(e) => handleWdRowChange(r.id, "cat", e.target.value)}
-                                        className="w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-[13px] font-medium transition-all cursor-pointer"
-                                      >
-                                        <option value="Custom Rate / Category">Other (Custom Rate)</option>
-                                        {Object.keys(WD_TYPE_MAP).filter(k => k !== "Custom Rate / Category").map((k) => (
-                                          <option key={k} value={k}>
-                                            {k}
-                                          </option>
-                                        ))}
-                                      </select>
+                                      <div className={`relative w-full h-full flex items-center min-w-0 ${!selectedWdRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
+                                        <select
+                                          value={r.cat}
+                                          disabled={isLocked}
+                                          onChange={(e) => handleWdRowChange(r.id, "cat", e.target.value)}
+                                          className="w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 pl-1 pr-5 rounded text-[13px] font-medium transition-all cursor-pointer text-foreground appearance-none truncate"
+                                        >
+                                          <option value="" disabled hidden>Select Category...</option>
+                                          <option value="Custom Rate / Category">Other (Custom Rate)</option>
+                                          {Object.keys(WD_TYPE_MAP).filter(k => k !== "Custom Rate / Category").map((k) => (
+                                            <option key={k} value={k}>
+                                              {k}
+                                            </option>
+                                          ))}
+                                          {r.cat && !WD_TYPE_MAP[r.cat] && r.cat !== "Custom Rate / Category" && (
+                                            <option value={r.cat}>{r.cat}</option>
+                                          )}
+                                        </select>
+                                      </div>
                                     </td>
-                                    <td style={getWdColStyle("lpd")} className="py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] border-r border-border/40 cursor-pointer"
+                                    <td 
+                                      style={getWdColStyle("lpd")} 
+                                      className={`py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] border-r border-border/40 ${
+                                        !selectedWdRows.has(r.id)
+                                          ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                          : "group/cell cursor-text"
+                                      }`}
+                                      title={!selectedWdRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1924,30 +2078,25 @@ function WaterDemandPage() {
                                         setPreviewModalOpen(true);
                                       }}
                                     >
-                                      <div className="flex items-center justify-center w-full">
+                                      <div className={`flex items-center justify-center w-full h-full min-w-0 ${!selectedWdRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
                                         <input
                                           type="number"
                                           value={ip ? Math.round(r.lpd / 3.78541) : r.lpd}
                                           disabled={isLocked}
-                                          onClick={(e) => e.stopPropagation()}
-                                          onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            if (isLocked) return;
-                                            setSelectedWdRows(new Set([r.id]));
-                                            setPreviewTarget({ type: "domestic", rowId: r.id });
-                                            setPreviewModalOpen(true);
-                                          }}
                                           onChange={(e) => {
                                             const val = Number(e.target.value);
                                             const lpdVal = ip ? Math.round(val * 3.78541) : val;
                                             handleWdRowChange(r.id, "lpd", lpdVal);
                                           }}
-                                          className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] font-bold text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
-                                          title="Click or type to edit custom per capita consumption rate"
+                                          onDoubleClick={(e) => e.stopPropagation()}
+                                          className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] font-bold text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                          title="Per capita consumption rate"
                                         />
                                       </div>
                                     </td>
-                                    <td style={getWdColStyle("load")} className="py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] font-semibold text-[#0A7BC7] border-r border-border/40 cursor-pointer"
+                                    <td 
+                                      style={getWdColStyle("load")} 
+                                      className="py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] font-semibold text-foreground cursor-pointer border-r border-border/40"
                                       onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         if (isLocked) return;
@@ -1958,35 +2107,57 @@ function WaterDemandPage() {
                                     >
                                       {(ip ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541) : r.ppl * r.lpd * (r.multiplier || 1)).toLocaleString()}
                                     </td>
-                                    <td style={getWdColStyle("actions")} className="py-0 px-2 h-[30px] text-center" onDoubleClick={(e) => e.stopPropagation()}>
-                                      <div className="flex items-center justify-center gap-1">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleToggleWdFlag(r.id)}
-                                          className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
-                                          title={r.flagged ? "Unflag space" : "Flag space"}
-                                        >
-                                          <Flag
-                                            className={`size-3.5 transition-all duration-200 ${
-                                              r.flagged
-                                                ? "fill-red-500 text-red-500 scale-110"
-                                                : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
-                                            }`}
-                                          />
-                                        </button>
-
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setWdRows((prev) => prev.filter((x) => x.id !== r.id));
-                                            toast.success(`Deleted "${r.name}"`);
-                                          }}
-                                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
-                                          title="Delete entry"
-                                        >
-                                          <Trash2 className="size-3.5" />
-                                        </button>
-                                      </div>
+                                    <td style={getWdColStyle("actions")} className="py-0 px-1 h-[30px] text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                      {(() => {
+                                        const val = getWdRowValidation(r);
+                                        return (
+                                          <TooltipProvider delayDuration={150}>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleToggleWdFlag(r.id);
+                                                  }}
+                                                  className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+                                                >
+                                                  <Flag
+                                                    className={`size-3.5 transition-all duration-200 ${
+                                                      val.isFlagged
+                                                        ? "fill-red-500 text-red-500 scale-110"
+                                                        : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+                                                    }`}
+                                                  />
+                                                </button>
+                                              </TooltipTrigger>
+                                              <TooltipContent
+                                                side="left"
+                                                align="center"
+                                                className="max-w-[280px] p-2.5 text-left bg-zinc-900 text-white dark:bg-zinc-800 border border-zinc-700 shadow-xl rounded-xl z-50 animate-in fade-in zoom-in-95 pointer-events-none text-xs"
+                                              >
+                                                {val.isNoPeople && val.isNoCategory ? (
+                                                  <div className="text-[11.5px]">Missing occupancy headcount and space category</div>
+                                                ) : val.isNoPeople ? (
+                                                  <div className="text-[11.5px]">Missing occupancy headcount (People / Unit must be &gt; 0)</div>
+                                                ) : val.isNoCategory ? (
+                                                  <div className="text-[11.5px]">Missing space category</div>
+                                                ) : val.isNoName ? (
+                                                  <div className="text-[11.5px]">Missing space description</div>
+                                                ) : val.isNoRate ? (
+                                                  <div className="text-[11.5px]">Missing water consumption rate (LPD / GPD)</div>
+                                                ) : val.isZeroDemand ? (
+                                                  <div className="text-[11.5px]">Daily water demand is 0</div>
+                                                ) : val.isManual ? (
+                                                  <div className="text-[11.5px]">Flagged space (Click to unflag)</div>
+                                                ) : (
+                                                  <div className="text-[11.5px]">Click to flag space for manual review</div>
+                                                )}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          </TooltipProvider>
+                                        );
+                                      })()}
                                     </td>
                                   </tr>
                                 </ContextMenuTrigger>
@@ -2039,9 +2210,17 @@ function WaterDemandPage() {
                                   </ContextMenuItem>
                                   <ContextMenuSeparator className="h-px bg-border my-1" />
                                   <ContextMenuItem
-                                    onClick={() => {
-                                      setWdRows((prev) => prev.filter((x) => x.id !== r.id));
-                                      toast.success(`Deleted "${r.name}"`);
+                                    onClick={async () => {
+                                      const ok = await confirm(`Are you sure you want to delete space "${r.name}"?`, {
+                                        title: "Delete Space",
+                                        confirmText: "Delete",
+                                        cancelText: "Cancel",
+                                        variant: "destructive",
+                                      });
+                                      if (ok) {
+                                        setWdRows((prev) => prev.filter((x) => x.id !== r.id));
+                                        toast.info(`Deleted "${r.name}"`);
+                                      }
                                     }}
                                     className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
                                   >
@@ -2071,90 +2250,121 @@ function WaterDemandPage() {
                   {/* 2. Irrigation Water Demand Schedule */}
                   {demandSection === "irrigation" && (
                     <div className="flex flex-col gap-0 flex-1 min-h-0 relative">
-                      <div className="overflow-x-auto overflow-y-auto w-full flex-1 min-h-0">
+                      <div className="overflow-x-hidden overflow-y-auto w-full flex-1 min-h-0 custom-scrollbar">
                         <table className="w-full table-fixed border-collapse text-[13.5px] font-sans text-left">
                           <thead>
                             <tr className="bg-background dark:bg-[#1a1a1a] border-t border-b border-border-strong text-muted-foreground uppercase text-[11.5px] tracking-wider font-semibold select-none h-10">
-                              <th style={getIrrColStyle("irr_select")} className="py-2 px-2 text-center relative group">
-                                <input
-                                  type="checkbox"
+                              <th style={getIrrColStyle("irr_select")} className="py-0 px-0 text-center relative group w-9 min-w-[36px] border-r border-border/60">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (isLocked) {
+                                      toast.info("Calculation is Approved and Locked. Selection is locked.", { id: "readonly-notice" });
+                                      return;
+                                    }
+                                    toggleSelectAllIrr();
+                                  }}
                                   disabled={isLocked}
-                                  checked={irrRows.length > 0 && selectedIrrRows.size === irrRows.length && !isLocked}
-                                  onChange={toggleSelectAllIrr}
-                                  className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                                  title="Select All / Deselect All (Ctrl+A)"
-                                />
-                                <div onMouseDown={(e) => startResizing("irr_select", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                                  title={irrRows.length > 0 && selectedIrrRows.size === irrRows.length ? "Deselect all rows" : "Select all rows"}
+                                  className="h-full w-full flex items-center justify-center text-[11px] font-mono font-bold text-muted-foreground/80 hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer select-none disabled:opacity-40 disabled:cursor-not-allowed group/head-idx"
+                                >
+                                  <span className={irrRows.length > 0 && selectedIrrRows.size === irrRows.length ? "text-primary font-bold" : ""}>#</span>
+                                </button>
                               </th>
-                              <th style={getIrrColStyle("irr_vegType")} className="py-2 px-3 text-left relative group">
+                              <th style={getIrrColStyle("irr_vegType")} className="py-2 px-3 text-left relative group border-r border-border/60">
                                 VEGETATION TYPE
-                                <div onMouseDown={(e) => startResizing("irr_vegType", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                               </th>
-                              <th style={getIrrColStyle("irr_area")} className="py-2 px-3 text-center relative group">
+                              <th style={getIrrColStyle("irr_area")} className="py-2 px-3 text-center relative group border-r border-border/60">
                                 AREA ({ip ? "FT²" : "M²"})
-                                <div onMouseDown={(e) => startResizing("irr_area", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                               </th>
-                              <th style={getIrrColStyle("irr_rate")} className="py-2 px-3 text-center relative group">
+                              <th style={getIrrColStyle("irr_rate")} className="py-2 px-3 text-center relative group border-r border-border/60">
                                 RATE ({ip ? "GAL/FT²" : "L/M²"})
-                                <div onMouseDown={(e) => startResizing("irr_rate", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                               </th>
-                              <th style={getIrrColStyle("irr_load")} className="py-2 px-3 text-center relative group">
+                              <th style={getIrrColStyle("irr_load")} className="py-2 px-3 text-center relative group border-r border-border/60">
                                 TOTAL LOAD ({ip ? "GAL/DAY" : "L/DAY"})
-                                <div onMouseDown={(e) => startResizing("irr_load", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
                               </th>
-                              <th style={getIrrColStyle("irr_actions")} className="py-2 px-2 text-center relative group">
-                                ACTIONS
-                                <div onMouseDown={(e) => startResizing("irr_actions", e)} className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize z-20 flex items-center justify-center group/handle" style={{ transform: "translateX(50%)" }}><div className="w-[1.5px] h-full bg-transparent group-hover/handle:bg-primary/50 group-hover:bg-border/60 active:bg-primary transition-colors" /></div>
+                              <th style={getIrrColStyle("irr_actions")} className="py-0 px-0 text-center relative group w-9 min-w-[36px]">
+                                <span className="sr-only">Actions</span>
                               </th>
                             </tr>
                           </thead>
                           <tbody>
-                            {irrRows.length === 0 ? (
+                            {filteredAndSortedIrrRows.length === 0 ? (
                               <tr>
                                 <td colSpan={6} className="py-8 text-center text-muted-foreground italic">
-                                  No irrigation entries added. Fill in the form above to calculate plant water demand.
+                                  {irrRows.length === 0
+                                    ? "No irrigation entries added. Fill in the form above to calculate plant water demand."
+                                    : "No irrigation entries match the active search/filter criteria."}
                                 </td>
                               </tr>
                             ) : (
-                              irrRows.map((r, idx) => (
+                              filteredAndSortedIrrRows.map((r, idx) => (
                                     <ContextMenu key={r.id}>
                                       <ContextMenuTrigger asChild>
                                         <tr
                                           id={`row-${r.id}`}
                                           data-row-id={r.id}
+                                          onMouseDownCapture={(e) => {
+                                            if (isLocked) return;
+                                            const target = e.target as HTMLElement;
+                                            if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                            const isInputTarget = target.tagName === "INPUT" || target.tagName === "SELECT" || Boolean(target.closest("input, select"));
+                                            if (!selectedIrrRows.has(r.id)) {
+                                              if (isInputTarget) {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                              }
+                                              toggleIrrRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                            }
+                                          }}
+                                          onClickCapture={(e) => {
+                                            if (isLocked) return;
+                                            const target = e.target as HTMLElement;
+                                            if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                            const isInputTarget = target.tagName === "INPUT" || target.tagName === "SELECT" || Boolean(target.closest("input, select"));
+                                            if (!selectedIrrRows.has(r.id) && isInputTarget) {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                            }
+                                          }}
                                           onClick={(e) => {
-                                             if (isLocked) return;
-                                             const target = e.target as HTMLElement;
-                                             if (target.closest("button") || (target as HTMLInputElement).type === "checkbox") return;
-                                             if (!selectedIrrRows.has(r.id)) {
-                                               toggleIrrRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
-                                             }
-                                           }}
+                                            if (isLocked) return;
+                                            const target = e.target as HTMLElement;
+                                            if (target.closest('.group\\/row-cell') || target.closest('button')) return;
+                                            if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                                              toggleIrrRowSelection(r.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                                            }
+                                          }}
                                           onDoubleClick={(e) => {
                                             if (isLocked) return;
                                             setSelectedIrrRows(new Set([r.id]));
                                             setPreviewTarget({ type: "irrigation", rowId: r.id });
                                             setPreviewModalOpen(true);
                                           }}
-                                          title={isLocked ? undefined : "Click to select, Shift+Click for range, Ctrl+Click for multi-select. Double-click to open parameters & calculation breakdown."}
-                                          className={`group h-[30px] border-b border-border/60 hover:bg-row-hover text-[13.5px] transition-all ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${
+                                          title={isLocked ? undefined : "Click to select, click again to edit, Shift+Click for range. Double-click for calculation breakdown."}
+                                          className={`group h-[30px] border-b border-border/40 hover:bg-muted/30 dark:hover:bg-white/[0.03] text-[13.5px] transition-colors ${isLocked ? "cursor-default" : "cursor-pointer"} select-none ${
                                             previewModalOpen && previewTarget?.type === "irrigation" && previewTarget?.rowId === r.id
                                               ? "bg-primary/20 ring-2 ring-primary border-y border-primary font-bold shadow-2xl z-30 relative opacity-100 blur-none scale-[1.005]"
                                               : previewModalOpen
                                               ? "blur-[2.5px] opacity-35 select-none pointer-events-none transition-all duration-200"
                                               : selectedIrrRows.has(r.id)
-                                              ? "bg-row-selected bg-emerald-500/15 font-medium border-l-2 border-l-emerald-600"
-                                              : r.flagged
-                                              ? "bg-amber-50/60 dark:bg-amber-950/30 hover:bg-amber-100/50"
-                                              : idx % 2 === 0
-                                              ? "bg-white dark:bg-slate-950 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
-                                              : "bg-slate-50/40 dark:bg-slate-900/20 hover:bg-slate-100/70 dark:hover:bg-slate-900/60"
+                                              ? "bg-row-selected bg-primary/15 text-primary font-medium border-l-2 border-l-primary"
+                                              : "bg-[#f4f4f7]/70 dark:bg-[#1c1c21]/80 hover:bg-[#ebebef]/80 dark:hover:bg-[#25252b]/80"
                                           }`}
                                         >
                                           <td 
                                             style={getIrrColStyle("irr_select")} 
-                                            className="py-1.5 px-2 text-center relative" 
-                                            onClick={(e) => e.stopPropagation()}
+                                            className={`px-1 h-[30px] flex items-center justify-center border-r border-border/40 relative group/row-cell select-none cursor-pointer transition-colors duration-150 ${
+                                              selectedIrrRows.has(r.id)
+                                                ? "bg-primary/15 text-primary font-bold shadow-inner"
+                                                : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30"
+                                            }`}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (isLocked) return;
+                                              toggleIrrRowSelection(r.id, e.shiftKey, true);
+                                            }}
+                                            title={selectedIrrRows.has(r.id) ? `Zone ${idx + 1} selected. Click to deselect.` : `Click to select zone ${idx + 1}.`}
                                             onDoubleClick={(e) => {
                                               e.stopPropagation();
                                               if (isLocked) return;
@@ -2177,28 +2387,18 @@ function WaterDemandPage() {
                                                 })
                                               }
                                             />
-                                            <div className="flex items-center justify-center gap-1.5">
-                                              <input
-                                                type="checkbox"
-                                                disabled={isLocked}
-                                                checked={selectedIrrRows.has(r.id) && !isLocked}
-                                                onChange={() => {
-                                                  if (isLocked) return;
-                                                  toggleIrrRowSelection(r.id, false, true);
-                                                }}
-                                                className="cursor-pointer size-3.5 accent-[#0A7BC7] rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                                              />
-                                              <span className="text-muted-foreground/70 font-mono text-[11px]">{idx + 1}</span>
-                                              {r.flagged && (
-                                                <span title="Flagged for review" className="inline-flex">
-                                                  <Flag className="size-3 text-amber-500 fill-amber-500" />
-                                                </span>
-                                              )}
-                                            </div>
+                                            <span className="text-[11px] font-mono leading-none tracking-tight">
+                                              {idx + 1}
+                                            </span>
                                           </td>
                                           <td 
-                                             style={getIrrColStyle("irr_vegType")} 
-                                             className={`py-0 px-2 h-[30px] border-r border-border/40 font-medium text-[13.5px] cursor-pointer `}
+                                            style={getIrrColStyle("irr_vegType")} 
+                                            className={`py-0 px-2 h-[30px] font-medium text-[13.5px] ${
+                                              !selectedIrrRows.has(r.id)
+                                                ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                                : "group/cell cursor-pointer"
+                                            }`}
+                                            title={!selectedIrrRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                             onDoubleClick={(e) => {
                                               e.stopPropagation();
                                               if (isLocked) return;
@@ -2207,34 +2407,37 @@ function WaterDemandPage() {
                                               setPreviewModalOpen(true);
                                             }}
                                           >
-                                            <div className="flex items-center gap-2 w-full">
+                                            <div className={`flex items-center gap-2 w-full h-full min-w-0 ${!selectedIrrRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
                                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 inline-block" />
-                                              <select
-                                                value={r.vegType}
-                                                disabled={isLocked}
-                                                onClick={(e) => e.stopPropagation()}
-                                                onDoubleClick={(e) => {
-                                                  e.stopPropagation();
-                                                  if (isLocked) return;
-                                                  setSelectedIrrRows(new Set([r.id]));
-                                                  setPreviewTarget({ type: "irrigation", rowId: r.id });
-                                                  setPreviewModalOpen(true);
-                                                }}
-                                                onChange={(e) => handleIrrRowChange(r.id, "vegType", e.target.value)}
-                                                className="w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 px-1 rounded text-[13px] font-medium text-foreground transition-all cursor-pointer"
-                                              >
-                                                <option value="Custom Vegetation">Other (Custom Vegetation)</option>
-                                                {Object.keys(IRR_TYPE_MAP).map((k) => (
-                                                  <option key={k} value={k}>
-                                                    {k}
-                                                  </option>
-                                                ))}
-                                              </select>
+                                              <div className="relative w-full flex items-center min-w-0">
+                                                <select
+                                                  value={r.vegType}
+                                                  disabled={isLocked}
+                                                  onChange={(e) => handleIrrRowChange(r.id, "vegType", e.target.value)}
+                                                  className="w-full bg-transparent border border-transparent hover:bg-surface-2 hover:border-muted-foreground/20 focus:bg-background focus:ring-1 focus:ring-primary focus:outline-none py-0.5 pl-1 pr-5 rounded text-[13px] font-medium text-foreground transition-all cursor-pointer appearance-none truncate"
+                                                >
+                                                  <option value="" disabled hidden>Select Vegetation Type...</option>
+                                                  <option value="Custom Vegetation">Other (Custom Vegetation)</option>
+                                                  {Object.keys(IRR_TYPE_MAP).map((k) => (
+                                                    <option key={k} value={k}>
+                                                      {k}
+                                                    </option>
+                                                  ))}
+                                                  {r.vegType && !IRR_TYPE_MAP[r.vegType] && r.vegType !== "Custom Vegetation" && (
+                                                    <option value={r.vegType}>{r.vegType}</option>
+                                                  )}
+                                                </select>
+                                              </div>
                                             </div>
                                           </td>
                                           <td 
-                                             style={getIrrColStyle("irr_area")} 
-                                             className={`py-1.5 px-3 text-center font-bold font-mono cursor-pointer `}
+                                            style={getIrrColStyle("irr_area")} 
+                                            className={`py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] ${
+                                              !selectedIrrRows.has(r.id)
+                                                ? "group/cell cursor-pointer hover:bg-primary/5 transition-colors"
+                                                : "group/cell cursor-text"
+                                            }`}
+                                            title={!selectedIrrRows.has(r.id) ? "Click to select row, click again to edit" : undefined}
                                             onDoubleClick={(e) => {
                                               e.stopPropagation();
                                               if (isLocked) return;
@@ -2243,23 +2446,18 @@ function WaterDemandPage() {
                                               setPreviewModalOpen(true);
                                             }}
                                           >
-                                            <input
-                                              type="number"
-                                              value={r.area}
-                                              disabled={isLocked}
-                                              onClick={(e) => e.stopPropagation()}
-                                              onDoubleClick={(e) => {
-                                                e.stopPropagation();
-                                                if (isLocked) return;
-                                                setSelectedIrrRows(new Set([r.id]));
-                                                setPreviewTarget({ type: "irrigation", rowId: r.id });
-                                                setPreviewModalOpen(true);
-                                              }}
-                                              onChange={(e) => handleIrrRowChange(r.id, "area", Number(e.target.value))}
-                                              className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
-                                            />
+                                            <div className={`w-full h-full flex items-center justify-center min-w-0 ${!selectedIrrRows.has(r.id) ? "pointer-events-none select-none" : "pointer-events-auto"}`}>
+                                              <input
+                                                type="number"
+                                                value={r.area}
+                                                disabled={isLocked}
+                                                onDoubleClick={(e) => e.stopPropagation()}
+                                                onChange={(e) => handleIrrRowChange(r.id, "area", Number(e.target.value))}
+                                                className="w-full bg-transparent border border-transparent hover:border-muted-foreground/20 focus:border-primary focus:outline-none focus:ring-0 py-0.5 px-1 rounded text-center font-mono tabular text-[13.5px] text-foreground transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
+                                              />
+                                            </div>
                                           </td>
-                                          <td style={getIrrColStyle("irr_rate")} className="py-1.5 px-3 text-center font-mono tabular font-medium text-foreground text-[13.5px] cursor-pointer"
+                                          <td style={getIrrColStyle("irr_rate")} className="py-1.5 px-3 text-center font-mono tabular font-medium text-foreground text-[13.5px] cursor-pointer border-r border-border/40"
                                             onDoubleClick={(e) => {
                                               e.stopPropagation();
                                               if (isLocked) return;
@@ -2270,7 +2468,7 @@ function WaterDemandPage() {
                                           >
                                             {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)}
                                           </td>
-                                          <td style={getIrrColStyle("irr_load")} className="py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] font-semibold text-emerald-600 dark:text-emerald-400 border-r border-border/40 cursor-pointer"
+                                          <td style={getIrrColStyle("irr_load")} className="py-0 px-2 h-[30px] text-center font-mono tabular text-[13.5px] font-semibold text-emerald-600 dark:text-emerald-400 cursor-pointer border-r border-border/40"
                                             onDoubleClick={(e) => {
                                               e.stopPropagation();
                                               if (isLocked) return;
@@ -2281,35 +2479,55 @@ function WaterDemandPage() {
                                           >
                                             {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()}
                                           </td>
-                                          <td style={getIrrColStyle("irr_actions")} className="py-0 px-2 h-[30px] text-center" onDoubleClick={(e) => e.stopPropagation()}>
-                                            <div className="flex items-center justify-center gap-1">
-                                              <button
-                                                type="button"
-                                                onClick={() => handleToggleIrrFlag(r.id)}
-                                                className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
-                                                title={r.flagged ? "Unflag zone" : "Flag zone"}
-                                              >
-                                                <Flag
-                                                  className={`size-3.5 transition-all duration-200 ${
-                                                    r.flagged
-                                                      ? "fill-red-500 text-red-500 scale-110"
-                                                      : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
-                                                  }`}
-                                                />
-                                              </button>
-
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setIrrRows((prev) => prev.filter((x) => x.id !== r.id));
-                                                  toast.success(`Deleted "${r.vegType}"`);
-                                                }}
-                                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-all cursor-pointer opacity-0 group-hover:opacity-100"
-                                                title="Delete entry"
-                                              >
-                                                <Trash2 className="size-3.5" />
-                                              </button>
-                                            </div>
+                                          <td style={getIrrColStyle("irr_actions")} className="py-0 px-1 h-[30px] text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                                            {(() => {
+                                              const val = getIrrRowValidation(r);
+                                              return (
+                                                <TooltipProvider delayDuration={150}>
+                                                  <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleToggleIrrFlag(r.id);
+                                                        }}
+                                                        className="p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer group flex items-center justify-center mx-auto"
+                                                      >
+                                                        <Flag
+                                                          className={`size-3.5 transition-all duration-200 ${
+                                                            val.isFlagged
+                                                              ? "fill-red-500 text-red-500 scale-110"
+                                                              : "text-muted-foreground/30 hover:text-red-500/60 group-hover:scale-110"
+                                                          }`}
+                                                        />
+                                                      </button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent
+                                                      side="left"
+                                                      align="center"
+                                                      className="max-w-[280px] p-2.5 text-left bg-zinc-900 text-white dark:bg-zinc-800 border border-zinc-700 shadow-xl rounded-xl z-50 animate-in fade-in zoom-in-95 pointer-events-none text-xs"
+                                                    >
+                                                      {val.isNoArea && val.isNoVegType ? (
+                                                        <div className="text-[11.5px]">Missing zone area and vegetation type</div>
+                                                      ) : val.isNoArea ? (
+                                                        <div className="text-[11.5px]">Missing zone area (Area must be &gt; 0)</div>
+                                                      ) : val.isNoVegType ? (
+                                                        <div className="text-[11.5px]">Missing vegetation type</div>
+                                                      ) : val.isNoRate ? (
+                                                        <div className="text-[11.5px]">Missing irrigation consumption rate</div>
+                                                      ) : val.isZeroDemand ? (
+                                                        <div className="text-[11.5px]">Daily irrigation demand is 0</div>
+                                                      ) : val.isManual ? (
+                                                        <div className="text-[11.5px]">Flagged zone (Click to unflag)</div>
+                                                      ) : (
+                                                        <div className="text-[11.5px]">Click to flag zone for manual review</div>
+                                                      )}
+                                                    </TooltipContent>
+                                                  </Tooltip>
+                                                </TooltipProvider>
+                                              );
+                                            })()}
                                           </td>
                                         </tr>
                                       </ContextMenuTrigger>
@@ -2362,9 +2580,17 @@ function WaterDemandPage() {
                                         </ContextMenuItem>
                                         <ContextMenuSeparator className="h-px bg-border my-1" />
                                         <ContextMenuItem
-                                          onClick={() => {
-                                            setIrrRows((prev) => prev.filter((x) => x.id !== r.id));
-                                            toast.success(`Deleted "${r.vegType}"`);
+                                          onClick={async () => {
+                                            const ok = await confirm(`Are you sure you want to delete zone "${r.vegType}"?`, {
+                                              title: "Delete Zone",
+                                              confirmText: "Delete",
+                                              cancelText: "Cancel",
+                                              variant: "destructive",
+                                            });
+                                            if (ok) {
+                                              setIrrRows((prev) => prev.filter((x) => x.id !== r.id));
+                                              toast.info(`Deleted "${r.vegType}"`);
+                                            }
                                           }}
                                           className="flex items-center gap-2 px-2 py-1.5 hover:bg-destructive/10 hover:text-destructive rounded text-destructive cursor-pointer"
                                         >
@@ -2382,7 +2608,7 @@ function WaterDemandPage() {
 
                       {/* Table Summary Footer Bar */}
                       <div className="flex items-center justify-between px-3 h-7 border-t border-border bg-header-bg text-[11px] text-muted-foreground shrink-0 select-none no-print">
-                        <div>Showing <span className="text-foreground font-medium tabular">{irrRows.length}</span> of {irrRows.length} vegetation zones</div>
+                        <div>Showing <span className="text-foreground font-medium tabular">{filteredAndSortedIrrRows.length}</span> of {irrRows.length} vegetation zones</div>
                         <div className="flex items-center gap-4 tabular">
                           <span>Total Area: <strong className="text-foreground font-mono font-bold">{irrRows.reduce((a, b) => a + (b.area || 0), 0).toLocaleString()} {ip ? "ft²" : "m²"}</strong></span>
                           <span>Total Daily Load: <strong className="text-emerald-600 dark:text-emerald-400 font-mono font-bold text-xs">{calculations.displayIrrigation}</strong></span>
@@ -2697,299 +2923,429 @@ function WaterDemandPage() {
 
           {/* -------------------- TAB 2: STORAGE & PUMPS -------------------- */}
           {tab === "tanks" && (
-            <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 custom-scrollbar space-y-6">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50 dark:bg-zinc-950/20">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-8">
-                
-                {/* 1. Domestic Water Storage Tank Sizing Card */}
-                <div className="lg:col-span-6 space-y-5">
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild>
-                      <div
-                        onDoubleClick={() => {
-                          setPreviewTarget({ type: "tank" });
-                          setPreviewModalOpen(true);
-                        }}
-                        title="Double-click to open storage tank sizing calculation breakdown"
-                        className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-sm cursor-pointer select-none"
-                      >
-                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1 h-3.5 bg-primary rounded-full"></div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans flex items-center gap-1.5">
-                              <Building2 className="size-4 text-primary" /> 1. Storage Tank Capacity &amp; Split Sizing
-                            </h3>
-                          </div>
+                {/* LEFT COLUMN: PARAMETER INPUTS (lg:col-span-5) */}
+                <div className="lg:col-span-5 space-y-5">
+                  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-5 space-y-5">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                      <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                        📥 Sizing Parameters
+                      </span>
+                    </div>
+
+                    {/* STORAGE RETENTION */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div className="relative p-3 rounded-xl border bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all">
+                          <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1.5">
+                            Storage Retention Days
+                          </label>
+                          <select
+                            disabled={isEffectiveReadOnly}
+                            value={storageDays}
+                            onChange={(e) => {
+                              setStorageDays(Number(e.target.value));
+                              dirtyStore.set(true);
+                            }}
+                            className="w-full h-9 px-3 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono font-semibold text-foreground focus:outline-none focus:border-[#0A7BC7] cursor-pointer"
+                          >
+                            <option value={1}>1 Day Storage (24 Hours — Standard)</option>
+                            <option value={1.5}>1.5 Day Storage (36 Hours — Intermediate Reserve)</option>
+                            <option value={2}>2 Days Storage (48 Hours — DEWA/ADDC Reserve)</option>
+                            <option value={3}>3 Days Storage (72 Hours — Emergency Reserve)</option>
+                          </select>
                         </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          disabled={isEffectiveReadOnly}
+                          onClick={() => {
+                            if (isEffectiveReadOnly) return;
+                            setStorageDays(1);
+                            dirtyStore.set(true);
+                            toast.success("Storage retention reset to standard (1 Day)");
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
+                        >
+                          <RotateCcw className="size-3.5 text-muted-foreground" />
+                          <span>Reset to 1 Day</span>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={() => {
+                            setPreviewTarget({ type: "tank" });
+                            setPreviewModalOpen(true);
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                        >
+                          <Calculator className="size-3.5 text-primary" />
+                          <span>Calculation Breakdown</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Storage Retention Days</label>
-                            <select
-                              value={storageDays}
-                              onChange={(e) => setStorageDays(Number(e.target.value))}
-                              className="bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-primary cursor-pointer"
-                            >
-                              <option value={1}>1 Day Storage (24 Hours — Standard)</option>
-                              <option value={1.5}>1.5 Day Storage (36 Hours — Intermediate Reserve)</option>
-                              <option value={2}>2 Days Storage (48 Hours — DEWA/ADDC Reserve)</option>
-                              <option value={3}>3 Days Storage (72 Hours — Emergency Reserve)</option>
-                            </select>
-                          </div>
-
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Target Storage Volume</label>
-                            <div className="bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-lg px-3 py-2 text-xs font-mono font-extrabold text-primary flex items-center justify-between">
-                              <span>{calculations.displayTotalStorage}</span>
-                              <span className="text-[10px] text-muted-foreground font-sans font-medium">({storageDays} Day Retention)</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col gap-3 mt-2">
-                          {/* Ground Water Break Tank */}
-                          <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-foreground">
-                                  Ground Water Break Tank
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <div className="flex items-center gap-1 bg-white dark:bg-slate-950 border border-border rounded px-2 py-0.5">
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    max={500}
-                                    value={groundTankPct}
-                                    onChange={(e) => setGroundTankPct(Number(e.target.value))}
-                                    className="w-12 bg-transparent text-xs font-mono font-bold text-primary text-center outline-none"
-                                  />
-                                  <span className="text-[10px] font-bold text-muted-foreground">%</span>
-                                </div>
-                                <span className="text-xs font-mono font-extrabold text-primary">{calculations.displayGroundTank}</span>
-                              </div>
-                            </div>
-                            <div className="text-[11.5px] text-muted-foreground">
-                              Suggested Dimensions: <strong className="text-foreground font-mono">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H</strong> (+ 0.3m freeboard)
-                            </div>
-                          </div>
-
-                          {/* Overhead Roof Tanks Container */}
-                          <div className="flex flex-col gap-2.5 pt-2 border-t border-border/60">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Building2 className="size-4 text-primary" />
-                                <span className="text-xs font-bold text-foreground">
-                                  Overhead Roof Tanks ({overheadTanks.length})
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleAddOverheadTank();
-                                }}
-                                className="text-xs text-primary hover:text-white bg-primary/10 hover:bg-primary font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all cursor-pointer shadow-xs"
-                              >
-                                <Plus className="size-3.5" /> Add Overhead Tank
-                              </button>
-                            </div>
-
-                            {overheadTanks.length === 0 ? (
-                              <div className="p-3 bg-slate-50 dark:bg-slate-900/30 border border-dashed border-border rounded-xl text-center text-xs text-muted-foreground italic">
-                                No overhead roof tanks configured. Click &quot;+ Add Overhead Tank&quot; above to add overhead roof storage tanks.
-                              </div>
-                            ) : (
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {calculations.overheadTanksCalculated.map((t) => (
-                                  <div
-                                    key={t.id}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="p-3.5 bg-slate-50 dark:bg-slate-900/40 border border-border rounded-xl flex flex-col gap-2 relative group"
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <input
-                                        type="text"
-                                        value={t.name}
-                                        onChange={(e) => handleRenameOverheadTank(t.id, e.target.value)}
-                                        className="bg-transparent font-bold text-xs text-foreground outline-none focus:bg-white dark:focus:bg-slate-950 px-1.5 py-0.5 rounded border border-transparent hover:border-slate-300 focus:border-primary w-full"
-                                        placeholder="Overhead Tank Name"
-                                      />
-                                      <div className="flex items-center gap-2 shrink-0">
-                                        <div className="flex items-center gap-1 bg-white dark:bg-slate-950 border border-border rounded px-1.5 py-0.5">
-                                          <input
-                                            type="number"
-                                            min={0}
-                                            max={100}
-                                            value={t.splitPct}
-                                            onChange={(e) => handleUpdateOverheadTankPct(t.id, Number(e.target.value))}
-                                            className="w-10 bg-transparent text-xs font-mono font-bold text-primary text-center outline-none"
-                                          />
-                                          <span className="text-[10px] font-bold text-muted-foreground">%</span>
-                                        </div>
-                                        <span className="text-xs font-mono font-extrabold text-primary">
-                                          {t.displayVol}
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleRemoveOverheadTank(t.id);
-                                          }}
-                                          className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
-                                          title="Remove Overhead Tank"
-                                        >
-                                          <Trash2 className="size-3.5" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                    <div className="text-[11.5px] text-muted-foreground">
-                                      Suggested Dimensions: <strong className="text-foreground font-mono">{t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H</strong> (+ 0.3m freeboard)
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                    {/* GROUND WATER BREAK TANK */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Ground Water Break Tank
+                        </span>
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border bg-slate-50/70 dark:bg-zinc-800/50 border-slate-200/80 dark:border-zinc-700">
+                          <span className="text-[11px] font-medium text-slate-500">Allocation:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={500}
+                            disabled={isEffectiveReadOnly}
+                            value={groundTankPct}
+                            onChange={(e) => {
+                              setGroundTankPct(Number(e.target.value));
+                              dirtyStore.set(true);
+                            }}
+                            className="w-12 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-100 font-bold font-mono text-center border border-slate-200 dark:border-zinc-700 rounded px-1 py-0.5 outline-none focus:border-primary text-xs"
+                          />
+                          <span className="text-[10.5px] text-slate-400">%</span>
                         </div>
                       </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
-                      <ContextMenuItem
-                        onClick={() => {
-                          setPreviewTarget({ type: "tank" });
-                          setPreviewModalOpen(true);
-                        }}
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                      >
-                        <Calculator className="size-3.5 text-muted-foreground" />
-                        <span>Calculation Breakdown</span>
-                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        onClick={() =>
-                          setCommentTarget({
-                            targetId: "storage_tanks",
-                            targetName: "Water Storage Tanks",
-                            targetType: "Storage Tanks",
-                            existingComments: [],
-                          })
-                        }
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                      >
-                        <MessageSquare className="size-3.5" />
-                        <span>Add Comment</span>
-                      </ContextMenuItem>
-                      <ContextMenuSeparator className="h-px bg-border my-1" />
-                      <ContextMenuItem
-                        onClick={handleExportPDF}
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
-                      >
-                        <FileText className="size-3.5" />
-                        <span>Export PDF Report</span>
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
+
+                      <div className="p-3 rounded-xl border bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600 dark:text-zinc-400 font-medium">Break Tank Volume:</span>
+                          <span className="font-mono font-bold text-primary">{calculations.displayGroundTank}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1 border-t border-slate-200/40 dark:border-zinc-800/60">
+                          <span>Suggested Dimensions:</span>
+                          <span className="font-mono text-foreground font-semibold">
+                            {calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H <span className="text-[10px] text-muted-foreground">(+ 0.3m freeboard)</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* OVERHEAD ROOF TANKS */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Overhead Roof Tanks ({overheadTanks.length})
+                        </span>
+                        {!isEffectiveReadOnly && (
+                          <button
+                            type="button"
+                            onClick={handleAddOverheadTank}
+                            className="text-[10.5px] font-bold text-[#0A7BC7] hover:underline cursor-pointer flex items-center gap-1"
+                          >
+                            <Plus className="size-3" /> Add Overhead Tank
+                          </button>
+                        )}
+                      </div>
+
+                      {overheadTanks.length === 0 ? (
+                        <div className="p-3 bg-slate-50/50 dark:bg-zinc-800/20 border border-dashed border-slate-200 dark:border-zinc-800 rounded-xl text-center text-xs text-muted-foreground italic">
+                          No overhead roof tanks configured. Click &quot;Add Overhead Tank&quot; above to add overhead storage.
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5">
+                          {calculations.overheadTanksCalculated.map((t) => (
+                            <div
+                              key={t.id}
+                              className="p-3 bg-slate-50/50 dark:bg-zinc-800/40 border border-slate-200/80 dark:border-zinc-800 rounded-xl flex flex-col gap-2 hover:border-slate-300 dark:hover:border-zinc-700 transition-all text-xs"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <input
+                                  type="text"
+                                  disabled={isEffectiveReadOnly}
+                                  value={t.name}
+                                  onChange={(e) => handleRenameOverheadTank(t.id, e.target.value)}
+                                  className="bg-transparent font-bold text-xs text-foreground outline-none focus:bg-white dark:focus:bg-zinc-900 px-1.5 py-0.5 rounded border border-transparent hover:border-slate-300 dark:hover:border-zinc-700 focus:border-primary flex-1"
+                                  placeholder="Overhead Tank Name"
+                                />
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <div className="flex items-center gap-1 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded px-1.5 py-0.5">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      disabled={isEffectiveReadOnly}
+                                      value={t.splitPct}
+                                      onChange={(e) => handleUpdateOverheadTankPct(t.id, Number(e.target.value))}
+                                      className="w-10 bg-transparent text-xs font-mono font-bold text-primary text-center outline-none"
+                                    />
+                                    <span className="text-[10px] font-bold text-muted-foreground">%</span>
+                                  </div>
+                                  <span className="text-xs font-mono font-extrabold text-primary">
+                                    {t.displayVol}
+                                  </span>
+                                  {!isEffectiveReadOnly && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveOverheadTank(t.id)}
+                                      className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-colors cursor-pointer"
+                                      title="Remove Overhead Tank"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-[11px] text-muted-foreground flex items-center justify-between pt-1 border-t border-slate-200/40 dark:border-zinc-800/60">
+                                <span>Suggested Dimensions:</span>
+                                <span className="font-mono text-foreground font-semibold">
+                                  {t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H <span className="text-[10px] text-muted-foreground">(+ 0.3m freeboard)</span>
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* PEAK FLOW & TRANSFER PUMP PARAMETERS */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Domestic Peak Flow &amp; Transfer Pump Sizing
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="relative p-3 rounded-xl border bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all">
+                          <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                            Diversity / Peak Multiplier (K)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            disabled={isEffectiveReadOnly}
+                            value={peakFactor}
+                            onChange={(e) => {
+                              setPeakFactor(Number(e.target.value));
+                              dirtyStore.set(true);
+                            }}
+                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs font-bold text-foreground focus:outline-none focus:border-[#0A7BC7]"
+                          />
+                        </div>
+
+                        <div className="relative p-3 rounded-xl border bg-slate-50/50 dark:bg-zinc-800/40 border-slate-200/80 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all">
+                          <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                            Transfer Filling Duration
+                          </label>
+                          <select
+                            disabled={isEffectiveReadOnly}
+                            value={fillWindowHours}
+                            onChange={(e) => {
+                              setFillWindowHours(Number(e.target.value));
+                              dirtyStore.set(true);
+                            }}
+                            className="w-full h-8 px-2 mt-1 bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded font-mono text-xs font-bold text-foreground focus:outline-none focus:border-[#0A7BC7] cursor-pointer"
+                          >
+                            <option value={1}>1 Hour Filling Window</option>
+                            <option value={2}>2 Hours Filling Window (Standard)</option>
+                            <option value={3}>3 Hours Filling Window</option>
+                            <option value={4}>4 Hours Filling Window</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* 2. Domestic Peak Flow & Transfer Pump Capacity Card */}
-                <div className="lg:col-span-6 space-y-5">
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild>
-                      <div
-                        onDoubleClick={() => {
-                          setPreviewTarget({ type: "pump" });
-                          setPreviewModalOpen(true);
-                        }}
-                        title="Double-click to open transfer pump duty calculation breakdown"
-                        className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-sm cursor-pointer select-none"
-                      >
-                        <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                          <div className="flex items-center gap-2">
-                            <div className="w-1 h-3.5 bg-primary rounded-full"></div>
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground font-sans flex items-center gap-1.5">
-                              <Sparkles className="size-4 text-primary" /> 2. Domestic Peak Flow &amp; Transfer Pump Sizing
-                            </h3>
-                          </div>
-                        </div>
+                {/* RIGHT COLUMN: CALCULATION RESULTS (lg:col-span-7) */}
+                <div className="lg:col-span-7 space-y-5 lg:sticky lg:top-0 self-start">
+                  {/* PRIMARY RESULTS CARD */}
+                  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm p-6 space-y-6">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
+                      <span className="text-[12.5px] font-bold text-foreground flex items-center gap-1.5 uppercase tracking-wide">
+                        ⚡ Sizing Results Summary
+                      </span>
+                    </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-sans">
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Diversity / Peak Multiplier (K)</label>
-                            <input
-                              type="number"
-                              step="0.1"
-                              value={peakFactor}
-                              onChange={(e) => setPeakFactor(Number(e.target.value))}
-                              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-primary"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Transfer Filling Duration</label>
-                            <select
-                              value={fillWindowHours}
-                              onChange={(e) => setFillWindowHours(Number(e.target.value))}
-                              className="w-full bg-slate-100/50 dark:bg-slate-950/40 border border-border/80 rounded-lg px-3 py-2 outline-none font-bold focus:border-primary cursor-pointer"
-                            >
-                              <option value={1}>1 Hour Filling Window</option>
-                              <option value={2}>2 Hours Filling Window (Standard)</option>
-                              <option value={3}>3 Hours Filling Window</option>
-                              <option value={4}>4 Hours Filling Window</option>
-                            </select>
-                          </div>
-
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Calculated Peak Flow</label>
-                            <div className="bg-slate-100 dark:bg-slate-900 border border-border rounded-lg px-3 py-2 text-xs font-mono font-extrabold text-foreground">
-                              {calculations.displayDomesticPeak}
+                    {/* DISPLAY STAT CARDS (4 CARDS MATCHING PUMP SIZING) */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {/* Card 1: Target Storage (Blue) */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            onDoubleClick={() => {
+                              setPreviewTarget({ type: "tank" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="relative bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40 rounded-xl p-3.5 transition-all hover:border-blue-300 dark:hover:border-blue-700 cursor-context-menu"
+                          >
+                            <div className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">Target Storage</div>
+                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                              {ip ? Math.round(calculations.reqStorageGal).toLocaleString() : Math.round(calculations.reqStorageL).toLocaleString()} <span className="text-xs font-normal text-muted-foreground">{ip ? "gal" : "L"}</span>
                             </div>
                           </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => {
+                              setPreviewTarget({ type: "tank" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Calculator className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
 
-                          <div className="flex flex-col gap-1.5">
-                            <label className="font-semibold text-foreground">Required Transfer Pump Flow</label>
-                            <div className="bg-primary text-primary-foreground border border-primary rounded-lg px-3 py-2 text-xs font-mono font-extrabold">
+                      {/* Card 2: Ground Break Tank (Amber) */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            onDoubleClick={() => {
+                              setPreviewTarget({ type: "tank" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="relative bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 rounded-xl p-3.5 transition-all hover:border-amber-300 dark:hover:border-amber-700 cursor-context-menu"
+                          >
+                            <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">Ground Tank</div>
+                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                              {ip ? Math.round(calculations.groundTankL / 3.78541).toLocaleString() : Math.round(calculations.groundTankL).toLocaleString()} <span className="text-xs font-normal text-muted-foreground">{ip ? "gal" : "L"}</span>
+                            </div>
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => {
+                              setPreviewTarget({ type: "tank" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Calculator className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+
+                      {/* Card 3: Domestic Peak Flow (Emerald) */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            onDoubleClick={() => {
+                              setPreviewTarget({ type: "pump" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="relative bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-xl p-3.5 transition-all hover:border-emerald-300 dark:hover:border-emerald-700 cursor-context-menu"
+                          >
+                            <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Calculated Peak Flow</div>
+                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                              {ip ? Math.round(calculations.peakGPM).toLocaleString() : calculations.peakLPS.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">{ip ? "GPM" : "L/s"}</span>
+                            </div>
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => {
+                              setPreviewTarget({ type: "pump" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Calculator className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+
+                      {/* Card 4: Required Transfer Flow (Purple) */}
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            onDoubleClick={() => {
+                              setPreviewTarget({ type: "pump" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="relative bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-800/40 rounded-xl p-3.5 transition-all hover:border-purple-300 dark:hover:border-purple-700 cursor-context-menu"
+                          >
+                            <div className="text-[11px] text-purple-600 dark:text-purple-400 font-medium">Transfer Pump Flow</div>
+                            <div className="text-xl font-bold font-mono text-foreground mt-1">
+                              {ip ? calculations.transferPumpGPM.toFixed(1) : calculations.transferPumpLPS.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">{ip ? "GPM" : "L/s"}</span>
+                            </div>
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                          <ContextMenuItem
+                            onClick={() => {
+                              setPreviewTarget({ type: "pump" });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                          >
+                            <Calculator className="size-3.5 text-primary" />
+                            <span>Calculation Preview</span>
+                            <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
+                    </div>
+
+                    {/* DETAILED METRICS TABLE */}
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <div className="relative bg-slate-50 dark:bg-zinc-800/50 rounded-xl p-4 border border-slate-200/80 dark:border-zinc-800 space-y-2.5 text-xs transition-all hover:border-slate-300 dark:hover:border-zinc-700 cursor-context-menu">
+                          <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                            <span className="text-slate-600 dark:text-zinc-400">Total Daily Water Demand:</span>
+                            <span className="font-mono font-bold">{calculations.displayGrandTotal}</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                            <span className="text-slate-600 dark:text-zinc-400">Storage Retention Period:</span>
+                            <span className="font-mono font-bold">{storageDays} Day{storageDays > 1 ? "s" : ""} ({storageDays * 24} Hours)</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                            <span className="text-slate-600 dark:text-zinc-400">Suggested Ground Tank Dimensions:</span>
+                            <span className="font-mono font-bold">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H (+0.3m freeboard)</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                            <span className="text-slate-600 dark:text-zinc-400">Overhead Roof Storage Tanks:</span>
+                            <span className="font-mono font-bold">
+                              {overheadTanks.length > 0
+                                ? `${overheadTanks.reduce((s, t) => s + t.splitPct, 0)}% Total (${calculations.overheadTanksCalculated.map(t => `${t.name}: ${t.displayVol}`).join(", ")})`
+                                : "None configured"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-200/50 dark:border-zinc-800">
+                            <span className="text-slate-600 dark:text-zinc-400">Domestic Peak Diversity Multiplier:</span>
+                            <span className="font-mono font-bold">K = {peakFactor}</span>
+                          </div>
+                          <div className="flex justify-between py-1 font-bold text-foreground">
+                            <span>Estimated Transfer Pump Flow:</span>
+                            <span className="font-mono text-[#0A7BC7] font-bold">
                               {calculations.displayTransferPump}
-                            </div>
+                            </span>
                           </div>
                         </div>
-                      </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="w-64 min-w-[16rem] bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground">
-                      <ContextMenuItem
-                        onClick={() => {
-                          setPreviewTarget({ type: "pump" });
-                          setPreviewModalOpen(true);
-                        }}
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer"
-                      >
-                        <Calculator className="size-3.5 text-muted-foreground" />
-                        <span>Calculation Breakdown</span>
-                        <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Double Click</ContextMenuShortcut>
-                      </ContextMenuItem>
-                      <ContextMenuItem
-                        onClick={() =>
-                          setCommentTarget({
-                            targetId: "transfer_pumps",
-                            targetName: "Transfer Pumps",
-                            targetType: "Transfer Pumps",
-                            existingComments: [],
-                          })
-                        }
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 rounded cursor-pointer text-blue-600 dark:text-blue-400 font-medium"
-                      >
-                        <MessageSquare className="size-3.5" />
-                        <span>Add Comment</span>
-                      </ContextMenuItem>
-                      <ContextMenuSeparator className="h-px bg-border my-1" />
-                      <ContextMenuItem
-                        onClick={handleExportPDF}
-                        className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
-                      >
-                        <FileText className="size-3.5" />
-                        <span>Export PDF Report</span>
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-56 bg-popover border border-border rounded-lg shadow-lg p-1 text-[13px] text-popover-foreground z-50">
+                        <ContextMenuItem
+                          onClick={() => {
+                            setPreviewTarget({ type: "pump" });
+                            setPreviewModalOpen(true);
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                        >
+                          <Calculator className="size-3.5 text-primary" />
+                          <span>Calculation Preview</span>
+                          <ContextMenuShortcut className="text-[10px] text-muted-foreground font-mono ml-auto">Formula</ContextMenuShortcut>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator className="h-px bg-border my-1" />
+                        <ContextMenuItem
+                          onClick={handleExportPDF}
+                          className="flex items-center gap-2 px-2 py-1.5 hover:bg-accent hover:text-accent-foreground rounded cursor-pointer font-medium text-primary"
+                        >
+                          <FileText className="size-3.5" />
+                          <span>Export PDF Report</span>
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  </div>
                 </div>
               </div>
             </div>
@@ -4077,7 +4433,7 @@ function WaterDemandPage() {
           poolArea={poolArea}
           poolDepth={poolDepth}
           fireFlow={fireFlow}
-          storageDays={tankRetentionDays}
+          storageDays={storageDays}
           presetStandard={presetStandard}
         />
       )}
@@ -4139,443 +4495,424 @@ function WaterDemandReportView({
   });
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-1 px-4 h-11 shrink-0 border-b border-border/50 bg-card/50 no-print">
-        <span className="text-[12px] text-muted-foreground font-semibold">
-          Generated: <span className="text-foreground font-mono">{new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-        </span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <TBtn primary onClick={onExportPdf}>
-            <FileText className="size-3.5" /> Export PDF
-          </TBtn>
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
-      <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-8 space-y-6">
+    <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 custom-scrollbar bg-slate-100/50 dark:bg-zinc-950/40">
+      <div className="max-w-4xl mx-auto bg-card border border-border shadow-md rounded-2xl p-6 md:p-8 space-y-6 font-sans">
         
-        {/* Document Header */}
-        <div className="flex justify-between items-start pb-4 border-b border-border">
-          <div>
-            <h2 className="text-xl font-black text-foreground uppercase tracking-wide">
-              Water Demand &amp; Storage Tank Sizing Calculation
-            </h2>
-            <p className="text-[12px] text-muted-foreground mt-0.5">
-              Comprehensive Water Consumption, Storage Autonomy &amp; Transfer Pumping Analysis
-            </p>
-          </div>
-          <div className="text-right">
-            <span className="text-[11px] text-muted-foreground block mt-0.5">
-              Date: {new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' })}
-            </span>
-          </div>
+        {/* 1. Title */}
+        <div className="pb-1">
+          <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
+            Water Demand &amp; Storage Tank Sizing Calculation
+          </h2>
         </div>
 
-        {/* Table 1: Design Parameters & Overall Summary */}
+        {/* 2. Project Metadata Header Box (Exact 2-column x 3-row format) */}
+        <div className="border border-border rounded-xl overflow-hidden text-xs">
+          <table className="w-full border-collapse">
+            <tbody>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold w-40 bg-muted/20">Calculation No.:</td>
+                <td className="p-2.5 font-mono text-foreground font-medium">{(project as any)?.calcNo || "CALC-PLUM-WD01"}</td>
+                <td className="p-2.5 font-bold w-28 bg-muted/20">Date:</td>
+                <td className="p-2.5 font-mono font-medium">{formatDateStr(new Date().toISOString())}</td>
+              </tr>
+              <tr className="border-b border-border divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project No.:</td>
+                <td className="p-2.5 font-mono">{project?.code || (project as any)?.projectNo || "MEP-P001"}</td>
+                <td className="p-2.5 font-bold bg-muted/20">Client:</td>
+                <td className="p-2.5">{project?.client || "Prestige Group developers"}</td>
+              </tr>
+              <tr className="divide-x divide-border">
+                <td className="p-2.5 font-bold bg-muted/20">Project Name:</td>
+                <td className="p-2.5">{project?.name || "Water Demand & Storage Tank Sizing"}</td>
+                <td className="p-2.5 font-bold bg-muted/20">End User:</td>
+                <td className="p-2.5">{(project as any)?.endUser || "Building Authority"}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* 3. Table 1: Design Parameters & Overall Summary */}
         <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
+          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
             1. Executive Design Parameter Summary
           </h3>
-          <table className="w-full text-[12px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-center w-12">No.</th>
-                <th className="border border-border p-2 text-left">Executive Design Parameter Summary</th>
-                <th className="border border-border p-2 text-center w-32">Value</th>
-                <th className="border border-border p-2 text-center w-24">Unit</th>
-                <th className="border border-border p-2 text-left">Standard / Code Reference</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                <td className="border border-border p-2 font-bold">Total Occupied Spaces</td>
-                <td className="border border-border p-2 text-center font-bold">{wdRows.length}</td>
-                <td className="border border-border p-2 text-center">spaces</td>
-                <td className="border border-border p-2 text-muted-foreground">Architectural Space Inventory</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                <td className="border border-border p-2 font-bold">Total Occupancy Headcount</td>
-                <td className="border border-border p-2 text-center font-bold">{(calculations.totalPeople || 0).toLocaleString()}</td>
-                <td className="border border-border p-2 text-center">people</td>
-                <td className="border border-border p-2 text-muted-foreground">Scheduled Design Occupancy</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                <td className="border border-border p-2 font-bold">Domestic Daily Water Demand</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {(ip ? Math.round((calculations.totalWaterL || 0) / 3.78541) : Math.round(calculations.totalWaterL || 0)).toLocaleString()}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "gal/day" : "L/day"}</td>
-                <td className="border border-border p-2 text-muted-foreground">Governing Standard Allowance</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                <td className="border border-border p-2 font-bold">Domestic Peak Flow Rate</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {ip ? Math.round(calculations.peakGPM || 0).toLocaleString() : (calculations.peakLPS || 0).toFixed(2)}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "GPM" : "L/s"}</td>
-                <td className="border border-border p-2 text-muted-foreground">Peak Multiplier K = {peakFactor}</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">5</td>
-                <td className="border border-border p-2 font-bold">Irrigation Daily Water Load</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {(ip ? Math.round((calculations.totalIrrL || 0) / 3.78541) : Math.round(calculations.totalIrrL || 0)).toLocaleString()}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "gal/day" : "L/day"}</td>
-                <td className="border border-border p-2 text-muted-foreground">Landscaping Vegetation Schedule</td>
-              </tr>
-              {poolArea && poolDepth && (
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">6</td>
-                  <td className="border border-border p-2 font-bold">Swimming Pool Makeup Water</td>
-                  <td className="border border-border p-2 text-center font-bold">
-                    {(ip ? Math.round((calculations.poolDemandL || 0) / 3.78541) : Math.round(calculations.poolDemandL || 0)).toLocaleString()}
-                  </td>
-                  <td className="border border-border p-2 text-center">{ip ? "gal/day" : "L/day"}</td>
-                  <td className="border border-border p-2 text-muted-foreground">Evaporation Loss {poolEvap}%/day + Backwash</td>
-                </tr>
-              )}
-              {fireFlow && (
-                <tr>
-                  <td className="border border-border p-2 text-center text-muted-foreground">7</td>
-                  <td className="border border-border p-2 font-bold">Fire Fighting Dedicated Reserve</td>
-                  <td className="border border-border p-2 text-center font-bold text-red-600 dark:text-red-400">
-                    {(ip ? Math.round((calculations.fireCapL || 0) / 3.78541) : Math.round(calculations.fireCapL || 0)).toLocaleString()}
-                  </td>
-                  <td className="border border-border p-2 text-center">{ip ? "gal" : "L"}</td>
-                  <td className="border border-border p-2 text-muted-foreground">60-Min Standard Duration (NFPA 13/14)</td>
-                </tr>
-              )}
-              <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                <td className="border border-border p-2 text-center text-muted-foreground">—</td>
-                <td className="border border-border p-2">TOTAL DAILY WATER DEMAND</td>
-                <td className="border border-border p-2 text-center text-pink-600 dark:text-pink-400 font-bold">
-                  {(ip ? Math.round((calculations.grandTotalL || 0) / 3.78541) : Math.round(calculations.grandTotalL || 0)).toLocaleString()}
-                </td>
-                <td className="border border-border p-2 text-center font-bold">{ip ? "gal/day" : "L/day"}</td>
-                <td className="border border-border p-2">Combined Site Daily Service Load</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">8</td>
-                <td className="border border-border p-2 font-bold">Total Storage Autonomy Retention</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {ip ? Math.round(calculations.reqStorageGal || 0).toLocaleString() : (calculations.reqStorageM3 || 0).toFixed(2)}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "gal" : "m³"}</td>
-                <td className="border border-border p-2 text-muted-foreground">{storageDays} Day(s) Mandatory Storage Duration</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">9</td>
-                <td className="border border-border p-2 font-bold">Ground Water Break Tank</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {(ip ? Math.round((calculations.groundTankL || 0) / 3.78541) : Math.round(calculations.groundTankL || 0)).toLocaleString()}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "gal" : "L"}</td>
-                <td className="border border-border p-2 text-muted-foreground">{calculations.groundPct}% Ground Split ({calculations.groundDim.l}m × {calculations.groundDim.w}m × {calculations.groundDim.h}m)</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">10</td>
-                <td className="border border-border p-2 font-bold">Transfer Pumping Duty Flow Rate</td>
-                <td className="border border-border p-2 text-center font-bold">
-                  {ip ? (calculations.transferPumpGPM || 0).toFixed(1) : (calculations.transferPumpLPS || 0).toFixed(2)}
-                </td>
-                <td className="border border-border p-2 text-center">{ip ? "GPM" : "L/s"}</td>
-                <td className="border border-border p-2 text-muted-foreground">Designed for {fillWindowHours}-Hour Roof Tank Filling Window</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* Table 2: Water Storage Tanks & Transfer Pump Physical Sizing */}
-        <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-            2. Water Storage Tanks &amp; Transfer Pump Physical Sizing
-          </h3>
-          <table className="w-full text-[12px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-center w-12">No.</th>
-                <th className="border border-border p-2 text-left">Facility / Equipment</th>
-                <th className="border border-border p-2 text-left">Specification &amp; Tank Type</th>
-                <th className="border border-border p-2 text-center w-24">Allocation</th>
-                <th className="border border-border p-2 text-center w-28">Effective Capacity</th>
-                <th className="border border-border p-2 text-center w-20">Unit</th>
-                <th className="border border-border p-2 text-left">Suggested Dimensions / Operating Duty</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                <td className="border border-border p-2 font-bold">Ground Water Break Tank</td>
-                <td className="border border-border p-2 text-muted-foreground">Reinforced Concrete / Sectional GRP</td>
-                <td className="border border-border p-2 text-center font-mono font-bold">{calculations.groundPct}%</td>
-                <td className="border border-border p-2 text-center font-mono font-bold">{calculations.displayGroundTank}</td>
-                <td className="border border-border p-2 text-center font-mono">{ip ? "gal" : "L"}</td>
-                <td className="border border-border p-2 font-mono text-muted-foreground">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H (+0.3m Freeboard)</td>
-              </tr>
-              {calculations.overheadTanksCalculated.map((t: any, idx: number) => (
-                <tr key={t.id}>
-                  <td className="border border-border p-2 text-center text-muted-foreground">{idx + 2}</td>
-                  <td className="border border-border p-2 font-bold">{t.name}</td>
-                  <td className="border border-border p-2 text-muted-foreground">Modular Sectional GRP / Polyethylene</td>
-                  <td className="border border-border p-2 text-center font-mono font-bold">{t.sharePct.toFixed(0)}%</td>
-                  <td className="border border-border p-2 text-center font-mono font-bold">{t.displayVol}</td>
-                  <td className="border border-border p-2 text-center font-mono">{ip ? "gal" : "L"}</td>
-                  <td className="border border-border p-2 font-mono text-muted-foreground">{t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H (+0.3m Freeboard)</td>
-                </tr>
-              ))}
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">{calculations.overheadTanksCalculated.length + 2}</td>
-                <td className="border border-border p-2 font-bold">Roof Transfer Pump</td>
-                <td className="border border-border p-2 text-muted-foreground">Vertical Multistage Booster (1W + 1S)</td>
-                <td className="border border-border p-2 text-center font-mono font-bold">100% Roof</td>
-                <td className="border border-border p-2 text-center font-mono font-bold text-pink-600 dark:text-pink-400">{calculations.displayTransferPump}</td>
-                <td className="border border-border p-2 text-center font-mono">{ip ? "GPM" : "L/s"}</td>
-                <td className="border border-border p-2 text-muted-foreground">Designed for {fillWindowHours}-Hour Roof Tank Filling Window</td>
-              </tr>
-              <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                <td colSpan={3} className="border border-border p-2 text-center">TOTAL STORAGE RETENTION</td>
-                <td className="border border-border p-2 text-center font-mono">100%</td>
-                <td className="border border-border p-2 text-center font-mono text-pink-600 dark:text-pink-400">{calculations.displayTotalStorage}</td>
-                <td className="border border-border p-2 text-center">{ip ? "gal" : "m³"}</td>
-                <td className="border border-border p-2 text-muted-foreground">{storageDays} Day(s) Total Autonomy Reserve</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* Table 3: Comprehensive Space Water Demand Schedule */}
-        <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-            3. Comprehensive Space Water Demand Schedule
-          </h3>
-          <table className="w-full text-left text-[11px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-center w-12">No.</th>
-                <th className="border border-border p-2 text-left">Name of Space / Description</th>
-                <th className="border border-border p-2 text-center w-28">Occupancy (People)</th>
-                <th className="border border-border p-2 text-center w-20">Multiplier</th>
-                <th className="border border-border p-2 text-left">Type of Space / Category</th>
-                <th className="border border-border p-2 text-center w-28">Rate ({ip ? "gpd" : "LPD"})</th>
-                <th className="border border-border p-2 text-center w-32">Daily Demand ({ip ? "gal" : "L"})</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(() => {
-                let sNo = 1;
-                return (
-                  <>
-                    {Object.keys(groupedWd).sort().map((cat) => (
-                      <React.Fragment key={cat}>
-                        <tr className="bg-[#DCEFFB] dark:bg-blue-950/40 font-bold text-[#06456F] dark:text-blue-300">
-                          <td colSpan={7} className="border border-border p-2 font-sans">Occupancy Category: {cat}</td>
-                        </tr>
-                        {groupedWd[cat].map((r) => {
-                          const rowTotal = ip
-                            ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541)
-                            : Math.round(r.ppl * r.lpd * (r.multiplier || 1));
-                          const rowRate = ip ? Math.round(r.lpd / 3.78541) : r.lpd;
-                          return (
-                            <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                              <td className="border border-border p-2 text-center text-muted-foreground">{sNo++}</td>
-                              <td className="border border-border p-2 font-medium">{r.name}</td>
-                              <td className="border border-border p-2 text-center font-mono font-semibold">{r.ppl}</td>
-                              <td className="border border-border p-2 text-center font-mono text-muted-foreground">×{r.multiplier || 1}</td>
-                              <td className="border border-border p-2 text-muted-foreground">{r.cat}</td>
-                              <td className="border border-border p-2 text-center font-mono text-muted-foreground">{rowRate}</td>
-                              <td className="border border-border p-2 text-center font-mono font-bold text-foreground">{rowTotal.toLocaleString()}</td>
-                            </tr>
-                          );
-                        })}
-                      </React.Fragment>
-                    ))}
-                    <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                      <td colSpan={2} className="border border-border p-2 font-sans">TOTAL DOMESTIC DEMAND</td>
-                      <td className="border border-border p-2 text-center font-mono">{calculations.totalPeople}</td>
-                      <td colSpan={3} className="border border-border p-2"></td>
-                      <td className="border border-border p-2 text-center font-mono text-pink-600 dark:text-pink-400">{calculations.displayDomestic}</td>
-                    </tr>
-                  </>
-                );
-              })()}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Table 4: Irrigation Landscaping Schedule */}
-        <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-            4. Irrigation Landscaping Schedule
-          </h3>
-          <table className="w-full text-left text-[11px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-center w-12">No.</th>
-                <th className="border border-border p-2 text-left">Vegetation / Plant Type</th>
-                <th className="border border-border p-2 text-center w-32">Landscaping Area ({ip ? "ft²" : "m²"})</th>
-                <th className="border border-border p-2 text-center w-36">Unit Rate ({ip ? "gal/ft²" : "L/m²"})</th>
-                <th className="border border-border p-2 text-center w-36">Daily Demand ({ip ? "gal" : "L"})</th>
-                <th className="border border-border p-2 text-left">Irrigation Method / Basis</th>
-              </tr>
-            </thead>
-            <tbody>
-              {irrRows.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="border border-border p-3 text-center text-muted-foreground italic">
-                    No landscaping / irrigation zones configured.
-                  </td>
-                </tr>
-              ) : (
-                irrRows.map((r, idx) => (
-                  <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="border border-border p-2 text-center text-muted-foreground">{idx + 1}</td>
-                    <td className="border border-border p-2 font-medium">{r.vegType}</td>
-                    <td className="border border-border p-2 text-center font-mono font-semibold">{r.area}</td>
-                    <td className="border border-border p-2 text-center font-mono text-muted-foreground">
-                      {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)}
-                    </td>
-                    <td className="border border-border p-2 text-center font-mono font-bold text-foreground">
-                      {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()}
-                    </td>
-                    <td className="border border-border p-2 text-muted-foreground">Automatic Drip / Spray System</td>
-                  </tr>
-                ))
-              )}
-              <tr className="bg-[#DAE9F8] dark:bg-sky-950/60 font-bold text-foreground border-t-2 border-border">
-                <td colSpan={2} className="border border-border p-2 font-sans">TOTAL IRRIGATION DEMAND</td>
-                <td className="border border-border p-2 text-center font-mono">
-                  {irrRows.reduce((a, b) => a + (Number(b.area) || 0), 0)} {ip ? "ft²" : "m²"}
-                </td>
-                <td colSpan={1} className="border border-border p-2"></td>
-                <td className="border border-border p-2 text-center font-mono text-pink-600 dark:text-pink-400">{calculations.displayIrrigation}</td>
-                <td className="border border-border p-2 text-muted-foreground">Automated Irrigation Autonomy</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* Table 5: Auxiliary Water Reserves (Swimming Pool & Fire Fighting) - if present */}
-        {(poolArea || fireFlow) && (
-          <div className="space-y-2">
-            <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-              5. Auxiliary Water Reserves (Swimming Pool &amp; Fire Fighting)
-            </h3>
-            <table className="w-full text-left text-[11px] border-collapse border border-border font-sans">
-              <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-                <tr>
-                  <th className="border border-border p-2 text-center w-12">No.</th>
-                  <th className="border border-border p-2 text-left">Auxiliary Facility</th>
-                  <th className="border border-border p-2 text-center w-48">Design Sizing Parameters</th>
-                  <th className="border border-border p-2 text-center w-36">Daily Demand / Reserve</th>
-                  <th className="border border-border p-2 text-left">Engineering Sizing Standard</th>
+          <div className="border border-border rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <th className="p-2 border-r border-border text-center w-12">No.</th>
+                  <th className="p-2 border-r border-border text-left">Executive Design Parameter Summary</th>
+                  <th className="p-2 border-r border-border text-center w-32">Value</th>
+                  <th className="p-2 border-r border-border text-center w-24">Unit</th>
+                  <th className="p-2 text-left">Standard / Code Reference</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-border">
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                  <td className="p-2 border-r border-border font-bold">Total Occupied Spaces</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">{wdRows.length}</td>
+                  <td className="p-2 border-r border-border text-center">spaces</td>
+                  <td className="p-2 text-muted-foreground">Architectural Space Inventory</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                  <td className="p-2 border-r border-border font-bold">Total Occupancy Headcount</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">{(calculations.totalPeople || 0).toLocaleString()}</td>
+                  <td className="p-2 border-r border-border text-center">people</td>
+                  <td className="p-2 text-muted-foreground">Scheduled Design Occupancy</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">3</td>
+                  <td className="p-2 border-r border-border font-bold">Domestic Daily Water Demand</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {(ip ? Math.round((calculations.totalWaterL || 0) / 3.78541) : Math.round(calculations.totalWaterL || 0)).toLocaleString()}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "gal/day" : "L/day"}</td>
+                  <td className="p-2 text-muted-foreground">Governing Standard Allowance</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">4</td>
+                  <td className="p-2 border-r border-border font-bold">Domestic Peak Flow Rate</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {ip ? Math.round(calculations.peakGPM || 0).toLocaleString() : (calculations.peakLPS || 0).toFixed(2)}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "GPM" : "L/s"}</td>
+                  <td className="p-2 text-muted-foreground">Peak Multiplier K = {peakFactor}</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">5</td>
+                  <td className="p-2 border-r border-border font-bold">Irrigation Daily Water Load</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {(ip ? Math.round((calculations.totalIrrL || 0) / 3.78541) : Math.round(calculations.totalIrrL || 0)).toLocaleString()}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "gal/day" : "L/day"}</td>
+                  <td className="p-2 text-muted-foreground">Landscaping Vegetation Schedule</td>
+                </tr>
                 {poolArea && poolDepth && (
-                  <tr>
-                    <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                    <td className="border border-border p-2 font-medium">Swimming Pool Makeup</td>
-                    <td className="border border-border p-2 text-center font-mono">{poolArea} {ip ? "ft²" : "m²"} Area × {poolDepth} {ip ? "ft" : "m"} Depth</td>
-                    <td className="border border-border p-2 text-center font-mono font-bold text-foreground">{calculations.displayPoolDemand}</td>
-                    <td className="border border-border p-2 text-muted-foreground">Evaporation Rate {poolEvap}%/day + Filter Backwash Loss</td>
+                  <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                    <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">6</td>
+                    <td className="p-2 border-r border-border font-bold">Swimming Pool Makeup Water</td>
+                    <td className="p-2 border-r border-border text-center font-bold font-mono">
+                      {(ip ? Math.round((calculations.poolDemandL || 0) / 3.78541) : Math.round(calculations.poolDemandL || 0)).toLocaleString()}
+                    </td>
+                    <td className="p-2 border-r border-border text-center">{ip ? "gal/day" : "L/day"}</td>
+                    <td className="p-2 text-muted-foreground">Evaporation Loss {poolEvap}%/day + Backwash</td>
                   </tr>
                 )}
                 {fireFlow && (
-                  <tr>
-                    <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                    <td className="border border-border p-2 font-medium">Fire Fighting Dedicated Reserve</td>
-                    <td className="border border-border p-2 text-center font-mono">{fireFlow} USGPM Dedicated Pump Flow</td>
-                    <td className="border border-border p-2 text-center font-mono font-bold text-red-600 dark:text-red-400">{calculations.displayFireCap}</td>
-                    <td className="border border-border p-2 text-muted-foreground">60-Min Standard Duration (NFPA 13/14 Life Safety)</td>
+                  <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                    <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">7</td>
+                    <td className="p-2 border-r border-border font-bold">Fire Fighting Dedicated Reserve</td>
+                    <td className="p-2 border-r border-border text-center font-bold font-mono text-red-600 dark:text-red-400">
+                      {(ip ? Math.round((calculations.fireCapL || 0) / 3.78541) : Math.round(calculations.fireCapL || 0)).toLocaleString()}
+                    </td>
+                    <td className="p-2 border-r border-border text-center">{ip ? "gal" : "L"}</td>
+                    <td className="p-2 text-muted-foreground">60-Min Standard Duration (NFPA 13/14)</td>
                   </tr>
                 )}
+                <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t-2 border-b border-border">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground">—</td>
+                  <td className="p-2 border-r border-border font-bold">TOTAL DAILY WATER DEMAND</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold bg-sky-100/70 dark:bg-sky-900/30 text-foreground">
+                    {(ip ? Math.round((calculations.grandTotalL || 0) / 3.78541) : Math.round(calculations.grandTotalL || 0)).toLocaleString()}
+                  </td>
+                  <td className="p-2 border-r border-border text-center font-bold">{ip ? "gal/day" : "L/day"}</td>
+                  <td className="p-2 text-muted-foreground">Combined Site Daily Service Load</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">8</td>
+                  <td className="p-2 border-r border-border font-bold">Total Storage Autonomy Retention</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {ip ? Math.round(calculations.reqStorageGal || 0).toLocaleString() : (calculations.reqStorageM3 || 0).toFixed(2)}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "gal" : "m³"}</td>
+                  <td className="p-2 text-muted-foreground">{storageDays} Day(s) Mandatory Storage Duration</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">9</td>
+                  <td className="p-2 border-r border-border font-bold">Ground Water Break Tank</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {(ip ? Math.round((calculations.groundTankL || 0) / 3.78541) : Math.round(calculations.groundTankL || 0)).toLocaleString()}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "gal" : "L"}</td>
+                  <td className="p-2 text-muted-foreground">{calculations.groundPct}% Ground Split ({calculations.groundDim.l}m × {calculations.groundDim.w}m × {calculations.groundDim.h}m)</td>
+                </tr>
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">10</td>
+                  <td className="p-2 border-r border-border font-bold">Transfer Pumping Duty Flow Rate</td>
+                  <td className="p-2 border-r border-border text-center font-bold font-mono">
+                    {ip ? (calculations.transferPumpGPM || 0).toFixed(1) : (calculations.transferPumpLPS || 0).toFixed(2)}
+                  </td>
+                  <td className="p-2 border-r border-border text-center">{ip ? "GPM" : "L/s"}</td>
+                  <td className="p-2 text-muted-foreground">Designed for {fillWindowHours}-Hour Roof Tank Filling Window</td>
+                </tr>
               </tbody>
             </table>
           </div>
-        )}
-
-        {/* Table 6: Engineering Design Standards & Compliance Guidelines */}
-        <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-            {(poolArea || fireFlow) ? "6" : "5"}. Engineering Design Standards &amp; Compliance Guidelines
-          </h3>
-          <table className="w-full text-[12px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-center w-12">No.</th>
-                <th className="border border-border p-2 text-left w-60">Standard / Authority Reference</th>
-                <th className="border border-border p-2 text-left">Mandatory Engineering Compliance &amp; Criteria</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">1</td>
-                <td className="border border-border p-2 font-bold">DEWA / Dubai Municipality Guidelines</td>
-                <td className="border border-border p-2 text-muted-foreground">Mandatory domestic per capita daily consumption quotas and minimum 24-hour autonomy storage reserve for residential/commercial developments.</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">2</td>
-                <td className="border border-border p-2 font-bold">Uniform Plumbing Code (UPC) / IPC Section 604</td>
-                <td className="border border-border p-2 text-muted-foreground">Fixture unit diversity calculations, maximum transfer line fluid velocity limits (2.4 m/s), and backflow prevention isolation.</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">3</td>
-                <td className="border border-border p-2 font-bold">BS EN 806 / CIBSE Guide G (Public Health)</td>
-                <td className="border border-border p-2 text-muted-foreground">Cold water storage tank sizing methodology, dual compartment segregation, and turnover requirements to prevent water stagnation.</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 text-center text-muted-foreground">4</td>
-                <td className="border border-border p-2 font-bold">NFPA 13 / 14 &amp; Civil Defence Regulations</td>
-                <td className="border border-border p-2 text-muted-foreground">Dedicated hydraulic fire reserve allocation baffled or isolated from domestic water suction to ensure life safety continuity.</td>
-              </tr>
-            </tbody>
-          </table>
         </div>
 
-        {/* Table 7: Professional Engineering Review & Sign-Off Block */}
+        {/* 4. Table 2: Water Storage Tanks & Transfer Pump Physical Sizing */}
         <div className="space-y-2">
-          <h3 className="text-[13px] font-bold text-foreground uppercase tracking-wider">
-            {(poolArea || fireFlow) ? "7" : "6"}. Professional Engineering Review &amp; Sign-Off Block
+          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+            2. Water Storage Tanks &amp; Transfer Pump Physical Sizing
           </h3>
-          <table className="w-full text-[12px] border-collapse border border-border font-sans">
-            <thead className="bg-[#D9D9D9] dark:bg-zinc-800 text-foreground font-bold">
-              <tr>
-                <th className="border border-border p-2 text-left w-1/4">Approval Role</th>
-                <th className="border border-border p-2 text-center w-1/4">Engineer Name</th>
-                <th className="border border-border p-2 text-center w-1/4">Status / Role Title</th>
-                <th className="border border-border p-2 text-center w-1/4">Signature / Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border border-border p-2 font-bold text-foreground">Originator / Prepared By</td>
-                <td className="border border-border p-2 text-center font-medium text-foreground">{sigDetails.originatedName}</td>
-                <td className="border border-border p-2 text-center text-muted-foreground">MEP Design Engineer</td>
-                <td className="border border-border p-2 text-center font-mono text-muted-foreground">{sigDetails.originatedDate}</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 font-bold text-foreground">Reviewer / Checked By</td>
-                <td className="border border-border p-2 text-center font-medium text-foreground">{sigDetails.reviewerName || "Pending Review"}</td>
-                <td className="border border-border p-2 text-center text-muted-foreground">Senior Plumbing Lead</td>
-                <td className="border border-border p-2 text-center font-mono text-muted-foreground">{sigDetails.reviewerDate || "—"}</td>
-              </tr>
-              <tr>
-                <td className="border border-border p-2 font-bold text-foreground">Approver / Verified By</td>
-                <td className="border border-border p-2 text-center font-medium text-foreground">{sigDetails.approverName || "Pending Approval"}</td>
-                <td className="border border-border p-2 text-center text-muted-foreground">Principal / MEP Director</td>
-                <td className="border border-border p-2 text-center font-mono text-muted-foreground">{sigDetails.approverDate || "—"}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="border border-border rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <th className="p-2 border-r border-border text-center w-12">No.</th>
+                  <th className="p-2 border-r border-border text-left">Facility / Equipment</th>
+                  <th className="p-2 border-r border-border text-left">Specification &amp; Tank Type</th>
+                  <th className="p-2 border-r border-border text-center w-24">Allocation</th>
+                  <th className="p-2 border-r border-border text-center w-28">Effective Capacity</th>
+                  <th className="p-2 border-r border-border text-center w-20">Unit</th>
+                  <th className="p-2 text-left">Suggested Dimensions / Operating Duty</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                  <td className="p-2 border-r border-border font-bold">Ground Water Break Tank</td>
+                  <td className="p-2 border-r border-border text-muted-foreground">Reinforced Concrete / Sectional GRP</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">{calculations.groundPct}%</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">{calculations.displayGroundTank}</td>
+                  <td className="p-2 border-r border-border text-center font-mono">{ip ? "gal" : "L"}</td>
+                  <td className="p-2 font-mono text-muted-foreground">{calculations.groundDim.l}m L × {calculations.groundDim.w}m W × {calculations.groundDim.h}m H (+0.3m Freeboard)</td>
+                </tr>
+                {calculations.overheadTanksCalculated.map((t: any, idx: number) => (
+                  <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                    <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">{idx + 2}</td>
+                    <td className="p-2 border-r border-border font-bold">{t.name}</td>
+                    <td className="p-2 border-r border-border text-muted-foreground">Modular Sectional GRP / Polyethylene</td>
+                    <td className="p-2 border-r border-border text-center font-mono font-bold">{t.sharePct.toFixed(0)}%</td>
+                    <td className="p-2 border-r border-border text-center font-mono font-bold">{t.displayVol}</td>
+                    <td className="p-2 border-r border-border text-center font-mono">{ip ? "gal" : "L"}</td>
+                    <td className="p-2 font-mono text-muted-foreground">{t.dim.l}m L × {t.dim.w}m W × {t.dim.h}m H (+0.3m Freeboard)</td>
+                  </tr>
+                ))}
+                <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                  <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">{calculations.overheadTanksCalculated.length + 2}</td>
+                  <td className="p-2 border-r border-border font-bold">Roof Transfer Pump</td>
+                  <td className="p-2 border-r border-border text-muted-foreground">Vertical Multistage Booster (1W + 1S)</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">100% Roof</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold text-sky-600 dark:text-sky-400">{calculations.displayTransferPump}</td>
+                  <td className="p-2 border-r border-border text-center font-mono">{ip ? "GPM" : "L/s"}</td>
+                  <td className="p-2 text-muted-foreground">Designed for {fillWindowHours}-Hour Roof Tank Filling Window</td>
+                </tr>
+                <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t-2 border-b border-border">
+                  <td colSpan={3} className="p-2 border-r border-border text-center font-bold">TOTAL STORAGE RETENTION</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">100%</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold bg-sky-100/70 dark:bg-sky-900/30 text-foreground">{calculations.displayTotalStorage}</td>
+                  <td className="p-2 border-r border-border text-center font-bold">{ip ? "gal" : "m³"}</td>
+                  <td className="p-2 text-muted-foreground">{storageDays} Day(s) Total Autonomy Reserve</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 5. Table 3: Comprehensive Space Water Demand Schedule */}
+        <div className="space-y-2">
+          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+            3. Comprehensive Space Water Demand Schedule
+          </h3>
+          <div className="border border-border rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <th className="p-2 border-r border-border text-center w-12">No.</th>
+                  <th className="p-2 border-r border-border text-left">Name of Space / Description</th>
+                  <th className="p-2 border-r border-border text-center w-28">Occupancy (People)</th>
+                  <th className="p-2 border-r border-border text-center w-20">Multiplier</th>
+                  <th className="p-2 border-r border-border text-left">Type of Space / Category</th>
+                  <th className="p-2 border-r border-border text-center w-28">Rate ({ip ? "gpd" : "LPD"})</th>
+                  <th className="p-2 text-center w-32">Daily Demand ({ip ? "gal" : "L"})</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {(() => {
+                  let sNo = 1;
+                  return (
+                    <>
+                      {Object.keys(groupedWd).sort().map((cat) => (
+                        <React.Fragment key={cat}>
+                          <tr className="bg-slate-100/80 dark:bg-zinc-800/60 font-bold text-foreground">
+                            <td colSpan={7} className="p-2 border-r border-border">Occupancy Category: {cat}</td>
+                          </tr>
+                          {groupedWd[cat].map((r) => {
+                            const rowTotal = ip
+                              ? Math.round((r.ppl * r.lpd * (r.multiplier || 1)) / 3.78541)
+                              : Math.round(r.ppl * r.lpd * (r.multiplier || 1));
+                            const rowRate = ip ? Math.round(r.lpd / 3.78541) : r.lpd;
+                            return (
+                              <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                                <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">{sNo++}</td>
+                                <td className="p-2 border-r border-border font-medium">{r.name}</td>
+                                <td className="p-2 border-r border-border text-center font-mono font-semibold">{r.ppl}</td>
+                                <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">×{r.multiplier || 1}</td>
+                                <td className="p-2 border-r border-border text-muted-foreground">{r.cat}</td>
+                                <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">{rowRate}</td>
+                                <td className="p-2 text-center font-mono font-bold text-foreground">{rowTotal.toLocaleString()}</td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
+                      ))}
+                      <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t-2 border-b border-border">
+                        <td colSpan={2} className="p-2 border-r border-border font-bold">TOTAL DOMESTIC DEMAND</td>
+                        <td className="p-2 border-r border-border text-center font-mono font-bold">{calculations.totalPeople}</td>
+                        <td colSpan={3} className="p-2 border-r border-border"></td>
+                        <td className="p-2 text-center font-mono font-bold bg-sky-100/70 dark:bg-sky-900/30 text-foreground">{calculations.displayDomestic}</td>
+                      </tr>
+                    </>
+                  );
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 6. Table 4: Irrigation Landscaping Schedule */}
+        <div className="space-y-2">
+          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+            4. Irrigation Landscaping Schedule
+          </h3>
+          <div className="border border-border rounded-xl overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                  <th className="p-2 border-r border-border text-center w-12">No.</th>
+                  <th className="p-2 border-r border-border text-left">Vegetation / Plant Type</th>
+                  <th className="p-2 border-r border-border text-center w-32">Landscaping Area ({ip ? "ft²" : "m²"})</th>
+                  <th className="p-2 border-r border-border text-center w-36">Unit Rate ({ip ? "gal/ft²" : "L/m²"})</th>
+                  <th className="p-2 border-r border-border text-center w-36">Daily Demand ({ip ? "gal" : "L"})</th>
+                  <th className="p-2 text-left">Irrigation Method / Basis</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {irrRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-3 text-center text-muted-foreground italic">
+                      No landscaping / irrigation zones configured.
+                    </td>
+                  </tr>
+                ) : (
+                  irrRows.map((r, idx) => (
+                    <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                      <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">{idx + 1}</td>
+                      <td className="p-2 border-r border-border font-medium">{r.vegType}</td>
+                      <td className="p-2 border-r border-border text-center font-mono font-semibold">{r.area}</td>
+                      <td className="p-2 border-r border-border text-center font-mono text-muted-foreground">
+                        {(ip ? Math.round((r.lpd / 40.7458) * 100) / 100 : r.lpd).toFixed(ip ? 3 : 1)}
+                      </td>
+                      <td className="p-2 border-r border-border text-center font-mono font-bold text-foreground">
+                        {(ip ? Math.round((r.area * r.lpd) / 3.78541) : r.area * r.lpd).toLocaleString()}
+                      </td>
+                      <td className="p-2 text-muted-foreground">Automatic Drip / Spray System</td>
+                    </tr>
+                  ))
+                )}
+                <tr className="bg-slate-50/70 dark:bg-zinc-900/60 font-bold border-t-2 border-b border-border">
+                  <td colSpan={2} className="p-2 border-r border-border font-bold">TOTAL IRRIGATION DEMAND</td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold">
+                    {irrRows.reduce((a, b) => a + (Number(b.area) || 0), 0)} {ip ? "ft²" : "m²"}
+                  </td>
+                  <td colSpan={1} className="p-2 border-r border-border"></td>
+                  <td className="p-2 border-r border-border text-center font-mono font-bold bg-sky-100/70 dark:bg-sky-900/30 text-foreground">{calculations.displayIrrigation}</td>
+                  <td className="p-2 text-muted-foreground">Automated Irrigation Autonomy</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 7. Table 5: Auxiliary Water Reserves (Swimming Pool & Fire Fighting) - if present */}
+        {(poolArea || fireFlow) && (
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+              5. Auxiliary Water Reserves (Swimming Pool &amp; Fire Fighting)
+            </h3>
+            <div className="border border-border rounded-xl overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                    <th className="p-2 border-r border-border text-center w-12">No.</th>
+                    <th className="p-2 border-r border-border text-left">Auxiliary Facility</th>
+                    <th className="p-2 border-r border-border text-center w-48">Design Sizing Parameters</th>
+                    <th className="p-2 border-r border-border text-center w-36">Daily Demand / Reserve</th>
+                    <th className="p-2 text-left">Engineering Sizing Standard</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {poolArea && poolDepth && (
+                    <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                      <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">1</td>
+                      <td className="p-2 border-r border-border font-medium">Swimming Pool Makeup</td>
+                      <td className="p-2 border-r border-border text-center font-mono">{poolArea} {ip ? "ft²" : "m²"} Area × {poolDepth} {ip ? "ft" : "m"} Depth</td>
+                      <td className="p-2 border-r border-border text-center font-mono font-bold text-foreground">{calculations.displayPoolDemand}</td>
+                      <td className="p-2 text-muted-foreground">Evaporation Rate {poolEvap}%/day + Filter Backwash Loss</td>
+                    </tr>
+                  )}
+                  {fireFlow && (
+                    <tr className="hover:bg-slate-50 dark:hover:bg-zinc-800/40">
+                      <td className="p-2 border-r border-border text-center text-muted-foreground font-mono">2</td>
+                      <td className="p-2 border-r border-border font-medium">Fire Fighting Dedicated Reserve</td>
+                      <td className="p-2 border-r border-border text-center font-mono">{fireFlow} USGPM Dedicated Pump Flow</td>
+                      <td className="p-2 border-r border-border text-center font-mono font-bold text-red-600 dark:text-red-400">{calculations.displayFireCap}</td>
+                      <td className="p-2 text-muted-foreground">60-Min Standard Duration (NFPA 13/14 Life Safety)</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* 8. 3-Tier Signature Sign-Off Block matching Preliminary */}
+        <div className="pt-2">
+          <div className="border border-border rounded-xl overflow-hidden text-xs">
+            <table className="w-full border-collapse">
+              <thead className="bg-[#E5E7EB] dark:bg-zinc-800 text-foreground font-bold border-b border-border">
+                <tr className="divide-x divide-border">
+                  <th className="p-2.5 w-28 text-center bg-card"></th>
+                  <th className="p-2.5 text-center w-1/3">Originator</th>
+                  <th className="p-2.5 text-center w-1/3">Reviewer</th>
+                  <th className="p-2.5 text-center w-1/3">Approver</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Name:</td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.originatedName || currentUserName || "Abubakar Chanda"}
+                  </td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.reviewerName || ""}
+                  </td>
+                  <td className="p-2.5 text-center font-medium">
+                    {sigDetails.approverName || ""}
+                  </td>
+                </tr>
+                <tr className="divide-x divide-border">
+                  <td className="p-2.5 font-bold text-center bg-muted/10">Date:</td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.originatedDate || formatDateStr(new Date().toISOString())}
+                  </td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.reviewerDate || ""}
+                  </td>
+                  <td className="p-2.5 text-center font-mono">
+                    {sigDetails.approverDate || ""}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
       </div>
     </div>
-  </div>
   );
 }
 

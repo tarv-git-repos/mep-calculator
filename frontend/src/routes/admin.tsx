@@ -58,9 +58,19 @@ function AdminRoutingComponent() {
   }
 
   const roleUpper = String(profile?.role || userData?.role || (userData?.features as any)?.role || '').toUpperCase().trim();
+  const desigUpper = String(profile?.designation || userData?.designation || (userData?.features as any)?.designation || '').toUpperCase().trim();
   const userEmail = String(profile?.email || userData?.email || session?.user?.email || '').toLowerCase().trim();
   const isSuperAdmin = roleUpper === 'SUPER_ADMIN' || userEmail === 'admin@tarv.ai';
-  const isOrgAdmin = roleUpper === 'ORG_ADMIN' || roleUpper === 'ORGANIZATION_ADMIN' || roleUpper === 'ORGANIZATION ADMIN' || userEmail.includes('kirtan');
+  const isOrgAdmin = !isSuperAdmin && (
+    roleUpper === 'ORG_ADMIN' ||
+    roleUpper === 'ORGANIZATION_ADMIN' ||
+    roleUpper === 'ORGANIZATION ADMIN' ||
+    roleUpper === 'ORG ADMIN' ||
+    (roleUpper.includes('ORG') && roleUpper.includes('ADMIN')) ||
+    desigUpper.includes('ORG ADMIN') ||
+    desigUpper.includes('ORGANIZATION ADMIN') ||
+    userEmail.includes('kirtan')
+  );
 
   if (isSuperAdmin) {
     return (

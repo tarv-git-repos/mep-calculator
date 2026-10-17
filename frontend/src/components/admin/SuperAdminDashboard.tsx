@@ -1,7 +1,7 @@
 import { useNavigate, Link } from '@tanstack/react-router'
 import { useAuth } from '@/contexts/AuthContext'
-import { useEffect, useState } from 'react'
-import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check, Edit3, ArrowUpDown, ChevronDown, X, MoreVertical, UserMinus, AlertCircle } from "lucide-react"
+import { useEffect, useState, useMemo } from 'react'
+import { Loader2, Plus, Search, ShieldAlert, Trash2, Settings, DownloadCloud, Users, HardDrive, Settings as SettingsIcon, LogOut, FolderOpen, Save, CheckCircle2, ArrowLeft, Activity, Megaphone, Key, Copy, Building, Crown, UserCheck, History, UserPlus, CheckSquare, Square, Check, Edit3, ArrowUpDown, ChevronDown, X, MoreVertical, UserMinus, AlertCircle, Zap, KeyRound, Laptop, RotateCcw, Ban, Eye, EyeOff, Link2, Clock, Smartphone, CheckCircle } from "lucide-react"
 import { NAV } from "@/config/navigation"
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -40,6 +40,10 @@ type Profile = {
   organization_id?: string
   designation?: string
   status?: string
+  active_hwid?: string | null
+  last_login?: string | null
+  last_active?: string | null
+  created_at?: string | null
 }
 
 type ActivityLog = {
@@ -95,11 +99,31 @@ export function SuperAdminDashboard() {
   // License management state
   const [licensesList, setLicensesList] = useState<any[]>([])
   const [trialsList, setTrialsList] = useState<any[]>([])
+  const [licenseUsageList, setLicenseUsageList] = useState<any[]>([])
+  const [licenseUsageSearch, setLicenseUsageSearch] = useState<string>('')
+  const [keySearchQuery, setKeySearchQuery] = useState<string>('')
+  const [trialSearchQuery, setTrialSearchQuery] = useState<string>('')
+  const [licenseSubTab, setLicenseSubTabState] = useState<'usage' | 'keys' | 'trials'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mep_admin_license_subtab');
+      if (saved && ['usage', 'keys', 'trials'].includes(saved)) return saved as any;
+    }
+    return 'usage';
+  });
+  const setLicenseSubTab = (tab: 'usage' | 'keys' | 'trials') => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('mep_admin_license_subtab', tab);
+    }
+    setLicenseSubTabState(tab);
+  };
   const [loadingLicenses, setLoadingLicenses] = useState(false)
   const [genTier, setGenTier] = useState<'PRO' | 'ENTERPRISE'>('PRO')
   const [genDays, setGenDays] = useState<number>(365)
   const [genTargetEmail, setGenTargetEmail] = useState<string>('')
   const [generatedAdminKey, setGeneratedAdminKey] = useState<string>('')
+  const [seatUpgradeRequests, setSeatUpgradeRequests] = useState<any[]>([])
+  const [loadingSeatUpgradeRequests, setLoadingSeatUpgradeRequests] = useState(false)
+  const pendingSeatRequests = useMemo(() => (seatUpgradeRequests || []).filter(r => r.status === 'PENDING'), [seatUpgradeRequests])
 
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loadingProfiles, setLoadingProfiles] = useState(false)
@@ -140,6 +164,13 @@ export function SuperAdminDashboard() {
   // State for Expiry editing
   const [editingExpiryFor, setEditingExpiryFor] = useState<string | null>(null)
   const [newExpiryDate, setNewExpiryDate] = useState<string>('')
+  const [userStatusFilter, setUserStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>('ALL')
+  const [tempPasswordUser, setTempPasswordUser] = useState<Profile | null>(null)
+  const [tempPasswordInput, setTempPasswordInput] = useState<string>('')
+  const [showTempPassword, setShowTempPassword] = useState<boolean>(false)
+  const [isSavingTempPassword, setIsSavingTempPassword] = useState<boolean>(false)
+  const [savedTempCredentials, setSavedTempCredentials] = useState<{ email: string; pass: string } | null>(null)
+  const [showPasswordText, setShowPasswordText] = useState<boolean>(false)
 
   const [localBackupPath, setLocalBackupPath] = useState(localStorage.getItem('localBackupPath') || '')
   const [serverBackupPath, setServerBackupPath] = useState(localStorage.getItem('serverBackupPath') || '')
@@ -155,6 +186,65 @@ export function SuperAdminDashboard() {
   const [selectedOrgForManagement, setSelectedOrgForManagementState] = useState<any | null>(null)
   const [editingOrgId, setEditingOrgId] = useState<string | null>(null)
   const [editedOrgName, setEditedOrgName] = useState<string>('')
+
+  const computedLicenseUsage = useMemo(() => {
+    if (licenseUsageList && licenseUsageList.length > 0) return licenseUsageList;
+    const list: any[] = [];
+    (organizations || []).forEach(org => {
+      const key = org.license_key || 'MEP-LIC-ORG-PRO';
+      const members = (profiles || []).filter(p => p.organization_id === org.id);
+      members.forEach(m => {
+        list.push({
+          id: `${org.id}-${m.id || m.email}`,
+          licenseKey: key,
+          userName: m.name || m.email?.split('@')[0] || 'Member',
+          userEmail: m.email,
+          organizationName: org.name,
+          organizationId: org.id,
+          role: m.role || 'Design Engineer',
+          status: m.status === 'deactivated' || m.status === 'inactive' ? 'Inactive' : 'Active',
+          plan: org.subscription_plan || 'ENTERPRISE',
+        });
+      });
+    });
+    return list;
+  }, [licenseUsageList, organizations, profiles]);
+
+  const filteredLicenseUsage = useMemo(() => {
+    let list = computedLicenseUsage;
+    if (licenseUsageSearch.trim()) {
+      const q = licenseUsageSearch.toLowerCase().trim();
+      list = list.filter((item: any) =>
+        (item.licenseKey && item.licenseKey.toLowerCase().includes(q)) ||
+        (item.userName && item.userName.toLowerCase().includes(q)) ||
+        (item.userEmail && item.userEmail.toLowerCase().includes(q)) ||
+        (item.organizationName && item.organizationName.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [computedLicenseUsage, licenseUsageSearch]);
+
+  const filteredLicensesList = useMemo(() => {
+    if (!keySearchQuery.trim()) return licensesList;
+    const q = keySearchQuery.toLowerCase().trim();
+    return (licensesList || []).filter((lic: any) =>
+      (lic.key && lic.key.toLowerCase().includes(q)) ||
+      (lic.boundEmail && lic.boundEmail.toLowerCase().includes(q)) ||
+      (lic.organization_name && lic.organization_name.toLowerCase().includes(q)) ||
+      (lic.company && lic.company.toLowerCase().includes(q)) ||
+      (lic.tier && lic.tier.toLowerCase().includes(q)) ||
+      (lic.status && lic.status.toLowerCase().includes(q))
+    );
+  }, [licensesList, keySearchQuery]);
+
+  const filteredTrialsList = useMemo(() => {
+    if (!trialSearchQuery.trim()) return trialsList;
+    const q = trialSearchQuery.toLowerCase().trim();
+    return (trialsList || []).filter((tr: any) =>
+      (tr.hwid && tr.hwid.toLowerCase().includes(q)) ||
+      (tr.email && tr.email.toLowerCase().includes(q))
+    );
+  }, [trialsList, trialSearchQuery]);
 
   const handleSaveOrgName = async (orgId: string, newName: string) => {
     if (!newName || !newName.trim()) return toast.error("Organization name cannot be empty");
@@ -322,17 +412,17 @@ export function SuperAdminDashboard() {
   const [activeOrgMenuId, setActiveOrgMenuId] = useState<string | null>(null)
 
   // User Sorting States with localStorage Persistence
-  const [userSortField, setUserSortFieldState] = useState<'email' | 'username' | 'role' | 'organization' | 'created_at' | 'expires' | 'plan'>(() => {
+  const [userSortField, setUserSortFieldState] = useState<'email' | 'username' | 'role' | 'organization' | 'created_at' | 'expires' | 'plan' | 'status'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('mep_user_sort_field');
-      if (saved && ['email', 'username', 'role', 'organization', 'created_at', 'expires', 'plan'].includes(saved)) {
+      if (saved && ['email', 'username', 'role', 'organization', 'created_at', 'expires', 'plan', 'status'].includes(saved)) {
         return saved as any;
       }
     }
     return 'email';
   });
 
-  const setUserSortField = (field: 'email' | 'username' | 'role' | 'organization' | 'created_at' | 'expires' | 'plan' | ((prev: any) => any)) => {
+  const setUserSortField = (field: 'email' | 'username' | 'role' | 'organization' | 'created_at' | 'expires' | 'plan' | 'status' | ((prev: any) => any)) => {
     setUserSortFieldState(prev => {
       const next = typeof field === 'function' ? field(prev) : field;
       if (typeof window !== 'undefined') {
@@ -593,11 +683,15 @@ export function SuperAdminDashboard() {
       name: u.name || u.username || '',
       designation: u.designation || u.features?.designation || '',
       subscription_expires: u.subscription_expires || null,
-      status: u.isAccountVerified ? 'ACTIVE' : 'TRIAL',
+      status: u.status || (u.isAccountVerified ? 'active' : 'trial'),
       plan: u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || (u.organization_id ? 'ENTERPRISE' : 'PRO'),
       subscription_status: u.subscription_status || u.plan || u.features?.subscription_status || u.features?.plan || (u.organization_id ? 'ENTERPRISE' : 'PRO'),
       features: u.features || {},
-      organization_id: u.organization_id
+      organization_id: u.organization_id,
+      active_hwid: u.active_hwid || u.features?.active_hwid || null,
+      last_login: u.last_login || u.features?.last_login || null,
+      last_active: u.last_active || u.features?.last_active || u.last_login || null,
+      created_at: u.created_at || u.createdAt || null
     }));
 
     setProfiles(mappedProfiles);
@@ -631,8 +725,72 @@ export function SuperAdminDashboard() {
     if (res && res.success) {
       setLicensesList(res.licenses || [])
       setTrialsList(res.trials || [])
+      setLicenseUsageList(res.usage || [])
     }
     setLoadingLicenses(false)
+    fetchSeatUpgradeRequests()
+  }
+
+  const fetchSeatUpgradeRequests = async () => {
+    setLoadingSeatUpgradeRequests(true)
+    try {
+      const res = await api.getSeatUpgradeRequests()
+      if (res && res.success && Array.isArray(res.requests)) {
+        setSeatUpgradeRequests(res.requests)
+      }
+    } catch (e) {
+      console.error('Failed to fetch seat upgrade requests in Super Admin:', e)
+    } finally {
+      setLoadingSeatUpgradeRequests(false)
+    }
+  }
+
+  const handleApproveSeatRequest = async (req: any) => {
+    const choice = await confirm(
+      `Approve +${req.requested_seats} additional seats for ${req.org_name}? This will instantly increase their seat capacity from ${req.current_seats} to ${req.target_seats} total seats and notify their admin.`,
+      { title: 'Approve Seat Upgrade', kind: 'info' }
+    )
+    if (!choice) return
+
+    toast.info(`Approving +${req.requested_seats} seats for ${req.org_name}...`)
+    try {
+      const res = await api.actionSeatUpgradeRequest({
+        requestId: req.id,
+        action: 'APPROVE'
+      })
+      if (res && res.success) {
+        toast.success(res.message || `Approved! Capacity increased to ${req.target_seats} seats.`)
+        fetchSeatUpgradeRequests()
+        fetchOrganizations()
+      } else {
+        toast.error(res?.message || 'Failed to approve request')
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to approve request')
+    }
+  }
+
+  const handleRejectSeatRequest = async (req: any) => {
+    const choice = await confirm(
+      `Are you sure you want to decline this seat upgrade request for ${req.org_name}?`,
+      { title: 'Decline Request', kind: 'warning' }
+    )
+    if (!choice) return
+
+    try {
+      const res = await api.actionSeatUpgradeRequest({
+        requestId: req.id,
+        action: 'REJECT'
+      })
+      if (res && res.success) {
+        toast.success(`Request for ${req.org_name} declined.`)
+        fetchSeatUpgradeRequests()
+      } else {
+        toast.error(res?.message || 'Failed to decline request')
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to decline request')
+    }
   }
 
   const fetchOrgBackupSettings = async (orgId?: string) => {
@@ -658,14 +816,21 @@ export function SuperAdminDashboard() {
   };
 
   useEffect(() => {
+    fetchSeatUpgradeRequests()
     if (activeTab === 'activity') {
       fetchActivityLogs();
       const interval = setInterval(fetchActivityLogs, 30000);
       return () => clearInterval(interval);
     }
     if (activeTab === 'broadcasts') fetchAnnouncements()
-    if (activeTab === 'licenses') fetchAdminLicenses()
-    if (activeTab === 'organizations') fetchOrganizations()
+    if (activeTab === 'licenses') {
+      fetchAdminLicenses()
+      fetchSeatUpgradeRequests()
+    }
+    if (activeTab === 'organizations') {
+      fetchOrganizations()
+      fetchSeatUpgradeRequests()
+    }
     if (activeTab === 'projects') fetchAllProjects()
     if (activeTab === 'storage') fetchOrgBackupSettings()
   }, [activeTab])
@@ -800,6 +965,125 @@ export function SuperAdminDashboard() {
     } else {
       await fetchProfiles();
       await fetchOrganizations();
+    }
+  };
+
+  const formatRelativeTime = (dateStr?: string | null): string => {
+    if (!dateStr) return 'Never';
+    try {
+      const d = new Date(dateStr);
+      const time = d.getTime();
+      if (isNaN(time)) return 'Never';
+      const now = Date.now();
+      const diff = now - time;
+      if (diff < 0) return 'Just now';
+      const seconds = Math.floor(diff / 1000);
+      if (seconds < 60) return 'Just now';
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      if (days === 1) return 'Yesterday';
+      if (days < 30) return `${days}d ago`;
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch (e) {
+      return 'Never';
+    }
+  };
+
+  const generateStrongPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*';
+    let res = 'Mep';
+    for (let i = 0; i < 6; i++) {
+      res += chars[Math.floor(Math.random() * chars.length)];
+    }
+    res += Math.floor(10 + Math.random() * 90) + '!';
+    return res;
+  };
+
+  const handleToggleUserStatus = async (targetUser: Profile) => {
+    const isCurrentlySuspended = targetUser.status === 'suspended';
+    const newStatus: 'active' | 'suspended' = isCurrentlySuspended ? 'active' : 'suspended';
+    
+    if (!isCurrentlySuspended) {
+      const choice = await confirm(
+        `Are you sure you want to suspend access for ${targetUser.email}?\n\nThey will be blocked from logging in immediately, but all calculation projects and history will be preserved.`,
+        { title: "Suspend Account", confirmText: "Suspend Account", cancelText: "Cancel" }
+      );
+      if (!choice) return;
+    }
+
+    // Optimistic UI update
+    setProfiles(prev => prev.map(p => p.id === targetUser.id ? { ...p, status: newStatus } : p));
+    toast.success(newStatus === 'suspended' ? `Account for ${targetUser.email} suspended.` : `Account for ${targetUser.email} activated!`);
+
+    const res = await api.adminToggleUserStatus(targetUser.id, newStatus);
+    if (!res.success) {
+      toast.error(res.message || "Failed to update account status");
+      // Rollback
+      setProfiles(prev => prev.map(p => p.id === targetUser.id ? { ...p, status: targetUser.status } : p));
+    }
+  };
+
+  const handleResetHwid = async (targetUser: Profile) => {
+    const choice = await confirm(
+      `Clear hardware device binding for ${targetUser.email}?\n\nThis will unbind their current computer/laptop and permit them to log in on their new machine immediately.`,
+      { title: "Reset Hardware Binding", confirmText: "Reset Device Binding", cancelText: "Cancel" }
+    );
+    if (!choice) return;
+
+    // Optimistic UI update
+    setProfiles(prev => prev.map(p => p.id === targetUser.id ? { ...p, active_hwid: null } : p));
+    toast.success(`Hardware binding cleared for ${targetUser.email}. User can now bind a new device.`);
+
+    const res = await api.adminResetHwid(targetUser.id);
+    if (!res.success) {
+      toast.error(res.message || "Failed to reset hardware binding");
+      fetchProfiles();
+    }
+  };
+
+  const handleGenerateOneTimeLink = async (targetUser: Profile) => {
+    const toastId = toast.loading("Generating one-time access link...");
+    try {
+      const res = await api.adminGenerateLoginLink(targetUser.id);
+      toast.dismiss(toastId);
+      if (res && res.success && res.loginUrl) {
+        await navigator.clipboard.writeText(res.loginUrl);
+        toast.success("One-time login link copied to clipboard! (Valid for 24h)");
+      } else {
+        toast.error(res?.message || "Failed to generate one-time login link.");
+      }
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error("Error generating login link: " + (err?.message || String(err)));
+    }
+  };
+
+  const handleSaveTempPassword = async () => {
+    if (!tempPasswordUser) return;
+    if (!tempPasswordInput || tempPasswordInput.trim().length < 6) {
+      toast.error("Password must be at least 6 characters long.");
+      return;
+    }
+
+    setIsSavingTempPassword(true);
+    try {
+      const res = await api.adminResetPassword(tempPasswordUser.id, tempPasswordInput.trim());
+      if (res && res.success) {
+        setSavedTempCredentials({
+          email: tempPasswordUser.email,
+          pass: tempPasswordInput.trim()
+        });
+        toast.success(`Password updated for ${tempPasswordUser.email}!`);
+      } else {
+        toast.error(res?.message || "Failed to update password");
+      }
+    } catch (err: any) {
+      toast.error("Error setting password: " + (err?.message || String(err)));
+    } finally {
+      setIsSavingTempPassword(false);
     }
   };
 
@@ -1274,6 +1558,11 @@ export function SuperAdminDashboard() {
               <Key size={16} />
               Key Manager & Licensing
             </div>
+            {pendingSeatRequests.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white animate-pulse">
+                {pendingSeatRequests.length} Req
+              </span>
+            )}
           </button>
         </div>
 
@@ -1372,6 +1661,20 @@ export function SuperAdminDashboard() {
                     </button>
                   </div>
 
+                  {/* Account Status Filter */}
+                  <div className="flex items-center gap-2 lg:border-l border-slate-200 dark:border-slate-700 lg:pl-3">
+                    <select
+                      value={userStatusFilter}
+                      onChange={(e) => setUserStatusFilter(e.target.value as any)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 shadow-2xs hover:border-slate-400 dark:hover:border-slate-600 transition cursor-pointer outline-none focus:border-blue-500"
+                      title="Filter users by Account Status"
+                    >
+                      <option value="ALL">All Status</option>
+                      <option value="ACTIVE">🟢 Active Only</option>
+                      <option value="SUSPENDED">🔴 Suspended Only</option>
+                    </select>
+                  </div>
+
                   {/* EXACT STATIC-WIDTH SINGLE BUTTON SORT BY CONTROL */}
                   <div className="flex items-center gap-2 lg:border-l border-slate-200 dark:border-slate-700 lg:pl-3">
                     <div className="relative inline-flex items-center w-[230px] shrink-0">
@@ -1387,6 +1690,7 @@ export function SuperAdminDashboard() {
                             {userSortField === 'plan' && (userSortOrder === 'asc' ? 'Plan (A-Z ↑)' : 'Plan (Z-A ↓)')}
                             {userSortField === 'created_at' && (userSortOrder === 'desc' ? 'Date (Newest ↓)' : 'Date (Oldest ↑)')}
                             {userSortField === 'expires' && (userSortOrder === 'asc' ? 'Expiry (Soonest ↑)' : 'Expiry (Latest ↓)')}
+                            {userSortField === 'status' && (userSortOrder === 'asc' ? 'Status (Active First ↑)' : 'Status (Suspended First ↓)')}
                           </span>
                         </div>
                         <ChevronDown size={13} className="text-slate-600 dark:text-slate-400 shrink-0" />
@@ -1414,6 +1718,8 @@ export function SuperAdminDashboard() {
                         <option value="created_at_asc">Sort By: Creation Date (Oldest First ↑)</option>
                         <option value="expires_asc">Sort By: Subscription Expiry (Soonest First ↑)</option>
                         <option value="expires_desc">Sort By: Subscription Expiry (Latest First ↓)</option>
+                        <option value="status_asc">Sort By: Account Status (Active First ↑)</option>
+                        <option value="status_desc">Sort By: Account Status (Suspended First ↓)</option>
                       </select>
                     </div>
                   </div>
@@ -1426,13 +1732,19 @@ export function SuperAdminDashboard() {
                       if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
                       return p.organization_id === selectedOrgFilter;
                     }).filter(p => {
+                      if (userStatusFilter === 'ACTIVE' && p.status === 'suspended') return false;
+                      if (userStatusFilter === 'SUSPENDED' && p.status !== 'suspended') return false;
+                      return true;
+                    }).filter(p => {
                       if (!userSearchQuery.trim()) return true;
                       const q = userSearchQuery.trim().toLowerCase();
                       const email = (p.email || '').toLowerCase();
                       const name = ((p as any).name || (p as any).username || '').toLowerCase();
                       const role = (p.role || '').toLowerCase();
                       const orgName = (organizations.find(o => o.id === p.organization_id)?.name || (p as any).company || 'Unassigned').toLowerCase();
-                      return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q);
+                      const hwid = (p.active_hwid || '').toLowerCase();
+                      const status = (p.status || 'active').toLowerCase();
+                      return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q) || hwid.includes(q) || status.includes(q);
                     }).length} Users
                   </span>
                   {userSearchQuery && (
@@ -1605,13 +1917,19 @@ export function SuperAdminDashboard() {
                               if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
                               return p.organization_id === selectedOrgFilter;
                             }).filter(p => {
+                              if (userStatusFilter === 'ACTIVE' && p.status === 'suspended') return false;
+                              if (userStatusFilter === 'SUSPENDED' && p.status !== 'suspended') return false;
+                              return true;
+                            }).filter(p => {
                               if (!userSearchQuery.trim()) return true;
                               const q = userSearchQuery.trim().toLowerCase();
                               const email = (p.email || '').toLowerCase();
                               const name = ((p as any).name || (p as any).username || '').toLowerCase();
                               const role = (p.role || '').toLowerCase();
                               const orgName = (organizations.find(o => o.id === p.organization_id)?.name || (p as any).company || 'Unassigned').toLowerCase();
-                              return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q);
+                              const hwid = (p.active_hwid || '').toLowerCase();
+                              const status = (p.status || 'active').toLowerCase();
+                              return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q) || hwid.includes(q) || status.includes(q);
                             });
                             return orgAndSearchProfiles.length > 0 && orgAndSearchProfiles.every(p => selectedUserIds.includes(p.id));
                           })()}
@@ -1621,13 +1939,19 @@ export function SuperAdminDashboard() {
                               if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
                               return p.organization_id === selectedOrgFilter;
                             }).filter(p => {
+                              if (userStatusFilter === 'ACTIVE' && p.status === 'suspended') return false;
+                              if (userStatusFilter === 'SUSPENDED' && p.status !== 'suspended') return false;
+                              return true;
+                            }).filter(p => {
                               if (!userSearchQuery.trim()) return true;
                               const q = userSearchQuery.trim().toLowerCase();
                               const email = (p.email || '').toLowerCase();
                               const name = ((p as any).name || (p as any).username || '').toLowerCase();
                               const role = (p.role || '').toLowerCase();
                               const orgName = (organizations.find(o => o.id === p.organization_id)?.name || (p as any).company || 'Unassigned').toLowerCase();
-                              return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q);
+                              const hwid = (p.active_hwid || '').toLowerCase();
+                              const status = (p.status || 'active').toLowerCase();
+                              return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q) || hwid.includes(q) || status.includes(q);
                             });
                             if (e.target.checked) {
                               const ids = orgAndSearchProfiles.map(p => p.id);
@@ -1708,6 +2032,19 @@ export function SuperAdminDashboard() {
                       </th>
                       <th
                         onClick={() => {
+                          if (userSortField === 'status') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+                          else { setUserSortField('status'); setUserSortOrder('asc'); }
+                        }}
+                        className="py-3 px-3 font-semibold cursor-pointer hover:text-blue-600 select-none transition text-center"
+                        title="Click to sort by Account Status"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span>Status</span>
+                          <span className="text-xs text-blue-600 font-bold">{userSortField === 'status' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => {
                           if (userSortField === 'expires') setUserSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
                           else { setUserSortField('expires'); setUserSortOrder('asc'); }
                         }}
@@ -1719,17 +2056,27 @@ export function SuperAdminDashboard() {
                           <span className="text-xs text-blue-600 font-bold">{userSortField === 'expires' ? (userSortOrder === 'asc' ? '↑' : '↓') : '↕'}</span>
                         </div>
                       </th>
+                      <th className="py-3 px-3 font-semibold text-center whitespace-nowrap min-w-[160px]">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <Laptop size={13} className="text-slate-500 dark:text-slate-400" />
+                          <span>Device & Activity</span>
+                        </div>
+                      </th>
                       <th className="py-3 px-3 font-semibold text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="text-sm">
                     {loadingProfiles ? (
-                      <tr><td colSpan={8} className="py-8 text-center text-slate-500">Loading...</td></tr>
+                      <tr><td colSpan={10} className="py-8 text-center text-slate-500">Loading...</td></tr>
                     ) : (() => {
                       const visibleProfiles = profiles.filter(p => {
                         if (selectedOrgFilter === 'ALL') return true;
                         if (selectedOrgFilter === 'UNASSIGNED') return !p.organization_id && p.role !== 'SUPER_ADMIN';
                         return p.organization_id === selectedOrgFilter;
+                      }).filter(p => {
+                        if (userStatusFilter === 'ACTIVE' && p.status === 'suspended') return false;
+                        if (userStatusFilter === 'SUSPENDED' && p.status !== 'suspended') return false;
+                        return true;
                       }).filter(p => {
                         if (!userSearchQuery.trim()) return true;
                         const q = userSearchQuery.trim().toLowerCase();
@@ -1738,7 +2085,9 @@ export function SuperAdminDashboard() {
                         const role = (p.role || '').toLowerCase();
                         const orgName = (organizations.find(o => o.id === p.organization_id)?.name || (p as any).company || 'Unassigned').toLowerCase();
                         const plan = (p.plan || p.subscription_status || '').toLowerCase();
-                        return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q) || plan.includes(q);
+                        const hwid = (p.active_hwid || '').toLowerCase();
+                        const status = (p.status || 'active').toLowerCase();
+                        return email.includes(q) || name.includes(q) || role.includes(q) || orgName.includes(q) || plan.includes(q) || hwid.includes(q) || status.includes(q);
                       }).sort((a, b) => {
                         let res = 0;
                         if (userSortField === 'email') {
@@ -1768,6 +2117,10 @@ export function SuperAdminDashboard() {
                           const expA = a.subscription_expires ? new Date(a.subscription_expires).getTime() : 9999999999999;
                           const expB = b.subscription_expires ? new Date(b.subscription_expires).getTime() : 9999999999999;
                           res = expA - expB;
+                        } else if (userSortField === 'status') {
+                          const sA = a.status === 'suspended' ? 'suspended' : 'active';
+                          const sB = b.status === 'suspended' ? 'suspended' : 'active';
+                          res = sA.localeCompare(sB);
                         }
                         return userSortOrder === 'asc' ? res : -res;
                       });
@@ -1775,7 +2128,7 @@ export function SuperAdminDashboard() {
                       if (visibleProfiles.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={8} className="py-12 text-center text-slate-500">
+                            <td colSpan={10} className="py-12 text-center text-slate-500">
                               <div className="flex flex-col items-center justify-center gap-2">
                                 <Search size={24} className="text-slate-400 mb-1" />
                                 <p className="font-semibold text-slate-700 dark:text-slate-300 text-sm">
@@ -1900,7 +2253,23 @@ export function SuperAdminDashboard() {
                               <option value="ENTERPRISE">🚀 Enterprise</option>
                             </select>
                           </td>
-                          {/* 6. Expires */}
+                          {/* 6. Status */}
+                          <td className="py-3.5 px-3 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleUserStatus(p)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer shadow-2xs border ${
+                                p.status === 'suspended'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/60 hover:bg-rose-100'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/60 hover:bg-emerald-100'
+                              }`}
+                              title={p.status === 'suspended' ? 'Account Suspended (Click to Activate)' : 'Account Active (Click to Suspend)'}
+                            >
+                              <span className={`size-1.5 rounded-full ${p.status === 'suspended' ? 'bg-rose-500' : 'bg-emerald-500 animate-pulse'}`} />
+                              <span>{p.status === 'suspended' ? 'Suspended' : 'Active'}</span>
+                            </button>
+                          </td>
+                          {/* 7. Expires */}
                           <td className="py-3.5 px-3 text-slate-500 whitespace-nowrap text-center w-[210px]">
                             {editingExpiryFor === p.id ? (
                               <div className="flex items-center justify-center gap-1.5 w-[195px] mx-auto">
@@ -1943,7 +2312,41 @@ export function SuperAdminDashboard() {
                               </div>
                             )}
                           </td>
-                          {/* 7. Actions */}
+                          {/* 8. Device & Activity */}
+                          <td className="py-3.5 px-3 text-center whitespace-nowrap min-w-[160px]">
+                            <div className="flex flex-col items-center gap-1">
+                              {/* Last Active Timestamp */}
+                              <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium" title={p.last_active || p.last_login || 'No recent activity'}>
+                                <Clock size={11} className="text-slate-400 shrink-0" />
+                                <span>{formatRelativeTime(p.last_active || p.last_login)}</span>
+                              </div>
+                              {/* HWID Badge & Reset */}
+                              <div className="flex items-center gap-1">
+                                {p.active_hwid ? (
+                                  <span
+                                    className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-1"
+                                    title={`Bound Hardware Fingerprint: ${p.active_hwid}`}
+                                  >
+                                    <Laptop size={10} className="text-blue-500" />
+                                    {p.active_hwid.length > 10 ? `${p.active_hwid.slice(0, 8)}…` : p.active_hwid}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 italic">No device bound</span>
+                                )}
+                                {p.active_hwid && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResetHwid(p)}
+                                    className="p-0.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded transition cursor-pointer"
+                                    title="Reset Hardware Binding (Allow login from new device)"
+                                  >
+                                    <RotateCcw size={11} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          {/* 9. Actions */}
                           <td className="py-3.5 px-3 text-center relative whitespace-nowrap">
                             <div className="inline-block text-left relative">
                               <button
@@ -1964,28 +2367,102 @@ export function SuperAdminDashboard() {
                                     className="fixed inset-0 z-30"
                                     onClick={() => setActiveUserMenuId(null)}
                                   />
-                                  <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-40 py-1 overflow-hidden animate-in fade-in-50 zoom-in-95 text-left">
+                                  <div className="absolute right-0 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl z-40 py-1 overflow-hidden animate-in fade-in-50 zoom-in-95 text-left">
+                                    {/* 1. Set Temporary Password */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveUserMenuId(null);
+                                        setTempPasswordUser(p);
+                                        setTempPasswordInput(generateStrongPassword());
+                                        setSavedTempCredentials(null);
+                                        setShowTempPassword(true);
+                                      }}
+                                      className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2.5 transition-colors cursor-pointer"
+                                    >
+                                      <KeyRound size={14} className="text-amber-500 shrink-0" />
+                                      <span>Set Temp Password</span>
+                                    </button>
+
+                                    {/* 2. Copy One-Time Magic Login Link */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveUserMenuId(null);
+                                        handleGenerateOneTimeLink(p);
+                                      }}
+                                      className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2.5 transition-colors cursor-pointer"
+                                    >
+                                      <Link2 size={14} className="text-blue-500 shrink-0" />
+                                      <span>Copy 1-Time Login Link</span>
+                                    </button>
+
+                                    {/* 3. Reset Hardware Binding */}
+                                    {p.active_hwid && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setActiveUserMenuId(null);
+                                          handleResetHwid(p);
+                                        }}
+                                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 flex items-center gap-2.5 transition-colors cursor-pointer"
+                                      >
+                                        <RotateCcw size={14} className="text-amber-500 shrink-0" />
+                                        <span>Reset HWID Binding</span>
+                                      </button>
+                                    )}
+
+                                    {/* 4. Instant Account Suspension Toggle */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveUserMenuId(null);
+                                        handleToggleUserStatus(p);
+                                      }}
+                                      className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center gap-2.5 transition-colors cursor-pointer ${
+                                        p.status === 'suspended'
+                                          ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                                          : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+                                      }`}
+                                    >
+                                      {p.status === 'suspended' ? (
+                                        <>
+                                          <CheckCircle size={14} className="text-emerald-500 shrink-0" />
+                                          <span>Activate Account</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Ban size={14} className="text-amber-500 shrink-0" />
+                                          <span>Suspend Account</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    {/* 5. Permissions */}
                                     <button
                                       type="button"
                                       onClick={() => {
                                         setActiveUserMenuId(null);
                                         setEditingPermissionsFor(p);
                                       }}
-                                      className="w-full text-left px-3.5 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2.5 transition-colors cursor-pointer"
+                                      className="w-full text-left px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2.5 transition-colors cursor-pointer"
                                     >
-                                      <ShieldAlert size={15} className="text-blue-600 dark:text-blue-400" />
+                                      <ShieldAlert size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />
                                       <span>Permissions</span>
                                     </button>
+
                                     <div className="h-px bg-slate-100 dark:bg-slate-800 my-0.5" />
+
+                                    {/* 6. Delete User */}
                                     <button
                                       type="button"
                                       onClick={() => {
                                         setActiveUserMenuId(null);
                                         deleteUser(p.id, p.email);
                                       }}
-                                      className="w-full text-left px-3.5 py-2.5 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center gap-2.5 transition-colors cursor-pointer"
+                                      className="w-full text-left px-3.5 py-2 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center gap-2.5 transition-colors cursor-pointer"
                                     >
-                                      <Trash2 size={15} className="text-red-500" />
+                                      <Trash2 size={14} className="text-red-500 shrink-0" />
                                       <span>Delete User</span>
                                     </button>
                                   </div>
@@ -2640,7 +3117,7 @@ export function SuperAdminDashboard() {
                                               <UserMinus size={15} className="text-slate-400" />
                                               <span>Remove from Organization</span>
                                             </button>
-                                            <div className="h-px bg-slate-100 dark:bg-slate-800 my-0.5" />
+                                           <div className="h-px bg-slate-100 dark:bg-slate-800 my-0.5" />
                                             <button
                                               type="button"
                                               onClick={() => {
@@ -2828,9 +3305,32 @@ export function SuperAdminDashboard() {
                                   )}
                                 </td>
                                 <td className="py-3.5 px-4">
-                                  <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800">
-                                    {org.subscription_plan}
-                                  </span>
+                                  <div className="flex flex-col items-start gap-1">
+                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800">
+                                      {org.subscription_plan}
+                                    </span>
+                                    {org.license_key && org.license_key !== 'TRIAL-FREE' ? (
+                                      <div className="flex items-center gap-1.5 mt-0.5" onClick={(e) => e.stopPropagation()}>
+                                        <code className="text-[10px] font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                          {org.license_key}
+                                        </code>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigator.clipboard.writeText(org.license_key);
+                                            toast.success(`License key copied: ${org.license_key}`);
+                                          }}
+                                          className="p-1 rounded text-slate-400 hover:text-indigo-600 transition cursor-pointer"
+                                          title="Copy License Key"
+                                        >
+                                          <Copy size={11} />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <span className="text-[10px] text-amber-600 font-medium">Free Trial Active</span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="py-3.5 px-4 font-semibold text-slate-700 dark:text-slate-300">
                                   <div className="flex items-center gap-2">
@@ -2898,6 +3398,20 @@ export function SuperAdminDashboard() {
                                           >
                                             <Edit3 size={15} className="text-slate-400" />
                                             <span>Rename Organization</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setActiveOrgMenuId(null);
+                                              const keyToCopy = org.license_key || "MEP-LIC-ORG-PRO";
+                                              navigator.clipboard.writeText(keyToCopy);
+                                              toast.success(`License key copied: ${keyToCopy}`);
+                                            }}
+                                            className="w-full text-left px-3.5 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 flex items-center gap-2.5 transition-colors cursor-pointer"
+                                          >
+                                            <Key size={15} className="text-indigo-600 dark:text-indigo-400" />
+                                            <span>Copy License Key</span>
                                           </button>
                                           <div className="h-px bg-slate-100 dark:bg-slate-800 my-0.5" />
                                           <button
@@ -3246,15 +3760,92 @@ export function SuperAdminDashboard() {
                       <Key className="text-blue-600 dark:text-blue-400" size={24} />
                       Key Manager & Licensing
                     </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">Generate unique non-repeatable license keys and manage hardware trials.</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Generate unique non-repeatable license keys, review seat requests, and manage hardware trials.</p>
                   </div>
                   <button
-                    onClick={fetchAdminLicenses}
+                    onClick={() => {
+                      fetchAdminLicenses()
+                      fetchSeatUpgradeRequests()
+                    }}
                     className="px-3.5 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition shadow-2xs cursor-pointer shrink-0"
                   >
                     Refresh List
                   </button>
                 </div>
+
+                {/* Pending Seat Upgrade Requests Alert Panel */}
+                {pendingSeatRequests.length > 0 && (
+                  <div className="p-4 sm:p-5 border-2 border-amber-300 dark:border-amber-700/60 bg-gradient-to-r from-amber-50/90 via-white to-amber-50/50 dark:from-amber-950/40 dark:via-slate-900 dark:to-amber-950/20 rounded-2xl space-y-3.5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold shrink-0">
+                          <Zap size={16} />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                            <span>Pending Seat Upgrade Requests</span>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white">
+                              {pendingSeatRequests.length} Pending
+                            </span>
+                          </h3>
+                          <p className="text-xs text-slate-500">
+                            Organization admins requested additional seat capacity for their teams.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {pendingSeatRequests.map((req: any) => (
+                        <div key={req.id} className="p-3.5 bg-white dark:bg-slate-800/90 rounded-xl border border-amber-200 dark:border-amber-900/40 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-2xs">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-extrabold text-sm text-slate-900 dark:text-white">{req.org_name}</span>
+                              <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 font-bold text-[11px] border border-blue-200 dark:border-blue-800">
+                                +{req.requested_seats} Seats Requested
+                              </span>
+                              <span className="text-xs font-semibold text-slate-500">
+                                (Current: {req.current_seats} &rarr; Target: {req.target_seats} Total)
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${req.urgency === 'Urgent'
+                                ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/50 dark:text-red-300'
+                                : 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300'
+                                }`}>
+                                {req.urgency}
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-3 flex-wrap">
+                              <span><b>Requested By:</b> {req.requested_by_name || 'Admin'} ({req.requested_by_email})</span>
+                              {req.contact_phone && <span><b>Phone:</b> {req.contact_phone}</span>}
+                              <span><b>Date:</b> {new Date(req.created_at).toLocaleString()}</span>
+                            </div>
+                            {req.reason && (
+                              <p className="text-xs text-slate-600 dark:text-slate-400 italic">
+                                "{req.reason}"
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => handleRejectSeatRequest(req)}
+                              className="px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+                            >
+                              Decline
+                            </button>
+                            <button
+                              onClick={() => handleApproveSeatRequest(req)}
+                              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg shadow-2xs transition cursor-pointer"
+                            >
+                              <Check size={14} />
+                              <span>Approve (+{req.requested_seats} Seats)</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Generator Form */}
                 <div className="p-4 sm:p-5 border border-blue-200 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/20 rounded-2xl space-y-3.5">
@@ -3326,98 +3917,355 @@ export function SuperAdminDashboard() {
                 </div>
               </div>
 
-              {/* Independent Scrollable Section: License Keys & Trials Tables */}
+              {/* Organized Sub-Tab Navigation for Licensing Views */}
               <div className="p-4 md:p-6 flex-1 flex flex-col min-h-0 gap-4 overflow-hidden">
-                {/* Generated Keys Table (Independent Scroll) */}
-                <div className="flex-1 flex flex-col min-h-[140px] overflow-hidden">
-                  <div className="flex items-center justify-between mb-2 shrink-0">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">Active & Generated License Keys ({licensesList.length})</h3>
+                {/* Modern Pill Tab Switcher */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3 shrink-0">
+                  <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-850 rounded-xl border border-slate-200/80 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setLicenseSubTab('usage')}
+                      className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        licenseSubTab === 'usage'
+                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <Users className="size-3.5" />
+                      <span>License Usage</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                        licenseSubTab === 'usage'
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                          : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                      }`}>
+                        {filteredLicenseUsage.length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLicenseSubTab('keys')}
+                      className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        licenseSubTab === 'keys'
+                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <Key className="size-3.5" />
+                      <span>Active & Generated Keys</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                        licenseSubTab === 'keys'
+                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
+                          : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                      }`}>
+                        {filteredLicensesList.length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLicenseSubTab('trials')}
+                      className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        licenseSubTab === 'trials'
+                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <HardDrive className="size-3.5" />
+                      <span>Hardware Device Trials</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                        licenseSubTab === 'trials'
+                          ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300'
+                          : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                      }`}>
+                        {filteredTrialsList.length}
+                      </span>
+                    </button>
                   </div>
-                  {loadingLicenses ? (
-                    <div className="py-8 text-center text-slate-400"><Loader2 className="animate-spin size-6 mx-auto mb-2" />Loading keys...</div>
-                  ) : licensesList.length === 0 ? (
-                    <div className="py-8 text-center text-slate-400 text-xs italic border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">No custom license keys generated yet.</div>
-                  ) : (
-                    <div className="flex-1 border border-slate-200 dark:border-slate-800 rounded-xl overflow-y-auto min-h-0 shadow-2xs">
-                      <table className="w-full text-left text-xs">
-                        <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/95 backdrop-blur-xs font-bold uppercase text-slate-500 text-[10px] z-10 border-b border-slate-200 dark:border-slate-700">
-                          <tr>
-                            <th className="p-3">License Key</th>
-                            <th className="p-3">Tier</th>
-                            <th className="p-3">Bound Email</th>
-                            <th className="p-3">Status</th>
-                            <th className="p-3">Expires</th>
-                            <th className="p-3 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                          {licensesList.map((lic) => (
-                            <tr key={lic.key} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                              <td className="p-3 font-bold text-blue-600 dark:text-blue-400">{lic.key}</td>
-                              <td className="p-3 font-semibold">{lic.tier}</td>
-                              <td className="p-3 text-slate-600 dark:text-slate-300">{lic.boundEmail || 'Unbound'}</td>
-                              <td className="p-3">
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${lic.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'
-                                  }`}>
-                                  {lic.status}
-                                </span>
-                              </td>
-                              <td className="p-3 text-slate-500">{new Date(lic.expiresAt).toLocaleDateString()}</td>
-                              <td className="p-3 text-right">
-                                {lic.status === 'ACTIVE' && (
-                                  <button
-                                    onClick={() => handleAdminRevokeKey(lic.key)}
-                                    className="px-2.5 py-1 text-[11px] font-bold text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded-lg transition cursor-pointer"
-                                  >
-                                    Revoke
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+
+                  {/* Contextual Search Input based on active tab */}
+                  <div className="relative">
+                    <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400 pointer-events-none" />
+                    {licenseSubTab === 'usage' && (
+                      <input
+                        type="text"
+                        placeholder="Search key, user name, or org..."
+                        value={licenseUsageSearch}
+                        onChange={(e) => setLicenseUsageSearch(e.target.value)}
+                        className="pl-8 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-full sm:w-64"
+                      />
+                    )}
+                    {licenseSubTab === 'keys' && (
+                      <input
+                        type="text"
+                        placeholder="Search key, tier, or email..."
+                        value={keySearchQuery}
+                        onChange={(e) => setKeySearchQuery(e.target.value)}
+                        className="pl-8 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-full sm:w-64"
+                      />
+                    )}
+                    {licenseSubTab === 'trials' && (
+                      <input
+                        type="text"
+                        placeholder="Search HWID or email..."
+                        value={trialSearchQuery}
+                        onChange={(e) => setTrialSearchQuery(e.target.value)}
+                        className="pl-8 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-full sm:w-64"
+                      />
+                    )}
+                  </div>
                 </div>
 
-                {/* Hardware Fingerprint Trials Table (Independent Scroll) */}
-                <div className="flex-1 flex flex-col min-h-[140px] overflow-hidden pt-3 border-t border-slate-200 dark:border-slate-800">
-                  <div className="flex items-center justify-between mb-2 shrink-0">
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">Hardware Fingerprinted Trials ({trialsList.length})</h3>
-                  </div>
-                  {trialsList.length === 0 ? (
-                    <div className="py-8 text-center text-slate-400 text-xs italic border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">No hardware device trials logged yet.</div>
-                  ) : (
-                    <div className="flex-1 border border-slate-200 dark:border-slate-800 rounded-xl overflow-y-auto min-h-0 shadow-2xs">
-                      <table className="w-full text-left text-xs">
-                        <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/95 backdrop-blur-xs font-bold uppercase text-slate-500 text-[10px] z-10 border-b border-slate-200 dark:border-slate-700">
-                          <tr>
-                            <th className="p-3">Hardware ID (HWID)</th>
-                            <th className="p-3">Bound Email</th>
-                            <th className="p-3">First Claimed</th>
-                            <th className="p-3">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                          {trialsList.map((tr) => (
-                            <tr key={tr.hwid} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                              <td className="p-3 text-slate-700 dark:text-slate-300 font-bold">{tr.hwid}</td>
-                              <td className="p-3 text-slate-500">{tr.email}</td>
-                              <td className="p-3 text-slate-500">{new Date(tr.firstSeenAt).toLocaleDateString()}</td>
-                              <td className="p-3">
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${Date.now() > tr.expiresAt ? 'bg-red-500/10 text-red-500' : 'bg-blue-500/10 text-blue-500'
-                                  }`}>
-                                  {Date.now() > tr.expiresAt ? 'EXPIRED' : 'FREE_TRIAL'}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                {/* Sub-Tab 1: License Usage */}
+                {licenseSubTab === 'usage' && (
+                  <div className="flex-1 flex flex-col min-h-0 bg-slate-50/50 dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-fade-in">
+                    <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                          <Users size={16} />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                            License Usage (Super Admin Panel)
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                              {filteredLicenseUsage.length} Active {filteredLicenseUsage.length === 1 ? 'User' : 'Users'}
+                            </span>
+                          </h3>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Track which user is actively utilizing each organization and standalone license key.
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
+
+                    {loadingLicenses ? (
+                      <div className="py-12 text-center text-slate-400"><Loader2 className="animate-spin size-6 mx-auto mb-2" />Loading license usage...</div>
+                    ) : filteredLicenseUsage.length === 0 ? (
+                      <div className="py-12 text-center text-slate-400 text-xs italic border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                        No active license usage records found.
+                      </div>
+                    ) : (
+                      <div className="flex-1 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto overflow-y-auto bg-white dark:bg-slate-900 shadow-2xs min-h-0">
+                        <table className="w-full text-left text-xs">
+                          <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-800/95 backdrop-blur-xs font-bold uppercase text-slate-500 text-[10px] z-10 border-b border-slate-200 dark:border-slate-700">
+                            <tr>
+                              <th className="p-3">License Key</th>
+                              <th className="p-3">User Name</th>
+                              <th className="p-3">Organization Name</th>
+                              <th className="p-3">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {filteredLicenseUsage.map((item: any) => (
+                              <tr key={item.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                                <td className="p-3 font-mono font-bold text-blue-600 dark:text-blue-400">
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{item.licenseKey}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(item.licenseKey);
+                                        toast.success("License key copied!");
+                                      }}
+                                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                                      title="Copy License Key"
+                                    >
+                                      <Copy size={11} />
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="p-3 font-semibold text-slate-900 dark:text-white">
+                                  <div>
+                                    <span>{item.userName}</span>
+                                    {item.userEmail && item.userEmail !== item.userName && (
+                                      <span className="block text-[10px] font-normal text-slate-400 font-mono">{item.userEmail}</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="p-3 font-semibold text-slate-700 dark:text-slate-300">
+                                  <div className="flex items-center gap-1.5">
+                                    <Building size={13} className="text-blue-600 shrink-0" />
+                                    <span>{item.organizationName || '—'}</span>
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                                    item.status === 'Active'
+                                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                                  }`}>
+                                    {item.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Sub-Tab 2: Active & Generated Keys */}
+                {licenseSubTab === 'keys' && (
+                  <div className="flex-1 flex flex-col min-h-0 bg-slate-50/50 dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-fade-in">
+                    <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
+                          <Key size={16} />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                            Active & Generated License Keys
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                              {filteredLicensesList.length} Keys
+                            </span>
+                          </h3>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            All master organization and standalone license keys generated on the platform.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {loadingLicenses ? (
+                      <div className="py-12 text-center text-slate-400"><Loader2 className="animate-spin size-6 mx-auto mb-2" />Loading keys...</div>
+                    ) : filteredLicensesList.length === 0 ? (
+                      <div className="py-12 text-center text-slate-400 text-xs italic border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                        No license keys match your search.
+                      </div>
+                    ) : (
+                      <div className="flex-1 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto overflow-y-auto bg-white dark:bg-slate-900 shadow-2xs min-h-0">
+                        <table className="w-full text-left text-xs">
+                          <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/95 backdrop-blur-xs font-bold uppercase text-slate-500 text-[10px] z-10 border-b border-slate-200 dark:border-slate-700">
+                            <tr>
+                              <th className="p-3">License Key</th>
+                              <th className="p-3">Organization / Bound</th>
+                              <th className="p-3">Tier</th>
+                              <th className="p-3">Status</th>
+                              <th className="p-3">Expires</th>
+                              <th className="p-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                            {filteredLicensesList.map((lic: any) => (
+                              <tr key={lic.key} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                                <td className="p-3 font-bold text-blue-600 dark:text-blue-400">
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{lic.key}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(lic.key);
+                                        toast.success("License key copied!");
+                                      }}
+                                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+                                      title="Copy License Key"
+                                    >
+                                      <Copy size={11} />
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="p-3 font-sans text-slate-700 dark:text-slate-300">
+                                  {lic.organization_name || lic.company ? (
+                                    <div className="flex items-center gap-1.5 font-semibold text-slate-800 dark:text-slate-200">
+                                      <Building size={13} className="text-blue-600 shrink-0" />
+                                      <span>{lic.organization_name || lic.company}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-500">{lic.boundEmail || 'Unbound (Global)'}</span>
+                                  )}
+                                </td>
+                                <td className="p-3 font-semibold">{lic.tier}</td>
+                                <td className="p-3">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    lic.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                                  }`}>
+                                    {lic.status}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-slate-500">{new Date(lic.expiresAt).toLocaleDateString()}</td>
+                                <td className="p-3 text-right">
+                                  {lic.status === 'ACTIVE' && (
+                                    <button
+                                      onClick={() => handleAdminRevokeKey(lic.key)}
+                                      className="px-2.5 py-1 text-[11px] font-bold text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 rounded-lg transition cursor-pointer"
+                                    >
+                                      Revoke
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Sub-Tab 3: Hardware Device Trials */}
+                {licenseSubTab === 'trials' && (
+                  <div className="flex-1 flex flex-col min-h-0 bg-slate-50/50 dark:bg-slate-900/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-fade-in">
+                    <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
+                          <HardDrive size={16} />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                            Hardware Fingerprinted Trials
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300">
+                              {filteredTrialsList.length} Devices
+                            </span>
+                          </h3>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Hardware IDs bound during 14-day free trials to prevent multi-account abuse.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {trialsList.length === 0 ? (
+                      <div className="py-12 text-center text-slate-400 text-xs italic border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                        No hardware device trials logged yet.
+                      </div>
+                    ) : filteredTrialsList.length === 0 ? (
+                      <div className="py-12 text-center text-slate-400 text-xs italic border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                        No hardware trials match your search.
+                      </div>
+                    ) : (
+                      <div className="flex-1 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto overflow-y-auto bg-white dark:bg-slate-900 shadow-2xs min-h-0">
+                        <table className="w-full text-left text-xs">
+                          <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/95 backdrop-blur-xs font-bold uppercase text-slate-500 text-[10px] z-10 border-b border-slate-200 dark:border-slate-700">
+                            <tr>
+                              <th className="p-3">Hardware ID (HWID)</th>
+                              <th className="p-3">Bound Email</th>
+                              <th className="p-3">First Claimed</th>
+                              <th className="p-3">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                            {filteredTrialsList.map((tr: any) => (
+                              <tr key={tr.hwid} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                                <td className="p-3 text-slate-700 dark:text-slate-300 font-bold">{tr.hwid}</td>
+                                <td className="p-3 text-slate-500">{tr.email}</td>
+                                <td className="p-3 text-slate-500">{new Date(tr.firstSeenAt).toLocaleDateString()}</td>
+                                <td className="p-3">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    Date.now() > tr.expiresAt ? 'bg-red-500/10 text-red-500' : 'bg-blue-500/10 text-blue-500'
+                                  }`}>
+                                    {Date.now() > tr.expiresAt ? 'EXPIRED' : 'FREE_TRIAL'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -3577,6 +4425,140 @@ export function SuperAdminDashboard() {
                 Close Inspector
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Set Temporary Password Modal */}
+      {showTempPassword && tempPasswordUser && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="size-9 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-200 dark:border-amber-800">
+                  <KeyRound size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Set Temporary Password
+                  </h3>
+                  <p className="text-xs text-slate-500 truncate max-w-[260px]">
+                    For: <strong className="text-slate-800 dark:text-slate-200">{tempPasswordUser.email}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTempPassword(false);
+                  setTempPasswordUser(null);
+                  setSavedTempCredentials(null);
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {savedTempCredentials ? (
+              <div className="space-y-4">
+                <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-bold text-xs">
+                    <CheckCircle size={15} />
+                    <span>Password successfully updated!</span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
+                    Share these temporary credentials with the user:
+                  </p>
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-emerald-100 dark:border-emerald-900 font-mono text-xs space-y-1">
+                    <div><span className="text-slate-400">Email:</span> <span className="font-semibold text-slate-900 dark:text-white">{savedTempCredentials.email}</span></div>
+                    <div><span className="text-slate-400">Password:</span> <span className="font-bold text-emerald-600 dark:text-emerald-400">{savedTempCredentials.pass}</span></div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`Email: ${savedTempCredentials.email}\nTemporary Password: ${savedTempCredentials.pass}`);
+                      toast.success("Credentials copied to clipboard!");
+                    }}
+                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition cursor-pointer"
+                  >
+                    Copy Credentials
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowTempPassword(false);
+                      setTempPasswordUser(null);
+                      setSavedTempCredentials(null);
+                    }}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      New Password
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setTempPasswordInput(generateStrongPassword())}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw size={11} /> Generate New
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showPasswordText ? "text" : "password"}
+                      value={tempPasswordInput}
+                      onChange={(e) => setTempPasswordInput(e.target.value)}
+                      placeholder="Enter new password (min 6 characters)"
+                      className="w-full text-xs font-mono p-2.5 pr-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPasswordText(!showPasswordText)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                      title={showPasswordText ? "Hide password" : "Show password"}
+                    >
+                      {showPasswordText ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    The user can log in immediately with this password without needing email OTP.
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowTempPassword(false);
+                      setTempPasswordUser(null);
+                    }}
+                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingTempPassword || !tempPasswordInput || tempPasswordInput.length < 6}
+                    onClick={handleSaveTempPassword}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+                  >
+                    {isSavingTempPassword ? 'Updating...' : 'Set Password'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

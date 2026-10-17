@@ -176,6 +176,10 @@ export const api = {
           }
 
           const finalPlan = u.plan || u.subscription_status || u.features?.plan || u.features?.subscription_status || c?.plan || c?.subscription_status || c?.features?.plan || (finalOrgId ? 'ENTERPRISE' : 'PRO');
+          const finalStatus = u.status || c?.status || u.features?.status || c?.features?.status || 'active';
+          const finalHwid = u.active_hwid !== undefined ? u.active_hwid : (c?.active_hwid !== undefined ? c.active_hwid : (u.features?.active_hwid || c?.features?.active_hwid || null));
+          const finalLastLogin = u.last_login || c?.last_login || u.features?.last_login || c?.features?.last_login || null;
+          const finalLastActive = u.last_active || c?.last_active || u.features?.last_active || c?.features?.last_active || finalLastLogin || null;
 
           return {
             ...(c || {}),
@@ -187,6 +191,10 @@ export const api = {
             plan: finalPlan,
             subscription_status: finalPlan,
             subscription_expires: finalExpires,
+            status: finalStatus,
+            active_hwid: finalHwid,
+            last_login: finalLastLogin,
+            last_active: finalLastActive,
             features: {
               ...(c?.features || {}),
               ...(u.features || {}),
@@ -196,6 +204,10 @@ export const api = {
               role: finalRole,
               designation: finalDesignation,
               subscription_expires: finalExpires,
+              status: finalStatus,
+              active_hwid: finalHwid,
+              last_login: finalLastLogin,
+              last_active: finalLastActive,
               ...(finalAuthority !== undefined ? { approvalAuthority: finalAuthority } : {})
             }
           };
@@ -513,6 +525,101 @@ export const api = {
     }
   },
 
+  async adminResetPassword(userId: string, newPassword: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/reset-password`, { userId, newPassword }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || error.message || 'Failed to update user password' };
+    }
+  },
+
+  async adminGenerateLoginLink(userId: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/generate-login-link`, { userId }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || error.message || 'Failed to generate one-time login link' };
+    }
+  },
+
+  async adminToggleUserStatus(userId: string, status: 'active' | 'suspended') {
+    // 1. Instant local persistence update
+    try {
+      const stored = localStorage.getItem('mep_local_users');
+      let users = stored ? JSON.parse(stored) : null;
+      if (Array.isArray(users)) {
+        users = users.map((u: any) => {
+          if (u.id === userId || u.email === userId) {
+            return {
+              ...u,
+              status,
+              features: { ...(u.features || {}), status }
+            };
+          }
+          return u;
+        });
+        localStorage.setItem('mep_local_users', JSON.stringify(users));
+        localStorage.setItem('cachedAllUsers', JSON.stringify(users));
+      }
+    } catch (e) {}
+
+    // 2. Call backend
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/toggle-user-status`, { userId, status }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || error.message || 'Failed to toggle user status' };
+    }
+  },
+
+  async adminResetHwid(userId: string) {
+    // 1. Instant local persistence update
+    try {
+      const stored = localStorage.getItem('mep_local_users');
+      let users = stored ? JSON.parse(stored) : null;
+      if (Array.isArray(users)) {
+        users = users.map((u: any) => {
+          if (u.id === userId || u.email === userId) {
+            return {
+              ...u,
+              active_hwid: null,
+              features: { ...(u.features || {}), active_hwid: null }
+            };
+          }
+          return u;
+        });
+        localStorage.setItem('mep_local_users', JSON.stringify(users));
+        localStorage.setItem('cachedAllUsers', JSON.stringify(users));
+      }
+    } catch (e) {}
+
+    // 2. Call backend
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/admin/reset-hwid`, { userId }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || error.message || 'Failed to reset device hardware binding' };
+    }
+  },
+
+  async magicLogin(magicToken: string, email: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/auth/magic-login`, { magicToken, email });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || error.message || 'Failed to authenticate via login link' };
+    }
+  },
+
   async adminCreateUser(payload: {
     name: string;
     email: string;
@@ -727,6 +834,26 @@ export const api = {
       return { success: false, message: error.response?.data?.message || 'Failed to add team' };
     }
   },
+  async toggleProjectLock(payload: { project_id: string; is_locked: boolean; reason?: string }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/projects/toggle-lock`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to update project lock status' };
+    }
+  },
+  async getBulkProjectsExport() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/projects/bulk-export`, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch (error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to fetch bulk projects export', projects: [] };
+    }
+  },
   
   // PRIVACY
   async acceptPrivacyPolicy() {
@@ -742,7 +869,7 @@ export const api = {
   async getOrganizations() {
     let orgs: any[] = [];
     try {
-      const { data } = await axios.get(`${getBackendUrl()}/api/admin/organizations`);
+      const { data } = await axios.get(`${getBackendUrl()}/api/admin/organizations`, { headers: getAuthHeaders() });
       if (data.success && Array.isArray(data.organizations)) {
         orgs = data.organizations;
       }
@@ -907,7 +1034,7 @@ export const api = {
   async getOrgHierarchy(orgId?: string) {
     try {
       const url = orgId ? `${getBackendUrl()}/api/org/hierarchy?orgId=${encodeURIComponent(orgId)}` : `${getBackendUrl()}/api/org/hierarchy`;
-      const { data } = await axios.get(url);
+      const { data } = await axios.get(url, { headers: getAuthHeaders() });
       if (data && data.success && Array.isArray(data.hierarchy)) {
         return data.hierarchy;
       }
@@ -917,9 +1044,21 @@ export const api = {
     return null;
   },
 
+  async getSystemHierarchyOverview() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/org/hierarchy?scope=system`, { headers: getAuthHeaders() });
+      if (data && data.success && data.is_system_overview) {
+        return data;
+      }
+    } catch (e) {
+      console.error('Error fetching system hierarchy overview:', e);
+    }
+    return null;
+  },
+
   async saveOrgHierarchy(hierarchy: any[], orgId?: string) {
     try {
-      const { data } = await axios.post(`${getBackendUrl()}/api/org/hierarchy`, { hierarchy, orgId });
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/hierarchy`, { hierarchy, org_id: orgId, orgId }, { headers: getAuthHeaders() });
       return data;
     } catch (e) {
       console.error('Error saving org hierarchy:', e);
@@ -994,8 +1133,18 @@ export const api = {
   },
   async saveOrgBranding(branding: any, orgId?: string) {
     try {
-      const activeUser = getStoredUser();
-      const finalOrgId = orgId || activeUser?.organization_id || 'org_default';
+      let finalOrgId = orgId || '';
+      if (!finalOrgId && typeof window !== 'undefined') {
+        try {
+          const uStr = localStorage.getItem('currentUser') || localStorage.getItem('mep_user_data') || localStorage.getItem('mep_profile') || localStorage.getItem('mep_user');
+          if (uStr) {
+            const u = JSON.parse(uStr);
+            finalOrgId = u?.organization_id || u?.user?.organization_id || (u?.features as any)?.organization_id || '';
+          }
+        } catch (err) {}
+      }
+      if (!finalOrgId) finalOrgId = 'GLOBAL';
+
       const { data } = await axios.post(
         `${getBackendUrl()}/api/org/branding`,
         { org_id: finalOrgId, branding },
@@ -1229,6 +1378,87 @@ export const api = {
       return data;
     } catch(e) {
       return { success: false };
+    }
+  },
+
+  async deactivateUserSeat(userId: string, reason?: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/users/deactivate`, { userId, reason }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to deactivate seat' };
+    }
+  },
+
+  async reactivateUserSeat(userId: string) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/users/reactivate`, { userId }, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to reactivate seat' };
+    }
+  },
+
+  async reassignUserSeat(payload: {
+    formerUserId: string;
+    newHireName: string;
+    newHireEmail: string;
+    newHireRole?: string;
+    newHireAuthority?: string;
+  }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/users/reassign`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to reassign seat' };
+    }
+  },
+
+  async requestSeatUpgrade(payload: {
+    requestedSeats: number;
+    reason: string;
+    urgency?: string;
+    contactPhone?: string;
+  }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/license-upgrade-request`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to submit seat upgrade request' };
+    }
+  },
+
+  async getSeatUpgradeRequests() {
+    try {
+      const { data } = await axios.get(`${getBackendUrl()}/api/org/license-upgrade-request`, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, requests: [] };
+    }
+  },
+
+  async actionSeatUpgradeRequest(payload: {
+    requestId: string;
+    action: 'APPROVE' | 'REJECT';
+    note?: string;
+  }) {
+    try {
+      const { data } = await axios.post(`${getBackendUrl()}/api/org/license-upgrade-request/action`, payload, {
+        headers: getAuthHeaders()
+      });
+      return data;
+    } catch(error: any) {
+      return { success: false, message: error.response?.data?.message || 'Failed to process seat upgrade request' };
     }
   }
 };

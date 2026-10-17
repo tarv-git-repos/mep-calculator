@@ -1,6 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { addPdfHeader, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { downloadFile } from "./download";
 import { workspaceStore } from "./workspace-store";
 import { calculateBusbarPanels, type LVPanel } from "./calc-busbar-calculation";
@@ -275,73 +275,15 @@ export async function exportBusbarPDF(
 
     if (options.includeStamp !== false) {
       const sigFinalY = Math.max(lastSectionCardEndY + 8, 75);
-      const { originatedName, originatedDate, reviewerName, reviewerDate, approverName, approverDate } = getSignatureBlockDetails(activeProj?.id || "default", "busbar-calculation", currentUserName);
+      const sigDetails = getSignatureBlockDetails(activeProj?.id || "default", "busbar-calculation", currentUserName);
+      addPdfSignatureBlock(doc, sigFinalY, sigDetails, activeProj?.id || "default", "busbar-calculation");
+    }
 
-      runAutoTable({
-        startY: sigFinalY,
-        margin: { left: 14, right: 14 },
-        theme: "grid",
-        styles: {
-          font: "helvetica",
-          fontSize: 8.5,
-          textColor: [0, 0, 0],
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
-          minCellHeight: 9.0
-        },
-        headStyles: {
-          fillColor: [255, 230, 204],
-          textColor: [0, 0, 0],
-          fontStyle: "bold",
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
-          minCellHeight: 9.0
-        },
-        bodyStyles: {
-          fontSize: 8.5,
-          textColor: [0, 0, 0],
-          halign: "center",
-          valign: "middle",
-          lineColor: [100, 100, 100],
-          lineWidth: 0.1,
-          cellPadding: { top: 3.5, bottom: 3.5, left: 2.0, right: 2.0 },
-          minCellHeight: 9.0
-        },
-        head: [
-          [
-            { content: "" },
-            { content: "Originator" },
-            { content: "Reviewer" },
-            { content: "Approver" }
-          ]
-        ],
-        body: [
-          [
-            { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedName || "-", styles: { halign: "center" } },
-            { content: reviewerName || "-", styles: { halign: "center" } },
-            { content: approverName || "-", styles: { halign: "center" } }
-          ],
-          [
-            { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-            { content: originatedDate || "-", styles: { halign: "center" } },
-            { content: reviewerDate || "-", styles: { halign: "center" } },
-            { content: approverDate || "-", styles: { halign: "center" } }
-          ]
-        ],
-        columnStyles: {
-          0: { cellWidth: 38, fontStyle: "bold", halign: "right" },
-          1: { cellWidth: 77, halign: "center" },
-          2: { cellWidth: 77, halign: "center" },
-          3: { cellWidth: 77, halign: "center" }
-        }
-      });
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
     }
 
     const pdfBuffer = doc.output("arraybuffer");

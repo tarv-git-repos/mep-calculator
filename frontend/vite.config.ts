@@ -110,6 +110,22 @@ import os from "os";
 
 const localCacheDir = path.join(os.tmpdir(), "mep_calculator_vite_cache");
 
+// Ensure orphan temp optimization folders are resolved if Vite was previously terminated mid-optimization
+try {
+  if (fs.existsSync(localCacheDir)) {
+    const depsDir = path.join(localCacheDir, "deps");
+    if (!fs.existsSync(depsDir)) {
+      const entries = fs.readdirSync(localCacheDir);
+      const tempDir = entries.find((e) => e.startsWith("deps_temp_"));
+      if (tempDir) {
+        fs.renameSync(path.join(localCacheDir, tempDir), depsDir);
+      }
+    }
+  }
+} catch {
+  // Ignore filesystem lock/concurrency errors during startup
+}
+
 export default defineConfig({
   vite: {
     cacheDir: localCacheDir,
@@ -121,7 +137,7 @@ export default defineConfig({
       strictPort: false,
       fs: {
         strict: false,
-        allow: [path.resolve(__dirname, '..'), path.resolve(__dirname, '.')],
+        allow: [path.resolve(__dirname, '..'), path.resolve(__dirname, '.'), localCacheDir],
       },
       proxy: {
         '/api': {
@@ -184,7 +200,13 @@ export default defineConfig({
         '@tanstack/react-query',
         'lucide-react',
         'clsx',
-        'tailwind-merge'
+        'tailwind-merge',
+        '@radix-ui/react-tooltip',
+        '@radix-ui/react-dialog',
+        '@radix-ui/react-dropdown-menu',
+        '@radix-ui/react-tabs',
+        '@radix-ui/react-select',
+        '@radix-ui/react-popover'
       ],
       exclude: ['@tanstack/react-start', 'node:async_hooks', 'async_hooks', '@thatopen/components', '@thatopen/components-front', '@thatopen/fragments', 'web-ifc'],
     },

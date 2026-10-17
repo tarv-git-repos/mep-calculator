@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
 import { workspaceStore } from "./workspace-store";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 import { toast } from "sonner";
 import { PIPE_MATERIALS } from "./calc-chw-pipe";
 
@@ -113,54 +113,15 @@ export const exportCHWPipePDF = async (
     const primaryFill: [number, number, number] = [217, 217, 217]; // Uniform gray #D9D9D9 (Matching Ventilation)
     const blueFill: [number, number, number] = [218, 233, 248];    // Soft Blue highlight #DAE9F8 (Matching Ventilation)
 
-    // 1. Header Title matching Ventilation standard
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(0, 0, 0);
-    doc.text("Chilled Water Pipe Sizing Calculation Report", 14, 14);
-
-    // 2. Metadata Block for Portrait Mode (182mm width: left 14mm to right 196mm)
-    doc.setFontSize(9);
-    doc.setLineWidth(0.3);
-    doc.setDrawColor(100, 100, 100);
-    doc.rect(14, 18, 182, 18); // Outer box for metadata
-
-    // Vertical line to separate left/right metadata
-    doc.line(105, 18, 105, 36);
-
-    // Horizontal lines
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 120, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 120, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName, 42, 34);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, 125, 34);
+    // 1. Header & Standard Metadata Box (Central Org Branding)
+    const startY = addPdfHeader(doc, "Chilled Water Pipe Sizing Calculation Report", {
+      calcNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser
+    });
 
     const fluidLabel =
       sizingParams.fluidType === "chw"
@@ -217,7 +178,7 @@ export const exportCHWPipePDF = async (
     ];
 
     callAutoTable(doc, {
-      startY: 40,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       body: summaryRows,
@@ -306,62 +267,21 @@ export const exportCHWPipePDF = async (
       currentY = 14;
     }
 
-    // 5. Table 3: Professional Review & Sign-Off Block
+    // 5. Table 3: Professional Review & Sign-Off Block & Branding
     const sigDetails = getSignatureBlockDetails(
       activeProj?.id || "default",
       "/chw-pipe-sizer",
       currentUserName,
       meta.reviewState
     );
+    addPdfSignatureBlock(doc, currentY, sigDetails, activeProj?.id || "default", "/chw-pipe-sizer");
 
-    const sigTableRows = [
-      [
-        { content: "Approval Role", styles: { fontStyle: "bold", halign: "left", fillColor: primaryFill, textColor: [0, 0, 0] } },
-        { content: "Engineer Name", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } },
-        { content: "Status / Role Title", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } },
-        { content: "Signature / Date", styles: { fontStyle: "bold", halign: "center", fillColor: primaryFill, textColor: [0, 0, 0] } }
-      ],
-      [
-        { content: "Originator / Prepared By", styles: { fontStyle: "bold", halign: "left" } },
-        { content: sigDetails.originatedName, styles: { halign: "center" } },
-        { content: "MEP Design Engineer", styles: { halign: "center" } },
-        { content: sigDetails.originatedDate || today, styles: { halign: "center" } }
-      ],
-      [
-        { content: "Reviewer / Checked By", styles: { fontStyle: "bold", halign: "left" } },
-        { content: sigDetails.reviewerName || "Pending Review", styles: { halign: "center" } },
-        { content: "Senior HVAC Lead", styles: { halign: "center" } },
-        { content: sigDetails.reviewerDate || "—", styles: { halign: "center" } }
-      ],
-      [
-        { content: "Approver / Verified By", styles: { fontStyle: "bold", halign: "left" } },
-        { content: sigDetails.approverName || "Pending Approval", styles: { halign: "center" } },
-        { content: "Principal / MEP Director", styles: { halign: "center" } },
-        { content: sigDetails.approverDate || "—", styles: { halign: "center" } }
-      ]
-    ];
-
-    callAutoTable(doc, {
-      startY: currentY + 5,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      body: sigTableRows,
-      pageBreak: "avoid",
-      styles: {
-        fontSize: 7.2,
-        valign: "middle",
-        lineColor: [100, 100, 100],
-        lineWidth: 0.1,
-        cellPadding: { top: 2.2, bottom: 2.2, left: 2.0, right: 2.0 },
-        minCellHeight: 6.0
-      },
-      columnStyles: {
-        0: { cellWidth: 46, halign: "left" },
-        1: { cellWidth: 46, halign: "center" },
-        2: { cellWidth: 46, halign: "center" },
-        3: { cellWidth: 44, halign: "center" }
-      }
-    });
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
 
     const pdfBuffer = doc.output("arraybuffer");
     await downloadFile(new Uint8Array(pdfBuffer), `CHW_Pipe_Sizing_${projectNo}.pdf`, "PDF Document", ["pdf"]);

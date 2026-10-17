@@ -4,7 +4,7 @@ import { downloadFile } from "./download";
 import { workspaceStore } from "./workspace-store";
 import { toast } from "sonner";
 import { lpsToGpm, cfmToLps } from "@/utils/conversions";
-import { getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "@/lib/pdfHelpers";
 
 export interface CondensatePDFExportRow {
   id: string;
@@ -86,54 +86,15 @@ export const exportCondensatePDF = async (
     const uFlow = isIP ? "CFM" : "L/s";
     const uCond = isIP ? "GPM" : "L/s";
 
-    // 1. Header Title (Matching Preliminary & Ventilation Format - "Coil Condensate Calculation")
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.setTextColor(20, 20, 20);
-    doc.text("Coil Condensate Calculation", 14, 14);
-
-    // 2. Metadata Block (Exact Preliminary & Ventilation 2-column x 3-row enclosed format: 182mm width)
-    doc.setFontSize(9);
-    doc.setLineWidth(0.3);
-    doc.setDrawColor(100, 100, 100);
-    doc.rect(14, 18, 182, 18); // Outer box (182mm width: 14 to 196mm)
-
-    // Vertical line
-    doc.line(105, 18, 105, 36);
-
-    // Horizontal lines
-    doc.line(14, 24, 196, 24);
-    doc.line(14, 30, 196, 30);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Calculation No.:", 16, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(calcNo, 45, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 107, 22);
-    doc.setFont("helvetica", "normal");
-    doc.text(today, 120, 22);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project No.:", 16, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectNo, 40, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Client:", 107, 28);
-    doc.setFont("helvetica", "normal");
-    doc.text(clientName, 120, 28);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Project Name:", 16, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(projectName, 42, 34);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("End User:", 107, 34);
-    doc.setFont("helvetica", "normal");
-    doc.text(endUser, 125, 34);
+    // 1. Header & Standard Metadata Box (Central Org Branding)
+    const startY = addPdfHeader(doc, "Coil Condensate Calculation", {
+      calcNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser
+    });
 
     // Sizing and totals calculation
     let totalFlow = 0;
@@ -199,7 +160,7 @@ export const exportCondensatePDF = async (
 
     // Table 1: Render 2-tier header table (Exact 182mm width: 10 + 30 + 20 + 26 + 26 + 17 + 17 + 16 + 20 = 182)
     callAutoTable(doc, {
-      startY: 42,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
@@ -368,62 +329,16 @@ export const exportCondensatePDF = async (
 
     currentY = (doc as any).lastAutoTable?.finalY + 6 || currentY + 45;
 
-    // Table 3: 4-Column Signature Block (Exact warm peach #FFE6CC header from Ventilation & Preliminary)
-    const {
-      originatedName,
-      originatedDate,
-      reviewerName,
-      reviewerDate,
-      approverName,
-      approverDate,
-    } = getSignatureBlockDetails(projId, "/condensate-drain-calc", currentUserName, meta.reviewState);
+    // Table 3: Professional Review & Sign-Off Block & Branding
+    const sigDetails = getSignatureBlockDetails(projId, "/condensate-drain-calc", currentUserName, meta.reviewState);
+    addPdfSignatureBlock(doc, currentY, sigDetails, projId, "/condensate-drain-calc");
 
-    callAutoTable(doc, {
-      startY: currentY,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      styles: {
-        fontSize: 8,
-        halign: "center",
-        valign: "middle",
-        lineColor: [100, 100, 100],
-        lineWidth: 0.1,
-        cellPadding: { top: 2, bottom: 2, left: 1, right: 1 },
-      },
-      headStyles: {
-        fillColor: [255, 230, 204], // Standard #FFE6CC peach
-        textColor: 0,
-        fontStyle: "bold",
-      },
-      head: [
-        [
-          { content: "" },
-          { content: "Originator" },
-          { content: "Reviewer" },
-          { content: "Approver" },
-        ],
-      ],
-      body: [
-        [
-          { content: "Name:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedName || currentUserName || "-", styles: { halign: "center" } },
-          { content: reviewerName || "-", styles: { halign: "center" } },
-          { content: approverName || "-", styles: { halign: "center" } },
-        ],
-        [
-          { content: "Date:", styles: { fontStyle: "bold", halign: "right" } },
-          { content: originatedDate || today, styles: { halign: "center" } },
-          { content: reviewerDate || "-", styles: { halign: "center" } },
-          { content: approverDate || "-", styles: { halign: "center" } },
-        ],
-      ],
-      columnStyles: {
-        0: { cellWidth: 32 },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 50 },
-      },
-    });
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
 
     const pdfBuffer = doc.output("arraybuffer");
     const projCode = projectNo || activeProj?.code || "P000";

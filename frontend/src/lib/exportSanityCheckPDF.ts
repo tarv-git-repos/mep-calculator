@@ -2,7 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile } from "./download";
 import { workspaceStore } from "./workspace-store";
-import { getSignatureBlockDetails, formatDateStr } from "./pdfHelpers";
+import { addPdfHeader, addPdfSignatureBlock, addPdfFooter, getSignatureBlockDetails, formatDateStr } from "./pdfHelpers";
 import { toast } from "sonner";
 
 export interface SanityCheckItem {
@@ -25,6 +25,9 @@ export interface SanityCheckPdfOptions {
     endUser?: string;
     date?: string;
     userName?: string;
+    reviewState?: any;
+    includeStamp?: boolean;
+    returnBuffer?: boolean;
   };
 }
 
@@ -54,68 +57,31 @@ export const exportSanityCheckPDF = async ({
     };
 
     const calcNo = meta.calcNo || activeProj?.calcNo || `TRV-CAL-SNT-${(activeProjectId || "0000").slice(-4).toUpperCase()}`;
+    const revNo = meta.revNo || activeProj?.revNo || "0";
     const today = meta.date || formatDateStr(new Date().toISOString());
     const projectNo = meta.projectNo || activeProj?.code || activeProj?.projectNo || (activeProjectId !== "default" ? activeProjectId.slice(0, 8) : "P000");
     const projectName = meta.projectName || activeProj?.name || activeProj?.projectName || "MEP Project";
     const clientName = meta.client || activeProj?.client || "-";
     const endUser = meta.endUser || activeProj?.endUser || activeProj?.location || "-";
 
-    // 1. Header Title (Matching Ventilation Standard)
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(20, 20, 20);
-    doc.text("Engineering Sanity Check Report", 14, 13);
-
-    // Title underline
-    doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.3);
-    doc.line(14, 15.5, 196, 15.5);
-
-    // 2. Metadata Table (Enclosed 3 rows x 2 cols grid)
-    const metaBody = [
-      [
-        { content: "Calculation No.:", styles: { fontStyle: "bold" as const, cellWidth: 30 } },
-        { content: calcNo, styles: { cellWidth: 62 } },
-        { content: "Date:", styles: { fontStyle: "bold" as const, cellWidth: 24 } },
-        { content: today, styles: { cellWidth: 66 } },
-      ],
-      [
-        { content: "Project No.:", styles: { fontStyle: "bold" as const } },
-        { content: projectNo },
-        { content: "Client:", styles: { fontStyle: "bold" as const } },
-        { content: clientName },
-      ],
-      [
-        { content: "Project Name:", styles: { fontStyle: "bold" as const } },
-        { content: projectName },
-        { content: "End User:", styles: { fontStyle: "bold" as const } },
-        { content: endUser },
-      ],
-    ];
-
-    callAutoTable(doc, {
-      startY: 18,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      styles: {
-        fontSize: 7.2,
-        textColor: [30, 30, 30],
-        cellPadding: 1.1,
-        lineColor: [210, 210, 210],
-        lineWidth: 0.2,
-      },
-      body: metaBody,
+    // 1. Standard Header & Metadata Block
+    const startY = addPdfHeader(doc, "Engineering Sanity Check Report", {
+      calcNo,
+      revNo,
+      date: today,
+      projectNo,
+      projectName,
+      client: clientName,
+      endUser,
     });
 
-    const metaFinalY = (doc as any).lastAutoTable?.finalY ?? 36;
-
-    // 3. Structured Summary & Audit Bar
+    // 2. Structured Summary & Audit Bar
     const passCount = checks.filter((c) => c.status === "pass").length;
     const warnCount = checks.length - passCount;
     const unitLabel = unitSystem === "ip" ? "Imperial (IP)" : "Metric (SI)";
 
     callAutoTable(doc, {
-      startY: metaFinalY + 3,
+      startY: startY + 2,
       margin: { left: 14, right: 14 },
       theme: "grid",
       styles: {
@@ -223,73 +189,53 @@ export const exportSanityCheckPDF = async ({
       },
     });
 
-    // 5. 4-Column Engineering Sign-off Block (Exact Ventilation Standard)
-    const finalY = (doc as any).lastAutoTable?.finalY ?? 150;
-    const sigDetails = getSignatureBlockDetails(activeProjectId, "/sanity-check-tool", meta.userName || "");
+    let currentY = (doc as any).lastAutoTable?.finalY ?? 150;
 
-    callAutoTable(doc, {
-      startY: finalY + 5,
-      margin: { left: 14, right: 14 },
-      theme: "grid",
-      styles: {
-        fontSize: 7.2,
-        halign: "center",
-        valign: "middle",
-        lineColor: [210, 210, 210],
-        lineWidth: 0.2,
-        textColor: [30, 30, 30],
-        cellPadding: 1.1,
-        minCellHeight: 4.2,
-      },
-      headStyles: {
-        fillColor: [255, 230, 204], // Standard #FFE6CC peach/orange
-        textColor: [0, 0, 0],
-        fontStyle: "bold",
-      },
-      head: [
-        [
-          { content: "Designation", styles: { halign: "left" } },
-          { content: "Originator" },
-          { content: "Reviewer" },
-          { content: "Approver" },
-        ],
-      ],
-      body: [
-        [
-          { content: "Name:", styles: { fontStyle: "bold", halign: "left" } },
-          { content: sigDetails?.originator?.name || sigDetails?.originatedName || "-" },
-          { content: sigDetails?.reviewer?.name || sigDetails?.reviewerName || "-" },
-          { content: sigDetails?.approver?.name || sigDetails?.approverName || "-" },
-        ],
-        [
-          { content: "Date:", styles: { fontStyle: "bold", halign: "left" } },
-          { content: sigDetails?.originator?.date || sigDetails?.originatedDate || "-" },
-          { content: sigDetails?.reviewer?.date || sigDetails?.reviewerDate || "-" },
-          { content: sigDetails?.approver?.date || sigDetails?.approverDate || "-" },
-        ],
-        [
-          { content: "Signature:", styles: { fontStyle: "bold", halign: "left" } },
-          { content: sigDetails?.originator?.status || (sigDetails?.originatedName ? "Signed" : "-") },
-          { content: sigDetails?.reviewer?.status || (sigDetails?.reviewerName ? "Reviewed" : "-") },
-          { content: sigDetails?.approver?.status || (sigDetails?.approverName ? "Approved" : "-") },
-        ],
-      ],
-      columnStyles: {
-        0: { cellWidth: 32, fontStyle: "bold", halign: "left" },
-        1: { cellWidth: 50 },
-        2: { cellWidth: 50 },
-        3: { cellWidth: 50 },
-      },
-    });
+    // Check page break for signature block (needs ~35mm)
+    if (currentY + 35 > 280) {
+      doc.addPage("a4", "portrait");
+      currentY = 14;
+    }
 
-    // 6. Download PDF with standardized filename
-    const pdfBlob = doc.output("blob");
+    // 5. Professional Engineering Review & Sign-Off Block & Branding
+    if (meta.includeStamp !== false) {
+      const sigDetails = getSignatureBlockDetails(
+        activeProjectId,
+        "/sanity-check-tool",
+        meta.userName || "System Admin",
+        meta.reviewState
+      );
+      addPdfSignatureBlock(
+        doc,
+        currentY,
+        sigDetails,
+        activeProjectId,
+        "/sanity-check-tool"
+      );
+    }
+
+    // Add footer and page numbers across all pages
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      addPdfFooter(doc, p, totalPages);
+    }
+
+    const pdfBuffer = doc.output("arraybuffer");
+    if (meta.returnBuffer) {
+      return new Uint8Array(pdfBuffer);
+    }
+
     const safeProjectCode = activeProj?.code || projectNo || "P000";
     const fileName = `Sanity_Check_Report_${safeProjectCode}.pdf`;
-    await downloadFile(pdfBlob, fileName, "application/pdf");
+    await downloadFile(new Uint8Array(pdfBuffer), fileName, "application/pdf", ["pdf"]);
     toast.success("Engineering Sanity Check PDF report exported successfully!");
+    return true;
   } catch (error: any) {
     console.error("exportSanityCheckPDF error:", error);
-    toast.error(`Export PDF failed: ${error?.message || String(error)}`);
+    if (!meta.returnBuffer) {
+      toast.error(`Export PDF failed: ${error?.message || String(error)}`);
+    }
+    return false;
   }
 };
